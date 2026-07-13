@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>How this app works · Route Change Tracker</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <div class="topbar">
+        <div class="brand">Route Change Tracker</div>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="/routing">Routing</a>
+          <a href="/admin">Admin</a>
+          <a href="/admin/drivers">Drivers</a>
+          <a href="/help" aria-current="page">How this app works</a>
+        </nav>
+      </div>
+
+      <section class="panel help-panel">
+        <h1>How this app works</h1>
+        <p class="lead">
+          Plain-language definitions for the terms you see in Routing and Admin.
+          Click any <span class="glossary-tip-btn-static" aria-hidden="true">?</span>
+          next to a label in the app for the same explanation in place.
+        </p>
+
+        <div class="help-overview">
+          <h2>The short version</h2>
+          <ol class="help-steps">
+            <li>
+              Routing logs the driver’s <strong>scheduled time</strong> exactly as
+              entered — down to the minute.
+            </li>
+            <li>
+              That opens (or resets) a <strong>15-school-day window</strong> while
+              exact changes accumulate as <strong>cumulative drift</strong>.
+            </li>
+            <li>
+              When the window closes with no further change,
+              <strong>payroll rounding</strong> runs once and either
+              <strong>locks in</strong> new contracted hours (under 30 minutes) or
+              moves the route to <strong>Bid Pending</strong> (30 minutes or more).
+            </li>
+            <li>
+              <strong>Needs Review</strong> pauses the app when a correction would
+              quietly rewrite an outcome that was already communicated.
+            </li>
+          </ol>
+        </div>
+
+        <div id="glossary-list" class="glossary-list"></div>
+      </section>
+    </main>
+
+    <script type="module" src="/help/help.js"></script>
+  </body>
+</html>

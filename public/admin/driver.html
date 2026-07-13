@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Driver · Admin · Route Change Tracker</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell shell-wide">
+      <div class="topbar">
+        <div class="brand">Route Change Tracker</div>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="/routing">Routing</a>
+          <a href="/admin">Admin</a>
+          <a href="/admin/drivers" aria-current="page">Drivers</a>
+          <a href="/help">How this app works</a>
+        </nav>
+      </div>
+
+
+      <section class="panel">
+        <p class="field-hint">
+          <a href="/admin/drivers">← All drivers</a>
+        </p>
+        <div id="driver-status" class="status" role="status"></div>
+
+        <header id="driver-header" class="driver-detail-header" hidden>
+          <h1 id="driver-name"></h1>
+          <p id="driver-email" class="lead"></p>
+          <p class="field-hint">
+            Reassign any current route below — searchable driver list with an
+            explicit Unassigned option. Window status and drift stay unchanged.
+          </p>
+        </header>
+
+        <div id="driver-root" class="queue-root" hidden>
+          <section class="queue-section" data-section="assignments">
+            <h2>
+              Current assignments
+              <span class="section-count" id="count-assignments">0</span>
+            </h2>
+            <p class="section-lead">
+              Every route this driver is on right now, with live status. A driver
+              can sit on multiple routes in different states at once.
+            </p>
+            <div id="list-assignments" class="queue-list"></div>
+          </section>
+
+          <section class="queue-section" data-section="change-history">
+            <h2>
+              Change history
+              <span class="section-count" id="count-history">0</span>
+            </h2>
+            <p class="section-lead">
+              Every ChangeEvent, ADJUSTMENT, and REASSIGNMENT involving this
+              person — as the driver, or as entered_by / adjusted_by /
+              reassigned_by — chronological across routes.
+            </p>
+            <div id="list-history" class="queue-list"></div>
+          </section>
+
+          <section class="queue-section" data-section="change-reports">
+            <h2>
+              Finalized Change Reports
+              <span class="section-count" id="count-reports">0</span>
+            </h2>
+            <p class="section-lead">
+              Closed windows on any of their routes, with the same see-the-math
+              expansion as elsewhere.
+            </p>
+            <div id="list-reports" class="queue-list"></div>
+          </section>
+
+          <section class="queue-section" data-section="review-history">
+            <h2>
+              Review history
+              <span class="section-count" id="count-reviews">0</span>
+            </h2>
+            <p class="section-lead">
+              Open NEEDS_REVIEW and self-resolved review entries for this
+              driver’s routes — same shape as the queue, scoped to this person.
+            </p>
+            <div id="list-reviews" class="queue-list"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/admin/driver.js"></script>
+  </body>
+</html>

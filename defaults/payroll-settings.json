@@ -1,0 +1,4 @@
+{
+  "payroll_email": "",
+  "message_template": "Route {{route_id}} (driver: {{driver_name}}) has reached the 30-minute contract threshold and is pending bid. Details attached in the workbook."
+}

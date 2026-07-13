@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin · Route Change Tracker</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell shell-wide">
+      <div class="topbar">
+        <div class="brand">Route Change Tracker</div>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="/routing">Routing</a>
+          <a href="/admin" aria-current="page">Admin</a>
+          <a href="/admin/drivers">Drivers</a>
+          <a href="/help">How this app works</a>
+        </nav>
+      </div>
+
+
+      <section class="panel">
+        <h1>Admin queue</h1>
+        <p class="lead">
+          Read-only view of routes by status. Confirm the shape here before resolve
+          actions, letters, and workbook tools land in later pieces.
+        </p>
+        <div id="queue-status" class="status" role="status"></div>
+
+        <div id="queue-root" class="queue-root">
+          <section class="queue-section" data-section="needs-review">
+            <h2>Needs Review<span data-glossary="needs_review"></span> <span class="section-count" id="count-needs-review">0</span></h2>
+            <p class="section-lead">
+              Finalized status flips held for Admin, plus recent self-resolved
+              review flags so ping-ponging stays visible.
+            </p>
+            <div id="list-needs-review" class="queue-list"></div>
+          </section>
+
+          <section class="queue-section" data-section="accumulating">
+            <h2>Accumulating<span data-glossary="accumulating"></span> <span class="section-count" id="count-accumulating">0</span></h2>
+            <p class="section-lead">
+              Open 15-school-day windows with exact cumulative drift and contributing changes.
+            </p>
+            <div id="list-accumulating" class="queue-list"></div>
+          </section>
+
+          <section class="queue-section" data-section="bid-pending">
+            <h2>Bid Pending<span data-glossary="bid_pending"></span> <span class="section-count" id="count-bid-pending">0</span></h2>
+            <p class="section-lead">
+              Windows that finalized at or above the bid threshold — still waiting on bidding.
+            </p>
+            <div id="list-bid-pending" class="queue-list"></div>
+          </section>
+
+          <section class="queue-section" data-section="pending-changes">
+            <h2>Pending Changes <span class="section-count" id="count-pending-changes">0</span></h2>
+            <p class="section-lead">
+              Changes queued behind an open review — will process once that review is resolved.
+            </p>
+            <div id="list-pending-changes" class="queue-list"></div>
+          </section>
+
+          <section class="queue-section queue-section-stable" data-section="stable">
+            <div class="stable-toggle-row">
+              <h2>Stable<span data-glossary="stable"></span> <span class="section-count" id="count-stable">0</span></h2>
+              <label class="stable-toggle">
+                <input type="checkbox" id="show-stable" />
+                Show stable routes
+              </label>
+            </div>
+            <p class="section-lead">
+              Informational only — collapsed by default so attention stays on active work.
+            </p>
+            <div id="list-stable" class="queue-list" hidden></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="panel" id="settings">
+        <h2>Settings</h2>
+        <p class="lead">
+          School calendar and payroll notification settings are editable here.
+          Other settings (staff names, drivers, adjustment reasons) land in a later piece.
+        </p>
+        <div id="settings-status" class="status" role="status"></div>
+
+        <div class="settings-block payroll-settings">
+          <h3>Payroll notification</h3>
+          <p class="field-hint">
+            Used by <strong>Notify Payroll</strong> on bid-pending routes in the Admin queue.
+            Opens a mailto draft — the app never sends email itself.
+          </p>
+          <label class="field">
+            Payroll email
+            <input
+              id="payroll-email"
+              type="email"
+              placeholder="payroll@example.org"
+              autocomplete="off"
+            />
+          </label>
+          <label class="field">
+            Message template
+            <textarea
+              id="payroll-template"
+              rows="5"
+              spellcheck="true"
+            ></textarea>
+          </label>
+          <p class="field-hint">
+            Placeholders:
+            <code>{{route_id}}</code>,
+            <code>{{driver_name}}</code>,
+            <code>{{driver_email}}</code>
+            — missing values are left blank.
+          </p>
+          <div class="actions">
+            <button type="button" id="payroll-save">Save payroll settings</button>
+          </div>
+        </div>
+
+        <div class="settings-block calendar-settings">
+          <h3>School calendar</h3>
+          <p class="field-hint">
+            Coverage is the full civil-day list with <code>is_school_day</code> flags.
+            Add/remove toggles school days inside that range (snow days / makeups) —
+            the 15-day window<span data-glossary="window"></span> only counts dates marked as school days.
+          </p>
+          <div class="calendar-meta">
+            <label class="field">
+              School year label
+              <input id="calendar-year" type="text" placeholder="2025-2027" />
+            </label>
+            <p class="field-hint" id="calendar-count"></p>
+            <p class="field-hint" id="calendar-coverage"></p>
+          </div>
+          <ul id="calendar-list" class="settings-list calendar-list"></ul>
+          <div class="settings-add">
+            <input id="calendar-new-date" type="date" />
+            <button type="button" id="calendar-add">Mark as school day</button>
+          </div>
+        </div>
+
+        <div class="settings-block calendar-generate">
+          <h3>Generate a school year</h3>
+          <p class="field-hint">
+            Build weekdays between first and last day, apply breaks/holidays, pad
+            surrounding summer coverage, then preview before writing.
+          </p>
+
+          <div class="grid generate-grid">
+            <label class="field">
+              First day of school
+              <input id="gen-first-day" type="date" required />
+            </label>
+            <label class="field">
+              Last day of school
+              <input id="gen-last-day" type="date" required />
+            </label>
+            <label class="field full">
+              School year label (optional)
+              <input id="gen-school-year" type="text" placeholder="2026-2027" />
+            </label>
+          </div>
+
+          <div class="generate-subsection">
+            <div class="stable-toggle-row">
+              <h4>Breaks</h4>
+              <button type="button" class="secondary" id="gen-add-break">Add break</button>
+            </div>
+            <div id="gen-breaks" class="generate-rows"></div>
+          </div>
+
+          <div class="generate-subsection">
+            <div class="stable-toggle-row">
+              <h4>Holidays</h4>
+              <button type="button" class="secondary" id="gen-add-holiday">Add holiday</button>
+            </div>
+            <div id="gen-holidays" class="generate-rows"></div>
+          </div>
+
+          <div class="actions">
+            <button type="button" id="gen-preview">Preview generation</button>
+          </div>
+
+          <div id="gen-preview-panel" class="gen-preview-panel" hidden>
+            <h4>Preview</h4>
+            <div id="gen-preview-body"></div>
+            <div class="actions gen-preview-actions">
+              <button type="button" id="gen-commit" hidden>Commit to calendar</button>
+              <button type="button" class="secondary" id="gen-cancel-preview">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/admin/admin.js"></script>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "route-change-tracker",
+  "version": "0.1.0",
+  "description": "Local web app for tracking school bus route time changes",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "start": "node src/server.js",
+    "seed": "node scripts/seed-sample-data.js",
+    "seed:queue-scenarios": "node scripts/seed-admin-queue-scenarios.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
+    "express": "^5.2.1"
+  }
+}

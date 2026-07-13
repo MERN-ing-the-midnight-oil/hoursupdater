@@ -1,0 +1,48 @@
+{
+  "S 20": {
+    "driver_name": "Jane Driver",
+    "segments": {
+      "AM": "6:35-8:55",
+      "MIDDAY": null,
+      "PM": "2:10-4:45"
+    },
+    "baseline_segments": {
+      "AM": "6:35-8:55",
+      "MIDDAY": null,
+      "PM": "2:10-4:45"
+    },
+    "status": "STABLE",
+    "window_opened_date": null,
+    "window_expires_date": null,
+    "cumulative_drift_minutes": 0,
+    "contributing_change_ids": [],
+    "payroll_rounded_total_minutes": null,
+    "reconciliation": null,
+    "pending_change_ids": [],
+    "review_history": [],
+    "last_updated": "2025-09-01T12:00:00.000Z"
+  },
+  "S 11": {
+    "driver_name": "Tammy Trapp",
+    "segments": {
+      "AM": "6:40-9:20",
+      "MIDDAY": null,
+      "PM": "1:55-4:40"
+    },
+    "baseline_segments": {
+      "AM": "6:40-9:20",
+      "MIDDAY": null,
+      "PM": "1:55-4:40"
+    },
+    "status": "STABLE",
+    "window_opened_date": null,
+    "window_expires_date": null,
+    "cumulative_drift_minutes": 0,
+    "contributing_change_ids": [],
+    "payroll_rounded_total_minutes": null,
+    "reconciliation": null,
+    "pending_change_ids": [],
+    "review_history": [],
+    "last_updated": "2025-09-01T12:00:00.000Z"
+  }
+}

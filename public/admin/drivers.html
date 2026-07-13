@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Drivers · Admin · Route Change Tracker</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell shell-wide">
+      <div class="topbar">
+        <div class="brand">Route Change Tracker</div>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="/routing">Routing</a>
+          <a href="/admin">Admin</a>
+          <a href="/admin/drivers" aria-current="page">Drivers</a>
+          <a href="/help">How this app works</a>
+        </nav>
+      </div>
+
+
+      <section class="panel">
+        <h1>Drivers</h1>
+        <p class="lead">
+          Directory of drivers. Open a person to see assignments, change history,
+          finalized reports, and review history across all their routes.
+        </p>
+        <div id="drivers-status" class="status" role="status"></div>
+
+        <label class="field drivers-search-field">
+          Search
+          <input
+            id="driver-search"
+            type="search"
+            placeholder="Name or email"
+            autocomplete="off"
+          />
+        </label>
+
+        <ul id="driver-list" class="settings-list driver-directory"></ul>
+      </section>
+    </main>
+
+    <script type="module" src="/admin/drivers.js"></script>
+  </body>
+</html>

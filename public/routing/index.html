@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Routing · Route Change Tracker</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <div class="topbar">
+        <div class="brand">Route Change Tracker</div>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="/routing" aria-current="page">Routing</a>
+          <a href="/admin">Admin</a>
+          <a href="/admin/drivers">Drivers</a>
+          <a href="/help">How this app works</a>
+        </nav>
+      </div>
+
+
+      <section class="panel">
+        <h1>Log a time change</h1>
+        <p class="lead">
+          Previous time fills from the current route state. Adjust the computed
+          delta only when you have a reason.
+        </p>
+
+        <form id="change-form" novalidate>
+          <div class="grid">
+            <div class="field full route-picker">
+              <label for="route_search">Route</label>
+              <div class="route-picker-row">
+                <div class="combobox" id="route-combobox">
+                  <input
+                    type="text"
+                    id="route_search"
+                    placeholder="Search existing routes…"
+                    autocomplete="off"
+                    aria-autocomplete="list"
+                    aria-controls="route-listbox"
+                    aria-expanded="false"
+                  />
+                  <input type="hidden" id="route_id" name="route_id" required />
+                  <ul id="route-listbox" class="route-listbox" role="listbox" hidden></ul>
+                </div>
+                <button type="button" class="secondary" id="new-route-btn">
+                  Create new route
+                </button>
+              </div>
+              <p id="route-mode-hint" class="field-hint">
+                Pick a known route from the list. Use “Create new route” only for a route that isn’t in the system yet.
+              </p>
+            </div>
+
+            <div id="new-route-fields" class="new-route-fields" hidden>
+              <div class="grid">
+                <div class="field">
+                  <label for="new_route_id">New route ID</label>
+                  <input
+                    id="new_route_id"
+                    name="new_route_id"
+                    placeholder="e.g. S 42"
+                    autocomplete="off"
+                  />
+                </div>
+                <div class="field route-mode-actions">
+                  <label>&nbsp;</label>
+                  <button type="button" class="secondary" id="cancel-new-route-btn">
+                    Cancel — use existing route
+                  </button>
+                </div>
+              </div>
+              <p class="field-hint">
+                Creating a route still requires <strong>Entered by</strong> and a
+                <strong>Note</strong> below — same attribution as any other change.
+              </p>
+            </div>
+
+            <div class="field full driver-picker">
+              <label for="driver_search">Driver</label>
+              <div class="route-picker-row">
+                <div class="combobox" id="driver-combobox">
+                  <input
+                    type="text"
+                    id="driver_search"
+                    placeholder="Search drivers…"
+                    autocomplete="off"
+                    aria-autocomplete="list"
+                    aria-controls="driver-listbox"
+                    aria-expanded="false"
+                  />
+                  <input type="hidden" id="driver_id" name="driver_id" />
+                  <input type="hidden" id="driver_name" name="driver_name" required />
+                  <ul id="driver-listbox" class="route-listbox" role="listbox" hidden></ul>
+                </div>
+                <button type="button" class="secondary" id="new-driver-btn">
+                  Add new driver
+                </button>
+              </div>
+              <p id="driver-mode-hint" class="field-hint">
+                Pick a known driver from the list. Use “Add new driver” only for someone who isn’t in the directory yet.
+              </p>
+            </div>
+
+            <div id="new-driver-fields" class="new-route-fields" hidden>
+              <div class="grid">
+                <div class="field">
+                  <label for="new_driver_name">New driver name</label>
+                  <input
+                    id="new_driver_name"
+                    name="new_driver_name"
+                    placeholder="First Last"
+                    autocomplete="off"
+                  />
+                </div>
+                <div class="field">
+                  <label for="new_driver_email">Email (optional)</label>
+                  <input
+                    id="new_driver_email"
+                    name="new_driver_email"
+                    type="email"
+                    placeholder="driver@example.com"
+                    autocomplete="off"
+                  />
+                </div>
+                <div class="field route-mode-actions">
+                  <label>&nbsp;</label>
+                  <button type="button" class="secondary" id="cancel-new-driver-btn">
+                    Cancel — use existing driver
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="segment">Segment</label>
+              <select id="segment" name="segment" required>
+                <option value="AM">AM</option>
+                <option value="MIDDAY">Midday</option>
+                <option value="PM">PM</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="effective_date">Start Date</label>
+              <input id="effective_date" name="effective_date" type="date" required />
+            </div>
+
+            <div class="field">
+              <label for="previous_time">Previous time<span data-glossary="scheduled_time"></span></label>
+              <input
+                id="previous_time"
+                name="previous_time"
+                required
+                placeholder="6:35-8:55"
+              />
+            </div>
+
+            <div class="field">
+              <label for="new_time">New time<span data-glossary="scheduled_time"></span></label>
+              <input
+                id="new_time"
+                name="new_time"
+                required
+                placeholder="6:30-8:55"
+              />
+            </div>
+
+            <div class="field">
+              <label for="reason_category">Reason category</label>
+              <select id="reason_category" name="reason_category" required>
+                <option value="MV">MV</option>
+                <option value="SPED">SPED</option>
+                <option value="OTHER">OTHER</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="entered_by">Entered by</label>
+              <select id="entered_by" name="entered_by" required>
+                <option value="">Select your name…</option>
+              </select>
+            </div>
+
+            <div class="field full">
+              <label for="note">Note</label>
+              <textarea
+                id="note"
+                name="note"
+                required
+                placeholder="Required — why is this change being logged?"
+              ></textarea>
+            </div>
+          </div>
+
+          <div class="delta-box">
+            <div class="field">
+              <label for="computed_delta">Computed Time Change (minutes)</label>
+              <input id="computed_delta" readonly value="" />
+            </div>
+            <div class="field">
+              <label for="delta_minutes">Official Time Change</label>
+              <input id="delta_minutes" name="delta_minutes" type="number" step="1" />
+            </div>
+            <p class="hint">
+              Exact minutes, not rounded<span data-glossary="payroll_rounding"></span>. Change the “Delta used” value only if the
+              auto-calc doesn’t match what should be logged.
+            </p>
+          </div>
+
+          <div id="adjustment-block" class="adjustment-block">
+            <div class="field">
+              <label for="adjustment_reason">Reason for delta adjustment</label>
+              <select id="adjustment_reason" name="adjustment_reason">
+                <option value="">Select a reason…</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button type="submit" id="submit-btn">Submit change</button>
+            <button type="button" class="secondary" id="reset-btn">Clear</button>
+          </div>
+        </form>
+
+        <div id="status" class="status" role="status"></div>
+      </section>
+
+      <section class="panel recent">
+        <h2>Recently submitted</h2>
+        <p class="lead">Informational only — status comes from the Admin-computed route state.</p>
+        <ul id="recent-list" class="recent-list"></ul>
+      </section>
+    </main>
+
+    <script type="module" src="/routing/routing.js"></script>
+  </body>
+</html>
