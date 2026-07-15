@@ -1,0 +1,5 @@
+{
+  "electronic_bid_signup_enabled": false,
+  "bid_signup_workbook": "bid-signups.xlsx",
+  "open_bid_posting_to_email": ""
+}

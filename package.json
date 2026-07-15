@@ -6,7 +6,11 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "start": "node src/server.js",
+    "start:practice": "ENV_FILE=.env.practice node src/server.js",
     "seed": "node scripts/seed-sample-data.js",
+    "seed:practice": "ENV_FILE=.env.practice node scripts/seed-practice-data.js",
+    "reset:practice": "ENV_FILE=.env.practice node scripts/reset-practice-data.js",
+    "fresh:practice": "npm run reset:practice && npm run start:practice",
     "seed:queue-scenarios": "node scripts/seed-admin-queue-scenarios.js"
   },
   "engines": {

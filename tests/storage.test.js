@@ -240,13 +240,24 @@ describe('storage', () => {
       ['Jane Driver', 'Tammy Trapp']
     );
     assert.ok(migrated.every((d) => d.driver_id && d.email === null));
+    assert.ok(migrated.every((d) => d.hire_date === null));
 
     const created = await createDriver(
-      { name: 'New Driver', email: 'new@example.com' },
+      {
+        name: 'New Driver',
+        email: 'new@example.com',
+        hire_date: '2024-09-01',
+      },
       dataDir
     );
     assert.equal(created.email, 'new@example.com');
+    assert.equal(created.hire_date, '2024-09-01');
     assert.equal((await readDrivers(dataDir)).length, 3);
+
+    await assert.rejects(
+      () => createDriver({ name: 'No Date', email: null }, dataDir),
+      /hire_date is required/
+    );
 
     await writeDrivers(
       migrated.map((d) =>
@@ -292,7 +303,7 @@ describe('attribution validation', () => {
     assert.ok(errors.some((e) => e.includes('routing_adjustment is required')));
   });
 
-  it('requires a non-empty note on every ChangeEvent', () => {
+  it('allows an empty note on ChangeEvents', () => {
     const errors = validateChangeEvent(
       {
         route_id: 'S 20',
@@ -310,7 +321,7 @@ describe('attribution validation', () => {
       reasons,
       staff
     );
-    assert.ok(errors.some((e) => e.includes('note is required')));
+    assert.deepEqual(errors, []);
   });
 
   it('requires entered_by from staff-names.json', () => {
@@ -359,7 +370,7 @@ describe('attribution validation', () => {
     assert.deepEqual(errors, []);
   });
 
-  it('requires note + staff name for new-route style ChangeEvents', () => {
+  it('requires staff name for new-route style ChangeEvents', () => {
     const missing = validateChangeEvent(
       {
         route_id: 'S 99',
@@ -377,7 +388,6 @@ describe('attribution validation', () => {
       reasons,
       staff
     );
-    assert.ok(missing.some((e) => e.includes('note is required')));
     assert.ok(missing.some((e) => e.includes('entered_by is required')));
 
     const ok = validateChangeEvent(

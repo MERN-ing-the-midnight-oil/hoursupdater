@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomUUID } from 'node:crypto';
 import {
   REASON_CATEGORIES,
   SEGMENTS,
@@ -6,19 +7,31 @@ import {
   getDataDir,
   getSharedRoot,
   getWorkbookPath,
+  isPracticeMode,
 } from '../config.js';
 import {
   appendAdjustmentEvent,
+  appendBulkImportEvent,
+  appendBumpDecisionEvent,
   appendChangeEvent,
+  appendNeedsReviewResolutionEvent,
   appendReassignmentEvent,
+  appendSeniorityTieResolutionEvent,
   createDriver,
+  enqueueNotifications,
   findDriverById,
   findDriverByName,
   getCurrentSegmentTime,
+  markNotification,
   readAdjustmentReasons,
+  readAppSettings,
+  readBidSignupWorkbook,
   readChangeLog,
   readDrivers,
+  readEmailTemplates,
+  readNotifications,
   readPayrollSettings,
+  readPendingNotifications,
   readRouteState,
   readSchoolCalendar,
   readStaffNames,
@@ -26,16 +39,43 @@ import {
   readWorkbookSyncStatus,
   updateDriver,
   writeAdjustmentReasons,
+  writeAppSettings,
   writeDrivers,
+  writeEmailTemplates,
   writePayrollSettings,
   writeRouteState,
   writeSchoolCalendar,
   writeStaffNames,
 } from '../data/storage.js';
+import { buildOpenBidPostingDraft, emptyBidSignupState } from '../logic/bidSignup.js';
+import {
+  isStrictlyJuniorDriver,
+  listBumpTargets,
+  validateBumpDecisionEvent,
+} from '../logic/bumpDecisions.js';
+import {
+  buildBulkImportEvent,
+  planBulkImportWrites,
+  previewBulkImport,
+  resolveBulkImportPreview,
+} from '../logic/bulkImport.js';
+import {
+  commitYearArchive,
+  previewYearArchive,
+} from '../services/yearArchive.js';
 import {
   buildDriverEmailDraft,
   buildPayrollEmailDraft,
 } from '../logic/changeReport.js';
+import {
+  buildNeedsReviewContradictionSpec,
+  buildNotificationMailto,
+  buildReassignmentNotificationSpec,
+  EVENT_LABELS,
+  formatNotificationPrompt,
+  NOTIFICATION_EVENT_TYPES,
+  TEMPLATE_PLACEHOLDERS,
+} from '../logic/notifications.js';
 import {
   findCalendarGenerationConflicts,
   generateSchoolYearCalendar,
@@ -47,8 +87,14 @@ import {
   resolveEffectiveDeltas,
   validateAdjustmentEvent,
   validateChangeEvent,
+  validateNeedsReviewResolutionEvent,
   validateReassignmentEvent,
+  validateSeniorityTieResolutionEvent,
 } from '../logic/stateMachine.js';
+import {
+  applySeniorityTieResolution,
+  findUnresolvedSeniorityTies,
+} from '../logic/seniority.js';
 import { computeDeltaMinutes } from '../logic/timeUtils.js';
 import { buildAdminQueue, buildDriverDetail } from '../services/adminViews.js';
 import { rebuildAndPersistRouteState } from '../services/rebuild.js';
@@ -66,6 +112,7 @@ function dataDir() {
 router.get('/health', (_req, res) => {
   res.json({
     ok: true,
+    practice_mode: isPracticeMode(),
     sharedRoot: getSharedRoot(),
     appDataDir: getAppDataDir(),
     workbookPath: getWorkbookPath(),
@@ -75,6 +122,7 @@ router.get('/health', (_req, res) => {
 
 router.get('/meta', (_req, res) => {
   res.json({
+    practice_mode: isPracticeMode(),
     segments: SEGMENTS,
     reason_categories: REASON_CATEGORIES,
   });
@@ -127,6 +175,118 @@ router.put('/payroll-settings', async (req, res, next) => {
   try {
     const updated = await writePayrollSettings(req.body ?? {}, dataDir());
     res.json(updated);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/app-settings', async (_req, res, next) => {
+  try {
+    res.json(await readAppSettings(dataDir()));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/app-settings', async (req, res, next) => {
+  try {
+    const updated = await writeAppSettings(req.body ?? {}, dataDir());
+    // Rebuild so bid-signup windows finalize if the toggle was just enabled.
+    await rebuildAndPersistRouteState(dataDir()).catch(() => null);
+    res.json(updated);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/email-templates', async (_req, res, next) => {
+  try {
+    const settings = await readEmailTemplates(dataDir());
+    res.json({
+      ...settings,
+      event_types: NOTIFICATION_EVENT_TYPES,
+      event_labels: EVENT_LABELS,
+      placeholders: TEMPLATE_PLACEHOLDERS,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/email-templates', async (req, res, next) => {
+  try {
+    const updated = await writeEmailTemplates(req.body ?? {}, dataDir());
+    res.json({
+      ...updated,
+      event_types: NOTIFICATION_EVENT_TYPES,
+      event_labels: EVENT_LABELS,
+      placeholders: TEMPLATE_PLACEHOLDERS,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/notifications', async (req, res, next) => {
+  try {
+    const pendingOnly = String(req.query.pending || '') === '1';
+    const list = pendingOnly
+      ? await readPendingNotifications(dataDir())
+      : await readNotifications(dataDir());
+    const settings = await readEmailTemplates(dataDir());
+    res.json({
+      notifications: list.map((n) => ({
+        ...n,
+        prompt: formatNotificationPrompt(n),
+        draft: buildNotificationMailto(n, settings),
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/notifications/:id/action', async (req, res, next) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    const settings = await readEmailTemplates(dataDir());
+    const list = await readNotifications(dataDir());
+    const note = list.find((n) => n.id === id);
+    if (!note) {
+      res.status(404).json({ error: `Notification not found: ${id}` });
+      return;
+    }
+    const draft = buildNotificationMailto(note, settings);
+    if (!draft.can_send) {
+      res.status(400).json({
+        error: draft.disabled_reason || 'Cannot draft email for this notification.',
+        draft,
+      });
+      return;
+    }
+    const updated = await markNotification(id, 'actioned', dataDir());
+    res.json({
+      notification: {
+        ...updated,
+        prompt: formatNotificationPrompt(updated),
+        draft,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/notifications/:id/dismiss', async (req, res, next) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    const updated = await markNotification(id, 'dismissed', dataDir());
+    res.json({
+      notification: {
+        ...updated,
+        prompt: formatNotificationPrompt(updated),
+      },
+    });
   } catch (error) {
     next(error);
   }
@@ -235,6 +395,220 @@ router.post('/school-calendar/generate/commit', async (req, res, next) => {
   }
 });
 
+/**
+ * Preview (or first-use check) for Archive Year — does not write.
+ * Returns counts, named mid-flight routes, and whether archive can be skipped.
+ */
+router.get('/year-archive/preview', async (_req, res, next) => {
+  try {
+    const preview = await previewYearArchive();
+    res.json(preview);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Copy current `_app_data` + workbook into archives/<admin-named folder>/.
+ * Does not delete source data and does not start the roster import.
+ * Body: { archive_folder_name, confirm_folder_name, entered_by, note }
+ */
+router.post('/year-archive/commit', async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const archive_folder_name = String(body.archive_folder_name ?? '');
+    const confirm_folder_name = String(body.confirm_folder_name ?? '');
+    const entered_by = String(body.entered_by ?? '').trim();
+    const note = String(body.note ?? '').trim();
+
+    const staffNames = await readStaffNames(dataDir());
+    if (!entered_by) {
+      res.status(400).json({ error: 'entered_by is required.' });
+      return;
+    }
+    if (staffNames.length === 0) {
+      res.status(400).json({
+        error:
+          'No staff names configured. Add names in Admin settings before archiving.',
+      });
+      return;
+    }
+    if (!staffNames.includes(entered_by)) {
+      res.status(400).json({
+        error: 'entered_by must be one of the configured staff names.',
+      });
+      return;
+    }
+    if (!note) {
+      res.status(400).json({ error: 'note is required.' });
+      return;
+    }
+
+    const result = await commitYearArchive({
+      archive_folder_name,
+      confirm_folder_name,
+      entered_by,
+      note,
+    });
+    res.status(201).json(result);
+  } catch (error) {
+    if (error instanceof Error) {
+      const code = /** @type {any} */ (error).code;
+      const status =
+        code === 'FOLDER_EXISTS'
+          ? 409
+          : code === 'NOTHING_TO_ARCHIVE'
+            ? 400
+            : 400;
+      res.status(status).json({ error: error.message, code });
+      return;
+    }
+    next(error);
+  }
+});
+
+/**
+ * Preview a bulk roster import — does not write.
+ * Body: { text: string } (CSV / pasted table)
+ */
+router.post('/bulk-import/preview', async (req, res, next) => {
+  try {
+    const text = String(req.body?.text ?? '');
+    const [drivers, routeState, changeLog] = await Promise.all([
+      readDrivers(dataDir()),
+      readRouteState(dataDir()),
+      readChangeLog(dataDir()),
+    ]);
+    const preview = previewBulkImport(text, {
+      drivers,
+      routeState,
+      changeLog,
+    });
+    res.json(preview);
+  } catch (error) {
+    if (error instanceof Error) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    next(error);
+  }
+});
+
+/**
+ * Commit a bulk roster import.
+ * Body: { text, entered_by, note, resolutions?: { [row_number]: 'skip'|'overwrite' } }
+ */
+router.post('/bulk-import/commit', async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const text = String(body.text ?? '');
+    const entered_by = String(body.entered_by ?? '').trim();
+    const note = String(body.note ?? '').trim();
+    /** @type {Record<string, 'skip' | 'overwrite'>} */
+    const resolutions = body.resolutions && typeof body.resolutions === 'object'
+      ? body.resolutions
+      : {};
+
+    const staffNames = await readStaffNames(dataDir());
+    if (!entered_by) {
+      res.status(400).json({ error: 'entered_by is required.' });
+      return;
+    }
+    if (staffNames.length === 0) {
+      res.status(400).json({
+        error:
+          'No staff names configured. Add names in Admin settings before importing.',
+      });
+      return;
+    }
+    if (!staffNames.includes(entered_by)) {
+      res.status(400).json({
+        error: 'entered_by must be one of the configured staff names.',
+      });
+      return;
+    }
+    if (!note) {
+      res.status(400).json({ error: 'note is required.' });
+      return;
+    }
+
+    const [drivers, routeState, changeLog] = await Promise.all([
+      readDrivers(dataDir()),
+      readRouteState(dataDir()),
+      readChangeLog(dataDir()),
+    ]);
+    const preview = previewBulkImport(text, {
+      drivers,
+      routeState,
+      changeLog,
+    });
+
+    let resolved;
+    try {
+      resolved = resolveBulkImportPreview(preview, resolutions);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /** @type {any} */ (error).code === 'UNRESOLVED_CONFLICTS'
+      ) {
+        res.status(409).json({
+          error: error.message,
+          conflicts: preview.conflicts,
+          requires_resolutions: true,
+        });
+        return;
+      }
+      throw error;
+    }
+
+    if (resolved.accepted.length === 0) {
+      res.status(400).json({
+        error:
+          'Nothing to import — every row was excluded or skipped. Fix the file and preview again.',
+      });
+      return;
+    }
+
+    const writes = planBulkImportWrites(
+      resolved.accepted,
+      drivers,
+      preview.conflicts
+    );
+
+    await writeDrivers(writes.allDrivers, dataDir());
+
+    const nextRouteState = { ...routeState };
+    for (const route of writes.routes) {
+      nextRouteState[route.route_id] = route.entry;
+    }
+    await writeRouteState(nextRouteState, dataDir());
+
+    const eventPayload = buildBulkImportEvent({
+      createdDrivers: writes.createdDrivers,
+      updatedDrivers: writes.updatedDrivers,
+      routes: writes.routes,
+      skipped_row_numbers: resolved.skipped_row_numbers,
+      entered_by,
+      note,
+    });
+    const event = await appendBulkImportEvent(eventPayload, dataDir());
+
+    await syncWorkbook({ appDataDir: dataDir() }).catch(() => null);
+
+    res.status(201).json({
+      event,
+      summary: resolved.summary,
+      excluded_rows: preview.excluded_rows,
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    next(error);
+  }
+});
+
 router.get('/drivers', async (_req, res, next) => {
   try {
     const drivers = await readDrivers(dataDir());
@@ -253,6 +627,9 @@ router.post('/drivers', async (req, res, next) => {
       {
         name: body.name,
         email: body.email ?? null,
+        hire_date: body.hire_date,
+        // Lots outcomes are recorded only via seniority-tie resolve.
+        tie_break: null,
       },
       dataDir()
     );
@@ -262,7 +639,9 @@ router.post('/drivers', async (req, res, next) => {
     const message = /** @type {Error} */ (error).message;
     if (
       message.includes('already exists') ||
-      message.includes('required')
+      message.includes('required') ||
+      message.includes('hire_date') ||
+      message.includes('tie_break')
     ) {
       res.status(400).json({ error: message });
       return;
@@ -273,14 +652,21 @@ router.post('/drivers', async (req, res, next) => {
 
 router.put('/drivers/:driverId', async (req, res, next) => {
   try {
-    const driver = await updateDriver(
-      req.params.driverId,
-      {
-        name: req.body?.name,
-        email: req.body?.email,
-      },
-      dataDir()
-    );
+    const body = req.body ?? {};
+    if (body.tie_break !== undefined) {
+      res.status(400).json({
+        error:
+          'tie_break cannot be set here. Resolve same-date seniority ties on the Drivers page after office lots (Art. 3.01).',
+      });
+      return;
+    }
+    /** @type {{ name?: string, email?: string | null, hire_date?: string | null }} */
+    const patch = {
+      name: body.name,
+      email: body.email,
+    };
+    if (body.hire_date !== undefined) patch.hire_date = body.hire_date;
+    const driver = await updateDriver(req.params.driverId, patch, dataDir());
     await syncWorkbook({ appDataDir: dataDir() }).catch(() => null);
     res.json(driver);
   } catch (error) {
@@ -289,7 +675,11 @@ router.put('/drivers/:driverId', async (req, res, next) => {
       res.status(404).json({ error: message });
       return;
     }
-    if (message.includes('required')) {
+    if (
+      message.includes('required') ||
+      message.includes('hire_date') ||
+      message.includes('tie_break')
+    ) {
       res.status(400).json({ error: message });
       return;
     }
@@ -302,6 +692,97 @@ router.put('/drivers', async (req, res, next) => {
     const updated = await writeDrivers(req.body ?? [], dataDir());
     await syncWorkbook({ appDataDir: dataDir() }).catch(() => null);
     res.json(updated);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/admin/seniority-ties', async (_req, res, next) => {
+  try {
+    const drivers = await readDrivers(dataDir());
+    const ties = findUnresolvedSeniorityTies(drivers).map((tie) => ({
+      hire_date: tie.hire_date,
+      drivers: tie.drivers.map((d) => ({
+        driver_id: d.driver_id,
+        name: d.name,
+        email: d.email,
+        hire_date: d.hire_date,
+        tie_break: d.tie_break ?? null,
+      })),
+    }));
+    res.json({ ties });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/admin/seniority-ties/resolve', async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const hire_date = String(body.hire_date || '').trim();
+    const ordered_driver_ids = Array.isArray(body.ordered_driver_ids)
+      ? body.ordered_driver_ids.map((id) => String(id || '').trim())
+      : [];
+    const resolved_by = String(body.resolved_by || '').trim();
+    const note = String(body.note || '').trim();
+
+    const staffNames = await readStaffNames(dataDir());
+    const drivers = await readDrivers(dataDir());
+
+    let nextDrivers;
+    try {
+      nextDrivers = applySeniorityTieResolution(drivers, {
+        hire_date,
+        ordered_driver_ids,
+      });
+    } catch (error) {
+      res.status(400).json({
+        error: /** @type {Error} */ (error).message,
+      });
+      return;
+    }
+
+    const assignments = ordered_driver_ids.map((driverId, index) => {
+      const driver = nextDrivers.find((d) => d.driver_id === driverId);
+      return {
+        driver_id: driverId,
+        driver_name: driver?.name ?? driverId,
+        tie_break: index + 1,
+      };
+    });
+
+    /** @type {import('../logic/stateMachine.js').SeniorityTieResolutionEvent} */
+    const event = {
+      type: 'SENIORITY_TIE_RESOLUTION',
+      hire_date,
+      assignments,
+      note,
+      resolved_by,
+      resolved_at: new Date().toISOString(),
+    };
+
+    const errors = validateSeniorityTieResolutionEvent(event, staffNames);
+    if (errors.length) {
+      res.status(400).json({ error: errors.join(' ') });
+      return;
+    }
+
+    await writeDrivers(nextDrivers, dataDir());
+    const saved = await appendSeniorityTieResolutionEvent(event, dataDir());
+    await syncWorkbook({ appDataDir: dataDir() }).catch(() => null);
+
+    res.status(201).json({
+      resolution: saved,
+      ties: findUnresolvedSeniorityTies(nextDrivers).map((tie) => ({
+        hire_date: tie.hire_date,
+        drivers: tie.drivers.map((d) => ({
+          driver_id: d.driver_id,
+          name: d.name,
+          tie_break: d.tie_break ?? null,
+        })),
+      })),
+      message: `Recorded lots order for hire date ${hire_date}.`,
+    });
   } catch (error) {
     next(error);
   }
@@ -544,6 +1025,89 @@ router.post(
   }
 );
 
+router.get('/routes/:routeId/open-bid-draft', async (req, res, next) => {
+  try {
+    const routeId = String(req.params.routeId || '').trim();
+    const [appSettings, drivers, state, emailTemplates] = await Promise.all([
+      readAppSettings(dataDir()),
+      readDrivers(dataDir()),
+      readRouteState(dataDir()),
+      readEmailTemplates(dataDir()),
+    ]);
+    if (!appSettings.electronic_bid_signup_enabled) {
+      res.status(400).json({
+        error:
+          'Electronic bid sign-up is off. Enable it in Admin Settings only after office + Union agreement.',
+      });
+      return;
+    }
+    const route = state[routeId];
+    if (!route) {
+      res.status(404).json({ error: `Route not found: ${routeId}` });
+      return;
+    }
+    if (route.status !== 'BID_PENDING') {
+      res.status(400).json({
+        error: 'Open bid posting is only available while the route is BID_PENDING.',
+      });
+      return;
+    }
+    const template = emailTemplates.templates.OPEN_BID_POSTING ?? {
+      subject: 'Route {{route_id}} — open for bid (sign-up)',
+      body: 'Route {{route_id}} is posted for bid. Sign up by {{bid_response_due_date}}.',
+    };
+    const draft = buildOpenBidPostingDraft({
+      route_id: routeId,
+      bid_response_due_date: route.bid_response_due_date,
+      drivers,
+      template,
+      to_email: appSettings.open_bid_posting_to_email,
+    });
+    res.json({
+      route_id: routeId,
+      bid_response_due_date: route.bid_response_due_date,
+      drivers_notified_at: route.bid_signup?.drivers_notified_at ?? null,
+      ...draft,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/routes/:routeId/open-bid-notified', async (req, res, next) => {
+  try {
+    const routeId = String(req.params.routeId || '').trim();
+    const [appSettings, state] = await Promise.all([
+      readAppSettings(dataDir()),
+      readRouteState(dataDir()),
+    ]);
+    if (!appSettings.electronic_bid_signup_enabled) {
+      res.status(400).json({ error: 'Electronic bid sign-up is off.' });
+      return;
+    }
+    const entry = state[routeId];
+    if (!entry || entry.status !== 'BID_PENDING') {
+      res.status(400).json({
+        error: 'Route must be BID_PENDING to record open-bid notification.',
+      });
+      return;
+    }
+    const drivers_notified_at = new Date().toISOString();
+    const prior = entry.bid_signup ?? emptyBidSignupState();
+    state[routeId] = {
+      ...entry,
+      bid_signup: {
+        ...prior,
+        drivers_notified_at,
+      },
+    };
+    await writeRouteState(state, dataDir());
+    res.json({ route_id: routeId, drivers_notified_at });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/routes/:routeId/segment-time', async (req, res, next) => {
   try {
     const segment = String(req.query.segment || '').toUpperCase();
@@ -644,13 +1208,23 @@ router.post('/changes', async (req, res, next) => {
         res.status(400).json({ error: 'driver_name is required when creating a new driver.' });
         return;
       }
-      const created = await createDriver(
-        {
-          name: driverName,
-          email: body.driver_email ?? null,
-        },
-        dataDir()
-      );
+      let created;
+      try {
+        created = await createDriver(
+          {
+            name: driverName,
+            email: body.driver_email ?? null,
+            hire_date: body.hire_date,
+            tie_break: null,
+          },
+          dataDir()
+        );
+      } catch (error) {
+        res.status(400).json({
+          error: /** @type {Error} */ (error).message,
+        });
+        return;
+      }
       driverId = created.driver_id;
       driverName = created.name;
     } else if (driverId) {
@@ -745,9 +1319,6 @@ router.post('/changes', async (req, res, next) => {
     const errors = validateChangeEvent(event, reasons, staffNames);
     if (!REASON_CATEGORIES.includes(event.reason_category)) {
       errors.push(`reason_category must be one of: ${REASON_CATEGORIES.join(', ')}`);
-    }
-    if (createNewRoute && !event.note?.trim()) {
-      errors.push('note is required when creating a new route.');
     }
     if (errors.length) {
       res.status(400).json({ error: errors.join(' ') });
@@ -893,9 +1464,54 @@ router.post('/routes/:routeId/reassign', async (req, res, next) => {
       new_driver_id: newDriverId,
       new_driver_name: newDriverName,
       note: String(body.note || ''),
+      resolution:
+        body.resolution === 'bid_awarded' ? 'bid_awarded' : 'routine',
       reassigned_by: String(body.reassigned_by || '').trim(),
       reassigned_at: new Date().toISOString(),
     };
+
+    if (
+      event.resolution === 'bid_awarded' &&
+      route.status !== 'BID_PENDING'
+    ) {
+      res.status(400).json({
+        error:
+          'resolution "bid_awarded" is only valid while the route is BID_PENDING.',
+      });
+      return;
+    }
+
+    const appSettings = await readAppSettings(dataDir());
+    if (
+      event.resolution === 'bid_awarded' &&
+      appSettings.electronic_bid_signup_enabled
+    ) {
+      const signup = route.bid_signup;
+      if (!signup?.finalized_at || !Array.isArray(signup.eligible_responders)) {
+        res.status(400).json({
+          error:
+            'Electronic bid sign-up is on — wait until the 2-school-day sign-up window closes and the eligible list is finalized before awarding.',
+        });
+        return;
+      }
+      if (!newDriverId) {
+        res.status(400).json({
+          error:
+            'Bid award requires selecting a driver from the finalized eligible sign-up list.',
+        });
+        return;
+      }
+      const eligible = signup.eligible_responders.some(
+        (r) => r.driver_id === newDriverId
+      );
+      if (!eligible) {
+        res.status(400).json({
+          error:
+            'That driver did not initial in time (or is not on the finalized eligible list). Award only from the Forms sign-up record.',
+        });
+        return;
+      }
+    }
 
     const errors = validateReassignmentEvent(event, staffNames);
     if (errors.length) {
@@ -907,13 +1523,341 @@ router.post('/routes/:routeId/reassign', async (req, res, next) => {
     const routeState = await rebuildAndPersistRouteState(dataDir());
     const next = routeState[routeId] ?? null;
 
+    const newDriver = newDriverId
+      ? drivers.find((d) => d.driver_id === newDriverId)
+      : null;
+    await enqueueNotifications(
+      [
+        buildReassignmentNotificationSpec({
+          route_id: routeId,
+          resolution: event.resolution ?? 'routine',
+          reassignment_id: saved.id,
+          new_driver_name: newDriverName,
+          new_driver_email: newDriver?.email?.trim() || null,
+          previous_driver_name: previousDriverName,
+        }),
+      ],
+      dataDir()
+    );
+
     res.status(201).json({
       reassignment: saved,
       route_id: routeId,
       route: next,
       message: newDriverId
-        ? `Route reassigned to ${newDriverName}.`
+        ? event.resolution === 'bid_awarded'
+          ? `Bid awarded to ${newDriverName}.`
+          : `Route reassigned to ${newDriverName}.`
         : 'Route set to Unassigned.',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Admin resolve for an open NEEDS_REVIEW.
+ * Appends NEEDS_REVIEW_RESOLUTION then rebuilds so keep_prior / accept_computed
+ * stick across future rebuilds for that specific discrepancy only.
+ * body: { resolution, note, resolved_by }
+ * accept_computed + letter_or_action_exists → contradiction notification.
+ */
+router.post('/routes/:routeId/resolve-review', async (req, res, next) => {
+  try {
+    const routeId = String(req.params.routeId || '').trim();
+    const resolution = String(req.body?.resolution || '').trim();
+    const note = String(req.body?.note || '').trim();
+    const resolvedBy = String(req.body?.resolved_by || '').trim();
+    if (resolution !== 'accept_computed' && resolution !== 'keep_prior') {
+      res.status(400).json({
+        error: 'resolution must be "accept_computed" or "keep_prior".',
+      });
+      return;
+    }
+
+    const [state, staffNames, drivers] = await Promise.all([
+      readRouteState(dataDir()),
+      readStaffNames(dataDir()),
+      readDrivers(dataDir()),
+    ]);
+
+    const route = state[routeId];
+    if (!route) {
+      res.status(404).json({ error: `Route not found: ${routeId}` });
+      return;
+    }
+    if (route.status !== 'NEEDS_REVIEW' || !route.reconciliation) {
+      res.status(400).json({
+        error: 'Route is not in an open NEEDS_REVIEW state.',
+      });
+      return;
+    }
+
+    const letterExists = route.reconciliation.letter_or_action_exists === true;
+    /** @type {import('../logic/stateMachine.js').NeedsReviewResolutionEvent} */
+    const event = {
+      type: 'NEEDS_REVIEW_RESOLUTION',
+      route_id: routeId,
+      resolution,
+      causing_adjustment_id:
+        route.reconciliation.causing_adjustment_id ?? null,
+      previous_finalized_status:
+        route.reconciliation.previous_finalized_status,
+      computed_status: route.reconciliation.computed_status,
+      note,
+      resolved_by: resolvedBy,
+      resolved_at: new Date().toISOString(),
+    };
+
+    const errors = validateNeedsReviewResolutionEvent(event, staffNames);
+    if (errors.length) {
+      res.status(400).json({ error: errors.join(' ') });
+      return;
+    }
+
+    const saved = await appendNeedsReviewResolutionEvent(event, dataDir());
+    const rebuilt = await rebuildAndPersistRouteState(dataDir());
+    const next = rebuilt[routeId] ?? null;
+
+    if (resolution === 'accept_computed' && letterExists) {
+      const driver =
+        (next?.driver_id &&
+          drivers.find((d) => d.driver_id === next.driver_id)) ||
+        null;
+      await enqueueNotifications(
+        [
+          buildNeedsReviewContradictionSpec({
+            route_id: routeId,
+            resolve_id: saved.id,
+            driver_name:
+              driver?.name?.trim() || next?.driver_name?.trim() || null,
+            driver_email: driver?.email?.trim() || null,
+          }),
+        ],
+        dataDir()
+      );
+    }
+
+    res.json({
+      route_id: routeId,
+      route: next,
+      resolution,
+      resolution_event: saved,
+      contradicted_letter: resolution === 'accept_computed' && letterExists,
+      message:
+        resolution === 'accept_computed'
+          ? letterExists
+            ? 'Accepted computed status. A prior letter may need a correction notice.'
+            : 'Accepted computed status.'
+          : 'Kept prior finalized status.',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Eligible bump targets: drivers junior to the electing driver who currently hold a route.
+ */
+router.get('/routes/:routeId/bump-targets', async (req, res, next) => {
+  try {
+    const routeId = String(req.params.routeId || '').trim();
+    const [drivers, state] = await Promise.all([
+      readDrivers(dataDir()),
+      readRouteState(dataDir()),
+    ]);
+    const route = state[routeId];
+    if (!route) {
+      res.status(404).json({ error: `Route not found: ${routeId}` });
+      return;
+    }
+    if (route.status !== 'BUMP_ELIGIBLE') {
+      res.status(400).json({
+        error: 'Bump targets are only listed while the route is BUMP_ELIGIBLE.',
+      });
+      return;
+    }
+    const electingId = route.driver_id;
+    if (!electingId) {
+      res.json({ targets: [] });
+      return;
+    }
+    res.json({
+      electing_driver_id: electingId,
+      electing_driver_name: route.driver_name,
+      bump_kind: route.bump_kind ?? 'original_decrease',
+      bump_chain_id: route.bump_chain_id ?? null,
+      bump_chain_link: route.bump_chain_link ?? 1,
+      targets: listBumpTargets({
+        electing_driver_id: electingId,
+        electing_route_id: routeId,
+        drivers,
+        routeState: state,
+      }),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Admin bump decision — keep / elect bump / accept unassigned. Never auto-applied.
+ */
+router.post('/routes/:routeId/bump-decision', async (req, res, next) => {
+  try {
+    const routeId = String(req.params.routeId || '').trim();
+    const body = req.body ?? {};
+    const [staffNames, drivers, state, schoolCalendar] = await Promise.all([
+      readStaffNames(dataDir()),
+      readDrivers(dataDir()),
+      readRouteState(dataDir()),
+      readSchoolCalendar(dataDir()),
+    ]);
+    void schoolCalendar;
+
+    const route = state[routeId];
+    if (!route) {
+      res.status(404).json({ error: `Route not found: ${routeId}` });
+      return;
+    }
+    if (route.status !== 'BUMP_ELIGIBLE') {
+      res.status(400).json({
+        error: 'Bump decisions are only valid while the route is BUMP_ELIGIBLE.',
+      });
+      return;
+    }
+
+    const bump_kind = route.bump_kind ?? 'original_decrease';
+    const decision = String(body.decision || '').trim();
+    const decided_at = new Date().toISOString();
+    const electing_driver_id = route.driver_id ?? null;
+    const electing_driver_name = route.driver_name?.trim() || null;
+
+    /** @type {Omit<import('../logic/stateMachine.js').BumpDecisionEvent, 'id'> & { id?: string }} */
+    const event = {
+      type: 'BUMP_DECISION',
+      route_id: routeId,
+      decision: /** @type {'keep_assignment' | 'elect_bump' | 'accept_unassigned'} */ (
+        decision
+      ),
+      bump_kind,
+      bump_chain_id: route.bump_chain_id || randomUUID(),
+      bump_chain_link: route.bump_chain_link ?? 1,
+      electing_driver_id,
+      electing_driver_name,
+      target_route_id: null,
+      target_driver_id: null,
+      target_driver_name: null,
+      note: String(body.note || ''),
+      decided_by: String(body.decided_by || '').trim(),
+      decided_at,
+    };
+
+    if (decision === 'elect_bump') {
+      const targetRouteId = String(body.target_route_id || '').trim();
+      const targetDriverId = String(body.target_driver_id || '').trim();
+      const targetRoute = state[targetRouteId];
+      if (!targetRoute) {
+        res.status(400).json({ error: `Unknown target route: ${targetRouteId}` });
+        return;
+      }
+      if (targetRoute.driver_id !== targetDriverId) {
+        res.status(400).json({
+          error:
+            'target_driver_id does not currently hold the selected target route.',
+        });
+        return;
+      }
+      const elector = drivers.find((d) => d.driver_id === electing_driver_id);
+      const targetDriver = drivers.find((d) => d.driver_id === targetDriverId);
+      if (!elector || !targetDriver || !isStrictlyJuniorDriver(elector, targetDriver)) {
+        res.status(400).json({
+          error:
+            'Bump target must be a driver with less seniority (later hire date) than the electing driver.',
+        });
+        return;
+      }
+      event.target_route_id = targetRouteId;
+      event.target_driver_id = targetDriverId;
+      event.target_driver_name = targetDriver.name;
+    }
+
+    const errors = validateBumpDecisionEvent(event, staffNames);
+    if (errors.length) {
+      res.status(400).json({ error: errors.join(' ') });
+      return;
+    }
+
+    const saved = await appendBumpDecisionEvent(event, dataDir());
+
+    if (decision === 'elect_bump') {
+      const targetRouteId = event.target_route_id;
+      const targetRoute = state[targetRouteId];
+      // Claim target route for the electing driver.
+      await appendReassignmentEvent(
+        {
+          route_id: targetRouteId,
+          previous_driver_id: targetRoute.driver_id ?? null,
+          previous_driver_name: targetRoute.driver_name?.trim() || null,
+          new_driver_id: electing_driver_id,
+          new_driver_name: electing_driver_name,
+          note: `Bump elect (chain ${event.bump_chain_id}, link ${event.bump_chain_link}): ${event.note}`,
+          resolution: 'routine',
+          reassigned_by: event.decided_by,
+          reassigned_at: decided_at,
+        },
+        dataDir()
+      );
+      // Park displaced driver on the vacated electing route — no auto-Unassigned.
+      await appendReassignmentEvent(
+        {
+          route_id: routeId,
+          previous_driver_id: electing_driver_id,
+          previous_driver_name: electing_driver_name,
+          new_driver_id: event.target_driver_id,
+          new_driver_name: event.target_driver_name,
+          note: `Bump displacement park (chain ${event.bump_chain_id}, link ${event.bump_chain_link + 1}): ${event.note}`,
+          resolution: 'routine',
+          reassigned_by: event.decided_by,
+          reassigned_at: decided_at,
+        },
+        dataDir()
+      );
+    } else if (decision === 'accept_unassigned') {
+      await appendReassignmentEvent(
+        {
+          route_id: routeId,
+          previous_driver_id: electing_driver_id,
+          previous_driver_name: electing_driver_name,
+          new_driver_id: null,
+          new_driver_name: null,
+          note: `Bump accept Unassigned (chain ${event.bump_chain_id}, link ${event.bump_chain_link}): ${event.note}`,
+          resolution: 'routine',
+          reassigned_by: event.decided_by,
+          reassigned_at: decided_at,
+        },
+        dataDir()
+      );
+    }
+
+    const rebuilt = await rebuildAndPersistRouteState(dataDir());
+    const next = rebuilt[routeId] ?? null;
+
+    let message = 'Bump decision recorded.';
+    if (decision === 'keep_assignment') {
+      message = 'Kept current assignment — decreased hours locked in (STABLE).';
+    } else if (decision === 'accept_unassigned') {
+      message = 'Accepted Unassigned for this displacement — route cleared to STABLE.';
+    } else if (decision === 'elect_bump') {
+      message =
+        `Elected bump onto ${event.target_route_id}. Displaced driver is parked on ${routeId} for the next chain decision — nothing further is automatic.`;
+    }
+
+    res.status(201).json({
+      route_id: routeId,
+      route: next,
+      decision: saved,
+      message,
     });
   } catch (error) {
     next(error);

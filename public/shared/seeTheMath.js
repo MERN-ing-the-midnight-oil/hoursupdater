@@ -4,6 +4,7 @@
  * re-implement the before/after rounding explanation elsewhere.
  */
 import { appendGlossaryTip } from './glossaryTip.js';
+import { createIcon } from './icons.js';
 
 /**
  * @param {HTMLElement} container
@@ -27,15 +28,16 @@ export function renderSeeTheMath(container, math) {
   const grid = document.createElement('div');
   grid.className = 'math-grid';
 
-  for (const [label, side] of [
-    ['Before window', math.before],
-    ['After window', math.after],
+  for (const [label, side, iconName] of [
+    ['Before window', math.before, 'history'],
+    ['After window', math.after, 'check-circle'],
   ]) {
     const block = document.createElement('div');
     block.className = 'math-side';
 
     const heading = document.createElement('h4');
-    heading.textContent = label;
+    heading.className = 'with-icon';
+    heading.append(createIcon(iconName), document.createTextNode(label));
     if (label === 'Before window') {
       appendGlossaryTip(heading, 'window');
     }
@@ -81,6 +83,7 @@ function mathStat(label, value, glossaryId) {
  */
 export function formatReportOutcome(report) {
   if (report.outcome === 'BID_PENDING') return 'Bid pending';
+  if (report.outcome === 'BUMP_ELIGIBLE') return 'Bump eligible';
   if (report.outcome === 'STABLE') return 'Locked in';
   return String(report.outcome || '—');
 }

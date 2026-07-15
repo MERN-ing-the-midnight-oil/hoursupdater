@@ -7,6 +7,10 @@ import {
   renderRouteCard,
   setReassignRefreshHandler,
 } from '../shared/queueRenderers.js';
+import { enhanceIcons } from '../shared/icons.js';
+import '../shared/practiceBanner.js';
+
+enhanceIcons();
 
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
@@ -34,6 +38,8 @@ const headerEl = document.getElementById('driver-header');
 const rootEl = document.getElementById('driver-root');
 const nameEl = document.getElementById('driver-name');
 const emailEl = document.getElementById('driver-email');
+const seniorityEl = document.getElementById('driver-seniority');
+const hireMetaEl = document.getElementById('driver-hire-meta');
 
 const lists = {
   assignments: document.getElementById('list-assignments'),
@@ -69,11 +75,48 @@ function fillList(listEl, nodes, emptyText) {
  * @param {object} detail
  */
 function renderDetail(detail) {
-  const { driver, assignments, change_history, change_reports, review_history } =
-    detail;
+  const {
+    driver,
+    seniority,
+    assignments,
+    change_history,
+    change_reports,
+    review_history,
+  } = detail;
 
   nameEl.textContent = driver.name;
   emailEl.textContent = driver.email || 'No email on file';
+
+  if (seniority?.missing_hire_date || seniority?.rank == null) {
+    seniorityEl.textContent = 'Seniority: not ranked (hire date missing)';
+    seniorityEl.classList.add('warn-text');
+  } else {
+    seniorityEl.textContent = `Seniority: #${seniority.rank} of ${seniority.total}`;
+    seniorityEl.classList.remove('warn-text');
+  }
+
+  const hireBits = [];
+  if (driver.hire_date) {
+    hireBits.push(`Hired ${driver.hire_date}`);
+  }
+  if (driver.tie_break != null) {
+    hireBits.push(`tie-break ${driver.tie_break}`);
+  }
+  const chainBits = assignments
+    .filter((row) => row.status === 'BUMP_ELIGIBLE' && row.bump_chain_id)
+    .map(
+      (row) =>
+        `${row.route_id}: link ${row.bump_chain_link ?? 1} of an ongoing vacancy chain`
+    );
+  hireMetaEl.textContent = [
+    ...(hireBits.length
+      ? [hireBits.join(' · ')]
+      : [
+          'Add hire_date on this driver record to include them in seniority order.',
+        ]),
+    ...chainBits,
+  ].join(' · ');
+
   document.title = `${driver.name} · Admin · Route Change Tracker`;
 
   headerEl.hidden = false;
@@ -134,6 +177,33 @@ function renderDetail(detail) {
   );
 }
 
+function consumeFlashStatus() {
+  const raw = sessionStorage.getItem('rct_flash');
+  if (!raw) return null;
+  sessionStorage.removeItem('rct_flash');
+  try {
+    const flash = JSON.parse(raw);
+    if (flash?.message) {
+      return {
+        message: String(flash.message),
+        kind: flash.kind === 'warn' || flash.kind === 'error' ? flash.kind : 'ok',
+      };
+    }
+  } catch {
+    // ignore malformed flash payloads
+  }
+  return null;
+}
+
+function scrollToHashSection() {
+  const hash = window.location.hash.replace(/^#/, '');
+  if (!hash) return;
+  const section = rootEl.querySelector(`[data-section="${hash}"]`);
+  if (section instanceof HTMLElement) {
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
 async function loadDetail() {
   const driverId = driverIdFromPath();
   if (!driverId) {
@@ -143,15 +213,21 @@ async function loadDetail() {
     `/api/admin/drivers/${encodeURIComponent(driverId)}`
   );
   renderDetail(detail);
-  showStatus(
-    statusEl,
-    [
-      `${detail.assignments.length} assignment${detail.assignments.length === 1 ? '' : 's'}`,
-      `${detail.change_history.length} log entr${detail.change_history.length === 1 ? 'y' : 'ies'}`,
-      `${detail.change_reports.length} report${detail.change_reports.length === 1 ? '' : 's'}`,
-    ].join(' · '),
-    'ok'
-  );
+  const flash = consumeFlashStatus();
+  if (flash) {
+    showStatus(statusEl, flash.message, flash.kind);
+  } else {
+    showStatus(
+      statusEl,
+      [
+        `${detail.assignments.length} assignment${detail.assignments.length === 1 ? '' : 's'}`,
+        `${detail.change_history.length} log entr${detail.change_history.length === 1 ? 'y' : 'ies'}`,
+        `${detail.change_reports.length} report${detail.change_reports.length === 1 ? '' : 's'}`,
+      ].join(' · '),
+      'ok'
+    );
+  }
+  scrollToHashSection();
 }
 
 loadDetail().catch((error) => {

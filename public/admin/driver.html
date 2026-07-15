@@ -9,25 +9,27 @@
   <body>
     <main class="shell shell-wide">
       <div class="topbar">
-        <div class="brand">Route Change Tracker</div>
+        <div class="brand" data-icon="bus">Route Change Tracker</div>
         <nav class="site-nav" aria-label="Primary">
-          <a href="/routing">Routing</a>
-          <a href="/admin">Admin</a>
-          <a href="/admin/drivers" aria-current="page">Drivers</a>
-          <a href="/help">How this app works</a>
+          <a href="/routing" data-icon="route">Routing</a>
+          <a href="/admin" data-icon="clipboard-list">Admin</a>
+          <a href="/admin/drivers" aria-current="page" data-icon="users">Drivers</a>
+          <a href="/help" data-icon="book-open">How this app works</a>
         </nav>
       </div>
 
 
       <section class="panel">
         <p class="field-hint">
-          <a href="/admin/drivers">← All drivers</a>
+          <a href="/admin/drivers" class="back-link" data-icon="arrow-left">All drivers</a>
         </p>
         <div id="driver-status" class="status" role="status"></div>
 
         <header id="driver-header" class="driver-detail-header" hidden>
           <h1 id="driver-name"></h1>
           <p id="driver-email" class="lead"></p>
+          <p id="driver-seniority" class="meta"></p>
+          <p id="driver-hire-meta" class="field-hint"></p>
           <p class="field-hint">
             Reassign any current route below — searchable driver list with an
             explicit Unassigned option. Window status and drift stay unchanged.
@@ -36,7 +38,7 @@
 
         <div id="driver-root" class="queue-root" hidden>
           <section class="queue-section" data-section="assignments">
-            <h2>
+            <h2 data-icon="map-pin">
               Current assignments
               <span class="section-count" id="count-assignments">0</span>
             </h2>
@@ -48,7 +50,7 @@
           </section>
 
           <section class="queue-section" data-section="change-history">
-            <h2>
+            <h2 data-icon="history">
               Change history
               <span class="section-count" id="count-history">0</span>
             </h2>
@@ -61,7 +63,7 @@
           </section>
 
           <section class="queue-section" data-section="change-reports">
-            <h2>
+            <h2 data-icon="file-text">
               Finalized Change Reports
               <span class="section-count" id="count-reports">0</span>
             </h2>
@@ -73,7 +75,7 @@
           </section>
 
           <section class="queue-section" data-section="review-history">
-            <h2>
+            <h2 data-icon="flag">
               Review history
               <span class="section-count" id="count-reviews">0</span>
             </h2>

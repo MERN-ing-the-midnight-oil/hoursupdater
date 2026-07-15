@@ -1,4 +1,26 @@
 import { GLOSSARY, GLOSSARY_PAGE_ORDER } from '../shared/glossary.js';
+import { appendCitationLinks } from '../shared/contractCitationUi.js';
+import { createIcon, enhanceIcons } from '../shared/icons.js';
+import '../shared/practiceBanner.js';
+
+enhanceIcons();
+
+/** Icons for known glossary terms on the help page. */
+const GLOSSARY_ICONS = {
+  scheduled_time: 'clock',
+  contracted_hours: 'lock',
+  payroll_rounding: 'calculator',
+  window: 'calendar-range',
+  bid_threshold: 'scale',
+  time_difference_to_accumulate: 'layers',
+  lock_in: 'lock',
+  accumulating: 'hourglass',
+  needs_review: 'flag',
+  bid_pending: 'gavel',
+  bump_eligible: 'arrow-down-up',
+  stable: 'check-circle',
+  cumulative_drift: 'layers',
+};
 
 const root = document.getElementById('glossary-list');
 
@@ -11,17 +33,19 @@ for (const id of GLOSSARY_PAGE_ORDER) {
   article.id = id;
 
   const heading = document.createElement('h2');
-  heading.textContent = entry.term;
+  heading.className = 'with-icon';
+  const iconName = GLOSSARY_ICONS[id] || 'book-open';
+  heading.append(createIcon(iconName), document.createTextNode(entry.term));
   article.appendChild(heading);
 
   const def = document.createElement('p');
   def.textContent = entry.definition;
   article.appendChild(def);
 
-  if (entry.citation) {
+  if (entry.citation?.length) {
     const cite = document.createElement('p');
     cite.className = 'glossary-entry-cite';
-    cite.textContent = entry.citation;
+    appendCitationLinks(cite, entry.citation);
     article.appendChild(cite);
   }
 

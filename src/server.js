@@ -6,6 +6,7 @@ import {
   getAppDataDir,
   getSharedRoot,
   getWorkbookPath,
+  isPracticeMode,
 } from './config.js';
 import apiRouter from './routes/api.js';
 import { ensureDataDir } from './data/storage.js';
@@ -76,6 +77,9 @@ try {
 
 app.listen(PORT, () => {
   console.log(`Route Change Tracker listening on http://localhost:${PORT}`);
+  if (isPracticeMode()) {
+    console.log('*** PRACTICE MODE — test data only, not connected to real records ***');
+  }
   console.log(`Shared root (DATA_DIR)=${getSharedRoot()}`);
   console.log(`App data=_app_data → ${getAppDataDir()}`);
   console.log(`Workbook=${getWorkbookPath()}`);

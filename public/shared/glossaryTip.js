@@ -2,6 +2,16 @@
  * Accessible "?" glossary popovers for UI terms.
  */
 import { GLOSSARY } from './glossary.js';
+import { appendCitationLinks } from './contractCitationUi.js';
+
+/** Route status → glossary term id for clickable status badges. */
+export const STATUS_GLOSSARY_IDS = {
+  STABLE: 'stable',
+  ACCUMULATING: 'accumulating',
+  BID_PENDING: 'bid_pending',
+  BUMP_ELIGIBLE: 'bump_eligible',
+  NEEDS_REVIEW: 'needs_review',
+};
 
 let openTip = null;
 let documentListenersBound = false;
@@ -9,22 +19,84 @@ let documentListenersBound = false;
 function ensureDocumentListeners() {
   if (documentListenersBound) return;
   documentListenersBound = true;
+  // Dismiss on any press outside the "?" button — including presses on the
+  // popover itself. Otherwise the panel can cover actions and feel stuck.
   document.addEventListener('pointerdown', (event) => {
     if (!openTip) return;
-    if (openTip.contains(event.target)) return;
+    const btn = openTip.querySelector('.glossary-tip-btn');
+    if (btn && btn.contains(event.target)) return;
     closeOpenTip();
   });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') closeOpenTip();
   });
+  window.addEventListener('resize', () => {
+    if (openTip) positionOpenTip(openTip);
+  });
+  // Capture phase so nested overflow scrollers (calendar list, etc.) update too.
+  document.addEventListener(
+    'scroll',
+    () => {
+      if (openTip) positionOpenTip(openTip);
+    },
+    true
+  );
+}
+
+function clearPopoverPosition(pop) {
+  pop.style.top = '';
+  pop.style.left = '';
+  pop.style.right = '';
+  pop.style.bottom = '';
+  pop.style.width = '';
 }
 
 function closeOpenTip() {
   if (!openTip) return;
+  const pop = openTip.querySelector('.glossary-popover');
+  if (pop instanceof HTMLElement) clearPopoverPosition(pop);
   openTip.classList.remove('is-open');
   const btn = openTip.querySelector('.glossary-tip-btn');
   if (btn) btn.setAttribute('aria-expanded', 'false');
   openTip = null;
+}
+
+/**
+ * Pin the popover with position:fixed and clamp it inside the viewport so it
+ * cannot be clipped by overflow ancestors or hang off-screen over actions.
+ * @param {HTMLElement} wrap
+ */
+function positionOpenTip(wrap) {
+  const pop = wrap.querySelector('.glossary-popover');
+  const btn = wrap.querySelector('.glossary-tip-btn');
+  if (!(pop instanceof HTMLElement) || !(btn instanceof HTMLElement)) return;
+
+  clearPopoverPosition(pop);
+
+  const btnRect = btn.getBoundingClientRect();
+  const margin = 12;
+  const gap = 8;
+  const maxWidth = Math.min(22 * 16, window.innerWidth - margin * 2);
+  pop.style.width = `${maxWidth}px`;
+
+  const popRect = pop.getBoundingClientRect();
+  const width = popRect.width || maxWidth;
+  const height = popRect.height;
+
+  let top = btnRect.bottom + gap;
+  if (top + height > window.innerHeight - margin) {
+    top = btnRect.top - gap - height;
+  }
+  top = Math.max(margin, Math.min(top, window.innerHeight - margin - height));
+
+  let left = btnRect.left;
+  if (left + width > window.innerWidth - margin) {
+    left = btnRect.right - width;
+  }
+  left = Math.max(margin, Math.min(left, window.innerWidth - margin - width));
+
+  pop.style.top = `${Math.round(top)}px`;
+  pop.style.left = `${Math.round(left)}px`;
 }
 
 /**
@@ -47,10 +119,10 @@ function buildPopover(entry) {
 
   pop.append(title, def);
 
-  if (entry.citation) {
+  if (entry.citation?.length) {
     const cite = document.createElement('p');
     cite.className = 'glossary-popover-cite';
-    cite.textContent = entry.citation;
+    appendCitationLinks(cite, entry.citation);
     pop.appendChild(cite);
   }
 
@@ -60,6 +132,13 @@ function buildPopover(entry) {
     note.textContent = 'Office practice — not literal contract text.';
     pop.appendChild(note);
   }
+
+  // If a tip is nested inside a <label>, clicks on the popover would otherwise
+  // activate the labeled control. Close still happens via the document listener.
+  pop.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
 
   return pop;
 }
@@ -98,6 +177,7 @@ export function createGlossaryTip(termId) {
       wrap.classList.add('is-open');
       btn.setAttribute('aria-expanded', 'true');
       openTip = wrap;
+      positionOpenTip(wrap);
     }
   });
 
@@ -112,6 +192,34 @@ export function createGlossaryTip(termId) {
 export function appendGlossaryTip(host, termId) {
   const tip = createGlossaryTip(termId);
   if (tip) host.appendChild(tip);
+}
+
+/**
+ * Status badge + "?" glossary tip (when a glossary entry exists).
+ * @param {string | null | undefined} status
+ * @returns {DocumentFragment}
+ */
+export function createStatusBadge(status) {
+  const frag = document.createDocumentFragment();
+  const badge = document.createElement('span');
+  badge.className = 'badge';
+  badge.textContent = status || '—';
+  frag.appendChild(badge);
+  const termId = STATUS_GLOSSARY_IDS[status];
+  if (termId) {
+    const tip = createGlossaryTip(termId);
+    if (tip) frag.appendChild(tip);
+  }
+  return frag;
+}
+
+/**
+ * Append a status badge (+ tip) into a host element.
+ * @param {HTMLElement} host
+ * @param {string | null | undefined} status
+ */
+export function appendStatusBadge(host, status) {
+  host.appendChild(createStatusBadge(status));
 }
 
 /**

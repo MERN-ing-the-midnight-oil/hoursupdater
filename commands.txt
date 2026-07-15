@@ -1,0 +1,7 @@
+npm run seed:practice
+npm run start:practice
+
+npm run reset:practice
+
+npm run fresh:practice
+That wipes and re-seeds practice data, then starts the practice server.

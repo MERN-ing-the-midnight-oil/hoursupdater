@@ -54,11 +54,15 @@ async function setupDir() {
         driver_id: 'drv-jane',
         name: 'Jane Driver',
         email: 'jane@example.com',
+        hire_date: '2012-08-15',
+        tie_break: null,
       },
       {
         driver_id: 'drv-other',
         name: 'Other Driver',
         email: null,
+        hire_date: '2018-09-01',
+        tie_break: null,
       },
     ],
     dataDir
@@ -173,6 +177,12 @@ describe('adminViews driver detail', () => {
     const detail = await buildDriverDetail('drv-jane', dataDir);
     assert.ok(detail);
     assert.equal(detail.driver.email, 'jane@example.com');
+    assert.equal(detail.driver.hire_date, '2012-08-15');
+    assert.deepEqual(detail.seniority, {
+      rank: 1,
+      total: 2,
+      missing_hire_date: false,
+    });
     assert.equal(detail.assignments.length, 1);
     assert.equal(detail.assignments[0].route_id, 'S 20');
     assert.equal(detail.change_history.length, 2);

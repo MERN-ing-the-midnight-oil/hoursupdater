@@ -1,0 +1,40 @@
+{
+  "payroll_email": "",
+  "templates": {
+    "WINDOW_LOCKED_IN": {
+      "recipient": "driver",
+      "subject": "Route {{route_id}} — hours update",
+      "body": "Hi {{driver_name}},\n\nRecent time changes on route {{route_id}} have locked in as the official route times.\n\nPlease review and let the office know if you have questions.\n\nThank you,\nTransportation"
+    },
+    "WINDOW_BID_PENDING": {
+      "recipient": "payroll",
+      "subject": "Route {{route_id}} — bid pending (payroll notice)",
+      "body": "Route {{route_id}} (driver: {{driver_name}}, {{driver_email}}) has reached the 30-minute contract threshold and is pending bid. Details attached in the workbook."
+    },
+    "OPEN_BID_POSTING": {
+      "recipient": "drivers_directory",
+      "subject": "Route {{route_id}} — open for bid (sign-up)",
+      "body": "Drivers,\n\nRoute {{route_id}} is posted for bid under Art. 3.08.\n\nTo be considered, complete the Microsoft Forms sign-up (name + initials) within two (2) school days — due {{bid_response_due_date}}. Failing to initial by that deadline is a rejection of the open position per Art. 3.08(c)(1).\n\nThank you,\nTransportation"
+    },
+    "WINDOW_BUMP_ELIGIBLE": {
+      "recipient": "driver",
+      "subject": "Route {{route_id}} — decrease determination / bump option",
+      "body": "Hi {{driver_name}},\n\nRoute {{route_id}} decreased by 30 minutes or more over the review window. Per Art. 3.08, you may use your seniority to bump a less-senior driver, or confirm that you choose to keep your current assignment.\n\nYou have two (2) school days from this determination to decide (due {{bump_decision_due_date}}).\n\nThank you,\nTransportation"
+    },
+    "BID_AWARDED": {
+      "recipient": "driver",
+      "subject": "Route {{route_id}} — bid awarded",
+      "body": "Hi {{driver_name}},\n\nYou have been awarded route {{route_id}} as the resolution of a pending bid.\n\nPlease confirm you received this notice.\n\nThank you,\nTransportation"
+    },
+    "NEEDS_REVIEW_RESOLVED_CONTRADICTS_LETTER": {
+      "recipient": "driver",
+      "subject": "Route {{route_id}} — correction to prior notice",
+      "body": "Hi {{driver_name}},\n\nA prior notice for route {{route_id}} needs a correction. After review, the outcome differs from what was previously communicated.\n\nPlease contact Transportation if you have questions about this update.\n\nThank you,\nTransportation"
+    },
+    "ROUTE_REASSIGNED": {
+      "recipient": "driver",
+      "subject": "Route {{route_id}} — assignment update",
+      "body": "Hi {{driver_name}},\n\nRoute {{route_id}} has been reassigned to you (previous assignment: {{previous_driver_name}}).\n\nPlease confirm you received this notice.\n\nThank you,\nTransportation"
+    }
+  }
+}

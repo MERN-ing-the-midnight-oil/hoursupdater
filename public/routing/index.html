@@ -9,27 +9,28 @@
   <body>
     <main class="shell">
       <div class="topbar">
-        <div class="brand">Route Change Tracker</div>
+        <div class="brand" data-icon="bus">Route Change Tracker</div>
         <nav class="site-nav" aria-label="Primary">
-          <a href="/routing" aria-current="page">Routing</a>
-          <a href="/admin">Admin</a>
-          <a href="/admin/drivers">Drivers</a>
-          <a href="/help">How this app works</a>
+          <a href="/routing" aria-current="page" data-icon="route">Routing</a>
+          <a href="/admin" data-icon="clipboard-list">Admin</a>
+          <a href="/admin/drivers" data-icon="users">Drivers</a>
+          <a href="/help" data-icon="book-open">How this app works</a>
         </nav>
       </div>
 
 
       <section class="panel">
-        <h1>Log a time change</h1>
+        <h1 data-icon="clock">Log a time change</h1>
         <p class="lead">
-          Previous time fills from the current route state. Adjust the computed
-          delta only when you have a reason.
+          Current schedule fills from the current route state. Time Difference To
+          Accumulate pre-fills from the schedule difference — adjust it only when
+          you have a reason.
         </p>
 
         <form id="change-form" novalidate>
           <div class="grid">
             <div class="field full route-picker">
-              <label for="route_search">Route</label>
+              <label for="route_search" data-icon="route">Route</label>
               <div class="route-picker-row">
                 <div class="combobox" id="route-combobox">
                   <input
@@ -44,7 +45,7 @@
                   <input type="hidden" id="route_id" name="route_id" required />
                   <ul id="route-listbox" class="route-listbox" role="listbox" hidden></ul>
                 </div>
-                <button type="button" class="secondary" id="new-route-btn">
+                <button type="button" class="secondary" id="new-route-btn" data-icon="plus">
                   Create new route
                 </button>
               </div>
@@ -66,19 +67,19 @@
                 </div>
                 <div class="field route-mode-actions">
                   <label>&nbsp;</label>
-                  <button type="button" class="secondary" id="cancel-new-route-btn">
+                  <button type="button" class="secondary" id="cancel-new-route-btn" data-icon="x">
                     Cancel — use existing route
                   </button>
                 </div>
               </div>
               <p class="field-hint">
-                Creating a route still requires <strong>Entered by</strong> and a
-                <strong>Note</strong> below — same attribution as any other change.
+                Creating a route still requires <strong>Entered by</strong> below —
+                same attribution as any other change.
               </p>
             </div>
 
             <div class="field full driver-picker">
-              <label for="driver_search">Driver</label>
+              <label for="driver_search" data-icon="user">Driver</label>
               <div class="route-picker-row">
                 <div class="combobox" id="driver-combobox">
                   <input
@@ -94,7 +95,7 @@
                   <input type="hidden" id="driver_name" name="driver_name" required />
                   <ul id="driver-listbox" class="route-listbox" role="listbox" hidden></ul>
                 </div>
-                <button type="button" class="secondary" id="new-driver-btn">
+                <button type="button" class="secondary" id="new-driver-btn" data-icon="user-plus">
                   Add new driver
                 </button>
               </div>
@@ -115,6 +116,15 @@
                   />
                 </div>
                 <div class="field">
+                  <label for="new_driver_hire_date">Hire date</label>
+                  <input
+                    id="new_driver_hire_date"
+                    name="new_driver_hire_date"
+                    type="date"
+                    autocomplete="off"
+                  />
+                </div>
+                <div class="field">
                   <label for="new_driver_email">Email (optional)</label>
                   <input
                     id="new_driver_email"
@@ -126,15 +136,21 @@
                 </div>
                 <div class="field route-mode-actions">
                   <label>&nbsp;</label>
-                  <button type="button" class="secondary" id="cancel-new-driver-btn">
+                  <button type="button" class="secondary" id="cancel-new-driver-btn" data-icon="x">
                     Cancel — use existing driver
                   </button>
                 </div>
               </div>
+              <p class="field-hint">
+                Hire date is required for new drivers (used for seniority). If
+                another driver already shares that exact hire date, Admin will be
+                prompted on the Drivers page to record the office lots outcome
+                (Art. 3.01).
+              </p>
             </div>
 
             <div class="field">
-              <label for="segment">Segment</label>
+              <label for="segment" data-icon="sun">Segment</label>
               <select id="segment" name="segment" required>
                 <option value="AM">AM</option>
                 <option value="MIDDAY">Midday</option>
@@ -143,27 +159,32 @@
             </div>
 
             <div class="field">
-              <label for="effective_date">Start Date</label>
+              <label for="effective_date" data-icon="calendar">Start Date</label>
               <input id="effective_date" name="effective_date" type="date" required />
             </div>
 
             <div class="field">
-              <label for="previous_time">Previous time<span data-glossary="scheduled_time"></span></label>
+              <div class="field-label-row">
+                <label for="previous_time" data-icon="clock">Current Schedule</label>
+                <span data-glossary="scheduled_time"></span>
+              </div>
               <input
                 id="previous_time"
                 name="previous_time"
                 required
-                placeholder="6:35-8:55"
+                autocomplete="off"
               />
             </div>
 
             <div class="field">
-              <label for="new_time">New time<span data-glossary="scheduled_time"></span></label>
+              <div class="field-label-row">
+                <label for="new_time" data-icon="clock">New Schedule</label>
+                <span data-glossary="scheduled_time"></span>
+              </div>
               <input
                 id="new_time"
                 name="new_time"
                 required
-                placeholder="6:30-8:55"
               />
             </div>
 
@@ -177,7 +198,7 @@
             </div>
 
             <div class="field">
-              <label for="entered_by">Entered by</label>
+              <label for="entered_by" data-icon="pen-line">Entered by</label>
               <select id="entered_by" name="entered_by" required>
                 <option value="">Select your name…</option>
               </select>
@@ -188,30 +209,32 @@
               <textarea
                 id="note"
                 name="note"
-                required
-                placeholder="Required — why is this change being logged?"
+                placeholder="OPTIONAL"
               ></textarea>
             </div>
           </div>
 
           <div class="delta-box">
             <div class="field">
-              <label for="computed_delta">Computed Time Change (minutes)</label>
+              <label for="computed_delta" data-icon="calculator">Difference between Old and New Schedule</label>
               <input id="computed_delta" readonly value="" />
             </div>
             <div class="field">
-              <label for="delta_minutes">Official Time Change</label>
+              <div class="field-label-row">
+                <label for="delta_minutes" data-icon="pencil">Time Difference To Accumulate</label>
+                <span data-glossary="time_difference_to_accumulate"></span>
+              </div>
               <input id="delta_minutes" name="delta_minutes" type="number" step="1" />
             </div>
             <p class="hint">
-              Exact minutes, not rounded<span data-glossary="payroll_rounding"></span>. Change the “Delta used” value only if the
+              Exact minutes, not rounded<span data-glossary="payroll_rounding"></span>. Change Time Difference To Accumulate only if the
               auto-calc doesn’t match what should be logged.
             </p>
           </div>
 
           <div id="adjustment-block" class="adjustment-block">
             <div class="field">
-              <label for="adjustment_reason">Reason for delta adjustment</label>
+              <label for="adjustment_reason" data-icon="alert-triangle">Reason for adjusting Time Difference To Accumulate</label>
               <select id="adjustment_reason" name="adjustment_reason">
                 <option value="">Select a reason…</option>
               </select>
@@ -219,8 +242,8 @@
           </div>
 
           <div class="actions">
-            <button type="submit" id="submit-btn">Submit change</button>
-            <button type="button" class="secondary" id="reset-btn">Clear</button>
+            <button type="submit" id="submit-btn" data-icon="check">Submit change</button>
+            <button type="button" class="secondary" id="reset-btn" data-icon="rotate-ccw">Clear</button>
           </div>
         </form>
 
@@ -228,8 +251,7 @@
       </section>
 
       <section class="panel recent">
-        <h2>Recently submitted</h2>
-        <p class="lead">Informational only — status comes from the Admin-computed route state.</p>
+        <h2 data-icon="history">Recently submitted</h2>
         <ul id="recent-list" class="recent-list"></ul>
       </section>
     </main>

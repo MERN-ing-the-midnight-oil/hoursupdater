@@ -1,19 +1,26 @@
 import { daysRemainingInWindow } from '../logic/calendar.js';
+import { isBidResponseWindowClosed } from '../logic/bidSignup.js';
+import { isBumpDecisionOverdue } from '../logic/bumpDecisions.js';
 import { buildSeeTheMathFromSegments } from '../logic/changeReport.js';
 import {
   isAdjustmentEvent,
+  isBulkImportEvent,
   isChangeEvent,
   isReassignmentEvent,
+  isSeniorityTieResolutionEvent,
   resolveEffectiveDeltas,
 } from '../logic/stateMachine.js';
 import { toDateString } from '../logic/timeUtils.js';
 import {
   findDriverById,
+  readAppSettings,
+  readBidSignupWorkbook,
   readChangeLog,
   readDrivers,
   readRouteState,
   readSchoolCalendar,
 } from '../data/storage.js';
+import { getDriverSeniorityRank } from '../logic/seniority.js';
 
 /**
  * @param {import('../logic/stateMachine.js').LogEntry[]} changeLog
@@ -134,6 +141,58 @@ function summarizeLogEntry(entry, id, effectiveDeltas, byId) {
       driver_name: reassignment.new_driver_name,
     };
   }
+  if (isBulkImportEvent(entry)) {
+    const bulk = /** @type {import('../logic/stateMachine.js').BulkImportEvent} */ (
+      entry
+    );
+    const created = bulk.created_routes?.length ?? 0;
+    const overwritten = bulk.overwritten_routes?.length ?? 0;
+    return {
+      id: bulk.id,
+      missing: false,
+      type: 'BULK_IMPORT',
+      start_date: toDateString(bulk.imported_at),
+      segment: null,
+      previous_time: null,
+      new_time: `${created} route(s) created` +
+        (overwritten ? `, ${overwritten} overwritten` : ''),
+      delta_minutes: null,
+      entered_by: bulk.entered_by,
+      note: bulk.note,
+      route_id: null,
+      sort_at: bulk.imported_at,
+      created_drivers: bulk.created_drivers,
+      created_routes: bulk.created_routes,
+      overwritten_routes: bulk.overwritten_routes,
+    };
+  }
+  if (isSeniorityTieResolutionEvent(entry)) {
+    const tie =
+      /** @type {import('../logic/stateMachine.js').SeniorityTieResolutionEvent} */ (
+        entry
+      );
+    const order = (tie.assignments ?? [])
+      .slice()
+      .sort((a, b) => a.tie_break - b.tie_break)
+      .map((a) => `${a.tie_break}. ${a.driver_name}`)
+      .join(', ');
+    return {
+      id: tie.id,
+      missing: false,
+      type: 'SENIORITY_TIE_RESOLUTION',
+      start_date: toDateString(tie.resolved_at),
+      segment: null,
+      previous_time: tie.hire_date,
+      new_time: order,
+      delta_minutes: null,
+      entered_by: tie.resolved_by,
+      note: tie.note,
+      route_id: null,
+      sort_at: tie.resolved_at,
+      hire_date: tie.hire_date,
+      assignments: tie.assignments,
+    };
+  }
   return {
     id,
     missing: true,
@@ -155,11 +214,13 @@ function summarizeLogEntry(entry, id, effectiveDeltas, byId) {
  * @returns {string | null}
  */
 export function bidPendingSince(entry) {
-  if (entry.status !== 'BID_PENDING') {
+  if (entry.status !== 'BID_PENDING' && entry.status !== 'BUMP_ELIGIBLE') {
     return null;
   }
+  const outcome =
+    entry.status === 'BUMP_ELIGIBLE' ? 'BUMP_ELIGIBLE' : 'BID_PENDING';
   const reports = (entry.change_reports ?? []).filter(
-    (report) => report.outcome === 'BID_PENDING'
+    (report) => report.outcome === outcome
   );
   if (reports.length) {
     return reports[reports.length - 1].finalized_at;
@@ -178,6 +239,21 @@ export function latestBidPendingReport(entry) {
   }
   const reports = (entry.change_reports ?? []).filter(
     (report) => report.outcome === 'BID_PENDING'
+  );
+  return reports.length ? reports[reports.length - 1] : null;
+}
+
+/**
+ * Latest BUMP_ELIGIBLE Change Report for a live BUMP_ELIGIBLE route (if any).
+ * @param {import('../logic/stateMachine.js').RouteStateEntry} entry
+ * @returns {object | null}
+ */
+export function latestBumpEligibleReport(entry) {
+  if (entry.status !== 'BUMP_ELIGIBLE') {
+    return null;
+  }
+  const reports = (entry.change_reports ?? []).filter(
+    (report) => report.outcome === 'BUMP_ELIGIBLE'
   );
   return reports.length ? reports[reports.length - 1] : null;
 }
@@ -225,7 +301,9 @@ export function enrichRouteForQueue(route_id, entry, ctx) {
   );
 
   const daysRemaining =
-    entry.status === 'ACCUMULATING' || entry.status === 'BID_PENDING'
+    entry.status === 'ACCUMULATING' ||
+    entry.status === 'BID_PENDING' ||
+    entry.status === 'BUMP_ELIGIBLE'
       ? daysRemainingInWindow(
           schoolCalendar,
           asOfDate,
@@ -245,6 +323,23 @@ export function enrichRouteForQueue(route_id, entry, ctx) {
     days_remaining: daysRemaining,
     bid_pending_since: bidPendingSince(entry),
     bid_pending_report: latestBidPendingReport(entry),
+    bump_eligible_report: latestBumpEligibleReport(entry),
+    bump_decision_due_date: entry.bump_decision_due_date ?? null,
+    bump_decision_overdue: isBumpDecisionOverdue(
+      entry.bump_decision_due_date,
+      asOfDate
+    ),
+    bump_chain_id: entry.bump_chain_id ?? null,
+    bump_chain_link: entry.bump_chain_link ?? null,
+    bump_kind: entry.bump_kind ?? null,
+    bid_response_due_date: entry.bid_response_due_date ?? null,
+    bid_response_closed: isBidResponseWindowClosed(
+      entry.bid_response_due_date,
+      asOfDate
+    ),
+    bid_signup: entry.bid_signup ?? null,
+    /** @type {import('../logic/bidSignup.js').BidSignupParseResult | null} */
+    bid_signup_file: ctx.bidSignupFile ?? null,
     payroll_rounded_total_minutes: entry.payroll_rounded_total_minutes,
     segments: entry.segments,
     baseline_segments: entry.baseline_segments,
@@ -285,16 +380,42 @@ export function enrichRouteForQueue(route_id, entry, ctx) {
  * @param {string} [dataDir]
  */
 export async function buildAdminQueue(dataDir) {
-  const [state, drivers, changeLog, schoolCalendar] = await Promise.all([
-    readRouteState(dataDir),
-    readDrivers(dataDir),
-    readChangeLog(dataDir),
-    readSchoolCalendar(dataDir),
-  ]);
+  const [state, drivers, changeLog, schoolCalendar, appSettings] =
+    await Promise.all([
+      readRouteState(dataDir),
+      readDrivers(dataDir),
+      readChangeLog(dataDir),
+      readSchoolCalendar(dataDir),
+      readAppSettings(dataDir),
+    ]);
   const driversById = new Map(drivers.map((d) => [d.driver_id, d]));
   const driversByName = new Map(drivers.map((d) => [d.name.toLowerCase(), d]));
   const effectiveDeltas = resolveEffectiveDeltas(changeLog);
   const asOfDate = toDateString(new Date());
+
+  /** @type {import('../logic/bidSignup.js').BidSignupParseResult | null} */
+  let bidSignupFile = null;
+  if (appSettings.electronic_bid_signup_enabled) {
+    try {
+      const workbook = await readBidSignupWorkbook(
+        dataDir,
+        appSettings.bid_signup_workbook
+      );
+      bidSignupFile = workbook.parse;
+    } catch (error) {
+      bidSignupFile = {
+        status: 'unreadable',
+        message: `Bid sign-up file could not be read: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        missing_columns: [],
+        found_headers: [],
+        responses: [],
+        sheet_name: null,
+      };
+    }
+  }
+
   const ctx = {
     driversById,
     driversByName,
@@ -302,6 +423,7 @@ export async function buildAdminQueue(dataDir) {
     effectiveDeltas,
     schoolCalendar,
     asOfDate,
+    bidSignupFile,
   };
 
   return Object.entries(state)
@@ -366,6 +488,60 @@ function involvementRole(driver, entry, byId) {
     }
     return null;
   }
+  if (isBulkImportEvent(entry)) {
+    const bulk = /** @type {import('../logic/stateMachine.js').BulkImportEvent} */ (
+      entry
+    );
+    if (bulk.entered_by?.trim().toLowerCase() === name) {
+      return 'entered_by';
+    }
+    const created = [
+      ...(bulk.created_drivers ?? []),
+      ...(bulk.updated_drivers ?? []),
+    ];
+    if (
+      created.some(
+        (d) =>
+          d.driver_id === driver.driver_id ||
+          d.name?.trim().toLowerCase() === name
+      )
+    ) {
+      return 'driver';
+    }
+    const routes = [
+      ...(bulk.created_routes ?? []),
+      ...(bulk.overwritten_routes ?? []),
+    ];
+    if (
+      routes.some(
+        (r) =>
+          r.driver_id === driver.driver_id ||
+          r.driver_name?.trim().toLowerCase() === name
+      )
+    ) {
+      return 'driver';
+    }
+    return null;
+  }
+  if (isSeniorityTieResolutionEvent(entry)) {
+    const tie =
+      /** @type {import('../logic/stateMachine.js').SeniorityTieResolutionEvent} */ (
+        entry
+      );
+    if (tie.resolved_by?.trim().toLowerCase() === name) {
+      return 'resolved_by';
+    }
+    if (
+      (tie.assignments ?? []).some(
+        (a) =>
+          a.driver_id === driver.driver_id ||
+          a.driver_name?.trim().toLowerCase() === name
+      )
+    ) {
+      return 'driver';
+    }
+    return null;
+  }
   return null;
 }
 
@@ -403,10 +579,12 @@ export async function buildDriverDetail(driverId, dataDir) {
     return null;
   }
 
-  const [queue, changeLog] = await Promise.all([
+  const [queue, changeLog, allDrivers] = await Promise.all([
     buildAdminQueue(dataDir),
     readChangeLog(dataDir),
+    readDrivers(dataDir),
   ]);
+  const seniority = getDriverSeniorityRank(allDrivers, driver.driver_id);
   const effectiveDeltas = resolveEffectiveDeltas(changeLog);
 
   const assignments = queue.filter(
@@ -466,6 +644,11 @@ export async function buildDriverDetail(driverId, dataDir) {
 
   return {
     driver,
+    seniority: seniority ?? {
+      rank: null,
+      total: 0,
+      missing_hire_date: true,
+    },
     assignments,
     change_history,
     change_reports: dedupedReports,

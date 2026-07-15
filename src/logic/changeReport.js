@@ -62,7 +62,7 @@ export function buildSeeTheMathFromSegments(before_segments, after_segments) {
  *   route_id: string,
  *   driver_name: string | null,
  *   driver_id?: string | null,
- *   outcome: 'STABLE' | 'BID_PENDING',
+ *   outcome: 'STABLE' | 'BID_PENDING' | 'BUMP_ELIGIBLE',
  *   finalized_at: string,
  *   window_opened_date: string | null,
  *   before_segments: Record<string, string | null>,
@@ -131,7 +131,9 @@ export function buildDriverEmailDraft(report, driver) {
   const subject =
     report.outcome === 'BID_PENDING'
       ? `Route ${report.route_id} time change — bid pending`
-      : `Route ${report.route_id} time change — hours update`;
+      : report.outcome === 'BUMP_ELIGIBLE'
+        ? `Route ${report.route_id} time change — bump option`
+        : `Route ${report.route_id} time change — hours update`;
 
   const changeLines = report.contributing_changes
     .map(
@@ -144,7 +146,9 @@ export function buildDriverEmailDraft(report, driver) {
   const outcomeLine =
     report.outcome === 'BID_PENDING'
       ? 'This route’s accumulated time change has reached the bid threshold and is flagged for bidding. (Pay handling while a bid is pending is still being confirmed with Transportation — this note does not state interim pay.)'
-      : 'These changes have locked in as the official route times.';
+      : report.outcome === 'BUMP_ELIGIBLE'
+        ? 'This route’s accumulated time change is a decrease of 30 minutes or more. Per the contract, you may use seniority to bump a less-senior driver, or confirm that you choose to keep this assignment. You have two school days from written determination to decide.'
+        : 'These changes have locked in as the official route times.';
 
   const assignedName =
     driver?.name?.trim() || report.driver_name?.trim() || null;

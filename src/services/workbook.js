@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import ExcelJS from 'exceljs';
 import { daysRemainingInWindow } from '../logic/calendar.js';
+import { getSeniorityOrder } from '../logic/seniority.js';
 import { isChangeEvent } from '../logic/stateMachine.js';
 
 /**
@@ -125,15 +126,27 @@ export function buildLogicalWorkbook({
     assignmentsByDriver.get(key)?.push(route_id);
   }
 
+  const seniorityById = new Map(
+    getSeniorityOrder(drivers).map((row) => [row.driver_id, row])
+  );
+
   const driversSheet = drivers
     .map((driver) => {
       const byId = assignmentsByDriver.get(driver.driver_id) ?? [];
       const byName = assignmentsByDriver.get(driver.name) ?? [];
       const routesAssigned = [...new Set([...byId, ...byName])].sort();
+      const ranked = seniorityById.get(driver.driver_id);
       return {
         driver_id: driver.driver_id,
         name: driver.name,
         email: driver.email ?? '',
+        hire_date: driver.hire_date ?? '',
+        tie_break:
+          driver.tie_break == null ? '' : String(driver.tie_break),
+        seniority_rank:
+          ranked?.seniority_rank == null
+            ? ''
+            : String(ranked.seniority_rank),
         current_assignments: routesAssigned.join(', '),
       };
     })
@@ -225,6 +238,9 @@ const DRIVERS_HEADERS = [
   'driver_id',
   'name',
   'email',
+  'hire_date',
+  'tie_break',
+  'seniority_rank',
   'current_assignments',
 ];
 

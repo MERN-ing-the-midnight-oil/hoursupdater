@@ -1,4 +1,4 @@
-import { BID_THRESHOLD_MINUTES, SEGMENTS } from '../config.js';
+import { BID_THRESHOLD_MINUTES, BUMP_DECISION_SCHOOL_DAYS, BID_RESPONSE_SCHOOL_DAYS, SEGMENTS } from '../config.js';
 import {
   addSchoolDays,
   isWindowExpired,
@@ -11,7 +11,7 @@ import { buildChangeReport } from './changeReport.js';
 
 /**
  * @typedef {'AM' | 'MIDDAY' | 'PM'} Segment
- * @typedef {'STABLE' | 'ACCUMULATING' | 'LOCKED_PENDING' | 'BID_PENDING' | 'NEEDS_REVIEW'} RouteStatus
+ * @typedef {'STABLE' | 'ACCUMULATING' | 'LOCKED_PENDING' | 'BID_PENDING' | 'BUMP_ELIGIBLE' | 'NEEDS_REVIEW'} RouteStatus
  * @typedef {'MV' | 'SPED' | 'OTHER'} ReasonCategory
  */
 
@@ -39,7 +39,7 @@ import { buildChangeReport } from './changeReport.js';
  * @property {number} delta_minutes - value used in math (equals computed unless routing-adjusted)
  * @property {RoutingAdjustment | null} routing_adjustment
  * @property {ReasonCategory} reason_category
- * @property {string} note - required free-text explanation for every write
+ * @property {string} note - optional free-text explanation
  * @property {string} entered_by - from staff-names.json
  */
 
@@ -70,18 +70,86 @@ import { buildChangeReport } from './changeReport.js';
  * @property {string | null} new_driver_id
  * @property {string | null} new_driver_name
  * @property {string} note - required free-text explanation for every write
+ * @property {'routine' | 'bid_awarded'} [resolution] - bid_awarded = this reassignment resolves a BID_PENDING route
  * @property {string} reassigned_by - from staff-names.json
  * @property {string} reassigned_at - ISO datetime
  */
 
-/** @typedef {ChangeEvent | AdjustmentEvent | ReassignmentEvent} LogEntry */
+/**
+ * One-shot roster seed (drivers + routes + first assignments). Not a CHANGE —
+ * rebuild ignores this entry; seeded STABLE routes live in route-state.
+ * @typedef {Object} BulkImportEvent
+ * @property {string} id
+ * @property {'BULK_IMPORT'} type
+ * @property {string} imported_at - ISO datetime
+ * @property {string} entered_by - from staff-names.json
+ * @property {string} note - required explanation for the whole batch
+ * @property {{ driver_id: string, name: string, email: string | null }[]} created_drivers
+ * @property {{ driver_id: string, name: string, email: string | null }[]} [updated_drivers]
+ * @property {{ route_id: string, driver_id: string | null, driver_name: string, segments: Record<Segment, string | null> }[]} created_routes
+ * @property {{ route_id: string, driver_id: string | null, driver_name: string, segments: Record<Segment, string | null> }[]} [overwritten_routes]
+ * @property {number[]} [skipped_row_numbers]
+ */
+
+/**
+ * Admin resolution of an open NEEDS_REVIEW. Append-only; scoped to one discrepancy.
+ * Rebuild honors keep_prior / accept_computed only while the same discrepancy
+ * (causing adjustment + status pair) is still the current conflict.
+ * @typedef {Object} NeedsReviewResolutionEvent
+ * @property {string} id
+ * @property {'NEEDS_REVIEW_RESOLUTION'} type
+ * @property {string} route_id
+ * @property {'keep_prior' | 'accept_computed'} resolution
+ * @property {string | null} causing_adjustment_id
+ * @property {'STABLE' | 'BID_PENDING' | 'BUMP_ELIGIBLE'} previous_finalized_status
+ * @property {'STABLE' | 'BID_PENDING' | 'BUMP_ELIGIBLE' | 'ACCUMULATING'} computed_status
+ * @property {string} note - required free-text explanation
+ * @property {string} resolved_by - from staff-names.json
+ * @property {string} resolved_at - ISO datetime
+ */
+
+/**
+ * Admin resolution of BUMP_ELIGIBLE (original decrease or displacement chain).
+ * Append-only; the app never invents these — Admin always decides.
+ * @typedef {Object} BumpDecisionEvent
+ * @property {string} id
+ * @property {'BUMP_DECISION'} type
+ * @property {string} route_id - route the electing/deciding driver is resolving
+ * @property {'keep_assignment' | 'elect_bump' | 'accept_unassigned'} decision
+ * @property {'original_decrease' | 'displacement'} bump_kind
+ * @property {string} bump_chain_id
+ * @property {number} bump_chain_link - 1-based link index for this decision
+ * @property {string | null} electing_driver_id
+ * @property {string | null} electing_driver_name
+ * @property {string | null} [target_route_id]
+ * @property {string | null} [target_driver_id]
+ * @property {string | null} [target_driver_name]
+ * @property {string} note
+ * @property {string} decided_by
+ * @property {string} decided_at - ISO datetime
+ */
+
+/**
+ * Admin resolution of Art. 3.01 same-date seniority lots.
+ * Append-only audit; does not affect route rebuild.
+ * @typedef {Object} SeniorityTieResolutionEvent
+ * @property {string} id
+ * @property {'SENIORITY_TIE_RESOLUTION'} type
+ * @property {string} hire_date - YYYY-MM-DD
+ * @property {{ driver_id: string, driver_name: string, tie_break: number }[]} assignments
+ * @property {string} note - required free-text explanation
+ * @property {string} resolved_by - from staff-names.json
+ * @property {string} resolved_at - ISO datetime
+ */
+
+/** @typedef {ChangeEvent | AdjustmentEvent | ReassignmentEvent | BulkImportEvent | NeedsReviewResolutionEvent | BumpDecisionEvent | SeniorityTieResolutionEvent} LogEntry */
 
 /**
  * Held when an ADJUSTMENT would flip a finalized route's status after the
  * window has already closed / an action was communicated. Admin must resolve.
  * @typedef {Object} ReconciliationInfo
- * @property {'STABLE' | 'BID_PENDING'} previous_finalized_status
- * @property {'STABLE' | 'BID_PENDING' | 'ACCUMULATING'} computed_status
+ * @property {'STABLE' | 'BID_PENDING' | 'BUMP_ELIGIBLE'} previous_finalized_status
+ * @property {'STABLE' | 'BID_PENDING' | 'BUMP_ELIGIBLE' | 'ACCUMULATING'} computed_status
  * @property {number} computed_cumulative_drift_minutes
  * @property {number | null} computed_payroll_rounded_total_minutes
  * @property {string | null} causing_adjustment_id
@@ -90,12 +158,16 @@ import { buildChangeReport } from './changeReport.js';
  */
 
 /**
- * Audit trail for review flag lifecycle (self-resolve, and later Admin resolve).
+ * Audit trail for review flag lifecycle (self-resolve, and Admin resolve).
  * @typedef {Object} ReviewHistoryEntry
- * @property {'NEEDS_REVIEW_SELF_RESOLVED'} event
+ * @property {'NEEDS_REVIEW_SELF_RESOLVED' | 'NEEDS_REVIEW_ADMIN_RESOLVED'} event
+ * @property {'accept_computed' | 'keep_prior'} [resolution]
  * @property {string | null} previous_flag_raised_at
  * @property {string} resolved_at
  * @property {string | null} causing_adjustment_id
+ * @property {string | null} [resolved_by]
+ * @property {string | null} [resolution_event_id]
+ * @property {string | null} [note]
  */
 
 /**
@@ -110,6 +182,32 @@ import { buildChangeReport } from './changeReport.js';
  * @property {number} cumulative_drift_minutes - running sum of unrounded deltas; never round before summing
  * @property {string[]} contributing_change_ids
  * @property {number | null} payroll_rounded_total_minutes - rounded AM+MD+PM total at last finalization
+ * @property {string | null} [bump_decision_due_date] - school-day deadline to elect bump (BUMP_ELIGIBLE)
+ * @property {string | null} [bump_chain_id] - shared id across a vacancy chain
+ * @property {number | null} [bump_chain_link] - 1-based link index in that chain
+ * @property {'original_decrease' | 'displacement' | null} [bump_kind]
+ * @property {string | null} [bid_response_due_date] - Art. 3.08(c)(1) 2-school-day sign-up deadline (BID_PENDING)
+ * @property {{
+ *   drivers_notified_at: string | null,
+ *   finalized_at: string | null,
+ *   eligible_responders: Array<{
+ *     driver_id: string,
+ *     name: string,
+ *     initials: string,
+ *     signed_at: string,
+ *     seniority_rank: number | null,
+ *   }> | null,
+ *   match_issues?: Array<{
+ *     form_email: string,
+ *     form_name: string,
+ *     route_id: string,
+ *     initials: string,
+ *     signed_at: string,
+ *     kind: 'unmatched' | 'ambiguous',
+ *     suggestions: string[],
+ *   }> | null,
+ *   workbook_mtime: string | null,
+ * } | null} [bid_signup]
  * @property {ReconciliationInfo | null} [reconciliation]
  * @property {string[]} [pending_change_ids] - ChangeEvents logged while NEEDS_REVIEW; held until resolve
  * @property {ReviewHistoryEntry[]} [review_history]
@@ -130,8 +228,82 @@ export function isReassignmentEvent(entry) {
 }
 
 /** @param {LogEntry} entry */
+export function isBulkImportEvent(entry) {
+  return entry?.type === 'BULK_IMPORT';
+}
+
+/** @param {LogEntry} entry */
+export function isNeedsReviewResolutionEvent(entry) {
+  return entry?.type === 'NEEDS_REVIEW_RESOLUTION';
+}
+
+/** @param {LogEntry} entry */
+export function isBumpDecisionEvent(entry) {
+  return entry?.type === 'BUMP_DECISION';
+}
+
+/** @param {LogEntry} entry */
+export function isSeniorityTieResolutionEvent(entry) {
+  return entry?.type === 'SENIORITY_TIE_RESOLUTION';
+}
+
+/** @param {LogEntry} entry */
 export function isChangeEvent(entry) {
-  return !isAdjustmentEvent(entry) && !isReassignmentEvent(entry);
+  return (
+    !isAdjustmentEvent(entry) &&
+    !isReassignmentEvent(entry) &&
+    !isBulkImportEvent(entry) &&
+    !isNeedsReviewResolutionEvent(entry) &&
+    !isBumpDecisionEvent(entry) &&
+    !isSeniorityTieResolutionEvent(entry)
+  );
+}
+
+/**
+ * Whether a logged Admin resolution matches the discrepancy rebuild is looking at.
+ * Scoped — a newer causing adjustment or different status pair is a fresh conflict.
+ *
+ * @param {NeedsReviewResolutionEvent} resolution
+ * @param {{
+ *   causing_adjustment_id: string | null,
+ *   previous_finalized_status: string,
+ *   computed_status: string,
+ * }} discrepancy
+ * @returns {boolean}
+ */
+export function resolutionMatchesDiscrepancy(resolution, discrepancy) {
+  return (
+    (resolution.causing_adjustment_id ?? null) ===
+      (discrepancy.causing_adjustment_id ?? null) &&
+    resolution.previous_finalized_status ===
+      discrepancy.previous_finalized_status &&
+    resolution.computed_status === discrepancy.computed_status
+  );
+}
+
+/**
+ * Latest NEEDS_REVIEW_RESOLUTION for this route that matches the discrepancy.
+ * @param {LogEntry[]} changeLog
+ * @param {string} routeId
+ * @param {{
+ *   causing_adjustment_id: string | null,
+ *   previous_finalized_status: string,
+ *   computed_status: string,
+ * }} discrepancy
+ * @returns {NeedsReviewResolutionEvent | null}
+ */
+export function findMatchingNeedsReviewResolution(
+  changeLog,
+  routeId,
+  discrepancy
+) {
+  const matches = changeLog
+    .filter(isNeedsReviewResolutionEvent)
+    .map((entry) => /** @type {NeedsReviewResolutionEvent} */ (entry))
+    .filter((entry) => entry.route_id === routeId)
+    .filter((entry) => resolutionMatchesDiscrepancy(entry, discrepancy))
+    .sort((a, b) => a.resolved_at.localeCompare(b.resolved_at));
+  return matches.at(-1) ?? null;
 }
 
 /**
@@ -217,6 +389,65 @@ export function applyResolvedDrivers(routeStateMap, changeLog, asOfDate) {
   return updated;
 }
 
+/**
+ * When a BID_PENDING route has a later reassignment marked bid_awarded,
+ * clear into STABLE (baseline catches up). Ordinary reassignments leave status alone.
+ *
+ * @param {RouteStateMap} routeStateMap
+ * @param {LogEntry[]} changeLog
+ * @returns {RouteStateMap}
+ */
+export function applyBidAwardResolutions(routeStateMap, changeLog) {
+  /** @type {Map<string, ReassignmentEvent>} */
+  const latestAwardByRoute = new Map();
+  for (const entry of changeLog) {
+    if (!isReassignmentEvent(entry)) continue;
+    const reassignment = /** @type {ReassignmentEvent} */ (entry);
+    if (reassignment.resolution !== 'bid_awarded') continue;
+    const prev = latestAwardByRoute.get(reassignment.route_id);
+    if (!prev || reassignment.reassigned_at >= prev.reassigned_at) {
+      latestAwardByRoute.set(reassignment.route_id, reassignment);
+    }
+  }
+  if (!latestAwardByRoute.size) {
+    return routeStateMap;
+  }
+
+  /** @type {RouteStateMap} */
+  const updated = { ...routeStateMap };
+  for (const [routeId, award] of latestAwardByRoute) {
+    const entry = updated[routeId];
+    if (!entry || entry.status !== 'BID_PENDING') continue;
+
+    const bidReport = [...(entry.change_reports ?? [])]
+      .reverse()
+      .find((r) => r.outcome === 'BID_PENDING');
+    if (
+      bidReport?.finalized_at &&
+      award.reassigned_at < bidReport.finalized_at
+    ) {
+      continue;
+    }
+
+    const next = cloneRouteState(entry);
+    next.status = 'STABLE';
+    next.baseline_segments = { ...next.segments };
+    next.cumulative_drift_minutes = 0;
+    next.contributing_change_ids = [];
+    next.window_opened_date = null;
+    next.window_expires_date = null;
+    next.bump_decision_due_date = null;
+    next.bump_chain_id = null;
+    next.bump_chain_link = null;
+    next.bump_kind = null;
+    next.bid_response_due_date = null;
+    next.bid_signup = null;
+    next.last_updated = award.reassigned_at;
+    updated[routeId] = next;
+  }
+  return updated;
+}
+
 /** @returns {Record<Segment, string | null>} */
 export function emptySegments() {
   return { AM: null, MIDDAY: null, PM: null };
@@ -263,12 +494,33 @@ export function createInitialRouteState(changeEvent) {
     cumulative_drift_minutes: 0,
     contributing_change_ids: [],
     payroll_rounded_total_minutes: null,
+    bump_decision_due_date: null,
+    bump_chain_id: null,
+    bump_chain_link: null,
+    bump_kind: null,
+    bid_response_due_date: null,
+    bid_signup: null,
     reconciliation: null,
     pending_change_ids: [],
     review_history: [],
     change_reports: [],
     last_updated: changeEvent.submitted_at,
   };
+}
+
+/**
+ * Window finalization outcome from exact cumulative drift.
+ * Magnitude uses the 30-minute threshold; sign distinguishes bid posting
+ * (increase) from bump-eligible (decrease) per Art. 3.08(a)(8)(a)/(b).
+ *
+ * @param {number} exactDrift
+ * @returns {'STABLE' | 'BID_PENDING' | 'BUMP_ELIGIBLE'}
+ */
+export function windowFinalizationOutcome(exactDrift) {
+  if (Math.abs(exactDrift) < BID_THRESHOLD_MINUTES) {
+    return 'STABLE';
+  }
+  return exactDrift > 0 ? 'BID_PENDING' : 'BUMP_ELIGIBLE';
 }
 
 /**
@@ -285,13 +537,19 @@ export function createInitialRouteState(changeEvent) {
  *
  * @param {RouteStateEntry} routeState
  * @param {string | Date} asOfDate
- * @param {{ routeId?: string, changeLog?: LogEntry[], effectiveDeltas?: Map<string, number> }} [options]
+ * @param {{
+ *   routeId?: string,
+ *   changeLog?: LogEntry[],
+ *   effectiveDeltas?: Map<string, number>,
+ *   schoolCalendar?: import('./calendar.js').SchoolCalendar | string[],
+ * }} [options]
  * @returns {RouteStateEntry}
  */
 export function applyWindowExpiration(routeState, asOfDate, options = {}) {
   if (
     routeState.status !== 'ACCUMULATING' &&
-    routeState.status !== 'BID_PENDING'
+    routeState.status !== 'BID_PENDING' &&
+    routeState.status !== 'BUMP_ELIGIBLE'
   ) {
     return routeState;
   }
@@ -304,8 +562,7 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
   const exactDrift = state.cumulative_drift_minutes;
   const payrollBreakdown = buildPayrollRoundingBreakdown(state.segments);
   const payrollRoundedTotal = payrollBreakdown.payroll_rounded_total_minutes;
-  const outcome =
-    Math.abs(exactDrift) < BID_THRESHOLD_MINUTES ? 'STABLE' : 'BID_PENDING';
+  const outcome = windowFinalizationOutcome(exactDrift);
 
   if (options.changeLog && options.routeId) {
     const effectiveDeltas =
@@ -377,15 +634,52 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
     state.window_opened_date = null;
     state.window_expires_date = null;
     state.contributing_change_ids = [];
-  } else {
+    state.bump_decision_due_date = null;
+    state.bump_chain_id = null;
+    state.bump_chain_link = null;
+    state.bump_kind = null;
+    state.bid_response_due_date = null;
+    state.bid_signup = null;
+  } else if (outcome === 'BID_PENDING') {
     // TODO: confirm interim pay handling during BID_PENDING — does the driver
     // get paid the new time immediately while a bid is pending, or only after
     // the bid resolves? Do not assume pay behavior here beyond status flagging.
-    // (b) Bid posting: keep exact cumulative for Admin; store rounded total for Payroll.
+    // (b) Bid posting (increase ≥ 30): keep exact cumulative for Admin.
     state.status = 'BID_PENDING';
     state.payroll_rounded_total_minutes = payrollRoundedTotal;
     state.window_opened_date = null;
     state.window_expires_date = null;
+    state.bump_decision_due_date = null;
+    state.bump_chain_id = null;
+    state.bump_chain_link = null;
+    state.bump_kind = null;
+    if (options.schoolCalendar) {
+      state.bid_response_due_date = addSchoolDays(
+        options.schoolCalendar,
+        asOfDate,
+        BID_RESPONSE_SCHOOL_DAYS
+      );
+    } else {
+      state.bid_response_due_date = null;
+    }
+  } else {
+    // (c) Bump-eligible (decrease ≥ 30): current driver has a 2-school-day clock
+    // to bump or keep the assignment — Art. 3.08(a)(8)(b) / (b)(2).
+    // Chain id / kind are assigned (or preserved) after rebuild — not auto-resolved.
+    state.status = 'BUMP_ELIGIBLE';
+    state.payroll_rounded_total_minutes = payrollRoundedTotal;
+    state.window_opened_date = null;
+    state.window_expires_date = null;
+    if (options.schoolCalendar) {
+      state.bump_decision_due_date = addSchoolDays(
+        options.schoolCalendar,
+        asOfDate,
+        BUMP_DECISION_SCHOOL_DAYS
+      );
+    } else {
+      state.bump_decision_due_date = null;
+    }
+    state.bid_response_due_date = null;
   }
 
   return state;
@@ -399,7 +693,8 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
 export function hasOpenAccumulationWindow(routeState, asOfDate) {
   if (
     routeState.status !== 'ACCUMULATING' &&
-    routeState.status !== 'BID_PENDING'
+    routeState.status !== 'BID_PENDING' &&
+    routeState.status !== 'BUMP_ELIGIBLE'
   ) {
     return false;
   }
@@ -469,6 +764,7 @@ export function applyChangeToRoute(
     routeId: changeEvent.route_id,
     changeLog: options.changeLog,
     effectiveDeltas: options.effectiveDeltas,
+    schoolCalendar,
   });
 
   state.driver_name = changeEvent.driver_name;
@@ -493,21 +789,33 @@ export function applyChangeToRoute(
     state.contributing_change_ids.push(changeEvent.id);
     state.window_expires_date = expiresDate;
 
-    // Rule 5: reversal from BID_PENDING back to ACCUMULATING
+    // Rule 5: reversal from bid/bump flag back to ACCUMULATING
     // Threshold uses exact unrounded cumulative — no rounding artifact.
     if (
-      state.status === 'BID_PENDING' &&
+      (state.status === 'BID_PENDING' || state.status === 'BUMP_ELIGIBLE') &&
       Math.abs(state.cumulative_drift_minutes) < BID_THRESHOLD_MINUTES
     ) {
       state.status = 'ACCUMULATING';
+      state.bump_decision_due_date = null;
+      state.bump_chain_id = null;
+      state.bump_chain_link = null;
+      state.bump_kind = null;
+      state.bid_response_due_date = null;
+      state.bid_signup = null;
     }
   } else {
-    // Rule 2 / Rule 6: open a fresh window (STABLE after lock-in, or closed BID_PENDING)
+    // Rule 2 / Rule 6: open a fresh window (STABLE after lock-in, or closed bid/bump)
     state.status = 'ACCUMULATING';
     state.window_opened_date = changeDate;
     state.cumulative_drift_minutes = delta;
     state.contributing_change_ids = [changeEvent.id];
     state.window_expires_date = expiresDate;
+    state.bump_decision_due_date = null;
+    state.bump_chain_id = null;
+    state.bump_chain_link = null;
+    state.bump_kind = null;
+    state.bid_response_due_date = null;
+    state.bid_signup = null;
   }
 
   return state;
@@ -517,7 +825,7 @@ export function applyChangeToRoute(
  * Expire windows across all routes as of a given date (no new change applied).
  * @param {RouteStateMap} routeStateMap
  * @param {string | Date} asOfDate
- * @param {{ changeLog?: LogEntry[], effectiveDeltas?: Map<string, number> }} [options]
+ * @param {{ changeLog?: LogEntry[], effectiveDeltas?: Map<string, number>, schoolCalendar?: import('./calendar.js').SchoolCalendar | string[] }} [options]
  * @returns {RouteStateMap}
  */
 export function applyAllWindowExpirations(routeStateMap, asOfDate, options = {}) {
@@ -528,6 +836,7 @@ export function applyAllWindowExpirations(routeStateMap, asOfDate, options = {})
       routeId,
       changeLog: options.changeLog,
       effectiveDeltas: options.effectiveDeltas,
+      schoolCalendar: options.schoolCalendar,
     });
   }
   return updated;
@@ -535,8 +844,8 @@ export function applyAllWindowExpirations(routeStateMap, asOfDate, options = {})
 
 /**
  * A route is "finalized" once its accumulation window has closed into a
- * lock-in (STABLE with a payroll figure) or a bid flag (BID_PENDING), or it
- * is already waiting on Admin review of such a flip.
+ * lock-in (STABLE with a payroll figure), a bid flag (BID_PENDING), a bump
+ * option (BUMP_ELIGIBLE), or it is already waiting on Admin review of such a flip.
  * @param {RouteStateEntry | null | undefined} entry
  * @returns {boolean}
  */
@@ -544,7 +853,11 @@ export function isFinalizedRouteEntry(entry) {
   if (!entry) {
     return false;
   }
-  if (entry.status === 'BID_PENDING' || entry.status === 'NEEDS_REVIEW') {
+  if (
+    entry.status === 'BID_PENDING' ||
+    entry.status === 'BUMP_ELIGIBLE' ||
+    entry.status === 'NEEDS_REVIEW'
+  ) {
     return true;
   }
   return (
@@ -555,7 +868,7 @@ export function isFinalizedRouteEntry(entry) {
 /**
  * The real-world-facing finalized status that was (or is being) communicated.
  * @param {RouteStateEntry} entry
- * @returns {'STABLE' | 'BID_PENDING' | null}
+ * @returns {'STABLE' | 'BID_PENDING' | 'BUMP_ELIGIBLE' | null}
  */
 export function getPreviousFinalizedStatus(entry) {
   if (entry.status === 'NEEDS_REVIEW') {
@@ -563,6 +876,9 @@ export function getPreviousFinalizedStatus(entry) {
   }
   if (entry.status === 'BID_PENDING') {
     return 'BID_PENDING';
+  }
+  if (entry.status === 'BUMP_ELIGIBLE') {
+    return 'BUMP_ELIGIBLE';
   }
   if (entry.status === 'STABLE' && entry.payroll_rounded_total_minutes != null) {
     return 'STABLE';
@@ -672,6 +988,7 @@ export function applyPendingChanges(
 
   return applyWindowExpiration(state, asOfDate, {
     routeId: ordered[0]?.route_id,
+    schoolCalendar,
     ...reportOptions,
   });
 }
@@ -753,6 +1070,16 @@ export function reconcileFinalizedStatusFlips(
 
     const pending = pendingByRoute[routeId] ?? [];
     const causing = findCausingAdjustment(changeLog, routeId);
+    const discrepancy = {
+      causing_adjustment_id: causing?.id ?? null,
+      previous_finalized_status: previousFinalized,
+      computed_status: computedStatus,
+    };
+    const adminResolution = findMatchingNeedsReviewResolution(
+      changeLog,
+      routeId,
+      discrepancy
+    );
 
     // Discrepancy cleared — leave an audit trace, then process any held changes.
     if (computedStatus === previousFinalized) {
@@ -797,9 +1124,62 @@ export function reconcileFinalizedStatusFlips(
       continue;
     }
 
+    // Admin already resolved this exact discrepancy — honor keep_prior / accept_computed.
+    if (adminResolution?.resolution === 'keep_prior') {
+      const historyNote = historyNoteFromResolution(prior, adminResolution);
+      result[routeId] = {
+        ...cloneRouteState(prior),
+        status: previousFinalized,
+        reconciliation: null,
+        pending_change_ids: [],
+        review_history: withAdminHistory(prior, historyNote),
+        bump_decision_due_date:
+          previousFinalized === 'BUMP_ELIGIBLE'
+            ? (prior.bump_decision_due_date ?? null)
+            : null,
+        bump_chain_id:
+          previousFinalized === 'BUMP_ELIGIBLE'
+            ? (prior.bump_chain_id ?? null)
+            : null,
+        bump_chain_link:
+          previousFinalized === 'BUMP_ELIGIBLE'
+            ? (prior.bump_chain_link ?? null)
+            : null,
+        bump_kind:
+          previousFinalized === 'BUMP_ELIGIBLE'
+            ? (prior.bump_kind ?? 'original_decrease')
+            : null,
+      };
+      continue;
+    }
+
+    if (adminResolution?.resolution === 'accept_computed') {
+      const historyNote = historyNoteFromResolution(prior, adminResolution);
+      let next = {
+        ...computed,
+        reconciliation: null,
+        pending_change_ids: [],
+        review_history: withAdminHistory(prior, historyNote),
+      };
+      if (pending.length > 0 && schoolCalendar) {
+        next = applyPendingChanges(
+          next,
+          pending,
+          schoolCalendar,
+          effectiveDeltas,
+          asOfDate,
+          { changeLog }
+        );
+        next.review_history = withAdminHistory(prior, historyNote);
+      }
+      result[routeId] = next;
+      continue;
+    }
+
     if (
       computedStatus !== 'STABLE' &&
       computedStatus !== 'BID_PENDING' &&
+      computedStatus !== 'BUMP_ELIGIBLE' &&
       computedStatus !== 'ACCUMULATING'
     ) {
       continue;
@@ -832,6 +1212,46 @@ export function reconcileFinalizedStatusFlips(
   }
 
   return result;
+}
+
+/**
+ * @param {RouteStateEntry} prior
+ * @param {NeedsReviewResolutionEvent} resolution
+ * @returns {ReviewHistoryEntry}
+ */
+function historyNoteFromResolution(prior, resolution) {
+  return {
+    event: 'NEEDS_REVIEW_ADMIN_RESOLVED',
+    resolution: resolution.resolution,
+    previous_flag_raised_at:
+      prior.status === 'NEEDS_REVIEW'
+        ? (prior.reconciliation?.raised_at ?? null)
+        : null,
+    resolved_at: resolution.resolved_at,
+    causing_adjustment_id: resolution.causing_adjustment_id ?? null,
+    resolved_by: resolution.resolved_by ?? null,
+    resolution_event_id: resolution.id,
+    note: resolution.note ?? null,
+  };
+}
+
+/**
+ * Avoid duplicating the same Admin resolution note on every rebuild.
+ * @param {RouteStateEntry} prior
+ * @param {ReviewHistoryEntry} historyNote
+ * @returns {ReviewHistoryEntry[]}
+ */
+function withAdminHistory(prior, historyNote) {
+  const existing = [...(prior.review_history ?? [])];
+  if (
+    historyNote.resolution_event_id &&
+    existing.some(
+      (item) => item.resolution_event_id === historyNote.resolution_event_id
+    )
+  ) {
+    return existing;
+  }
+  return [...existing, historyNote];
 }
 
 /**
@@ -913,6 +1333,7 @@ export function rebuildRouteStateFromChangeLog(
   const computed = applyAllWindowExpirations(state, asOfDate, {
     changeLog,
     effectiveDeltas,
+    schoolCalendar,
   });
 
   if (!options.priorRouteState) {
@@ -978,9 +1399,6 @@ export function validateChangeEvent(
   }
   if (typeof event.delta_minutes !== 'number' || Number.isNaN(event.delta_minutes)) {
     errors.push('delta_minutes must be a number.');
-  }
-  if (!event.note?.trim()) {
-    errors.push('note is required.');
   }
 
   const enteredBy = event.entered_by?.trim() ?? '';
@@ -1138,6 +1556,136 @@ export function validateReassignmentEvent(event, allowedStaffNames = []) {
     errors.push(
       'new_driver_id is required when assigning a named driver (or clear both for Unassigned).'
     );
+  }
+
+  if (
+    event.resolution != null &&
+    event.resolution !== 'routine' &&
+    event.resolution !== 'bid_awarded'
+  ) {
+    errors.push('resolution must be "routine" or "bid_awarded".');
+  }
+
+  return errors;
+}
+
+/**
+ * Validate an Admin NEEDS_REVIEW_RESOLUTION event before append.
+ * @param {Partial<NeedsReviewResolutionEvent>} event
+ * @param {string[]} [allowedStaffNames]
+ * @returns {string[]}
+ */
+export function validateNeedsReviewResolutionEvent(
+  event,
+  allowedStaffNames = []
+) {
+  /** @type {string[]} */
+  const errors = [];
+
+  if (event.type !== 'NEEDS_REVIEW_RESOLUTION') {
+    errors.push('type must be "NEEDS_REVIEW_RESOLUTION".');
+  }
+  if (!event.route_id?.trim()) {
+    errors.push('route_id is required.');
+  }
+  if (
+    event.resolution !== 'keep_prior' &&
+    event.resolution !== 'accept_computed'
+  ) {
+    errors.push('resolution must be "keep_prior" or "accept_computed".');
+  }
+  if (!event.previous_finalized_status?.trim()) {
+    errors.push('previous_finalized_status is required.');
+  }
+  if (!event.computed_status?.trim()) {
+    errors.push('computed_status is required.');
+  }
+  if (!event.note?.trim()) {
+    errors.push('note is required.');
+  }
+  const resolvedBy = event.resolved_by?.trim() ?? '';
+  if (!resolvedBy) {
+    errors.push('resolved_by is required.');
+  } else if (allowedStaffNames.length === 0) {
+    errors.push(
+      'No staff names configured. Add names in Admin settings before submitting.'
+    );
+  } else if (!allowedStaffNames.includes(resolvedBy)) {
+    errors.push('resolved_by must be one of the configured staff names.');
+  }
+  if (!event.resolved_at) {
+    errors.push('resolved_at is required.');
+  }
+
+  return errors;
+}
+
+/**
+ * Validate an Admin SENIORITY_TIE_RESOLUTION event before append.
+ * @param {Partial<SeniorityTieResolutionEvent>} event
+ * @param {string[]} [allowedStaffNames]
+ * @returns {string[]}
+ */
+export function validateSeniorityTieResolutionEvent(
+  event,
+  allowedStaffNames = []
+) {
+  /** @type {string[]} */
+  const errors = [];
+
+  if (event.type !== 'SENIORITY_TIE_RESOLUTION') {
+    errors.push('type must be "SENIORITY_TIE_RESOLUTION".');
+  }
+  if (!event.hire_date?.trim()) {
+    errors.push('hire_date is required.');
+  }
+  if (!Array.isArray(event.assignments) || event.assignments.length < 2) {
+    errors.push('assignments must list at least two drivers.');
+  } else {
+    /** @type {Set<number>} */
+    const ranks = new Set();
+    /** @type {Set<string>} */
+    const ids = new Set();
+    for (const row of event.assignments) {
+      const driverId = String(row?.driver_id || '').trim();
+      const driverName = String(row?.driver_name || '').trim();
+      const tieBreak = row?.tie_break;
+      if (!driverId) errors.push('Each assignment needs driver_id.');
+      if (!driverName) errors.push('Each assignment needs driver_name.');
+      if (!Number.isInteger(tieBreak) || /** @type {number} */ (tieBreak) < 1) {
+        errors.push('Each assignment needs a positive integer tie_break.');
+      } else {
+        ranks.add(/** @type {number} */ (tieBreak));
+      }
+      if (driverId) {
+        if (ids.has(driverId)) {
+          errors.push('assignments must not repeat driver_id.');
+        }
+        ids.add(driverId);
+      }
+    }
+    if (
+      ranks.size === event.assignments.length &&
+      [...ranks].sort((a, b) => a - b).some((n, i) => n !== i + 1)
+    ) {
+      errors.push('tie_break values must be 1..N with no gaps.');
+    }
+  }
+  if (!event.note?.trim()) {
+    errors.push('note is required.');
+  }
+  const resolvedBy = event.resolved_by?.trim() ?? '';
+  if (!resolvedBy) {
+    errors.push('resolved_by is required.');
+  } else if (allowedStaffNames.length === 0) {
+    errors.push(
+      'No staff names configured. Add names in Admin settings before submitting.'
+    );
+  } else if (!allowedStaffNames.includes(resolvedBy)) {
+    errors.push('resolved_by must be one of the configured staff names.');
+  }
+  if (!event.resolved_at) {
+    errors.push('resolved_at is required.');
   }
 
   return errors;

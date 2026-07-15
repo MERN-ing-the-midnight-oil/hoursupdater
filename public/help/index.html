@@ -9,43 +9,95 @@
   <body>
     <main class="shell">
       <div class="topbar">
-        <div class="brand">Route Change Tracker</div>
+        <div class="brand" data-icon="bus">Route Change Tracker</div>
         <nav class="site-nav" aria-label="Primary">
-          <a href="/routing">Routing</a>
-          <a href="/admin">Admin</a>
-          <a href="/admin/drivers">Drivers</a>
-          <a href="/help" aria-current="page">How this app works</a>
+          <a href="/routing" data-icon="route">Routing</a>
+          <a href="/admin" data-icon="clipboard-list">Admin</a>
+          <a href="/admin/drivers" data-icon="users">Drivers</a>
+          <a href="/help" aria-current="page" data-icon="book-open">How this app works</a>
         </nav>
       </div>
 
       <section class="panel help-panel">
-        <h1>How this app works</h1>
+        <h1 data-icon="book-open">How this app works</h1>
         <p class="lead">
-          Plain-language definitions for the terms you see in Routing and Admin.
           Click any <span class="glossary-tip-btn-static" aria-hidden="true">?</span>
           next to a label in the app for the same explanation in place.
         </p>
 
         <div class="help-overview">
-          <h2>The short version</h2>
           <ol class="help-steps">
             <li>
-              Routing logs the driver’s <strong>scheduled time</strong> exactly as
-              entered — down to the minute.
+              <p>
+                <span class="help-step-icon" data-icon="pen-line" aria-hidden="true"></span>
+                Routing logs the driver’s <strong>scheduled time</strong> — exactly
+                as entered, down to the minute.
+              </p>
+              <p>
+                <strong>Automatically:</strong> the current schedule fills in on its
+                own, and the exact change is calculated the moment it’s submitted.
+              </p>
+              <p>
+                <strong>You can:</strong> override the calculated change if it
+                doesn’t look right, as long as you pick a reason — every entry
+                (and every override) is attributed to whoever made it.
+              </p>
             </li>
             <li>
-              That opens (or resets) a <strong>15-school-day window</strong> while
-              exact changes accumulate as <strong>cumulative drift</strong>.
+              <p>
+                <span class="help-step-icon" data-icon="hourglass" aria-hidden="true"></span>
+                That opens (or resets) a <strong>15-school-day window</strong>,
+                while exact changes accumulate as
+                <strong>cumulative drift</strong>.
+              </p>
+              <p>
+                <strong>Automatically:</strong> the countdown starts on the very
+                first change to a route, and any further change to that same route
+                resets it — no one has to start or track this by hand.
+              </p>
+              <p>
+                <strong>You can:</strong> open a route in the Admin queue at any
+                time to see exactly which changes are contributing to the current
+                total and how many days are left — nothing here needs action, it’s
+                just there to check.
+              </p>
             </li>
             <li>
-              When the window closes with no further change,
-              <strong>payroll rounding</strong> runs once and either
-              <strong>locks in</strong> new contracted hours (under 30 minutes) or
-              moves the route to <strong>Bid Pending</strong> (30 minutes or more).
+              <p>
+                <span class="help-step-icon" data-icon="scale" aria-hidden="true"></span>
+                When the window closes with no further change,
+                <strong>payroll rounding</strong> runs once — either
+                <strong>locking in</strong> new contracted hours (under 30 minutes)
+                or moving the route to <strong>Bid Pending</strong> (30 minutes or
+                more).
+              </p>
+              <p>
+                <strong>Automatically:</strong> the rounding happens exactly once,
+                from the exact total, the moment the window closes — never before.
+              </p>
+              <p>
+                <strong>You can:</strong> generate the Change Report showing the
+                full math behind the outcome, draft an email to the driver
+                explaining it, and — if the route lands on Bid Pending — send
+                Payroll a heads-up with one click.
+              </p>
             </li>
             <li>
-              <strong>Needs Review</strong> pauses the app when a correction would
-              quietly rewrite an outcome that was already communicated.
+              <p>
+                <span class="help-step-icon" data-icon="flag" aria-hidden="true"></span>
+                <strong>Needs Review</strong> pauses the app when a correction
+                would change an outcome that’s already been finalized and acted on.
+              </p>
+              <p>
+                <strong>Automatically:</strong> the app catches this on its own and
+                holds the route there — any new changes to that same route wait in
+                line rather than being processed underneath an unresolved conflict.
+              </p>
+              <p>
+                <strong>You can:</strong> look at both versions side by side and
+                decide what to do — the app won’t pick one for you. Seeing this
+                happen is normal, not a sign anything went wrong.
+              </p>
             </li>
           </ol>
         </div>

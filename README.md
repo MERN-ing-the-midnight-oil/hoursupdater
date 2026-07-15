@@ -2,7 +2,7 @@
 
 Local web app for school district transportation teams to log bus route time changes and track cumulative drift against contract thresholds.
 
-See **[KNOWN_OPEN_QUESTIONS.md](./KNOWN_OPEN_QUESTIONS.md)** for deliberately unresolved items. Check that file at the start of each phase.
+See **[KNOWN_OPEN_QUESTIONS.md](./KNOWN_OPEN_QUESTIONS.md)** for deliberately unresolved items. Check that file at the start of each phase. For moving from sandbox to Rachel’s real environment, see **[HANDOFF.md](./HANDOFF.md)**.
 
 ## Current status
 
@@ -21,12 +21,21 @@ See **[KNOWN_OPEN_QUESTIONS.md](./KNOWN_OPEN_QUESTIONS.md)** for deliberately un
 npm install
 cp .env.example .env
 npm run seed          # copies sample-data into ./data/_app_data (skips files that already exist)
-npm start             # http://localhost:3847
+npm start             # http://localhost:3847 — uses .env (production / real path)
 ```
 
 Open **http://localhost:3847/routing** for the Routing desk.
 
-Point `DATA_DIR` in `.env` at your OneDrive-synced **shared folder root** on each machine:
+### Environment files (do not mix)
+
+| File | Purpose | `DATA_DIR` |
+|------|---------|------------|
+| `.env` | Real / production path (OneDrive when going live) | Shared folder Rachel will use |
+| `.env.practice` | Local sandbox only | Always `./practice-data/` (gitignored) |
+
+**Never point both files at the same folder.** Practice and production are a one-way door, not a casual toggle — see [HANDOFF.md](./HANDOFF.md).
+
+Point `DATA_DIR` in `.env` at your OneDrive-synced **shared folder root** when you go live:
 
 ```env
 DATA_DIR=/path/to/OneDrive/RouteChangeTracker
@@ -44,6 +53,19 @@ DATA_DIR/
     …
 ```
 
+## Practice / sandbox (local only)
+
+Use this on your machine to learn the app **before** handoff. Data lives in `./practice-data/` and never touches OneDrive.
+
+```bash
+npm run seed:practice     # calendar (~30 days) + fictional drivers/routes via bulk-import path
+npm run start:practice    # loads .env.practice — yellow PRACTICE MODE banner on every screen
+npm run reset:practice    # wipe practice-data and re-seed from scratch
+```
+
+- Seed attribution: `entered_by: "Practice Setup"`, note: `Local sandbox seed data — not real` (`BULK_IMPORT`).
+- Seed/reset **refuse** to run unless `PRACTICE_MODE=true` and `DATA_DIR` resolves to a folder named `practice-data`.
+
 ## Run tests
 
 ```bash
@@ -53,11 +75,11 @@ npm test
 ## Routing view (phase 3)
 
 - Pick route via searchable autocomplete from `route-state.json` (existing routes only), or an explicit **Create new route** action for brand-new routes
-- Previous time auto-fills from `route-state.json` for existing routes (editable when creating new / no prior segment time)
+- Current schedule auto-fills from `route-state.json` for existing routes (editable when creating new / no prior segment schedule)
 - **Start Date** (UI label) — the date the change was logged/identified; stored as `effective_date` in `change-log.json` for now. Reserve the words “Effective Date” for Admin’s locked-in window outcome (phase 4).
-- New time → exact unrounded computed delta
+- New schedule → exact unrounded computed delta
 - Optional delta override with required reason from `adjustment-reasons.json`
-- **Entered by** (required staff-names dropdown) and **Note** (required) on every submit, including Create new route
+- **Entered by** (required staff-names dropdown) on every submit, including Create new route; **Note** is optional
 - Submit appends to `change-log.json` and rebuilds `route-state.json`
 - Recent list shows status (and a “Held · under review” badge when the route is in `NEEDS_REVIEW`)
 
@@ -92,7 +114,9 @@ src/
   logic/                # Pure business logic
 public/
   routing/              # Routing desk UI
-  admin/                # Placeholder until phase 4
+  admin/                # Admin queue + settings
 sample-data/            # Starter files for local/OneDrive seed
+practice-data/          # Local sandbox only (gitignored; from seed:practice)
+HANDOFF.md              # Go-live steps for Rachel’s environment
 KNOWN_OPEN_QUESTIONS.md
 ```

@@ -200,6 +200,66 @@ describe('stateMachine', () => {
     assert.equal(state.window_expires_date, null);
   });
 
+  it('sets bid_response_due_date (+2 school days) when entering BID_PENDING', () => {
+    const first = makeChange({
+      id: 'c1',
+      delta_minutes: 20,
+      previous_time: '6:30-8:30',
+      new_time: '6:30-8:50',
+    });
+    let state = applyChangeToRoute(null, first, calendar);
+    const second = makeChange({
+      id: 'c2',
+      delta_minutes: 15,
+      effective_date: '2025-09-05',
+      previous_time: '6:30-8:50',
+      new_time: '6:30-9:05',
+      submitted_at: '2025-09-05T08:00:00.000Z',
+    });
+    state = applyChangeToRoute(state, second, calendar);
+    state = applyWindowExpiration(state, '2025-10-01', {
+      schoolCalendar: calendar,
+    });
+    assert.equal(state.status, 'BID_PENDING');
+    assert.equal(
+      state.bid_response_due_date,
+      addSchoolDays(calendar, '2025-10-01', 2)
+    );
+  });
+
+  it('flags BUMP_ELIGIBLE on exact decrease >= 30 with a 2-school-day decision clock', () => {
+    const first = makeChange({
+      id: 'c1',
+      delta_minutes: -20,
+      previous_time: '6:30-8:55',
+      new_time: '6:40-8:55',
+    });
+    let state = applyChangeToRoute(null, first, calendar);
+
+    const second = makeChange({
+      id: 'c2',
+      delta_minutes: -15,
+      effective_date: '2025-09-05',
+      previous_time: '6:40-8:55',
+      new_time: '6:50-8:55',
+      submitted_at: '2025-09-05T08:00:00.000Z',
+    });
+    state = applyChangeToRoute(state, second, calendar);
+    assert.equal(state.cumulative_drift_minutes, -35);
+
+    state = applyWindowExpiration(state, '2025-10-01', {
+      schoolCalendar: calendar,
+    });
+
+    assert.equal(state.status, 'BUMP_ELIGIBLE');
+    assert.equal(state.cumulative_drift_minutes, -35);
+    assert.equal(state.window_expires_date, null);
+    assert.equal(
+      state.bump_decision_due_date,
+      addSchoolDays(calendar, '2025-10-01', 2)
+    );
+  });
+
   it('reverts BID_PENDING to ACCUMULATING when exact drift drops below 30 (Rule 5)', () => {
     let state = createInitialRouteState(makeChange({}));
     state.status = 'BID_PENDING';
@@ -496,6 +556,229 @@ describe('stateMachine', () => {
     assert.equal(reconciled['S 20'].reconciliation?.letter_or_action_exists, true);
     assert.equal(reconciled['S 20'].reconciliation?.raised_at, '2025-09-25T10:00:00.000Z');
     assert.deepEqual(reconciled['S 20'].pending_change_ids, []);
+  });
+
+  it('honors keep_prior NEEDS_REVIEW_RESOLUTION across rebuilds for the same discrepancy', () => {
+    const original = makeChange({ id: 'c1', delta_minutes: 35 });
+    const adjustment = {
+      id: 'adj-1',
+      type: 'ADJUSTMENT',
+      target_change_id: 'c1',
+      previous_delta: 35,
+      new_delta: 22,
+      reason: 'Data entry correction',
+      note: 'Corrected entry',
+      adjusted_by: 'Admin',
+      adjusted_at: '2025-09-25T10:00:00.000Z',
+    };
+
+    const priorFinalized = rebuildRouteStateFromChangeLog(
+      [original],
+      {},
+      calendar,
+      '2025-09-24'
+    );
+    const needsReview = rebuildRouteStateFromChangeLog(
+      [original, adjustment],
+      {},
+      calendar,
+      '2025-09-24',
+      {
+        priorRouteState: priorFinalized,
+        lettersByRouteId: { 'S 20': true },
+      }
+    );
+    assert.equal(needsReview['S 20'].status, 'NEEDS_REVIEW');
+
+    const resolution = {
+      id: 'res-1',
+      type: 'NEEDS_REVIEW_RESOLUTION',
+      route_id: 'S 20',
+      resolution: 'keep_prior',
+      causing_adjustment_id: 'adj-1',
+      previous_finalized_status: 'BID_PENDING',
+      computed_status: 'STABLE',
+      note: 'Letter already went out; keep bid pending',
+      resolved_by: 'Admin Assistant',
+      resolved_at: '2025-09-25T12:00:00.000Z',
+    };
+
+    const kept = rebuildRouteStateFromChangeLog(
+      [original, adjustment, resolution],
+      {},
+      calendar,
+      '2025-09-24',
+      {
+        priorRouteState: needsReview,
+        lettersByRouteId: { 'S 20': true },
+      }
+    );
+    assert.equal(kept['S 20'].status, 'BID_PENDING');
+    assert.equal(kept['S 20'].reconciliation ?? null, null);
+    assert.equal(kept['S 20'].cumulative_drift_minutes, 35);
+    assert.equal(
+      kept['S 20'].review_history?.at(-1)?.event,
+      'NEEDS_REVIEW_ADMIN_RESOLVED'
+    );
+    assert.equal(kept['S 20'].review_history?.at(-1)?.resolution, 'keep_prior');
+    assert.equal(kept['S 20'].review_history?.at(-1)?.resolution_event_id, 'res-1');
+
+    // Same discrepancy still present — keep_prior stays honored on later rebuild.
+    const again = rebuildRouteStateFromChangeLog(
+      [original, adjustment, resolution],
+      {},
+      calendar,
+      '2025-09-24',
+      {
+        priorRouteState: kept,
+        lettersByRouteId: { 'S 20': true },
+      }
+    );
+    assert.equal(again['S 20'].status, 'BID_PENDING');
+    assert.equal(again['S 20'].reconciliation ?? null, null);
+    // Do not duplicate the admin history note on every rebuild.
+    assert.equal(
+      again['S 20'].review_history?.filter(
+        (item) => item.resolution_event_id === 'res-1'
+      ).length,
+      1
+    );
+  });
+
+  it('re-raises NEEDS_REVIEW when a new ADJUSTMENT creates a different discrepancy after keep_prior', () => {
+    const original = makeChange({ id: 'c1', delta_minutes: 35 });
+    const adjustment = {
+      id: 'adj-1',
+      type: 'ADJUSTMENT',
+      target_change_id: 'c1',
+      previous_delta: 35,
+      new_delta: 22,
+      reason: 'Data entry correction',
+      note: 'First correction',
+      adjusted_by: 'Admin',
+      adjusted_at: '2025-09-25T10:00:00.000Z',
+    };
+    const resolution = {
+      id: 'res-1',
+      type: 'NEEDS_REVIEW_RESOLUTION',
+      route_id: 'S 20',
+      resolution: 'keep_prior',
+      causing_adjustment_id: 'adj-1',
+      previous_finalized_status: 'BID_PENDING',
+      computed_status: 'STABLE',
+      note: 'Keep prior for adj-1',
+      resolved_by: 'Admin Assistant',
+      resolved_at: '2025-09-25T12:00:00.000Z',
+    };
+
+    const priorFinalized = rebuildRouteStateFromChangeLog(
+      [original],
+      {},
+      calendar,
+      '2025-09-24'
+    );
+    const needsReview = rebuildRouteStateFromChangeLog(
+      [original, adjustment],
+      {},
+      calendar,
+      '2025-09-24',
+      { priorRouteState: priorFinalized, lettersByRouteId: { 'S 20': true } }
+    );
+    const kept = rebuildRouteStateFromChangeLog(
+      [original, adjustment, resolution],
+      {},
+      calendar,
+      '2025-09-24',
+      { priorRouteState: needsReview, lettersByRouteId: { 'S 20': true } }
+    );
+    assert.equal(kept['S 20'].status, 'BID_PENDING');
+
+    // Second adjustment flips the effective delta again — new causing id.
+    const adjustment2 = {
+      id: 'adj-2',
+      type: 'ADJUSTMENT',
+      target_change_id: 'c1',
+      previous_delta: 22,
+      new_delta: 10,
+      reason: 'Data entry correction',
+      note: 'Second correction',
+      adjusted_by: 'Admin',
+      adjusted_at: '2025-09-26T10:00:00.000Z',
+    };
+
+    const freshConflict = rebuildRouteStateFromChangeLog(
+      [original, adjustment, resolution, adjustment2],
+      {},
+      calendar,
+      '2025-09-24',
+      { priorRouteState: kept, lettersByRouteId: { 'S 20': true } }
+    );
+    assert.equal(freshConflict['S 20'].status, 'NEEDS_REVIEW');
+    assert.equal(
+      freshConflict['S 20'].reconciliation?.causing_adjustment_id,
+      'adj-2'
+    );
+    assert.equal(
+      freshConflict['S 20'].reconciliation?.previous_finalized_status,
+      'BID_PENDING'
+    );
+    assert.equal(freshConflict['S 20'].reconciliation?.computed_status, 'STABLE');
+  });
+
+  it('honors accept_computed NEEDS_REVIEW_RESOLUTION on rebuild', () => {
+    const original = makeChange({ id: 'c1', delta_minutes: 35 });
+    const adjustment = {
+      id: 'adj-1',
+      type: 'ADJUSTMENT',
+      target_change_id: 'c1',
+      previous_delta: 35,
+      new_delta: 22,
+      reason: 'Data entry correction',
+      note: 'Corrected entry',
+      adjusted_by: 'Admin',
+      adjusted_at: '2025-09-25T10:00:00.000Z',
+    };
+    const resolution = {
+      id: 'res-accept',
+      type: 'NEEDS_REVIEW_RESOLUTION',
+      route_id: 'S 20',
+      resolution: 'accept_computed',
+      causing_adjustment_id: 'adj-1',
+      previous_finalized_status: 'BID_PENDING',
+      computed_status: 'STABLE',
+      note: 'Correction is right; accept lock-in',
+      resolved_by: 'Admin Assistant',
+      resolved_at: '2025-09-25T12:00:00.000Z',
+    };
+
+    const priorFinalized = rebuildRouteStateFromChangeLog(
+      [original],
+      {},
+      calendar,
+      '2025-09-24'
+    );
+    const needsReview = rebuildRouteStateFromChangeLog(
+      [original, adjustment],
+      {},
+      calendar,
+      '2025-09-24',
+      { priorRouteState: priorFinalized, lettersByRouteId: { 'S 20': true } }
+    );
+    const accepted = rebuildRouteStateFromChangeLog(
+      [original, adjustment, resolution],
+      {},
+      calendar,
+      '2025-09-24',
+      { priorRouteState: needsReview, lettersByRouteId: { 'S 20': true } }
+    );
+
+    assert.equal(accepted['S 20'].status, 'STABLE');
+    assert.equal(accepted['S 20'].reconciliation ?? null, null);
+    assert.equal(accepted['S 20'].cumulative_drift_minutes, 0);
+    assert.equal(
+      accepted['S 20'].review_history?.at(-1)?.resolution,
+      'accept_computed'
+    );
   });
 
   it('flags NEEDS_REVIEW for finalized flip even when no letter exists yet', () => {

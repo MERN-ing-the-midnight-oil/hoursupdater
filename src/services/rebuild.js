@@ -1,12 +1,26 @@
 import {
   buildLettersByRouteId,
+  enqueueNotifications,
+  readAppSettings,
+  readBidSignupWorkbook,
   readChangeLog,
+  readDrivers,
   readRouteState,
   readSchoolCalendar,
   writeRouteState,
 } from '../data/storage.js';
-import { preservePayrollNotifiedAt } from '../logic/changeReport.js';
 import {
+  finalizeClosedBidSignups,
+  preserveBidSignupMeta,
+} from '../logic/bidSignup.js';
+import {
+  applyBumpDecisions,
+  preserveBumpDecisionMeta,
+} from '../logic/bumpDecisions.js';
+import { preservePayrollNotifiedAt } from '../logic/changeReport.js';
+import { collectWindowFinalizationNotifications } from '../logic/notifications.js';
+import {
+  applyBidAwardResolutions,
   applyResolvedDrivers,
   rebuildRouteStateFromChangeLog,
 } from '../logic/stateMachine.js';
@@ -42,7 +56,10 @@ export async function rebuildAndPersistRouteState(
     ...new Set([
       ...Object.keys(priorRouteState),
       ...changeLog
-        .filter((entry) => entry.type !== 'ADJUSTMENT')
+        .filter(
+          (entry) =>
+            entry.type !== 'ADJUSTMENT' && entry.type !== 'BULK_IMPORT'
+        )
         .map((entry) => /** @type {{ route_id?: string }} */ (entry).route_id)
         .filter(Boolean),
     ]),
@@ -77,7 +94,66 @@ export async function rebuildAndPersistRouteState(
   // Report ids are regenerated; keep payroll notify timestamps by stable match key.
   nextState = preservePayrollNotifiedAt(priorRouteState, nextState);
 
+  // Bid-award reassignments clear BID_PENDING into STABLE (survives rebuild).
+  nextState = applyBidAwardResolutions(nextState, changeLog);
+
+  // Preserve bump due dates / chain ids; then apply explicit Admin bump decisions.
+  nextState = preserveBumpDecisionMeta(priorRouteState, nextState);
+  nextState = applyBumpDecisions(nextState, changeLog, schoolCalendar);
+
+  // Electronic bid sign-up: preserve due/snapshot, then finalize closed windows.
+  nextState = preserveBidSignupMeta(priorRouteState, nextState);
+  try {
+    const [appSettings, drivers] = await Promise.all([
+      readAppSettings(dataDir),
+      readDrivers(dataDir),
+    ]);
+    if (appSettings.electronic_bid_signup_enabled) {
+      const workbook = await readBidSignupWorkbook(
+        dataDir,
+        appSettings.bid_signup_workbook
+      );
+      nextState = finalizeClosedBidSignups(nextState, {
+        enabled: true,
+        parse: workbook.parse,
+        drivers,
+        workbook_mtime: workbook.mtime,
+        asOfDate,
+      });
+    }
+  } catch (error) {
+    console.error('Bid signup finalization failed after rebuild:', error);
+  }
+
   await writeRouteState(nextState, dataDir);
+
+  // Offer email notifications for newly finalized windows.
+  try {
+    const drivers = await readDrivers(dataDir);
+    /** @type {Map<string, { name?: string, email?: string | null }>} */
+    const driversById = new Map(
+      drivers.map((d) => [d.driver_id, { name: d.name, email: d.email }])
+    );
+    const specs = collectWindowFinalizationNotifications(
+      priorRouteState,
+      nextState,
+      { driversById }
+    );
+    // Attach live driver emails when report lacked them.
+    for (const spec of specs) {
+      if (!spec.context.driver_email && spec.context.driver_id) {
+        const d = driversById.get(String(spec.context.driver_id));
+        if (d?.email) spec.context.driver_email = d.email;
+      }
+      if (!spec.context.driver_name && spec.context.driver_id) {
+        const d = driversById.get(String(spec.context.driver_id));
+        if (d?.name) spec.context.driver_name = d.name;
+      }
+    }
+    await enqueueNotifications(specs, dataDir);
+  } catch (error) {
+    console.error('Notification enqueue failed after rebuild:', error);
+  }
 
   try {
     await syncWorkbook({

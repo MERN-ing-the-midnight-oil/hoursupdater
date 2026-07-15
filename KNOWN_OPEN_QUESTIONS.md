@@ -104,6 +104,17 @@ etc.), change that helper — do not scatter alternate boundaries elsewhere.
 
 ---
 
+## 6. Admin `keep_prior` on NEEDS_REVIEW vs next rebuild
+
+**Status:** Resolved (2026-07-13). Durable via append-only `NEEDS_REVIEW_RESOLUTION`.
+
+Admin resolve appends a `NEEDS_REVIEW_RESOLUTION` event (route, `keep_prior` /
+`accept_computed`, causing adjustment id, status pair, note, resolved_by). Rebuild
+honors that resolution only while the current discrepancy still matches — a later
+adjustment that creates a different discrepancy raises a fresh `NEEDS_REVIEW`.
+
+---
+
 ## Resolved
 
 ### 1. Interim pay during `BID_PENDING`

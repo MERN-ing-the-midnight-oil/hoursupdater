@@ -4,9 +4,18 @@ import {
   renderRouteCard,
   setReassignRefreshHandler,
 } from '../shared/queueRenderers.js';
+import { appendCitationLinks } from '../shared/contractCitationUi.js';
 import { enhanceGlossaryTips } from '../shared/glossaryTip.js';
+import { enhanceIcons, setLabeledIcon } from '../shared/icons.js';
+import '../shared/practiceBanner.js';
 
 enhanceGlossaryTips();
+enhanceIcons();
+
+const BASE_TITLE = document.title;
+const FAVICON_HREF = '/favicon.svg';
+/** Quiet background refresh while the Admin tab stays open. */
+const ATTENTION_POLL_MS = 45_000;
 
 const queueStatusEl = document.getElementById('queue-status');
 const showStableToggle = document.getElementById('show-stable');
@@ -16,6 +25,7 @@ const lists = {
   needsReview: document.getElementById('list-needs-review'),
   accumulating: document.getElementById('list-accumulating'),
   bidPending: document.getElementById('list-bid-pending'),
+  bumpEligible: document.getElementById('list-bump-eligible'),
   pendingChanges: document.getElementById('list-pending-changes'),
   stable: listStable,
 };
@@ -24,9 +34,15 @@ const counts = {
   needsReview: document.getElementById('count-needs-review'),
   accumulating: document.getElementById('count-accumulating'),
   bidPending: document.getElementById('count-bid-pending'),
+  bumpEligible: document.getElementById('count-bump-eligible'),
   pendingChanges: document.getElementById('count-pending-changes'),
   stable: document.getElementById('count-stable'),
 };
+
+const notificationToastsEl = document.getElementById('notification-toasts');
+
+/** @type {number} */
+let pendingNotificationCount = 0;
 
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
@@ -38,8 +54,20 @@ async function fetchJson(url, options) {
 }
 
 function showStatus(el, message, kind = 'ok') {
+  if (!el) return;
   el.textContent = message;
   el.className = `status visible ${kind}`;
+}
+
+/**
+ * Bulk-import feedback should appear next to the CSV flow (not only at the
+ * top of Settings, which is easy to miss while working in this section).
+ * @param {string} message
+ * @param {'ok' | 'error' | 'warn'} [kind]
+ */
+function showBulkImportStatus(message, kind = 'ok') {
+  showStatus(document.getElementById('bulk-import-status'), message, kind);
+  showStatus(document.getElementById('settings-status'), message, kind);
 }
 
 function fillList(listEl, nodes, emptyText) {
@@ -54,8 +82,124 @@ function fillList(listEl, nodes, emptyText) {
 }
 
 /**
+ * Routes that need Admin attention — open NEEDS_REVIEW, BID_PENDING before
+ * Notify Payroll, BUMP_ELIGIBLE, plus pending email-offer notifications.
  * @param {object[]} rows
- * @param {{ payrollEmailConfigured?: boolean }} [options]
+ * @returns {number}
+ */
+function countAttentionItems(rows) {
+  const routeAttention = rows.filter((row) => {
+    if (row.status === 'NEEDS_REVIEW') return true;
+    if (row.status === 'BUMP_ELIGIBLE') return true;
+    if (row.status === 'BID_PENDING') {
+      return !row.bid_pending_report?.payroll_notified_at;
+    }
+    return false;
+  }).length;
+  return routeAttention + pendingNotificationCount;
+}
+
+/** @type {HTMLLinkElement | null} */
+let faviconLinkEl = null;
+/** @type {HTMLImageElement | null} */
+let baseFaviconImage = null;
+/** @type {Promise<HTMLImageElement | null> | null} */
+let baseFaviconPromise = null;
+
+function ensureFaviconLink() {
+  if (faviconLinkEl) return faviconLinkEl;
+  faviconLinkEl =
+    document.querySelector('link[rel="icon"]') ||
+    document.createElement('link');
+  if (!faviconLinkEl.parentNode) {
+    faviconLinkEl.rel = 'icon';
+    document.head.appendChild(faviconLinkEl);
+  }
+  return faviconLinkEl;
+}
+
+function loadBaseFavicon() {
+  if (baseFaviconImage) return Promise.resolve(baseFaviconImage);
+  if (baseFaviconPromise) return baseFaviconPromise;
+  baseFaviconPromise = new Promise((resolve) => {
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = () => {
+      baseFaviconImage = img;
+      resolve(img);
+    };
+    img.onerror = () => resolve(null);
+    img.src = FAVICON_HREF;
+  });
+  return baseFaviconPromise;
+}
+
+/**
+ * @param {number} count
+ * @returns {string}
+ */
+function drawBadgedFavicon(count) {
+  const size = 32;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return FAVICON_HREF;
+
+  if (baseFaviconImage) {
+    ctx.drawImage(baseFaviconImage, 0, 0, size, size);
+  } else {
+    ctx.fillStyle = '#1f5c4a';
+    ctx.fillRect(0, 0, size, size);
+  }
+
+  const label = count > 99 ? '99+' : String(count);
+  const badgeR = label.length > 1 ? 10 : 8;
+  const cx = size - badgeR + 1;
+  const cy = size - badgeR + 1;
+
+  ctx.fillStyle = '#8b2e2e';
+  ctx.beginPath();
+  ctx.arc(cx, cy, badgeR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#fffcf6';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.fillStyle = '#fffcf6';
+  ctx.font =
+    label.length > 2
+      ? 'bold 8px system-ui, sans-serif'
+      : label.length > 1
+        ? 'bold 9px system-ui, sans-serif'
+        : 'bold 11px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, cx, cy + 0.5);
+
+  return canvas.toDataURL('image/png');
+}
+
+/**
+ * @param {number} count
+ */
+function updateAttentionIndicator(count) {
+  document.title =
+    count > 0 ? `(${count}) ${BASE_TITLE}` : BASE_TITLE;
+
+  const link = ensureFaviconLink();
+  if (count > 0) {
+    link.type = 'image/png';
+    link.href = drawBadgedFavicon(count);
+  } else {
+    link.type = 'image/svg+xml';
+    link.href = FAVICON_HREF;
+  }
+}
+
+/**
+ * @param {object[]} rows
+ * @param {{ payrollEmailConfigured?: boolean, electronicBidSignupEnabled?: boolean }} [options]
  */
 function renderQueue(rows, options = {}) {
   const needsReview = rows.filter(
@@ -63,6 +207,7 @@ function renderQueue(rows, options = {}) {
   );
   const accumulating = rows.filter((row) => row.status === 'ACCUMULATING');
   const bidPending = rows.filter((row) => row.status === 'BID_PENDING');
+  const bumpEligible = rows.filter((row) => row.status === 'BUMP_ELIGIBLE');
   const pendingBehindReview = rows.filter(
     (row) =>
       row.status === 'NEEDS_REVIEW' && (row.pending_change_ids?.length ?? 0) > 0
@@ -72,16 +217,35 @@ function renderQueue(rows, options = {}) {
   counts.needsReview.textContent = String(needsReview.length);
   counts.accumulating.textContent = String(accumulating.length);
   counts.bidPending.textContent = String(bidPending.length);
+  counts.bumpEligible.textContent = String(bumpEligible.length);
   counts.pendingChanges.textContent = String(pendingBehindReview.length);
   counts.stable.textContent = String(stable.length);
 
   const cardOptions = {
     showNotifyPayroll: true,
     payrollEmailConfigured: options.payrollEmailConfigured !== false,
+    electronicBidSignupEnabled: options.electronicBidSignupEnabled === true,
     onPayrollNotified: () => {
       loadQueue().catch((error) =>
         showStatus(queueStatusEl, error.message, 'error')
       );
+    },
+    onOpenBidNotified: () => {
+      loadQueue().catch((error) =>
+        showStatus(queueStatusEl, error.message, 'error')
+      );
+    },
+    onReviewResolved: () => {
+      loadQueue().catch((error) =>
+        showStatus(queueStatusEl, error.message, 'error')
+      );
+      loadNotifications().catch(() => {});
+    },
+    onBumpDecided: () => {
+      loadQueue().catch((error) =>
+        showStatus(queueStatusEl, error.message, 'error')
+      );
+      loadNotifications().catch(() => {});
     },
   };
 
@@ -103,6 +267,13 @@ function renderQueue(rows, options = {}) {
     'No bid-pending routes.'
   );
   fillList(
+    lists.bumpEligible,
+    bumpEligible.map((row) =>
+      renderRouteCard(row, 'bump-eligible', cardOptions)
+    ),
+    'No bump-eligible routes.'
+  );
+  fillList(
     lists.pendingChanges,
     pendingBehindReview.map((row) => renderPendingChangesCard(row)),
     'No changes queued behind a review.'
@@ -122,18 +293,235 @@ function applyStableVisibility() {
 /** @type {{ payroll_email: string, message_template: string } | null} */
 let payrollSettings = null;
 
+/** @type {object | null} */
+let emailTemplatesSettings = null;
+
+/** @type {{
+ *   electronic_bid_signup_enabled: boolean,
+ *   bid_signup_workbook: string,
+ *   open_bid_posting_to_email: string,
+ * } | null} */
+let appSettings = null;
+
 const payrollEmailInput = document.getElementById('payroll-email');
-const payrollTemplateInput = document.getElementById('payroll-template');
+const emailTemplatesRoot = document.getElementById('email-templates-root');
+const electronicBidEnabledInput = document.getElementById(
+  'electronic-bid-signup-enabled'
+);
+const bidSignupWorkbookInput = document.getElementById('bid-signup-workbook');
+const openBidToEmailInput = document.getElementById('open-bid-posting-to-email');
 
 async function loadPayrollSettings() {
+  // Legacy shape still used by queue Notify Payroll can_send checks.
   payrollSettings = await fetchJson('/api/payroll-settings');
-  payrollEmailInput.value = payrollSettings.payroll_email || '';
-  payrollTemplateInput.value = payrollSettings.message_template || '';
   return payrollSettings;
 }
 
-async function loadQueue() {
-  const [rows, settings] = await Promise.all([
+async function loadAppSettings() {
+  appSettings = await fetchJson('/api/app-settings');
+  if (electronicBidEnabledInput) {
+    electronicBidEnabledInput.checked = !!appSettings.electronic_bid_signup_enabled;
+  }
+  if (bidSignupWorkbookInput) {
+    bidSignupWorkbookInput.value = appSettings.bid_signup_workbook || 'bid-signups.xlsx';
+  }
+  if (openBidToEmailInput) {
+    openBidToEmailInput.value = appSettings.open_bid_posting_to_email || '';
+  }
+  return appSettings;
+}
+
+async function loadEmailTemplates() {
+  emailTemplatesSettings = await fetchJson('/api/email-templates');
+  payrollEmailInput.value = emailTemplatesSettings.payroll_email || '';
+  renderEmailTemplatesEditor(emailTemplatesSettings);
+  return emailTemplatesSettings;
+}
+
+/**
+ * @param {object} settings
+ */
+function renderEmailTemplatesEditor(settings) {
+  emailTemplatesRoot.innerHTML = '';
+  const types = settings.event_types || Object.keys(settings.templates || {});
+  const labels = settings.event_labels || {};
+  const placeholders = settings.placeholders || {};
+
+  for (const eventType of types) {
+    const template = settings.templates?.[eventType];
+    if (!template) continue;
+    const block = document.createElement('details');
+    block.className = 'email-template-block';
+    block.setAttribute('data-event-type', eventType);
+
+    const summary = document.createElement('summary');
+    summary.textContent = labels[eventType] || eventType;
+    block.appendChild(summary);
+
+    const body = document.createElement('div');
+    body.className = 'email-template-body';
+
+    const recipientField = document.createElement('label');
+    recipientField.className = 'field';
+    recipientField.appendChild(document.createTextNode('Recipient'));
+    const recipientSelect = document.createElement('select');
+    recipientSelect.className = 'email-template-recipient';
+    recipientSelect.innerHTML = `
+      <option value="driver">Driver</option>
+      <option value="payroll">Payroll</option>
+    `;
+    recipientSelect.value = template.recipient || 'driver';
+    recipientField.appendChild(recipientSelect);
+
+    const subjectField = document.createElement('label');
+    subjectField.className = 'field';
+    subjectField.appendChild(document.createTextNode('Subject'));
+    const subjectInput = document.createElement('input');
+    subjectInput.type = 'text';
+    subjectInput.className = 'email-template-subject';
+    subjectInput.value = template.subject || '';
+    subjectField.appendChild(subjectInput);
+
+    const bodyField = document.createElement('label');
+    bodyField.className = 'field';
+    bodyField.appendChild(document.createTextNode('Body'));
+    const bodyArea = document.createElement('textarea');
+    bodyArea.className = 'email-template-body-text';
+    bodyArea.rows = 6;
+    bodyArea.value = template.body || '';
+    bodyField.appendChild(bodyArea);
+
+    const hint = document.createElement('p');
+    hint.className = 'field-hint';
+    const keys = placeholders[eventType] || [];
+    hint.innerHTML =
+      'Placeholders: ' +
+      (keys.length
+        ? keys.map((k) => `<code>{{${k}}}</code>`).join(', ')
+        : '—') +
+      ' — missing values are left blank.';
+
+    body.append(recipientField, subjectField, bodyField, hint);
+    block.appendChild(body);
+    emailTemplatesRoot.appendChild(block);
+  }
+}
+
+function collectEmailTemplatesFromForm() {
+  /** @type {Record<string, { recipient: string, subject: string, body: string }>} */
+  const templates = {};
+  for (const block of emailTemplatesRoot.querySelectorAll(
+    '.email-template-block'
+  )) {
+    const eventType = block.getAttribute('data-event-type');
+    if (!eventType) continue;
+    templates[eventType] = {
+      recipient:
+        block.querySelector('.email-template-recipient')?.value || 'driver',
+      subject: block.querySelector('.email-template-subject')?.value || '',
+      body: block.querySelector('.email-template-body-text')?.value || '',
+    };
+  }
+  return {
+    payroll_email: payrollEmailInput.value,
+    templates,
+  };
+}
+
+/**
+ * @param {object[]} notifications
+ */
+function renderNotificationToasts(notifications) {
+  if (!notificationToastsEl) return;
+  notificationToastsEl.innerHTML = '';
+  for (const note of notifications) {
+    const toast = document.createElement('div');
+    toast.className = 'notification-toast';
+    toast.setAttribute('data-id', note.id);
+
+    const text = document.createElement('p');
+    text.className = 'notification-toast-text';
+    text.textContent = note.prompt || 'Send an email update?';
+
+    const actions = document.createElement('div');
+    actions.className = 'notification-toast-actions';
+
+    const yesBtn = document.createElement('button');
+    yesBtn.type = 'button';
+    setLabeledIcon(yesBtn, 'mail', 'Yes');
+    const dismissBtn = document.createElement('button');
+    dismissBtn.type = 'button';
+    dismissBtn.className = 'secondary';
+    setLabeledIcon(dismissBtn, 'x', 'Dismiss');
+
+    const hint = document.createElement('p');
+    hint.className = 'field-hint';
+
+    if (!note.draft?.can_send) {
+      yesBtn.disabled = true;
+      hint.textContent =
+        note.draft?.disabled_reason || 'No email on file for this recipient.';
+      hint.className = 'field-hint warn-text';
+    }
+
+    yesBtn.addEventListener('click', async () => {
+      yesBtn.disabled = true;
+      dismissBtn.disabled = true;
+      try {
+        const result = await fetchJson(
+          `/api/notifications/${encodeURIComponent(note.id)}/action`,
+          { method: 'POST' }
+        );
+        if (result.notification?.draft?.mailto_url) {
+          window.location.href = result.notification.draft.mailto_url;
+        }
+        await loadNotifications();
+        await loadQueue({ silent: true });
+      } catch (error) {
+        hint.textContent = error.message;
+        hint.className = 'field-hint warn-text';
+        yesBtn.disabled = !note.draft?.can_send;
+        dismissBtn.disabled = false;
+      }
+    });
+
+    dismissBtn.addEventListener('click', async () => {
+      yesBtn.disabled = true;
+      dismissBtn.disabled = true;
+      try {
+        await fetchJson(
+          `/api/notifications/${encodeURIComponent(note.id)}/dismiss`,
+          { method: 'POST' }
+        );
+        await loadNotifications();
+        await loadQueue({ silent: true });
+      } catch (error) {
+        hint.textContent = error.message;
+        hint.className = 'field-hint warn-text';
+        yesBtn.disabled = !note.draft?.can_send;
+        dismissBtn.disabled = false;
+      }
+    });
+
+    actions.append(yesBtn, dismissBtn);
+    toast.append(text, actions, hint);
+    notificationToastsEl.appendChild(toast);
+  }
+}
+
+async function loadNotifications() {
+  const data = await fetchJson('/api/notifications?pending=1');
+  const list = data.notifications || [];
+  pendingNotificationCount = list.length;
+  renderNotificationToasts(list);
+  return list;
+}
+
+/**
+ * @param {{ silent?: boolean }} [options]
+ */
+async function loadQueue(options = {}) {
+  const [rows, settings, bidSettings] = await Promise.all([
     fetchJson('/api/admin/queue'),
     payrollSettings
       ? Promise.resolve(payrollSettings)
@@ -141,11 +529,24 @@ async function loadQueue() {
           payrollSettings = s;
           return s;
         }),
+    appSettings
+      ? Promise.resolve(appSettings)
+      : fetchJson('/api/app-settings').then((s) => {
+          appSettings = s;
+          return s;
+        }),
   ]);
+  await loadNotifications().catch(() => {
+    pendingNotificationCount = 0;
+  });
+  await loadBaseFavicon();
   renderQueue(rows, {
     payrollEmailConfigured: Boolean(settings?.payroll_email?.trim()),
+    electronicBidSignupEnabled: bidSettings?.electronic_bid_signup_enabled === true,
   });
   applyStableVisibility();
+  updateAttentionIndicator(countAttentionItems(rows));
+  if (options.silent) return;
   const active =
     rows.filter((r) => r.status !== 'STABLE').length +
     rows.filter((r) => r.status === 'STABLE' && r.has_self_resolved_review)
@@ -175,6 +576,34 @@ const calendarNewDate = document.getElementById('calendar-new-date');
 /** @type {{ school_year: string | null, school_days?: string[], days?: Array<{date:string,is_school_day:boolean}>, coverage_start?: string, coverage_end?: string }} */
 let schoolCalendar = { school_year: null, school_days: [] };
 
+const MONTH_ABBREV = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** @param {string} iso YYYY-MM-DD */
+function formatCalendarDate(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return `${MONTH_ABBREV[m - 1]} ${d}, ${y}`;
+}
+
+/** @param {string} iso YYYY-MM-DD */
+function weekdaySun0(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d).getDay();
+}
+
 function activeSchoolDays() {
   if (Array.isArray(schoolCalendar.days) && schoolCalendar.days.length) {
     return schoolCalendar.days.filter((d) => d.is_school_day).map((d) => d.date);
@@ -182,47 +611,144 @@ function activeSchoolDays() {
   return schoolCalendar.school_days || [];
 }
 
+/** @returns {Array<{date:string,is_school_day:boolean,reason?:string,day_of_week?:string}>} */
+function calendarDaysForDisplay() {
+  if (Array.isArray(schoolCalendar.days) && schoolCalendar.days.length) {
+    return [...schoolCalendar.days].sort((a, b) => a.date.localeCompare(b.date));
+  }
+  const marked = new Set(activeSchoolDays());
+  if (!marked.size) return [];
+
+  const sorted = [...marked].sort();
+  const start = sorted[0];
+  const end = sorted[sorted.length - 1];
+  /** @type {Array<{date:string,is_school_day:boolean}>} */
+  const filled = [];
+  const [sy, sm, sd] = start.split('-').map(Number);
+  const cursor = new Date(sy, sm - 1, sd);
+  const [ey, em, ed] = end.split('-').map(Number);
+  const last = new Date(ey, em - 1, ed);
+  while (cursor <= last) {
+    const y = cursor.getFullYear();
+    const m = String(cursor.getMonth() + 1).padStart(2, '0');
+    const d = String(cursor.getDate()).padStart(2, '0');
+    const date = `${y}-${m}-${d}`;
+    filled.push({ date, is_school_day: marked.has(date) });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return filled;
+}
+
+/**
+ * @param {string} date
+ * @param {boolean} currentlyMarked
+ */
+async function toggleSchoolDay(date, currentlyMarked) {
+  const days = activeSchoolDays();
+  const next = currentlyMarked
+    ? days.filter((d) => d !== date)
+    : [...days, date].sort();
+  await saveCalendar({
+    school_year: calendarYear.value.trim() || null,
+    school_days: next,
+  });
+  showStatus(
+    settingsStatusEl,
+    currentlyMarked
+      ? `Unmarked ${formatCalendarDate(date)} (no longer a school day).`
+      : `Marked ${formatCalendarDate(date)} as a school day.`,
+    'ok'
+  );
+  await loadQueue();
+}
+
 function renderCalendarList() {
   calendarList.innerHTML = '';
   calendarYear.value = schoolCalendar.school_year || '';
-  const days = activeSchoolDays();
-  const total = schoolCalendar.days?.length ?? days.length;
-  calendarCount.textContent = `${days.length} school day${days.length === 1 ? '' : 's'} marked`;
+  const marked = activeSchoolDays();
+  const allDays = calendarDaysForDisplay();
+  const total = allDays.length;
+  calendarCount.textContent = `${marked.length} school day${marked.length === 1 ? '' : 's'} marked`;
   calendarCoverage.textContent = schoolCalendar.coverage_start
-    ? `Coverage ${schoolCalendar.coverage_start} → ${schoolCalendar.coverage_end} (${total} civil days)`
+    ? `Coverage ${formatCalendarDate(schoolCalendar.coverage_start)} → ${formatCalendarDate(schoolCalendar.coverage_end)} (${total} civil days)`
     : '';
 
-  if (!days.length) {
-    const empty = document.createElement('li');
+  if (!allDays.length) {
+    const empty = document.createElement('p');
     empty.className = 'empty';
-    empty.textContent = 'No school days marked yet.';
+    empty.textContent = 'No calendar days yet.';
     calendarList.appendChild(empty);
     return;
   }
 
-  // Newest first for easier snow-day edits near the end of coverage.
-  for (const day of [...days].reverse()) {
-    const li = document.createElement('li');
-    const label = document.createElement('span');
-    label.textContent = day;
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'secondary';
-    remove.textContent = 'Unmark';
-    remove.addEventListener('click', async () => {
-      try {
-        await saveCalendar({
-          school_year: calendarYear.value.trim() || null,
-          school_days: days.filter((d) => d !== day),
-        });
-        showStatus(settingsStatusEl, `Unmarked ${day} (no longer a school day).`, 'ok');
-        await loadQueue();
-      } catch (error) {
-        showStatus(settingsStatusEl, error.message, 'error');
-      }
-    });
-    li.append(label, remove);
-    calendarList.appendChild(li);
+  /** @type {Map<string, typeof allDays>} */
+  const byMonth = new Map();
+  for (const entry of allDays) {
+    const key = entry.date.slice(0, 7); // YYYY-MM
+    if (!byMonth.has(key)) byMonth.set(key, []);
+    byMonth.get(key).push(entry);
+  }
+
+  for (const [monthKey, monthDays] of byMonth) {
+    const [yearStr, monthStr] = monthKey.split('-');
+    const monthIndex = Number(monthStr) - 1;
+    const section = document.createElement('section');
+    section.className = 'calendar-month';
+
+    const heading = document.createElement('h4');
+    heading.textContent = `${MONTH_ABBREV[monthIndex]} ${yearStr}`;
+    section.appendChild(heading);
+
+    const weekdays = document.createElement('div');
+    weekdays.className = 'calendar-weekdays';
+    weekdays.setAttribute('aria-hidden', 'true');
+    for (const label of WEEKDAY_LABELS) {
+      const cell = document.createElement('span');
+      cell.textContent = label;
+      weekdays.appendChild(cell);
+    }
+    section.appendChild(weekdays);
+
+    const grid = document.createElement('div');
+    grid.className = 'calendar-grid';
+    grid.setAttribute('role', 'grid');
+    grid.setAttribute('aria-label', `${MONTH_ABBREV[monthIndex]} ${yearStr}`);
+
+    const firstPad = weekdaySun0(monthDays[0].date);
+    for (let i = 0; i < firstPad; i += 1) {
+      const pad = document.createElement('span');
+      pad.className = 'calendar-day is-pad';
+      pad.setAttribute('aria-hidden', 'true');
+      grid.appendChild(pad);
+    }
+
+    for (const entry of monthDays) {
+      const dayNum = Number(entry.date.slice(8, 10));
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = entry.is_school_day
+        ? 'calendar-day is-school-day'
+        : 'calendar-day';
+      btn.textContent = String(dayNum);
+      const status = entry.is_school_day ? 'school day' : 'not a school day';
+      const reason = entry.reason ? ` — ${entry.reason}` : '';
+      btn.title = `${formatCalendarDate(entry.date)} (${status})${reason}`;
+      btn.setAttribute(
+        'aria-label',
+        `${formatCalendarDate(entry.date)}, ${status}. Click to ${entry.is_school_day ? 'unmark' : 'mark'}.`
+      );
+      btn.addEventListener('click', async () => {
+        try {
+          await toggleSchoolDay(entry.date, entry.is_school_day);
+        } catch (error) {
+          showStatus(settingsStatusEl, error.message, 'error');
+        }
+      });
+      grid.appendChild(btn);
+    }
+
+    section.appendChild(grid);
+    calendarList.appendChild(section);
   }
 }
 
@@ -247,14 +773,18 @@ document.getElementById('calendar-add').addEventListener('click', async () => {
     if (!day) throw new Error('Pick a date to mark as a school day.');
     const days = activeSchoolDays();
     if (days.includes(day)) {
-      throw new Error(`Already a school day: ${day}`);
+      throw new Error(`Already a school day: ${formatCalendarDate(day)}`);
     }
     await saveCalendar({
       school_year: calendarYear.value.trim() || null,
       school_days: [...days, day],
     });
     calendarNewDate.value = '';
-    showStatus(settingsStatusEl, `Marked ${day} as a school day.`, 'ok');
+    showStatus(
+      settingsStatusEl,
+      `Marked ${formatCalendarDate(day)} as a school day.`,
+      'ok'
+    );
     await loadQueue();
   } catch (error) {
     showStatus(settingsStatusEl, error.message, 'error');
@@ -273,29 +803,74 @@ calendarYear.addEventListener('change', async () => {
   }
 });
 
-Promise.all([loadQueue(), loadCalendar(), loadPayrollSettings()]).catch((error) => {
+Promise.all([
+  loadQueue(),
+  loadCalendar(),
+  loadPayrollSettings(),
+  loadEmailTemplates(),
+  loadAppSettings(),
+  loadYearRolloverStaffNames(),
+  initYearRolloverFlow(),
+]).catch((error) => {
   showStatus(queueStatusEl, error.message, 'error');
   showStatus(settingsStatusEl, error.message, 'error');
 });
 
-document.getElementById('payroll-save').addEventListener('click', async () => {
-  try {
-    payrollSettings = await fetchJson('/api/payroll-settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        payroll_email: payrollEmailInput.value,
-        message_template: payrollTemplateInput.value,
-      }),
-    });
-    payrollEmailInput.value = payrollSettings.payroll_email || '';
-    payrollTemplateInput.value = payrollSettings.message_template || '';
-    showStatus(settingsStatusEl, 'Payroll settings saved.', 'ok');
-    await loadQueue();
-  } catch (error) {
-    showStatus(settingsStatusEl, error.message, 'error');
-  }
-});
+setInterval(() => {
+  loadQueue({ silent: true }).catch(() => {
+    /* Keep the last indicator; next poll retries. */
+  });
+}, ATTENTION_POLL_MS);
+
+document
+  .getElementById('app-settings-save')
+  ?.addEventListener('click', async () => {
+    try {
+      appSettings = await fetchJson('/api/app-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          electronic_bid_signup_enabled: electronicBidEnabledInput?.checked === true,
+          bid_signup_workbook: bidSignupWorkbookInput?.value?.trim() || 'bid-signups.xlsx',
+          open_bid_posting_to_email: openBidToEmailInput?.value?.trim() || '',
+        }),
+      });
+      await loadAppSettings();
+      showStatus(
+        settingsStatusEl,
+        appSettings.electronic_bid_signup_enabled
+          ? 'Electronic bid sign-up is ON — Notify drivers + Forms record are authoritative.'
+          : 'Electronic bid sign-up remains OFF.',
+        'ok'
+      );
+      await loadQueue();
+    } catch (error) {
+      showStatus(settingsStatusEl, error.message, 'error');
+    }
+  });
+
+document
+  .getElementById('email-templates-save')
+  .addEventListener('click', async () => {
+    try {
+      emailTemplatesSettings = await fetchJson('/api/email-templates', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(collectEmailTemplatesFromForm()),
+      });
+      payrollSettings = {
+        payroll_email: emailTemplatesSettings.payroll_email || '',
+        message_template:
+          emailTemplatesSettings.templates?.WINDOW_BID_PENDING?.body || '',
+      };
+      payrollEmailInput.value = emailTemplatesSettings.payroll_email || '';
+      renderEmailTemplatesEditor(emailTemplatesSettings);
+      showStatus(settingsStatusEl, 'Email templates saved.', 'ok');
+      await loadQueue();
+    } catch (error) {
+      showStatus(settingsStatusEl, error.message, 'error');
+    }
+  });
 
 // --- Generate a school year ---
 
@@ -315,10 +890,11 @@ function addBreakRow(values = {}) {
     <label class="field">Start<input type="date" class="gen-break-start" value="${values.start || ''}" /></label>
     <label class="field">End<input type="date" class="gen-break-end" value="${values.end || ''}" /></label>
     <label class="field">Label<input type="text" class="gen-break-label" placeholder="Winter Break" value="${values.label || ''}" /></label>
-    <button type="button" class="secondary gen-remove-row">Remove</button>
+    <button type="button" class="secondary gen-remove-row" data-icon="trash">Remove</button>
   `;
   row.querySelector('.gen-remove-row').addEventListener('click', () => row.remove());
   genBreaksEl.appendChild(row);
+  enhanceIcons(row);
 }
 
 function addHolidayRow(values = {}) {
@@ -327,10 +903,11 @@ function addHolidayRow(values = {}) {
   row.innerHTML = `
     <label class="field">Date<input type="date" class="gen-holiday-date" value="${values.date || ''}" /></label>
     <label class="field">Label<input type="text" class="gen-holiday-label" placeholder="Labor Day" value="${values.label || ''}" /></label>
-    <button type="button" class="secondary gen-remove-row">Remove</button>
+    <button type="button" class="secondary gen-remove-row" data-icon="trash">Remove</button>
   `;
   row.querySelector('.gen-remove-row').addEventListener('click', () => row.remove());
   genHolidaysEl.appendChild(row);
+  enhanceIcons(row);
 }
 
 document.getElementById('gen-add-break').addEventListener('click', () => addBreakRow());
@@ -443,9 +1020,9 @@ function renderGenerationPreview(result) {
       <p>Committing will replace those overlapping dates with the generated values. Non-overlapping dates are kept.</p>
     `;
     genPreviewBody.appendChild(box);
-    genCommitBtn.textContent = 'Replace overlap & commit';
+    setLabeledIcon(genCommitBtn, 'check', 'Replace overlap & commit');
   } else {
-    genCommitBtn.textContent = 'Commit to calendar';
+    setLabeledIcon(genCommitBtn, 'check', 'Commit to calendar');
   }
 
   genCommitBtn.hidden = false;
@@ -511,5 +1088,1040 @@ document.getElementById('gen-commit').addEventListener('click', async () => {
     await loadQueue();
   } catch (error) {
     showStatus(settingsStatusEl, error.message, 'error');
+  }
+});
+
+// --- Archive Year & Import New Roster ---
+
+const yearArchiveStepEl = document.getElementById('year-archive-step');
+const yearImportStepEl = document.getElementById('year-import-step');
+const yearArchiveFirstUseNoteEl = document.getElementById(
+  'year-archive-first-use-note'
+);
+const yearArchivePurposeEl = document.getElementById('year-archive-purpose');
+const yearArchiveFolderNameEl = document.getElementById(
+  'year-archive-folder-name'
+);
+const yearArchiveConfirmFolderEl = document.getElementById(
+  'year-archive-confirm-folder'
+);
+const yearArchiveEnteredByEl = document.getElementById(
+  'year-archive-entered-by'
+);
+const yearArchiveNoteEl = document.getElementById('year-archive-note');
+const yearArchivePreviewPanel = document.getElementById(
+  'year-archive-preview-panel'
+);
+const yearArchivePreviewBody = document.getElementById(
+  'year-archive-preview-body'
+);
+const yearArchiveStatusEl = document.getElementById('year-archive-status');
+const yearImportStepTitleEl = document.getElementById(
+  'year-import-step-title'
+);
+const yearImportStepHintEl = document.getElementById('year-import-step-hint');
+
+/** @type {object | null} */
+let yearArchivePreview = null;
+/** Session flag: archive completed (or unnecessary) so import may proceed. */
+let yearImportUnlocked = false;
+
+/**
+ * @param {string} message
+ * @param {'ok' | 'error' | 'warn'} [kind]
+ */
+function showYearArchiveStatus(message, kind = 'ok') {
+  showStatus(yearArchiveStatusEl, message, kind);
+  showStatus(document.getElementById('settings-status'), message, kind);
+}
+
+/**
+ * @param {HTMLSelectElement | null} selectEl
+ * @param {string[]} names
+ * @param {string} previous
+ */
+function fillStaffNameSelect(selectEl, names, previous) {
+  if (!selectEl) return;
+  selectEl.innerHTML = '<option value="">Select your name…</option>';
+  for (const name of names) {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    if (name === previous) option.selected = true;
+    selectEl.appendChild(option);
+  }
+}
+
+async function loadYearRolloverStaffNames() {
+  const names = await fetchJson('/api/staff-names');
+  const previous = localStorage.getItem('rct_entered_by') || '';
+  fillStaffNameSelect(yearArchiveEnteredByEl, names, previous);
+  fillStaffNameSelect(
+    document.getElementById('bulk-import-entered-by'),
+    names,
+    previous
+  );
+}
+
+/**
+ * @param {object} preview
+ * @param {{ afterArchive?: boolean }} [options]
+ */
+function applyYearRolloverUi(preview, options = {}) {
+  yearArchivePreview = preview;
+  const afterArchive = options.afterArchive === true;
+  const hasData = preview?.has_meaningful_data === true;
+
+  if (yearArchivePurposeEl && preview?.purpose) {
+    yearArchivePurposeEl.textContent = preview.purpose;
+  }
+
+  if (!hasData) {
+    yearImportUnlocked = true;
+    if (yearArchiveFirstUseNoteEl) {
+      yearArchiveFirstUseNoteEl.hidden = false;
+      yearArchiveFirstUseNoteEl.textContent =
+        preview.first_use_note ||
+        'No existing data found — nothing to archive. This will be the first roster import.';
+    }
+    if (yearArchiveStepEl) yearArchiveStepEl.hidden = true;
+    if (yearImportStepEl) yearImportStepEl.hidden = false;
+    if (yearImportStepTitleEl) {
+      yearImportStepTitleEl.textContent = 'Import new roster';
+    }
+    if (yearImportStepHintEl) {
+      yearImportStepHintEl.textContent =
+        'Paste into the table below, or use the CSV template workflow under the table.';
+    }
+    return;
+  }
+
+  if (yearArchiveFirstUseNoteEl) {
+    yearArchiveFirstUseNoteEl.hidden = true;
+    yearArchiveFirstUseNoteEl.textContent = '';
+  }
+  if (yearArchiveStepEl) yearArchiveStepEl.hidden = false;
+
+  if (afterArchive || yearImportUnlocked) {
+    yearImportUnlocked = true;
+    if (yearImportStepEl) yearImportStepEl.hidden = false;
+    if (yearImportStepTitleEl) {
+      yearImportStepTitleEl.textContent = 'Step 2: Import new roster';
+    }
+    if (yearImportStepHintEl) {
+      yearImportStepHintEl.textContent =
+        'Archive is done. Import is optional right now — you can stop after archiving, or continue below when ready. Paste into the table, or use the CSV template workflow.';
+    }
+  } else {
+    if (yearImportStepEl) yearImportStepEl.hidden = true;
+  }
+}
+
+async function initYearRolloverFlow() {
+  const preview = await fetchJson('/api/year-archive/preview');
+  applyYearRolloverUi(preview);
+}
+
+/**
+ * @param {object} preview
+ */
+function renderYearArchivePreview(preview) {
+  if (!yearArchivePreviewBody) return;
+  yearArchivePreviewBody.innerHTML = '';
+
+  const stats = document.createElement('div');
+  stats.className = 'gen-preview-stats';
+  const rows = [
+    ['Drivers', String(preview.drivers_count ?? 0)],
+    ['Routes', String(preview.routes_count ?? 0)],
+    ['Change-log entries', String(preview.change_log_entries ?? 0)],
+    ['Generated letters', String(preview.letters_count ?? 0)],
+    [
+      'RouteChangeTracker.xlsx',
+      preview.workbook_present ? 'Will be copied' : 'Not present',
+    ],
+  ];
+  for (const [label, value] of rows) {
+    const row = document.createElement('div');
+    const left = document.createElement('span');
+    left.textContent = label;
+    const right = document.createElement('strong');
+    right.textContent = value;
+    row.append(left, right);
+    stats.appendChild(row);
+  }
+  yearArchivePreviewBody.appendChild(stats);
+
+  const mid = Array.isArray(preview.mid_flight_routes)
+    ? preview.mid_flight_routes
+    : [];
+  if (mid.length) {
+    const box = document.createElement('div');
+    box.className = 'gen-conflict-box';
+    const title = document.createElement('p');
+    title.innerHTML = `<strong>${mid.length} route(s) currently mid-flight</strong> — still unresolved before you archive:`;
+    const list = document.createElement('ul');
+    list.className = 'year-archive-midflight';
+    for (const route of mid) {
+      const li = document.createElement('li');
+      li.textContent = `${route.route_id} — ${route.status}`;
+      list.appendChild(li);
+    }
+    const note = document.createElement('p');
+    note.textContent =
+      'Archiving is a copy only — these routes stay as-is in the live data. Review them if you expected a clean end of year.';
+    box.append(title, list, note);
+    yearArchivePreviewBody.appendChild(box);
+  } else {
+    const ok = document.createElement('p');
+    ok.className = 'field-hint';
+    ok.textContent =
+      'No mid-flight routes (ACCUMULATING, BID_PENDING, BUMP_ELIGIBLE, or NEEDS_REVIEW).';
+    yearArchivePreviewBody.appendChild(ok);
+  }
+
+  const copyNote = document.createElement('p');
+  copyNote.className = 'field-hint';
+  copyNote.textContent =
+    'Nothing will be deleted. Live data stays in place; this only creates a folder under archives/.';
+  yearArchivePreviewBody.appendChild(copyNote);
+
+  if (yearArchivePreviewPanel) yearArchivePreviewPanel.hidden = false;
+}
+
+document
+  .getElementById('year-archive-preview')
+  ?.addEventListener('click', async () => {
+    try {
+      const folder = (yearArchiveFolderNameEl?.value || '').trim();
+      if (!folder) {
+        throw new Error('Enter an archive folder name before previewing.');
+      }
+      const preview = await fetchJson('/api/year-archive/preview');
+      if (!preview.has_meaningful_data) {
+        applyYearRolloverUi(preview);
+        showYearArchiveStatus(
+          preview.first_use_note || 'Nothing to archive.',
+          'warn'
+        );
+        return;
+      }
+      yearArchivePreview = preview;
+      renderYearArchivePreview(preview);
+      if (yearArchiveConfirmFolderEl && !yearArchiveConfirmFolderEl.value) {
+        // Leave confirm blank — admin must retype intentionally.
+      }
+      showYearArchiveStatus(
+        `Ready to archive as “${folder}”. Retype the folder name, add your name and note, then create the archive.`,
+        'ok'
+      );
+    } catch (error) {
+      showYearArchiveStatus(error.message, 'error');
+    }
+  });
+
+document
+  .getElementById('year-archive-cancel')
+  ?.addEventListener('click', () => {
+    if (yearArchivePreviewPanel) yearArchivePreviewPanel.hidden = true;
+    if (yearArchivePreviewBody) yearArchivePreviewBody.innerHTML = '';
+    if (yearArchiveConfirmFolderEl) yearArchiveConfirmFolderEl.value = '';
+    showYearArchiveStatus('Archive preview cancelled.', 'ok');
+  });
+
+document
+  .getElementById('year-archive-commit')
+  ?.addEventListener('click', async () => {
+    try {
+      const archive_folder_name = (
+        yearArchiveFolderNameEl?.value || ''
+      ).trim();
+      const confirm_folder_name = (
+        yearArchiveConfirmFolderEl?.value || ''
+      ).trim();
+      const entered_by = (yearArchiveEnteredByEl?.value || '').trim();
+      const note = (yearArchiveNoteEl?.value || '').trim();
+
+      if (!archive_folder_name) {
+        throw new Error('Archive folder name is required.');
+      }
+      if (!confirm_folder_name) {
+        throw new Error('Retype the archive folder name to confirm.');
+      }
+      if (confirm_folder_name !== archive_folder_name) {
+        throw new Error(
+          'Confirmation does not match the archive folder name. Retype it exactly.'
+        );
+      }
+      if (!entered_by) {
+        throw new Error('Select your name (Entered by).');
+      }
+      if (!note) {
+        throw new Error('A note is required.');
+      }
+
+      const result = await fetchJson('/api/year-archive/commit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          archive_folder_name,
+          confirm_folder_name,
+          entered_by,
+          note,
+        }),
+      });
+
+      localStorage.setItem('rct_entered_by', entered_by);
+      yearImportUnlocked = true;
+      applyYearRolloverUi(result.preview || yearArchivePreview, {
+        afterArchive: true,
+      });
+
+      if (yearArchivePreviewPanel) yearArchivePreviewPanel.hidden = true;
+      if (yearArchivePreviewBody) yearArchivePreviewBody.innerHTML = '';
+      if (yearArchiveConfirmFolderEl) yearArchiveConfirmFolderEl.value = '';
+      if (yearArchiveNoteEl) yearArchiveNoteEl.value = '';
+
+      const rel = result.relative_path || `archives/${archive_folder_name}`;
+      showYearArchiveStatus(
+        `Archive created at ${rel}. Live data was not changed. You can stop here, or continue with Step 2 Import below when ready.`,
+        'ok'
+      );
+      yearImportStepEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (error) {
+      showYearArchiveStatus(error.message, 'error');
+    }
+  });
+
+// --- Import new roster (step 2 / first-use) ---
+
+const BULK_COLUMNS = [
+  { key: 'driver_name', label: 'Driver Name' },
+  { key: 'driver_email', label: 'Driver Email' },
+  { key: 'hire_date', label: 'Hire Date' },
+  { key: 'route_id', label: 'Route' },
+  { key: 'am_time', label: 'AM Time' },
+  { key: 'midday_time', label: 'Midday Time' },
+  { key: 'pm_time', label: 'PM Time' },
+];
+
+const BULK_HEADER_ALIASES = {
+  driver_name: 'driver_name',
+  drivername: 'driver_name',
+  name: 'driver_name',
+  driver_email: 'driver_email',
+  driveremail: 'driver_email',
+  email: 'driver_email',
+  hire_date: 'hire_date',
+  hiredate: 'hire_date',
+  hired: 'hire_date',
+  route_id: 'route_id',
+  routeid: 'route_id',
+  route: 'route_id',
+  am_time: 'am_time',
+  am: 'am_time',
+  midday_time: 'midday_time',
+  midday: 'midday_time',
+  md_time: 'midday_time',
+  pm_time: 'pm_time',
+  pm: 'pm_time',
+};
+
+const BULK_EMPTY_ROWS = 8;
+const BULK_MIN_ROWS = 1;
+const BULK_MAX_ROWS = 500;
+
+const bulkImportTbody = document.getElementById('bulk-import-tbody');
+const bulkImportTableWrap = document.getElementById('bulk-import-table-wrap');
+const bulkImportRowCountEl = document.getElementById('bulk-import-row-count');
+const bulkImportTemplateCountEl = document.getElementById('bulk-import-template-count');
+const bulkImportFileEl = document.getElementById('bulk-import-file');
+const bulkImportStatusEl = document.getElementById('bulk-import-status');
+const bulkImportEnteredByEl = document.getElementById('bulk-import-entered-by');
+const bulkImportNoteEl = document.getElementById('bulk-import-note');
+const bulkImportPreviewPanel = document.getElementById('bulk-import-preview-panel');
+const bulkImportPreviewBody = document.getElementById('bulk-import-preview-body');
+const bulkImportCommitBtn = document.getElementById('bulk-import-commit');
+
+/** @type {{ text: string, preview: object } | null} */
+let pendingBulkImport = null;
+
+/**
+ * @param {string} line
+ * @param {string} delimiter
+ * @returns {string[]}
+ */
+function splitDelimitedLine(line, delimiter) {
+  /** @type {string[]} */
+  const fields = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          current += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        current += ch;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = true;
+      continue;
+    }
+    if (ch === delimiter) {
+      fields.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  fields.push(current);
+  return fields.map((f) => f.trim());
+}
+
+/**
+ * @param {string} headerCell
+ * @returns {string | null}
+ */
+function normalizeBulkHeader(headerCell) {
+  const key = String(headerCell || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  return BULK_HEADER_ALIASES[key] ?? null;
+}
+
+/**
+ * @param {string} headerLine
+ * @returns {string}
+ */
+function detectBulkDelimiter(headerLine) {
+  const candidates = ['\t', ',', ';'];
+  let best = '\t';
+  let bestScore = -1;
+  for (const delimiter of candidates) {
+    const cells = splitDelimitedLine(headerLine, delimiter);
+    const recognized = cells.filter((c) => normalizeBulkHeader(c)).length;
+    const score = recognized > 0 ? recognized * 10 + cells.length : cells.length;
+    if (score > bestScore) {
+      bestScore = score;
+      best = delimiter;
+    }
+  }
+  return best;
+}
+
+/**
+ * @param {string} text
+ * @returns {string[][]}
+ */
+function parseBulkPasteText(text) {
+  const normalized = String(text || '')
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .trim();
+  if (!normalized) return [];
+
+  const lines = normalized.split('\n').filter((line) => line.trim() !== '');
+  if (!lines.length) return [];
+
+  const delimiter = detectBulkDelimiter(lines[0]);
+  const firstCells = splitDelimitedLine(lines[0], delimiter);
+  const headerMap = firstCells.map((c) => normalizeBulkHeader(c));
+  const recognized = headerMap.filter(Boolean).length;
+  const hasHeaderRow = recognized >= 2;
+
+  /** @type {string[][]} */
+  const rows = [];
+
+  if (hasHeaderRow) {
+    /** @type {Record<string, number>} */
+    const columnIndex = {};
+    for (let i = 0; i < headerMap.length; i += 1) {
+      const mapped = headerMap[i];
+      if (mapped && columnIndex[mapped] == null) columnIndex[mapped] = i;
+    }
+    for (let lineIndex = 1; lineIndex < lines.length; lineIndex += 1) {
+      const cells = splitDelimitedLine(lines[lineIndex], delimiter);
+      rows.push(
+        BULK_COLUMNS.map((col) => {
+          const idx = columnIndex[col.key];
+          return idx == null ? '' : String(cells[idx] ?? '').trim();
+        })
+      );
+    }
+  } else {
+    for (const line of lines) {
+      const cells = splitDelimitedLine(line, delimiter);
+      rows.push(
+        BULK_COLUMNS.map((_, i) => String(cells[i] ?? '').trim())
+      );
+    }
+  }
+
+  return rows.filter((row) => row.some((cell) => cell !== ''));
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeCsvCell(value) {
+  const text = String(value ?? '');
+  if (/[",\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+/**
+ * @param {number} rowCount
+ * @returns {string}
+ */
+function buildBulkImportCsvTemplate(rowCount) {
+  const count = Math.max(
+    BULK_MIN_ROWS,
+    Math.min(BULK_MAX_ROWS, Math.floor(Number(rowCount)) || BULK_MIN_ROWS)
+  );
+  const header = BULK_COLUMNS.map((col) => col.key).join(',');
+  const blankRow = BULK_COLUMNS.map(() => '').join(',');
+  const lines = [header];
+  for (let i = 0; i < count; i += 1) {
+    lines.push(blankRow);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+function downloadBulkImportCsvTemplate() {
+  const rawCount = bulkImportTemplateCountEl?.value ?? BULK_EMPTY_ROWS;
+  const count = Math.max(
+    BULK_MIN_ROWS,
+    Math.min(BULK_MAX_ROWS, Math.floor(Number(rawCount)) || BULK_MIN_ROWS)
+  );
+  if (bulkImportTemplateCountEl) {
+    bulkImportTemplateCountEl.value = String(count);
+  }
+  const csv = buildBulkImportCsvTemplate(count);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'bulk-import-roster.csv';
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function createBulkImportRow(values = []) {
+  const tr = document.createElement('tr');
+  const numTd = document.createElement('td');
+  numTd.className = 'bulk-import-row-num';
+  numTd.setAttribute('aria-hidden', 'true');
+  tr.appendChild(numTd);
+  for (let i = 0; i < BULK_COLUMNS.length; i += 1) {
+    const col = BULK_COLUMNS[i];
+    const td = document.createElement('td');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'bulk-import-cell';
+    input.setAttribute('data-col', col.key);
+    input.setAttribute('aria-label', col.label);
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.value = values[i] ?? '';
+    if (col.key === 'am_time' || col.key === 'midday_time' || col.key === 'pm_time') {
+      input.placeholder = 'H:MM-H:MM';
+    }
+    td.appendChild(input);
+    tr.appendChild(td);
+  }
+  return tr;
+}
+
+function renumberBulkImportRows() {
+  const rows = bulkImportTbody.children;
+  for (let i = 0; i < rows.length; i += 1) {
+    const numCell = rows[i].querySelector('.bulk-import-row-num');
+    if (numCell) numCell.textContent = String(i + 1);
+  }
+  if (bulkImportRowCountEl) {
+    bulkImportRowCountEl.value = String(rows.length);
+  }
+}
+
+function ensureBulkImportRows(minCount) {
+  while (bulkImportTbody.children.length < minCount) {
+    bulkImportTbody.appendChild(createBulkImportRow());
+  }
+  renumberBulkImportRows();
+}
+
+/**
+ * @param {number} count
+ */
+function setBulkImportRowCount(count) {
+  const target = Math.max(
+    BULK_MIN_ROWS,
+    Math.min(BULK_MAX_ROWS, Math.floor(Number(count)) || BULK_MIN_ROWS)
+  );
+  const current = bulkImportTbody.children.length;
+  if (target > current) {
+    ensureBulkImportRows(target);
+    return;
+  }
+  if (target < current) {
+    while (bulkImportTbody.children.length > target) {
+      bulkImportTbody.lastElementChild?.remove();
+    }
+  }
+  renumberBulkImportRows();
+}
+
+/**
+ * @param {string[][]} rows
+ * @param {{ startRow?: number, startCol?: number, replace?: boolean }} [options]
+ */
+function fillBulkImportTable(rows, options = {}) {
+  const startRow = options.startRow ?? 0;
+  const startCol = options.startCol ?? 0;
+  const replace = options.replace ?? false;
+
+  if (replace) {
+    bulkImportTbody.innerHTML = '';
+  }
+
+  if (!rows.length) {
+    ensureBulkImportRows(BULK_EMPTY_ROWS);
+    return;
+  }
+
+  ensureBulkImportRows(startRow + rows.length);
+
+  for (let r = 0; r < rows.length; r += 1) {
+    const tr = bulkImportTbody.children[startRow + r];
+    if (!tr) continue;
+    const inputs = tr.querySelectorAll('input');
+    for (let c = 0; c < rows[r].length; c += 1) {
+      const input = inputs[startCol + c];
+      if (input) input.value = rows[r][c];
+    }
+  }
+
+  // Keep a couple of blank rows under the pasted data for easy edits.
+  ensureBulkImportRows(startRow + rows.length + 2);
+}
+
+function clearBulkImportTable() {
+  bulkImportTbody.innerHTML = '';
+  ensureBulkImportRows(BULK_EMPTY_ROWS);
+  if (bulkImportFileEl) bulkImportFileEl.value = '';
+}
+
+function serializeBulkImportTable() {
+  /** @type {string[][]} */
+  const dataRows = [];
+  for (const tr of bulkImportTbody.querySelectorAll('tr')) {
+    const cells = [...tr.querySelectorAll('input')].map((input) =>
+      input.value.trim()
+    );
+    if (cells.some((cell) => cell !== '')) dataRows.push(cells);
+  }
+  if (!dataRows.length) return '';
+  const header = BULK_COLUMNS.map((col) => col.key).join(',');
+  const body = dataRows
+    .map((cells) => cells.map(escapeCsvCell).join(','))
+    .join('\n');
+  return `${header}\n${body}`;
+}
+
+/**
+ * @param {HTMLElement | null} target
+ * @returns {{ row: number, col: number } | null}
+ */
+function bulkImportCellPosition(target) {
+  if (!(target instanceof HTMLInputElement)) return null;
+  if (!target.classList.contains('bulk-import-cell')) return null;
+  const tr = target.closest('tr');
+  if (!tr || !bulkImportTbody.contains(tr)) return null;
+  const row = [...bulkImportTbody.children].indexOf(tr);
+  const col = [...tr.querySelectorAll('input')].indexOf(target);
+  if (row < 0 || col < 0) return null;
+  return { row, col };
+}
+
+async function loadBulkImportStaffNames() {
+  await loadYearRolloverStaffNames();
+}
+
+clearBulkImportTable();
+
+bulkImportTableWrap.addEventListener('paste', (event) => {
+  const text = event.clipboardData?.getData('text/plain');
+  if (!text) return;
+  // Only hijack multi-row / multi-column spreadsheet pastes; let
+  // single-cell edits use the browser default.
+  if (!text.includes('\n') && !text.includes('\t')) return;
+
+  const rows = parseBulkPasteText(text);
+  if (!rows.length) return;
+
+  event.preventDefault();
+  const pos = bulkImportCellPosition(event.target);
+  const tableIsEmpty = ![...bulkImportTbody.querySelectorAll('input')].some(
+    (input) => input.value.trim() !== ''
+  );
+
+  if (tableIsEmpty || !pos) {
+    fillBulkImportTable(rows, { replace: true });
+  } else {
+    fillBulkImportTable(rows, {
+      startRow: pos.row,
+      startCol: pos.col,
+      replace: false,
+    });
+  }
+
+  showBulkImportStatus(
+    `Pasted ${rows.length} row(s) into the table — preview when ready.`,
+    'ok'
+  );
+});
+
+bulkImportRowCountEl.addEventListener('change', () => {
+  setBulkImportRowCount(bulkImportRowCountEl.value);
+});
+
+document
+  .getElementById('bulk-import-download-template')
+  .addEventListener('click', () => {
+    downloadBulkImportCsvTemplate();
+  });
+
+document.getElementById('bulk-import-clear').addEventListener('click', () => {
+  clearBulkImportTable();
+  pendingBulkImport = null;
+  bulkImportPreviewPanel.hidden = true;
+  bulkImportCommitBtn.hidden = true;
+  bulkImportPreviewBody.innerHTML = '';
+  showBulkImportStatus('Import table cleared.', 'ok');
+});
+
+bulkImportFileEl.addEventListener('change', async () => {
+  const file = bulkImportFileEl.files?.[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const rows = parseBulkPasteText(text);
+    if (!rows.length) {
+      throw new Error(
+        'No filled driver rows found. Add data to the template (keep the header), save as CSV, then try again.'
+      );
+    }
+    fillBulkImportTable(rows, { replace: true });
+    bulkImportTableWrap?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    showBulkImportStatus(
+      `Loaded ${rows.length} row(s) from ${file.name} into the table — preview when ready.`,
+      'ok'
+    );
+  } catch (error) {
+    showBulkImportStatus(error.message, 'error');
+  } finally {
+    // Allow re-selecting the same file after a failed or partial try.
+    bulkImportFileEl.value = '';
+  }
+});
+
+function collectBulkResolutions() {
+  /** @type {Record<string, 'skip' | 'overwrite'>} */
+  const resolutions = {};
+  for (const select of bulkImportPreviewBody.querySelectorAll(
+    'select.bulk-conflict-resolution'
+  )) {
+    const row = select.getAttribute('data-row');
+    const value = select.value;
+    if (row && (value === 'skip' || value === 'overwrite')) {
+      resolutions[row] = value;
+    }
+  }
+  return resolutions;
+}
+
+function renderBulkImportPreview(preview) {
+  bulkImportPreviewBody.innerHTML = '';
+
+  const stats = document.createElement('dl');
+  stats.className = 'gen-preview-stats';
+  stats.innerHTML = `
+    <div><dt>New drivers (no conflicts)</dt><dd>${preview.summary.new_drivers_count}</dd></div>
+    <div><dt>New routes (no conflicts)</dt><dd>${preview.summary.new_routes_count}</dd></div>
+    <div><dt>Valid rows</dt><dd>${preview.summary.planned_row_count}</dd></div>
+    <div><dt>Conflicts needing resolution</dt><dd>${preview.summary.conflict_row_count}</dd></div>
+    <div><dt>Excluded (invalid)</dt><dd>${preview.summary.excluded_row_count}</dd></div>
+  `;
+  bulkImportPreviewBody.appendChild(stats);
+
+  if (preview.unresolved_seniority_ties?.length) {
+    const warn = document.createElement('div');
+    warn.className = 'status visible warn';
+    const groups = preview.unresolved_seniority_ties
+      .map((tie) => {
+        const names = (tie.drivers ?? []).map((d) => d.name).join(', ');
+        return `${tie.hire_date}: ${names}`;
+      })
+      .join(' · ');
+    const n = preview.unresolved_seniority_ties.length;
+    warn.appendChild(
+      document.createTextNode(
+        `${n} same-date seniority tie${n === 1 ? '' : 's'} will need ` +
+          `resolving on the Drivers page after office lots. The contract ` +
+          `requires same-date ties to be resolved by drawing lots (`
+      )
+    );
+    appendCitationLinks(warn, ['3.01']);
+    warn.appendChild(document.createTextNode(`) — ${groups}`));
+    bulkImportPreviewBody.appendChild(warn);
+  }
+
+  if (preview.excluded_rows?.length) {
+    const title = document.createElement('h4');
+    title.textContent = 'Excluded rows (not imported)';
+    const ul = document.createElement('ul');
+    ul.className = 'report-changes bulk-excluded-list';
+    for (const row of preview.excluded_rows) {
+      const li = document.createElement('li');
+      const label =
+        row.raw?.route_id || row.raw?.driver_name
+          ? `${row.raw.driver_name || '—'} / ${row.raw.route_id || '—'}`
+          : 'row';
+      li.textContent = `Row ${row.row_number} (${label}): ${row.reasons.join(' ')}`;
+      ul.appendChild(li);
+    }
+    bulkImportPreviewBody.append(title, ul);
+  }
+
+  if (preview.conflicts?.length) {
+    const title = document.createElement('h4');
+    title.textContent = 'Conflicts — resolve each before commit';
+    const box = document.createElement('div');
+    box.className = 'gen-conflict-box bulk-conflict-list';
+
+    const intro = document.createElement('p');
+    intro.textContent =
+      'Existing route_id or driver name matches require an explicit choice. Overwrite replaces a clean seeded route or links/updates an existing driver; skip leaves that row out.';
+    box.appendChild(intro);
+
+    for (const conflict of preview.conflicts) {
+      const conflictRow = document.createElement('div');
+      conflictRow.className = 'bulk-conflict-row';
+
+      const types = conflict.conflict_types
+        .map((t) =>
+          t === 'existing_route'
+            ? 'route already exists'
+            : 'driver name already exists'
+        )
+        .join('; ');
+
+      const detail = document.createElement('div');
+      detail.className = 'bulk-conflict-detail';
+      detail.innerHTML = `
+        <strong>Row ${conflict.row_number}</strong>
+        — ${conflict.driver_name} → ${conflict.route_id}
+        <span class="field-hint">${types}</span>
+        ${
+          conflict.existing_route
+            ? `<span class="field-hint">Current route status: ${conflict.existing_route.status}${
+                conflict.existing_route.driver_name
+                  ? ` · ${conflict.existing_route.driver_name}`
+                  : ''
+              }</span>`
+            : ''
+        }
+        ${
+          conflict.overwrite_blocked_reason
+            ? `<span class="field-hint">${conflict.overwrite_blocked_reason}</span>`
+            : ''
+        }
+      `;
+
+      const label = document.createElement('label');
+      label.className = 'field bulk-conflict-choice';
+      label.appendChild(document.createTextNode('Resolution'));
+      const select = document.createElement('select');
+      select.className = 'bulk-conflict-resolution';
+      select.setAttribute('data-row', String(conflict.row_number));
+
+      const blank = document.createElement('option');
+      blank.value = '';
+      blank.textContent = 'Choose…';
+      select.appendChild(blank);
+
+      const skipOpt = document.createElement('option');
+      skipOpt.value = 'skip';
+      skipOpt.textContent = 'Skip this row';
+      select.appendChild(skipOpt);
+
+      const overwriteOpt = document.createElement('option');
+      overwriteOpt.value = 'overwrite';
+      overwriteOpt.disabled = !conflict.overwrite_allowed;
+      if (
+        conflict.conflict_types.includes('existing_route') &&
+        conflict.conflict_types.includes('existing_driver')
+      ) {
+        overwriteOpt.textContent = 'Overwrite route & use existing driver';
+      } else if (conflict.conflict_types.includes('existing_route')) {
+        overwriteOpt.textContent = 'Overwrite existing route';
+      } else {
+        overwriteOpt.textContent =
+          'Use existing driver (update email if provided)';
+      }
+      select.appendChild(overwriteOpt);
+
+      label.appendChild(select);
+      conflictRow.append(detail, label);
+      box.appendChild(conflictRow);
+    }
+
+    bulkImportPreviewBody.append(title, box);
+    setLabeledIcon(bulkImportCommitBtn, 'check', 'Resolve conflicts & commit');
+  } else {
+    setLabeledIcon(bulkImportCommitBtn, 'check', 'Commit import');
+  }
+
+  if (preview.planned?.length && !preview.conflicts?.length) {
+    const title = document.createElement('h4');
+    title.textContent = 'Rows to create';
+    const ul = document.createElement('ul');
+    ul.className = 'report-changes';
+    for (const row of preview.planned.slice(0, 40)) {
+      const li = document.createElement('li');
+      const segs = ['AM', 'MIDDAY', 'PM']
+        .filter((s) => row.segments[s])
+        .map((s) => `${s} ${row.segments[s]}`)
+        .join(', ');
+      li.textContent = `${row.driver_name} → ${row.route_id} (${segs || 'no times'})`;
+      ul.appendChild(li);
+    }
+    if (preview.planned.length > 40) {
+      const more = document.createElement('li');
+      more.textContent = `…and ${preview.planned.length - 40} more`;
+      ul.appendChild(more);
+    }
+    bulkImportPreviewBody.append(title, ul);
+  }
+
+  const canCommit =
+    preview.summary.planned_row_count > 0 ||
+    preview.summary.conflict_row_count > 0;
+  bulkImportCommitBtn.hidden = !canCommit;
+  bulkImportPreviewPanel.hidden = false;
+}
+
+document.getElementById('bulk-import-preview').addEventListener('click', async () => {
+  try {
+    const text = serializeBulkImportTable();
+    if (!text.trim()) {
+      throw new Error('Paste or type at least one roster row into the table first.');
+    }
+    const preview = await fetchJson('/api/bulk-import/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    pendingBulkImport = { text, preview };
+    renderBulkImportPreview(preview);
+    showBulkImportStatus(
+      preview.requires_resolutions
+        ? 'Preview ready — resolve each conflict before commit.'
+        : preview.summary.planned_row_count === 0
+          ? 'Preview ready — no valid rows to import.'
+          : 'Preview ready — review counts, then commit.',
+      preview.requires_resolutions || preview.summary.planned_row_count === 0
+        ? 'warn'
+        : 'ok'
+    );
+  } catch (error) {
+    showBulkImportStatus(error.message, 'error');
+  }
+});
+
+document.getElementById('bulk-import-cancel').addEventListener('click', () => {
+  pendingBulkImport = null;
+  bulkImportPreviewPanel.hidden = true;
+  bulkImportCommitBtn.hidden = true;
+  bulkImportPreviewBody.innerHTML = '';
+});
+
+document.getElementById('bulk-import-commit').addEventListener('click', async () => {
+  try {
+    if (!pendingBulkImport?.text) {
+      throw new Error('Preview an import first.');
+    }
+    const entered_by = bulkImportEnteredByEl.value.trim();
+    const note = bulkImportNoteEl.value.trim();
+    if (!entered_by) {
+      throw new Error('Select who is entering this import.');
+    }
+    if (!note) {
+      throw new Error('A note is required for the import.');
+    }
+
+    const resolutions = collectBulkResolutions();
+    if (pendingBulkImport.preview.requires_resolutions) {
+      for (const conflict of pendingBulkImport.preview.conflicts) {
+        const choice = resolutions[String(conflict.row_number)];
+        if (choice !== 'skip' && choice !== 'overwrite') {
+          throw new Error(
+            `Choose skip or overwrite for row ${conflict.row_number} (${conflict.route_id}).`
+          );
+        }
+        if (choice === 'overwrite' && !conflict.overwrite_allowed) {
+          throw new Error(
+            conflict.overwrite_blocked_reason ||
+              `Overwrite is not allowed for row ${conflict.row_number}.`
+          );
+        }
+      }
+    }
+
+    const result = await fetchJson('/api/bulk-import/commit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: pendingBulkImport.text,
+        entered_by,
+        note,
+        resolutions,
+      }),
+    });
+
+    localStorage.setItem('rct_entered_by', entered_by);
+    pendingBulkImport = null;
+    bulkImportPreviewPanel.hidden = true;
+    bulkImportCommitBtn.hidden = true;
+    bulkImportPreviewBody.innerHTML = '';
+    clearBulkImportTable();
+    bulkImportNoteEl.value = '';
+
+    const s = result.summary;
+    showBulkImportStatus(
+      `Imported ${s.accepted_row_count} row(s): ${s.new_drivers_count} new driver(s), ${s.new_routes_count} new route(s)` +
+        (s.overwritten_routes_count
+          ? `, ${s.overwritten_routes_count} overwritten`
+          : '') +
+        (s.skipped_row_count ? `, ${s.skipped_row_count} skipped` : '') +
+        '.',
+      'ok'
+    );
+    await loadQueue();
+  } catch (error) {
+    showBulkImportStatus(error.message, 'error');
   }
 });
