@@ -4,6 +4,7 @@ import {
   APP_DATA_DIRNAME,
   WORKBOOK_FILENAME,
   getAppDataDir,
+  getAsOfDate,
   getSharedRoot,
   getWorkbookPath,
 } from '../config.js';
@@ -101,7 +102,7 @@ export function formatWorkbookSaveError(error) {
  */
 export async function buildExpectedWorkbook(
   appDataDir = getAppDataDir(),
-  asOfDate = new Date()
+  asOfDate = getAsOfDate()
 ) {
   const [changeLog, routeState, drivers, schoolCalendar] = await Promise.all([
     readChangeLog(appDataDir),

@@ -1,5 +1,11 @@
 {
   "electronic_bid_signup_enabled": false,
   "bid_signup_workbook": "bid-signups.xlsx",
-  "open_bid_posting_to_email": ""
+  "open_bid_posting_to_email": "",
+  "paper_bid_signup_enabled": false,
+  "paper_bid_sheet": {
+    "title": "Open Bid Sign-Up Sheet",
+    "intro": "Drivers interested in this route should initial next to their name. Sign-up closes after two (2) school days — due {{bid_response_due_date}}. Failing to initial by that deadline is a rejection of the open position per Art. 3.08(c)(1).",
+    "footer": "Names in bold have more seniority than the current route holder. Initial in the box next to your name if you want to bid."
+  }
 }

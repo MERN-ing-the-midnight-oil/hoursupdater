@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Paper bid sign-up · Teamster Tracker</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="paper-bid-sheet-page">
+    <main class="shell">
+      <div class="topbar no-print">
+        <div class="brand-block">
+          <a href="/admin" class="brand-home" aria-label="Admin" data-icon="home"></a>
+          <div class="brand">Teamster Tracker</div>
+        </div>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="/admin" data-icon="clipboard-list">Back to Admin</a>
+        </nav>
+      </div>
+
+      <section class="panel no-print paper-bid-controls">
+        <h1 data-icon="printer">Paper bid sign-up sheet</h1>
+        <p class="lead">
+          Set the route start date for the header, then print. Bold names have more
+          seniority than the current route holder.
+        </p>
+        <div id="sheet-status" class="status" role="status"></div>
+        <div class="grid">
+          <div class="field">
+            <label for="paper_bid_start_date">Route start date</label>
+            <input id="paper_bid_start_date" type="date" required />
+            <p class="field-hint">
+              Required on the printed sheet. Saved on this route for reprints.
+            </p>
+          </div>
+        </div>
+        <div class="actions">
+          <button type="button" id="save-start-date" data-icon="save">
+            Save start date
+          </button>
+          <button type="button" id="print-sheet" data-icon="printer" disabled>
+            Print sign-up sheet
+          </button>
+          <button
+            type="button"
+            class="secondary"
+            id="export-docx"
+            data-icon="download"
+            disabled
+          >
+            Export Word (.docx)
+          </button>
+        </div>
+      </section>
+
+      <section class="panel paper-bid-sheet" id="sheet-root" aria-live="polite">
+        <p class="field-hint">Loading sheet…</p>
+      </section>
+    </main>
+
+    <script type="module" src="/admin/paper-bid-sheet.js"></script>
+  </body>
+</html>

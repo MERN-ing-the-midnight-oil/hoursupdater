@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { addSchoolDays } from '../src/logic/calendar.js';
 import {
   applyAllWindowExpirations,
+  applyBidAwardResolutions,
   applyChangeToRoute,
   applyWindowExpiration,
   createInitialRouteState,
@@ -44,6 +45,26 @@ function makeChange(overrides) {
 }
 
 describe('stateMachine', () => {
+  it('seeds a new route as STABLE without opening a window when schedule is unchanged', () => {
+    const seed = makeChange({
+      driver_name: '',
+      driver_id: null,
+      previous_time: '6:00-8:00',
+      new_time: '6:00-8:00',
+      computed_delta_minutes: 0,
+      delta_minutes: 0,
+    });
+    const result = applyChangeToRoute(null, seed, calendar);
+
+    assert.equal(result.status, 'STABLE');
+    assert.equal(result.window_expires_date, null);
+    assert.equal(result.cumulative_drift_minutes, 0);
+    assert.deepEqual(result.contributing_change_ids, []);
+    assert.equal(result.segments.AM, '6:00-8:00');
+    assert.equal(result.driver_name, null);
+    assert.equal(result.driver_id, null);
+  });
+
   it('opens a new window from STABLE on first change (Rule 2)', () => {
     const change = makeChange({ delta_minutes: 5 });
     const result = applyChangeToRoute(null, change, calendar);
@@ -1044,6 +1065,51 @@ describe('stateMachine', () => {
     assert.deepEqual(restored['S 20'].contributing_change_ids, ['c2']);
     assert.deepEqual(restored['S 20'].pending_change_ids, []);
     assert.equal(restored['S 20'].review_history?.[0]?.event, 'NEEDS_REVIEW_SELF_RESOLVED');
+  });
+
+  it('same-day bid award reassignment is visible when asOf is a date-only string', () => {
+    const change = makeChange({
+      id: 'c1',
+      driver_id: 'drv-jane',
+      driver_name: 'Jane Driver',
+      delta_minutes: 35,
+      previous_time: '6:35-8:55',
+      new_time: '6:00-8:55',
+      effective_date: '2025-09-02',
+      submitted_at: '2025-09-02T08:00:00.000Z',
+    });
+    const award = {
+      id: 'r1',
+      type: 'REASSIGNMENT',
+      route_id: 'S 20',
+      previous_driver_id: 'drv-jane',
+      previous_driver_name: 'Jane Driver',
+      new_driver_id: 'drv-tammy',
+      new_driver_name: 'Tammy Trapp',
+      note: 'Award bid',
+      resolution: 'bid_awarded',
+      reassigned_by: 'Admin Assistant',
+      // Noon on finalize day — must still apply when asOf is YYYY-MM-DD.
+      reassigned_at: '2025-09-25T12:00:00.000Z',
+    };
+
+    const computed = rebuildRouteStateFromChangeLog(
+      [change, award],
+      {},
+      calendar,
+      '2025-09-25'
+    );
+    assert.equal(computed['S 20'].status, 'BID_PENDING');
+    assert.equal(
+      computed['S 20'].driver_name,
+      'Tammy Trapp',
+      'same-day noon reassignment must apply when asOf is YYYY-MM-DD'
+    );
+
+    const withAward = applyBidAwardResolutions(computed, [change, award]);
+    assert.equal(withAward['S 20'].status, 'STABLE');
+    assert.equal(withAward['S 20'].driver_id, 'drv-tammy');
+    assert.equal(withAward['S 20'].driver_name, 'Tammy Trapp');
   });
 
   it('reassignment mid-window updates live driver without touching drift or countdown', () => {

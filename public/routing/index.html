@@ -3,18 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Routing · Route Change Tracker</title>
+    <title>Routing · Teamster Tracker</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="shell">
       <div class="topbar">
-        <div class="brand" data-icon="bus">Route Change Tracker</div>
+        <div class="brand-block">
+          <a href="/" class="brand-home" aria-label="Home" data-icon="home"></a>
+          <div class="brand">Teamster Tracker</div>
+        </div>
         <nav class="site-nav" aria-label="Primary">
           <a href="/routing" aria-current="page" data-icon="route">Routing</a>
           <a href="/admin" data-icon="clipboard-list">Admin</a>
-          <a href="/admin/drivers" data-icon="users">Drivers</a>
-          <a href="/help" data-icon="book-open">How this app works</a>
+          <a href="/admin/drivers" data-icon="users">Drivers/Routes</a>
+          <a href="/help" data-icon="book-open">Definitions</a>
         </nav>
       </div>
 
@@ -74,78 +77,30 @@
               </div>
               <p class="field-hint">
                 Creating a route still requires <strong>Entered by</strong> below —
-                same attribution as any other change.
+                same attribution as any other change. Driver is optional (leave blank
+                for Unassigned).
               </p>
             </div>
 
             <div class="field full driver-picker">
               <label for="driver_search" data-icon="user">Driver</label>
-              <div class="route-picker-row">
-                <div class="combobox" id="driver-combobox">
-                  <input
-                    type="text"
-                    id="driver_search"
-                    placeholder="Search drivers…"
-                    autocomplete="off"
-                    aria-autocomplete="list"
-                    aria-controls="driver-listbox"
-                    aria-expanded="false"
-                  />
-                  <input type="hidden" id="driver_id" name="driver_id" />
-                  <input type="hidden" id="driver_name" name="driver_name" required />
-                  <ul id="driver-listbox" class="route-listbox" role="listbox" hidden></ul>
-                </div>
-                <button type="button" class="secondary" id="new-driver-btn" data-icon="user-plus">
-                  Add new driver
-                </button>
+              <div class="combobox" id="driver-combobox">
+                <input
+                  type="text"
+                  id="driver_search"
+                  placeholder="Search drivers…"
+                  autocomplete="off"
+                  aria-autocomplete="list"
+                  aria-controls="driver-listbox"
+                  aria-expanded="false"
+                />
+                <input type="hidden" id="driver_id" name="driver_id" />
+                <input type="hidden" id="driver_name" name="driver_name" />
+                <ul id="driver-listbox" class="route-listbox" role="listbox" hidden></ul>
               </div>
               <p id="driver-mode-hint" class="field-hint">
-                Pick a known driver from the list. Use “Add new driver” only for someone who isn’t in the directory yet.
-              </p>
-            </div>
-
-            <div id="new-driver-fields" class="new-route-fields" hidden>
-              <div class="grid">
-                <div class="field">
-                  <label for="new_driver_name">New driver name</label>
-                  <input
-                    id="new_driver_name"
-                    name="new_driver_name"
-                    placeholder="First Last"
-                    autocomplete="off"
-                  />
-                </div>
-                <div class="field">
-                  <label for="new_driver_hire_date">Hire date</label>
-                  <input
-                    id="new_driver_hire_date"
-                    name="new_driver_hire_date"
-                    type="date"
-                    autocomplete="off"
-                  />
-                </div>
-                <div class="field">
-                  <label for="new_driver_email">Email (optional)</label>
-                  <input
-                    id="new_driver_email"
-                    name="new_driver_email"
-                    type="email"
-                    placeholder="driver@example.com"
-                    autocomplete="off"
-                  />
-                </div>
-                <div class="field route-mode-actions">
-                  <label>&nbsp;</label>
-                  <button type="button" class="secondary" id="cancel-new-driver-btn" data-icon="x">
-                    Cancel — use existing driver
-                  </button>
-                </div>
-              </div>
-              <p class="field-hint">
-                Hire date is required for new drivers (used for seniority). If
-                another driver already shares that exact hire date, Admin will be
-                prompted on the Drivers page to record the office lots outcome
-                (Art. 3.01).
+                Pick a known driver from the list. Add someone new under
+                <a href="/admin/drivers">Drivers/Routes</a>.
               </p>
             </div>
 
@@ -174,9 +129,13 @@
                 required
                 autocomplete="off"
               />
+              <p id="previous-time-format-hint" class="field-hint" hidden>
+                Format: <strong>H:MM-H:MM</strong> (e.g. <code>6:35-8:55</code>).
+                Start and end use 24-hour clock times; minutes are two digits.
+              </p>
             </div>
 
-            <div class="field">
+            <div class="field" id="new-time-field">
               <div class="field-label-row">
                 <label for="new_time" data-icon="clock">New Schedule</label>
                 <span data-glossary="scheduled_time"></span>
@@ -191,10 +150,15 @@
             <div class="field">
               <label for="reason_category">Reason category</label>
               <select id="reason_category" name="reason_category" required>
-                <option value="MV">MV</option>
-                <option value="SPED">SPED</option>
-                <option value="OTHER">OTHER</option>
+                <option value="">Select a category…</option>
               </select>
+              <p class="field-hint">
+                <a
+                  href="/admin#settings-reason-categories"
+                  class="field-settings-link"
+                  data-icon="settings"
+                >Edit this selector</a>
+              </p>
             </div>
 
             <div class="field">
@@ -202,6 +166,13 @@
               <select id="entered_by" name="entered_by" required>
                 <option value="">Select your name…</option>
               </select>
+              <p class="field-hint">
+                <a
+                  href="/admin#settings-staff-names"
+                  class="field-settings-link"
+                  data-icon="settings"
+                >Don't see your name?</a>
+              </p>
             </div>
 
             <div class="field full">
@@ -214,14 +185,14 @@
             </div>
           </div>
 
-          <div class="delta-box">
+          <div id="delta-box" class="delta-box">
             <div class="field">
               <label for="computed_delta" data-icon="calculator">Difference between Old and New Schedule</label>
               <input id="computed_delta" readonly value="" />
             </div>
             <div class="field">
               <div class="field-label-row">
-                <label for="delta_minutes" data-icon="pencil">Time Difference To Accumulate</label>
+                <label for="delta_minutes" data-icon="pencil">Difference to record</label>
                 <span data-glossary="time_difference_to_accumulate"></span>
               </div>
               <input id="delta_minutes" name="delta_minutes" type="number" step="1" />

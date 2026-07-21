@@ -1,3 +1,4 @@
+import { getAsOfDate } from '../config.js';
 import { daysRemainingInWindow } from '../logic/calendar.js';
 import { isBidResponseWindowClosed } from '../logic/bidSignup.js';
 import { isBumpDecisionOverdue } from '../logic/bumpDecisions.js';
@@ -337,6 +338,7 @@ export function enrichRouteForQueue(route_id, entry, ctx) {
       entry.bid_response_due_date,
       asOfDate
     ),
+    paper_bid_start_date: entry.paper_bid_start_date ?? null,
     bid_signup: entry.bid_signup ?? null,
     /** @type {import('../logic/bidSignup.js').BidSignupParseResult | null} */
     bid_signup_file: ctx.bidSignupFile ?? null,
@@ -391,7 +393,7 @@ export async function buildAdminQueue(dataDir) {
   const driversById = new Map(drivers.map((d) => [d.driver_id, d]));
   const driversByName = new Map(drivers.map((d) => [d.name.toLowerCase(), d]));
   const effectiveDeltas = resolveEffectiveDeltas(changeLog);
-  const asOfDate = toDateString(new Date());
+  const asOfDate = toDateString(getAsOfDate());
 
   /** @type {import('../logic/bidSignup.js').BidSignupParseResult | null} */
   let bidSignupFile = null;

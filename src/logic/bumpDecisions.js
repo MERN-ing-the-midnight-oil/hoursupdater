@@ -182,8 +182,28 @@ function lockInStable(entry, at) {
   next.contributing_change_ids = [];
   next.window_opened_date = null;
   next.window_expires_date = null;
+  next.reconciliation = null;
+  next.pending_change_ids = [];
   next.last_updated = at;
   return next;
+}
+
+/**
+ * Whether a logged keep/accept should lock the route in on this rebuild.
+ * Includes NEEDS_REVIEW rows where reconcile flipped STABLE↔BUMP_ELIGIBLE
+ * after a prior keep (mirrors applyBidAwardResolutions forcing STABLE).
+ * @param {RouteStateEntry} entry
+ * @returns {boolean}
+ */
+function shouldApplyBumpLockIn(entry) {
+  if (entry.status === 'BUMP_ELIGIBLE') return true;
+  if (
+    entry.status === 'NEEDS_REVIEW' &&
+    entry.reconciliation?.computed_status === 'BUMP_ELIGIBLE'
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -252,13 +272,13 @@ export function applyBumpDecisions(routeStateMap, changeLog, schoolCalendar) {
     if (!entry) continue;
 
     if (decision.decision === 'keep_assignment') {
-      if (entry.status !== 'BUMP_ELIGIBLE') continue;
+      if (!shouldApplyBumpLockIn(entry)) continue;
       updated[routeId] = lockInStable(entry, decision.decided_at);
       continue;
     }
 
     if (decision.decision === 'accept_unassigned') {
-      if (entry.status !== 'BUMP_ELIGIBLE') continue;
+      if (!shouldApplyBumpLockIn(entry)) continue;
       updated[routeId] = lockInStable(entry, decision.decided_at);
       continue;
     }

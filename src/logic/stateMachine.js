@@ -12,7 +12,7 @@ import { buildChangeReport } from './changeReport.js';
 /**
  * @typedef {'AM' | 'MIDDAY' | 'PM'} Segment
  * @typedef {'STABLE' | 'ACCUMULATING' | 'LOCKED_PENDING' | 'BID_PENDING' | 'BUMP_ELIGIBLE' | 'NEEDS_REVIEW'} RouteStatus
- * @typedef {'MV' | 'SPED' | 'OTHER'} ReasonCategory
+ * @typedef {string} ReasonCategory
  */
 
 /**
@@ -28,7 +28,7 @@ import { buildChangeReport } from './changeReport.js';
  * @property {string} id
  * @property {'CHANGE'} [type]
  * @property {string} route_id
- * @property {string} driver_name
+ * @property {string} driver_name - empty/whitespace when Unassigned (e.g. new route with no driver yet)
  * @property {string | null} [driver_id]
  * @property {Segment} segment
  * @property {string} submitted_at
@@ -82,8 +82,8 @@ import { buildChangeReport } from './changeReport.js';
  * @property {string} id
  * @property {'BULK_IMPORT'} type
  * @property {string} imported_at - ISO datetime
- * @property {string} entered_by - from staff-names.json
- * @property {string} note - required explanation for the whole batch
+ * @property {string} [entered_by] - optional; from staff-names.json when set
+ * @property {string} [note] - optional explanation for the whole batch
  * @property {{ driver_id: string, name: string, email: string | null }[]} created_drivers
  * @property {{ driver_id: string, name: string, email: string | null }[]} [updated_drivers]
  * @property {{ route_id: string, driver_id: string | null, driver_name: string, segments: Record<Segment, string | null> }[]} created_routes
@@ -187,6 +187,7 @@ import { buildChangeReport } from './changeReport.js';
  * @property {number | null} [bump_chain_link] - 1-based link index in that chain
  * @property {'original_decrease' | 'displacement' | null} [bump_kind]
  * @property {string | null} [bid_response_due_date] - Art. 3.08(c)(1) 2-school-day sign-up deadline (BID_PENDING)
+ * @property {string | null} [paper_bid_start_date] - Admin-set effective start date for paper sign-up sheet header
  * @property {{
  *   drivers_notified_at: string | null,
  *   finalized_at: string | null,
@@ -362,6 +363,23 @@ export function resolveDriverAssignment(changeLog, routeId, asOfTimestamp) {
 }
 
 /**
+ * Inclusive end of an as-of civil day (for including same-day event stamps).
+ * Date-only strings become 23:59:59.999Z; Date objects keep their instant.
+ * @param {string | Date} asOfDate
+ * @returns {string}
+ */
+function asOfInclusiveTimestamp(asOfDate) {
+  if (asOfDate instanceof Date) {
+    return asOfDate.toISOString();
+  }
+  const trimmed = String(asOfDate).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return `${trimmed}T23:59:59.999Z`;
+  }
+  return new Date(trimmed).toISOString();
+}
+
+/**
  * Overlay live driver assignment onto route state from the change log.
  * Window / drift / status are untouched.
  *
@@ -371,7 +389,9 @@ export function resolveDriverAssignment(changeLog, routeId, asOfTimestamp) {
  * @returns {RouteStateMap}
  */
 export function applyResolvedDrivers(routeStateMap, changeLog, asOfDate) {
-  const asOfIso = toIsoTimestamp(asOfDate);
+  // Date-only asOf must include events stamped later the same day (Admin
+  // reassign / bid award), not only those at midnight.
+  const asOfIso = asOfInclusiveTimestamp(asOfDate);
   /** @type {RouteStateMap} */
   const updated = {};
   for (const [routeId, entry] of Object.entries(routeStateMap)) {
@@ -417,14 +437,21 @@ export function applyBidAwardResolutions(routeStateMap, changeLog) {
   const updated = { ...routeStateMap };
   for (const [routeId, award] of latestAwardByRoute) {
     const entry = updated[routeId];
-    if (!entry || entry.status !== 'BID_PENDING') continue;
+    if (!entry) continue;
+    const awardable =
+      entry.status === 'BID_PENDING' ||
+      (entry.status === 'NEEDS_REVIEW' &&
+        entry.reconciliation?.computed_status === 'BID_PENDING');
+    if (!awardable) continue;
 
     const bidReport = [...(entry.change_reports ?? [])]
       .reverse()
       .find((r) => r.outcome === 'BID_PENDING');
+    // Compare calendar days so same-day awards are not rejected when
+    // finalized_at is midnight of asOf and the award stamp is earlier that day.
     if (
       bidReport?.finalized_at &&
-      award.reassigned_at < bidReport.finalized_at
+      toDateString(award.reassigned_at) < toDateString(bidReport.finalized_at)
     ) {
       continue;
     }
@@ -442,6 +469,8 @@ export function applyBidAwardResolutions(routeStateMap, changeLog) {
     next.bump_kind = null;
     next.bid_response_due_date = null;
     next.bid_signup = null;
+    next.reconciliation = null;
+    next.pending_change_ids = [];
     next.last_updated = award.reassigned_at;
     updated[routeId] = next;
   }
@@ -484,7 +513,7 @@ export function createInitialRouteState(changeEvent) {
   baseline_segments[changeEvent.segment] = changeEvent.previous_time;
 
   return {
-    driver_name: changeEvent.driver_name,
+    driver_name: changeEvent.driver_name?.trim() || null,
     driver_id: changeEvent.driver_id ?? null,
     segments,
     baseline_segments,
@@ -756,6 +785,7 @@ export function applyChangeToRoute(
   options = {}
 ) {
   const changeDate = toDateString(asOfDate);
+  const isFirstEvent = !routeState;
   let state = routeState
     ? cloneRouteState(routeState)
     : createInitialRouteState(changeEvent);
@@ -767,9 +797,11 @@ export function applyChangeToRoute(
     schoolCalendar,
   });
 
-  state.driver_name = changeEvent.driver_name;
+  state.driver_name = changeEvent.driver_name?.trim() || null;
   if (changeEvent.driver_id) {
     state.driver_id = changeEvent.driver_id;
+  } else if (isFirstEvent) {
+    state.driver_id = null;
   }
   state.segments[changeEvent.segment] = changeEvent.new_time;
   state.last_updated = changeEvent.submitted_at;
@@ -781,6 +813,17 @@ export function applyChangeToRoute(
     typeof deltaOverride === 'number'
       ? deltaOverride
       : changeEvent.delta_minutes;
+
+  // Seed-only create (new route with starting schedule, no real change): keep
+  // STABLE from createInitialRouteState — do not open a 15-day window.
+  if (
+    isFirstEvent &&
+    delta === 0 &&
+    changeEvent.previous_time === changeEvent.new_time
+  ) {
+    return state;
+  }
+
   const expiresDate = addSchoolDays(schoolCalendar, changeDate, 15);
 
   if (hasOpenAccumulationWindow(state, changeDate)) {
@@ -1376,8 +1419,9 @@ export function validateChangeEvent(
   if (!event.route_id?.trim()) {
     errors.push('route_id is required.');
   }
-  if (!event.driver_name?.trim()) {
-    errors.push('driver_name is required.');
+  // driver_name may be empty for Unassigned (new route created without a driver).
+  if (typeof event.driver_name !== 'string') {
+    errors.push('driver_name must be a string (use empty string for Unassigned).');
   }
   if (!event.segment || !SEGMENTS.includes(event.segment)) {
     errors.push(`segment must be one of: ${SEGMENTS.join(', ')}.`);

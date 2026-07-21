@@ -180,6 +180,8 @@ export async function commitYearArchive(args) {
       'utf8'
     );
 
+    const contents = await listArchiveContents(archiveDir);
+
     return {
       archive_folder_name: folderName,
       archive_path: archiveDir,
@@ -187,10 +189,62 @@ export async function commitYearArchive(args) {
       workbook_copied: hasWorkbook,
       preview,
       meta,
+      contents,
     };
   } catch (error) {
     // Best-effort cleanup of a failed partial archive so retries aren't blocked.
     await fs.rm(archiveDir, { recursive: true, force: true }).catch(() => null);
     throw error;
   }
+}
+
+/**
+ * Shallow listing of what landed in an archive folder (for Admin confirmation UI).
+ * @param {string} archiveDir
+ * @param {number} [maxDepth]
+ * @returns {Promise<Array<{ path: string, type: 'file' | 'directory', children?: number }>>}
+ */
+export async function listArchiveContents(archiveDir, maxDepth = 2) {
+  /** @type {Array<{ path: string, type: 'file' | 'directory', children?: number }>} */
+  const rows = [];
+
+  /**
+   * @param {string} dir
+   * @param {string} prefix
+   * @param {number} depth
+   */
+  async function walk(dir, prefix, depth) {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    entries.sort((a, b) => {
+      if (a.isDirectory() !== b.isDirectory()) {
+        return a.isDirectory() ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+    for (const entry of entries) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        let childCount = 0;
+        try {
+          childCount = (await fs.readdir(path.join(dir, entry.name))).length;
+        } catch {
+          childCount = 0;
+        }
+        rows.push({ path: rel, type: 'directory', children: childCount });
+        if (depth < maxDepth) {
+          await walk(path.join(dir, entry.name), rel, depth + 1);
+        }
+      } else if (entry.isFile()) {
+        rows.push({ path: rel, type: 'file' });
+      }
+    }
+  }
+
+  await walk(archiveDir, '', 1);
+  return rows;
 }

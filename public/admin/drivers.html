@@ -3,27 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Drivers · Admin · Route Change Tracker</title>
+    <title>Drivers/Routes · Admin · Teamster Tracker</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="shell shell-wide">
       <div class="topbar">
-        <div class="brand" data-icon="bus">Route Change Tracker</div>
+        <div class="brand-block">
+          <a href="/" class="brand-home" aria-label="Home" data-icon="home"></a>
+          <div class="brand">Teamster Tracker</div>
+        </div>
         <nav class="site-nav" aria-label="Primary">
           <a href="/routing" data-icon="route">Routing</a>
           <a href="/admin" data-icon="clipboard-list">Admin</a>
-          <a href="/admin/drivers" aria-current="page" data-icon="users">Drivers</a>
-          <a href="/help" data-icon="book-open">How this app works</a>
+          <a href="/admin/drivers" aria-current="page" data-icon="users">Drivers/Routes</a>
+          <a href="/help" data-icon="book-open">Definitions</a>
         </nav>
       </div>
 
 
       <section class="panel">
-        <h1 data-icon="users">Drivers</h1>
+        <h1 data-icon="users">Drivers/Routes</h1>
         <p class="lead">
-          Directory of drivers. Open a person to see assignments, change history,
-          finalized reports, and review history across all their routes.
+          Directory of drivers, plus deliberate tools to add a driver or change
+          who holds a route. Assignments never reset window status or drift.
         </p>
         <div id="drivers-status" class="status" role="status"></div>
         <div id="hire-date-reminder" class="status warn" hidden role="status"></div>
@@ -65,17 +68,213 @@
           <div id="seniority-tie-status" class="status" role="status"></div>
         </section>
 
-        <label class="field drivers-search-field">
-          <span data-icon="search">Search</span>
-          <input
-            id="driver-search"
-            type="search"
-            placeholder="Name or email"
-            autocomplete="off"
-          />
-        </label>
+        <div class="drivers-toolbar">
+          <label class="field drivers-search-field">
+            <span data-icon="search">Search</span>
+            <input
+              id="driver-search"
+              type="search"
+              placeholder="Name, email, or route"
+              autocomplete="off"
+            />
+          </label>
+          <label class="field drivers-sort-field">
+            <span data-icon="arrow-down-up">Sort by</span>
+            <select id="driver-sort">
+              <option value="first_name">First name (A–Z)</option>
+              <option value="last_name">Last name (A–Z)</option>
+              <option value="route">Route number</option>
+            </select>
+          </label>
+        </div>
 
         <ul id="driver-list" class="settings-list driver-directory"></ul>
+        <nav
+          id="driver-pagination"
+          class="drivers-pagination"
+          aria-label="Driver directory pages"
+          hidden
+        ></nav>
+
+        <section class="drivers-tools" aria-label="Driver and route tools">
+          <h2 data-icon="wrench">Tools</h2>
+          <p class="field-hint">
+            Each tool starts closed. Assignment tools require staff attribution, a
+            note, typed confirmation, and an explicit acknowledgment before they
+            can run.
+          </p>
+
+          <details class="drivers-tool" id="tool-add-driver">
+            <summary data-icon="user-plus">Add new driver</summary>
+            <form id="add-driver-form" class="drivers-tool-form" novalidate>
+              <p class="field-hint">
+                Adds someone to the directory only — does not assign a route.
+                Hire date is required for seniority.
+              </p>
+              <div class="grid">
+                <label class="field">
+                  <span>First name</span>
+                  <input
+                    id="add-driver-first-name"
+                    type="text"
+                    required
+                    placeholder="First"
+                    autocomplete="off"
+                  />
+                </label>
+                <label class="field">
+                  <span>Last name</span>
+                  <input
+                    id="add-driver-last-name"
+                    type="text"
+                    required
+                    placeholder="Last"
+                    autocomplete="off"
+                  />
+                </label>
+                <label class="field">
+                  <span>Hire date</span>
+                  <input id="add-driver-hire-date" type="date" required />
+                </label>
+                <label class="field">
+                  <span>Email (optional)</span>
+                  <input
+                    id="add-driver-email"
+                    type="email"
+                    placeholder="driver@example.com"
+                    autocomplete="off"
+                  />
+                </label>
+              </div>
+              <div class="actions">
+                <button type="submit" data-icon="user-plus">Add driver to directory</button>
+              </div>
+              <div id="add-driver-status" class="status" role="status"></div>
+            </form>
+          </details>
+
+          <details class="drivers-tool assignment-tool" id="tool-driver-to-route">
+            <summary data-icon="user-cog">Assign driver to a route</summary>
+            <form id="driver-to-route-form" class="drivers-tool-form" novalidate>
+              <p class="field-hint">
+                Start with the driver, then choose which route they should hold.
+                This replaces whoever is currently on that route.
+              </p>
+              <div class="grid">
+                <label class="field">
+                  <span>Driver</span>
+                  <select id="d2r-driver" required>
+                    <option value="">Select a driver…</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Route they will hold</span>
+                  <select id="d2r-route" required>
+                    <option value="">Select a route…</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Reassigned by</span>
+                  <select id="d2r-by" required>
+                    <option value="">Select your name…</option>
+                  </select>
+                </label>
+                <label class="field full">
+                  <span>Note</span>
+                  <textarea
+                    id="d2r-note"
+                    rows="2"
+                    required
+                    placeholder="Why is this driver being placed on this route?"
+                  ></textarea>
+                </label>
+              </div>
+              <div id="d2r-preview" class="assignment-preview" hidden></div>
+              <label class="field">
+                <span>Type the route ID to confirm</span>
+                <input
+                  id="d2r-confirm"
+                  type="text"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="Must match the selected route exactly"
+                />
+              </label>
+              <label class="field checkbox-field">
+                <input id="d2r-ack" type="checkbox" />
+                I understand this changes who holds the route and does not reset
+                the window or drift
+              </label>
+              <div class="actions">
+                <button type="submit" id="d2r-submit" data-icon="user-cog" disabled>
+                  Confirm: assign driver to route
+                </button>
+              </div>
+              <div id="d2r-status" class="status" role="status"></div>
+            </form>
+          </details>
+
+          <details class="drivers-tool assignment-tool" id="tool-route-to-driver">
+            <summary data-icon="route">Assign route to a driver</summary>
+            <form id="route-to-driver-form" class="drivers-tool-form" novalidate>
+              <p class="field-hint">
+                Start with the route, then choose which driver (or Unassigned)
+                should hold it.
+              </p>
+              <div class="grid">
+                <label class="field">
+                  <span>Route</span>
+                  <select id="r2d-route" required>
+                    <option value="">Select a route…</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Driver who will hold it</span>
+                  <select id="r2d-driver" required>
+                    <option value="">Select…</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Reassigned by</span>
+                  <select id="r2d-by" required>
+                    <option value="">Select your name…</option>
+                  </select>
+                </label>
+                <label class="field full">
+                  <span>Note</span>
+                  <textarea
+                    id="r2d-note"
+                    rows="2"
+                    required
+                    placeholder="Why is this route being reassigned?"
+                  ></textarea>
+                </label>
+              </div>
+              <div id="r2d-preview" class="assignment-preview" hidden></div>
+              <label class="field">
+                <span>Type the confirmation phrase exactly</span>
+                <input
+                  id="r2d-confirm"
+                  type="text"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="Shown in the preview below once both sides are selected"
+                />
+              </label>
+              <label class="field checkbox-field">
+                <input id="r2d-ack" type="checkbox" />
+                I understand this changes who holds the route and does not reset
+                the window or drift
+              </label>
+              <div class="actions">
+                <button type="submit" id="r2d-submit" data-icon="route" disabled>
+                  Confirm: assign route to driver
+                </button>
+              </div>
+              <div id="r2d-status" class="status" role="status"></div>
+            </form>
+          </details>
+        </section>
       </section>
     </main>
 

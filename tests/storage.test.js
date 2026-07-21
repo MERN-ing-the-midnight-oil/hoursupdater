@@ -10,12 +10,16 @@ import {
   readAdjustmentReasons,
   readChangeLog,
   readDrivers,
+  readReasonCategories,
   readRouteState,
   readStaffNames,
+  readEmailTemplates,
   readPayrollSettings,
   writeAdjustmentReasons,
   writeDrivers,
+  writeEmailTemplates,
   writePayrollSettings,
+  writeReasonCategories,
   writeRouteState,
   writeStaffNames,
 } from '../src/data/storage.js';
@@ -178,24 +182,65 @@ describe('storage', () => {
     await fs.rm(dataDir, { recursive: true, force: true });
   });
 
+  it('seeds and updates reason-categories.json from defaults', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'rct-categories-'));
+
+    const seeded = await readReasonCategories(dataDir);
+    assert.deepEqual(seeded, ['MV', 'SPED', 'OTHER']);
+
+    const updated = await writeReasonCategories(['MV', 'Custom'], dataDir);
+    assert.deepEqual(updated, ['MV', 'Custom']);
+    assert.deepEqual(await readReasonCategories(dataDir), updated);
+
+    await fs.rm(dataDir, { recursive: true, force: true });
+  });
+
   it('seeds and updates payroll-settings.json from defaults', async () => {
     const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'rct-payroll-'));
 
     const seeded = await readPayrollSettings(dataDir);
     assert.equal(seeded.payroll_email, '');
+    assert.equal(seeded.payroll_cc, '');
     assert.match(seeded.message_template, /\{\{route_id\}\}/);
     assert.match(seeded.message_template, /\{\{driver_name\}\}/);
 
     const updated = await writePayrollSettings(
       {
         payroll_email: ' payroll@district.org ',
+        payroll_cc: ' boss@district.org ; hr@district.org ',
         message_template: 'Hello {{driver_name}} on {{route_id}}',
       },
       dataDir
     );
     assert.equal(updated.payroll_email, 'payroll@district.org');
+    assert.equal(updated.payroll_cc, 'boss@district.org, hr@district.org');
     assert.equal(updated.message_template, 'Hello {{driver_name}} on {{route_id}}');
     assert.deepEqual(await readPayrollSettings(dataDir), updated);
+
+    await fs.rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('persists payroll email and CC via email-templates settings', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'rct-email-tpl-'));
+
+    const seeded = await readEmailTemplates(dataDir);
+    assert.equal(seeded.payroll_email, '');
+    assert.equal(seeded.payroll_cc, '');
+
+    const updated = await writeEmailTemplates(
+      {
+        payroll_email: ' payroll@district.org ',
+        payroll_cc: 'a@example.org, b@example.org',
+      },
+      dataDir
+    );
+    assert.equal(updated.payroll_email, 'payroll@district.org');
+    assert.equal(updated.payroll_cc, 'a@example.org, b@example.org');
+    assert.deepEqual(await readEmailTemplates(dataDir), updated);
+
+    const payroll = await readPayrollSettings(dataDir);
+    assert.equal(payroll.payroll_email, 'payroll@district.org');
+    assert.equal(payroll.payroll_cc, 'a@example.org, b@example.org');
 
     await fs.rm(dataDir, { recursive: true, force: true });
   });
@@ -257,6 +302,15 @@ describe('storage', () => {
     await assert.rejects(
       () => createDriver({ name: 'No Date', email: null }, dataDir),
       /hire_date is required/
+    );
+
+    await assert.rejects(
+      () =>
+        createDriver(
+          { name: 'Madonna', email: null, hire_date: '2024-09-01' },
+          dataDir
+        ),
+      /first and last name are required/
     );
 
     await writeDrivers(
@@ -402,6 +456,27 @@ describe('attribution validation', () => {
         delta_minutes: 15,
         routing_adjustment: null,
         note: 'Opening new route for overflow',
+        entered_by: 'Routing Desk',
+      },
+      reasons,
+      staff
+    );
+    assert.deepEqual(ok, []);
+  });
+
+  it('allows empty driver_name for Unassigned new-route seeds', () => {
+    const ok = validateChangeEvent(
+      {
+        route_id: 'S 99',
+        driver_name: '',
+        segment: 'AM',
+        effective_date: '2025-09-02',
+        previous_time: '6:00-8:00',
+        new_time: '6:00-8:00',
+        computed_delta_minutes: 0,
+        delta_minutes: 0,
+        routing_adjustment: null,
+        note: '',
         entered_by: 'Routing Desk',
       },
       reasons,

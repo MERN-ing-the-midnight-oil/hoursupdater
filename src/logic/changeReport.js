@@ -297,7 +297,7 @@ export function fillPayrollMessageTemplate(template, values) {
  *   driver_id?: string | null,
  *   outcome?: string,
  * }} report
- * @param {{ payroll_email: string, message_template: string }} settings
+ * @param {{ payroll_email: string, payroll_cc?: string, message_template: string }} settings
  * @param {{ name?: string | null, email?: string | null } | null} driver
  * @returns {{ can_send: boolean, disabled_reason: string | null, mailto_url: string | null, subject: string, body: string }}
  */
@@ -326,10 +326,19 @@ export function buildPayrollEmailDraft(report, settings, driver) {
     };
   }
 
-  const mailto_url =
-    `mailto:${encodeURIComponent(payrollEmail)}` +
-    `?subject=${encodeURIComponent(subject)}` +
-    `&body=${encodeURIComponent(body)}`;
+  const cc = String(settings.payroll_cc ?? '')
+    .split(/[,;]+/)
+    .map((part) => part.trim())
+    .filter((part) => part.includes('@'))
+    .join(',');
+  const params = [
+    `subject=${encodeURIComponent(subject)}`,
+    `body=${encodeURIComponent(body)}`,
+  ];
+  if (cc) {
+    params.push(`cc=${encodeURIComponent(cc)}`);
+  }
+  const mailto_url = `mailto:${encodeURIComponent(payrollEmail)}?${params.join('&')}`;
 
   return {
     can_send: true,

@@ -1,15 +1,16 @@
 {
   "payroll_email": "",
+  "payroll_cc": "",
   "templates": {
     "WINDOW_LOCKED_IN": {
       "recipient": "driver",
       "subject": "Route {{route_id}} — hours update",
-      "body": "Hi {{driver_name}},\n\nRecent time changes on route {{route_id}} have locked in as the official route times.\n\nPlease review and let the office know if you have questions.\n\nThank you,\nTransportation"
+      "body": "Hi {{driver_name}},\n\n15 school days have passed since changes on route {{route_id}} so those changes have locked in as the official route times.\n\nPlease review and let the office know if you have questions.\n\nThank you,\nTransportation"
     },
     "WINDOW_BID_PENDING": {
-      "recipient": "payroll",
-      "subject": "Route {{route_id}} — bid pending (payroll notice)",
-      "body": "Route {{route_id}} (driver: {{driver_name}}, {{driver_email}}) has reached the 30-minute contract threshold and is pending bid. Details attached in the workbook."
+      "recipient": "driver",
+      "subject": "Route {{route_id}} — bid pending",
+      "body": "Route {{route_id}} (driver: {{driver_name}}) has reached the 30-minute contract threshold and is pending bid.\n\n(This template is retained for Settings compatibility; the app no longer auto-offers email at BID_PENDING.)"
     },
     "OPEN_BID_POSTING": {
       "recipient": "drivers_directory",
@@ -35,6 +36,11 @@
       "recipient": "driver",
       "subject": "Route {{route_id}} — assignment update",
       "body": "Hi {{driver_name}},\n\nRoute {{route_id}} has been reassigned to you (previous assignment: {{previous_driver_name}}).\n\nPlease confirm you received this notice.\n\nThank you,\nTransportation"
+    },
+    "PAYROLL_CONTRACTED_HOURS_CHANGED": {
+      "recipient": "payroll",
+      "subject": "Route {{route_id}} — contracted hours change",
+      "body": "Payroll notice: contracted hours changed for route {{route_id}} (driver: {{driver_name}}).\n\nRounded contracted minutes: {{before_payroll_rounded_total_minutes}} → {{after_payroll_rounded_total_minutes}}.\n\nDetails are in the Route Change Tracker workbook."
     }
   }
 }

@@ -7,9 +7,10 @@ import {
   renderRouteCard,
   setReassignRefreshHandler,
 } from '../shared/queueRenderers.js';
+import { enhanceGlossaryTips } from '../shared/glossaryTip.js';
 import { enhanceIcons } from '../shared/icons.js';
-import '../shared/practiceBanner.js';
 
+enhanceGlossaryTips();
 enhanceIcons();
 
 async function fetchJson(url, options) {
@@ -64,11 +65,13 @@ function fillList(listEl, nodes, emptyText) {
   listEl.innerHTML = '';
   if (!nodes.length) {
     listEl.appendChild(emptyMessage(emptyText));
+    enhanceGlossaryTips(listEl);
     return;
   }
   for (const node of nodes) {
     listEl.appendChild(node);
   }
+  enhanceGlossaryTips(listEl);
 }
 
 /**
@@ -117,7 +120,7 @@ function renderDetail(detail) {
     ...chainBits,
   ].join(' · ');
 
-  document.title = `${driver.name} · Admin · Route Change Tracker`;
+  document.title = `${driver.name} · Admin · Teamster Tracker`;
 
   headerEl.hidden = false;
   rootEl.hidden = false;

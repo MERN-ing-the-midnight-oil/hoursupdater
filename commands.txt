@@ -1,7 +1,19 @@
-npm run seed:practice
-npm run start:practice
+npm install
+cp .env.example .env
+npm run seed          # optional: copies empty sample-data into ./data/_app_data
+npm start             # http://localhost:3847
 
-npm run reset:practice
+# Portable Windows package for Rachel (bundled Node + Start.bat):
+#   npm run build:portable-win
+#   → dist/TeamsterTracker-win.zip  (share via OneDrive/Teams, not email)
+# Docs: SETUP-ONEDRIVE.md, TROUBLESHOOTING.md, HANDOFF.md
 
-npm run fresh:practice
-That wipes and re-seeds practice data, then starts the practice server.
+# Fake Jul–Aug 2026 school year (ends 2026-08-31) is in school-calendar.json
+# so September can start a real year / real roster import.
+
+# External bulk-import test roster (email separately; not shipped in the app):
+#   sample-data/bulk-import-roster-star-trek.csv
+# Admin → Archive Year & Import New Roster → upload that CSV
+
+# Optional Admin Queue demo data (overwrites change-log / route-state in DATA_DIR):
+# npm run seed:queue-scenarios

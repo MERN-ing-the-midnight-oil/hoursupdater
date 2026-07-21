@@ -1,3 +1,4 @@
+import { getAsOfDate } from '../config.js';
 import {
   buildLettersByRouteId,
   enqueueNotifications,
@@ -19,6 +20,7 @@ import {
 } from '../logic/bumpDecisions.js';
 import { preservePayrollNotifiedAt } from '../logic/changeReport.js';
 import { collectWindowFinalizationNotifications } from '../logic/notifications.js';
+import { preservePaperBidMeta } from '../logic/paperBidSignup.js';
 import {
   applyBidAwardResolutions,
   applyResolvedDrivers,
@@ -35,7 +37,7 @@ import { syncWorkbook } from './workbookSync.js';
  */
 export async function rebuildAndPersistRouteState(
   dataDir,
-  asOfDate = new Date()
+  asOfDate = getAsOfDate()
 ) {
   const [changeLog, priorRouteState, schoolCalendar] = await Promise.all([
     readChangeLog(dataDir),
@@ -103,11 +105,15 @@ export async function rebuildAndPersistRouteState(
 
   // Electronic bid sign-up: preserve due/snapshot, then finalize closed windows.
   nextState = preserveBidSignupMeta(priorRouteState, nextState);
+  nextState = preservePaperBidMeta(priorRouteState, nextState);
+  /** @type {{ paper_bid_signup_enabled?: boolean } | null} */
+  let appSettingsForNotify = null;
   try {
     const [appSettings, drivers] = await Promise.all([
       readAppSettings(dataDir),
       readDrivers(dataDir),
     ]);
+    appSettingsForNotify = appSettings;
     if (appSettings.electronic_bid_signup_enabled) {
       const workbook = await readBidSignupWorkbook(
         dataDir,
@@ -134,10 +140,17 @@ export async function rebuildAndPersistRouteState(
     const driversById = new Map(
       drivers.map((d) => [d.driver_id, { name: d.name, email: d.email }])
     );
+    if (!appSettingsForNotify) {
+      appSettingsForNotify = await readAppSettings(dataDir);
+    }
     const specs = collectWindowFinalizationNotifications(
       priorRouteState,
       nextState,
-      { driversById }
+      {
+        driversById,
+        paperBidSignupEnabled:
+          appSettingsForNotify?.paper_bid_signup_enabled === true,
+      }
     );
     // Attach live driver emails when report lacked them.
     for (const spec of specs) {

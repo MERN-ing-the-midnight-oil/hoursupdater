@@ -5,59 +5,59 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 
-/** Basename required for practice DATA_DIR (seed/reset refuse anything else). */
-export const PRACTICE_DATA_DIRNAME = 'practice-data';
-
+/** Optional absolute/relative path to .env (portable Start.bat sets this). */
 const envFile = process.env.ENV_FILE
   ? path.isAbsolute(process.env.ENV_FILE)
     ? process.env.ENV_FILE
-    : path.resolve(projectRoot, process.env.ENV_FILE)
+    : path.resolve(process.cwd(), process.env.ENV_FILE)
   : path.resolve(projectRoot, '.env');
 
 dotenv.config({ path: envFile });
 
 /**
- * True when running under .env.practice (PRACTICE_MODE=true).
- * @returns {boolean}
+ * Civil "today" (UTC) for window math and Admin queue ages.
+ * @returns {string} YYYY-MM-DD
  */
-export function isPracticeMode() {
-  return String(process.env.PRACTICE_MODE || '').toLowerCase() === 'true';
+export function getAsOfDate() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 /**
- * Shared folder root (OneDrive in production, local practice-data in sandbox).
+ * Timestamp for change-log / Admin event stamps (real clock).
+ * @returns {string} ISO-8601 timestamp
+ */
+export function getAsOfTimestamp() {
+  return new Date().toISOString();
+}
+
+/**
+ * Shared folder root (typically OneDrive when live, or ./data locally).
  * Contains `_app_data/` (internal JSON) and `RouteChangeTracker.xlsx` (read-facing).
  * @returns {string}
  */
 export function getSharedRoot() {
   const configured = process.env.DATA_DIR;
-  if (!configured) {
-    throw new Error(
-      'DATA_DIR is not set. Copy .env.example to .env (production) or use npm run start:practice with .env.practice.'
+  if (!configured?.trim()) {
+    const error = new Error(
+      'DATA_DIR is not set. Copy .env.example to .env and set DATA_DIR ' +
+        '(see SETUP-ONEDRIVE.md).'
     );
+    error.code = 'DATA_DIR_UNSET';
+    throw error;
   }
   return path.isAbsolute(configured)
     ? configured
     : path.resolve(projectRoot, configured);
 }
 
-/**
- * Hard stop for practice seed/reset — never touch a non-sandbox DATA_DIR.
- * @returns {string} absolute shared root
- */
-export function assertPracticeSharedRoot() {
-  if (!isPracticeMode()) {
-    throw new Error(
-      'Practice scripts require PRACTICE_MODE=true. Use ENV_FILE=.env.practice (npm run seed:practice / reset:practice).'
-    );
-  }
-  const root = getSharedRoot();
-  if (path.basename(root) !== PRACTICE_DATA_DIRNAME) {
-    throw new Error(
-      `Refusing to write practice data: DATA_DIR must be a folder named "${PRACTICE_DATA_DIRNAME}" (got ${root}).`
-    );
-  }
-  return root;
+/** Raw DATA_DIR string from the environment (may be relative or a placeholder). */
+export function getConfiguredDataDir() {
+  return process.env.DATA_DIR ?? null;
+}
+
+/** Path to the .env file that was loaded (or attempted). */
+export function getEnvFilePath() {
+  return envFile;
 }
 
 /** Internal JSON / letters live here — not for direct hand-editing. */
@@ -103,6 +103,7 @@ export const FILE_NAMES = {
   routeState: 'route-state.json',
   schoolCalendar: 'school-calendar.json',
   adjustmentReasons: 'adjustment-reasons.json',
+  reasonCategories: 'reason-categories.json',
   staffNames: 'staff-names.json',
   payrollSettings: 'payroll-settings.json',
   emailTemplates: 'email-templates.json',

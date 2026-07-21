@@ -802,8 +802,8 @@ export function planBulkImportWrites(accepted, existingDrivers, conflicts = []) 
  *   updatedDrivers: import('../data/storage.js').Driver[],
  *   routes: { route_id: string, action: 'create' | 'overwrite', entry: object }[],
  *   skipped_row_numbers: number[],
- *   entered_by: string,
- *   note: string,
+ *   entered_by?: string,
+ *   note?: string,
  *   imported_at?: string,
  * }} input
  */
@@ -812,8 +812,8 @@ export function buildBulkImportEvent(input) {
   return {
     type: /** @type {const} */ ('BULK_IMPORT'),
     imported_at,
-    entered_by: input.entered_by,
-    note: input.note,
+    entered_by: input.entered_by?.trim() || '',
+    note: input.note?.trim() || '',
     created_drivers: input.createdDrivers.map((d) => ({
       driver_id: d.driver_id,
       name: d.name,

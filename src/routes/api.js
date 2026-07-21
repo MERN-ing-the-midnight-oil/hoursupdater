@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import {
-  REASON_CATEGORIES,
   SEGMENTS,
   getAppDataDir,
   getDataDir,
   getSharedRoot,
   getWorkbookPath,
-  isPracticeMode,
+  getAsOfDate,
+  getAsOfTimestamp,
 } from '../config.js';
 import {
   appendAdjustmentEvent,
@@ -32,6 +32,7 @@ import {
   readNotifications,
   readPayrollSettings,
   readPendingNotifications,
+  readReasonCategories,
   readRouteState,
   readSchoolCalendar,
   readStaffNames,
@@ -43,6 +44,7 @@ import {
   writeDrivers,
   writeEmailTemplates,
   writePayrollSettings,
+  writeReasonCategories,
   writeRouteState,
   writeSchoolCalendar,
   writeStaffNames,
@@ -63,19 +65,23 @@ import {
   commitYearArchive,
   previewYearArchive,
 } from '../services/yearArchive.js';
+import { buildDriverEmailDraft } from '../logic/changeReport.js';
 import {
-  buildDriverEmailDraft,
-  buildPayrollEmailDraft,
-} from '../logic/changeReport.js';
-import {
+  buildBidAwardPayrollSpec,
   buildNeedsReviewContradictionSpec,
   buildNotificationMailto,
   buildReassignmentNotificationSpec,
+  collectBumpDecisionPayrollSpecs,
+  EMAIL_NOTIFICATION_EVENT_TYPES,
   EVENT_LABELS,
   formatNotificationPrompt,
-  NOTIFICATION_EVENT_TYPES,
   TEMPLATE_PLACEHOLDERS,
 } from '../logic/notifications.js';
+import { buildPaperBidSheet } from '../logic/paperBidSignup.js';
+import {
+  buildPaperBidSheetDocxBuffer,
+  paperBidSheetDocxFilename,
+} from '../logic/paperBidSheetDocx.js';
 import {
   findCalendarGenerationConflicts,
   generateSchoolYearCalendar,
@@ -112,7 +118,6 @@ function dataDir() {
 router.get('/health', (_req, res) => {
   res.json({
     ok: true,
-    practice_mode: isPracticeMode(),
     sharedRoot: getSharedRoot(),
     appDataDir: getAppDataDir(),
     workbookPath: getWorkbookPath(),
@@ -120,12 +125,15 @@ router.get('/health', (_req, res) => {
   });
 });
 
-router.get('/meta', (_req, res) => {
-  res.json({
-    practice_mode: isPracticeMode(),
-    segments: SEGMENTS,
-    reason_categories: REASON_CATEGORIES,
-  });
+router.get('/meta', async (_req, res, next) => {
+  try {
+    res.json({
+      segments: SEGMENTS,
+      reason_categories: await readReasonCategories(dataDir()),
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.get('/adjustment-reasons', async (_req, res, next) => {
@@ -139,6 +147,23 @@ router.get('/adjustment-reasons', async (_req, res, next) => {
 router.put('/adjustment-reasons', async (req, res, next) => {
   try {
     const updated = await writeAdjustmentReasons(req.body ?? [], dataDir());
+    res.json(updated);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/reason-categories', async (_req, res, next) => {
+  try {
+    res.json(await readReasonCategories(dataDir()));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/reason-categories', async (req, res, next) => {
+  try {
+    const updated = await writeReasonCategories(req.body ?? [], dataDir());
     res.json(updated);
   } catch (error) {
     next(error);
@@ -190,9 +215,45 @@ router.get('/app-settings', async (_req, res, next) => {
 
 router.put('/app-settings', async (req, res, next) => {
   try {
+    const prior = await readAppSettings(dataDir());
     const updated = await writeAppSettings(req.body ?? {}, dataDir());
     // Rebuild so bid-signup windows finalize if the toggle was just enabled.
     await rebuildAndPersistRouteState(dataDir()).catch(() => null);
+
+    // When paper bid is newly activated, offer print sheets for routes
+    // already sitting in BID_PENDING (deduped by source_key).
+    if (
+      updated.paper_bid_signup_enabled &&
+      !prior.paper_bid_signup_enabled
+    ) {
+      try {
+        const state = await readRouteState(dataDir());
+        /** @type {import('../logic/notifications.js').NotificationEnqueueSpec[]} */
+        const specs = [];
+        for (const [routeId, entry] of Object.entries(state)) {
+          if (entry.status !== 'BID_PENDING') continue;
+          specs.push({
+            event_type: 'PAPER_BID_SIGNUP',
+            route_id: routeId,
+            source_key: `PAPER_BID_SIGNUP|${routeId}|active`,
+            context: {
+              route_id: routeId,
+              driver_name: entry.driver_name ?? null,
+              driver_id: entry.driver_id ?? null,
+              bid_response_due_date: entry.bid_response_due_date ?? null,
+              outcome: 'BID_PENDING',
+            },
+          });
+        }
+        if (specs.length) await enqueueNotifications(specs, dataDir());
+      } catch (error) {
+        console.error(
+          'Paper bid signup notify-on-enable failed:',
+          error
+        );
+      }
+    }
+
     res.json(updated);
   } catch (error) {
     next(error);
@@ -204,7 +265,7 @@ router.get('/email-templates', async (_req, res, next) => {
     const settings = await readEmailTemplates(dataDir());
     res.json({
       ...settings,
-      event_types: NOTIFICATION_EVENT_TYPES,
+      event_types: EMAIL_NOTIFICATION_EVENT_TYPES,
       event_labels: EVENT_LABELS,
       placeholders: TEMPLATE_PLACEHOLDERS,
     });
@@ -218,7 +279,7 @@ router.put('/email-templates', async (req, res, next) => {
     const updated = await writeEmailTemplates(req.body ?? {}, dataDir());
     res.json({
       ...updated,
-      event_types: NOTIFICATION_EVENT_TYPES,
+      event_types: EMAIL_NOTIFICATION_EVENT_TYPES,
       event_labels: EVENT_LABELS,
       placeholders: TEMPLATE_PLACEHOLDERS,
     });
@@ -259,7 +320,11 @@ router.post('/notifications/:id/action', async (req, res, next) => {
     const draft = buildNotificationMailto(note, settings);
     if (!draft.can_send) {
       res.status(400).json({
-        error: draft.disabled_reason || 'Cannot draft email for this notification.',
+        error:
+          draft.disabled_reason ||
+          (note.event_type === 'PAPER_BID_SIGNUP'
+            ? 'Cannot open paper sign-up sheet for this notification.'
+            : 'Cannot draft email for this notification.'),
         draft,
       });
       return;
@@ -510,25 +575,10 @@ router.post('/bulk-import/commit', async (req, res, next) => {
       : {};
 
     const staffNames = await readStaffNames(dataDir());
-    if (!entered_by) {
-      res.status(400).json({ error: 'entered_by is required.' });
-      return;
-    }
-    if (staffNames.length === 0) {
-      res.status(400).json({
-        error:
-          'No staff names configured. Add names in Admin settings before importing.',
-      });
-      return;
-    }
-    if (!staffNames.includes(entered_by)) {
+    if (entered_by && staffNames.length && !staffNames.includes(entered_by)) {
       res.status(400).json({
         error: 'entered_by must be one of the configured staff names.',
       });
-      return;
-    }
-    if (!note) {
-      res.status(400).json({ error: 'note is required.' });
       return;
     }
 
@@ -656,7 +706,7 @@ router.put('/drivers/:driverId', async (req, res, next) => {
     if (body.tie_break !== undefined) {
       res.status(400).json({
         error:
-          'tie_break cannot be set here. Resolve same-date seniority ties on the Drivers page after office lots (Art. 3.01).',
+          'tie_break cannot be set here. Resolve same-date seniority ties on the Drivers/Routes page after office lots (Art. 3.01).',
       });
       return;
     }
@@ -758,7 +808,7 @@ router.post('/admin/seniority-ties/resolve', async (req, res, next) => {
       assignments,
       note,
       resolved_by,
-      resolved_at: new Date().toISOString(),
+      resolved_at: getAsOfTimestamp(),
     };
 
     const errors = validateSeniorityTieResolutionEvent(event, staffNames);
@@ -917,111 +967,21 @@ router.get(
 
 router.get(
   '/routes/:routeId/change-reports/:reportId/payroll-draft',
-  async (req, res, next) => {
-    try {
-      const state = await readRouteState(dataDir());
-      const entry = state[req.params.routeId];
-      if (!entry) {
-        res.status(404).json({ error: `Route not found: ${req.params.routeId}` });
-        return;
-      }
-
-      const report = (entry.change_reports ?? []).find(
-        (item) => item.id === req.params.reportId
-      );
-      if (!report) {
-        res.status(404).json({
-          error: `Change report not found: ${req.params.reportId}`,
-        });
-        return;
-      }
-      if (report.outcome !== 'BID_PENDING') {
-        res.status(400).json({
-          error: 'Notify Payroll is only available for BID_PENDING Change Reports.',
-        });
-        return;
-      }
-
-      const settings = await readPayrollSettings(dataDir());
-
-      // Prefer live route assignment; fall back to whoever was on the report.
-      const liveDriverId = entry.driver_id ?? report.driver_id ?? null;
-      const liveDriverName =
-        entry.driver_name?.trim() || report.driver_name?.trim() || null;
-
-      let driver = liveDriverId
-        ? await findDriverById(liveDriverId, dataDir())
-        : null;
-      if (!driver && liveDriverName) {
-        driver = await findDriverByName(liveDriverName, dataDir());
-      }
-
-      const draft = buildPayrollEmailDraft(report, settings, {
-        name: driver?.name || liveDriverName,
-        email: driver?.email ?? null,
-      });
-
-      res.json({
-        report_id: report.id,
-        route_id: req.params.routeId,
-        payroll_email: settings.payroll_email,
-        payroll_notified_at: report.payroll_notified_at ?? null,
-        ...draft,
-      });
-    } catch (error) {
-      next(error);
-    }
+  (_req, res) => {
+    res.status(410).json({
+      error:
+        'Notify Payroll on BID_PENDING was removed. Payroll is offered via Admin toasts when rounded contracted hours actually change.',
+    });
   }
 );
 
 router.post(
   '/routes/:routeId/change-reports/:reportId/payroll-notified',
-  async (req, res, next) => {
-    try {
-      const state = await readRouteState(dataDir());
-      const entry = state[req.params.routeId];
-      if (!entry) {
-        res.status(404).json({ error: `Route not found: ${req.params.routeId}` });
-        return;
-      }
-
-      const reports = entry.change_reports ?? [];
-      const index = reports.findIndex(
-        (item) => item.id === req.params.reportId
-      );
-      if (index < 0) {
-        res.status(404).json({
-          error: `Change report not found: ${req.params.reportId}`,
-        });
-        return;
-      }
-
-      const report = reports[index];
-      if (report.outcome !== 'BID_PENDING') {
-        res.status(400).json({
-          error: 'Notify Payroll is only available for BID_PENDING Change Reports.',
-        });
-        return;
-      }
-
-      const payroll_notified_at = new Date().toISOString();
-      const updatedReport = { ...report, payroll_notified_at };
-      const updatedReports = [...reports];
-      updatedReports[index] = updatedReport;
-      state[req.params.routeId] = {
-        ...entry,
-        change_reports: updatedReports,
-      };
-      await writeRouteState(state, dataDir());
-
-      res.json({
-        report_id: updatedReport.id,
-        route_id: req.params.routeId,
-        payroll_notified_at,
-      });
-    } catch (error) {
-      next(error);
-    }
+  (_req, res) => {
+    res.status(410).json({
+      error:
+        'Notify Payroll on BID_PENDING was removed. Use the payroll contracted-hours toast when offered.',
+    });
   }
 );
 
@@ -1092,7 +1052,7 @@ router.post('/routes/:routeId/open-bid-notified', async (req, res, next) => {
       });
       return;
     }
-    const drivers_notified_at = new Date().toISOString();
+    const drivers_notified_at = getAsOfTimestamp();
     const prior = entry.bid_signup ?? emptyBidSignupState();
     state[routeId] = {
       ...entry,
@@ -1103,6 +1063,143 @@ router.post('/routes/:routeId/open-bid-notified', async (req, res, next) => {
     };
     await writeRouteState(state, dataDir());
     res.json({ route_id: routeId, drivers_notified_at });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Load a paper bid sheet for a BID_PENDING route (shared by JSON + docx).
+ * @param {string} routeId
+ * @returns {Promise<
+ *   | { ok: true, sheet: ReturnType<typeof buildPaperBidSheet> }
+ *   | { ok: false, status: number, error: string }
+ * >}
+ */
+async function loadPaperBidSheetForRoute(routeId) {
+  const [appSettings, drivers, state] = await Promise.all([
+    readAppSettings(dataDir()),
+    readDrivers(dataDir()),
+    readRouteState(dataDir()),
+  ]);
+  if (!appSettings.paper_bid_signup_enabled) {
+    return {
+      ok: false,
+      status: 400,
+      error:
+        'Paper bid sign-up is off. Enable it in Admin Settings → Paper bid sign-up.',
+    };
+  }
+  const route = state[routeId];
+  if (!route) {
+    return { ok: false, status: 404, error: `Route not found: ${routeId}` };
+  }
+  if (route.status !== 'BID_PENDING') {
+    return {
+      ok: false,
+      status: 400,
+      error:
+        'Paper sign-up sheets are only available while the route is BID_PENDING.',
+    };
+  }
+  return {
+    ok: true,
+    sheet: buildPaperBidSheet({
+      route_id: routeId,
+      driver_id: route.driver_id,
+      driver_name: route.driver_name,
+      segments: route.segments,
+      bid_response_due_date: route.bid_response_due_date,
+      paper_bid_start_date: route.paper_bid_start_date,
+      drivers,
+      template: appSettings.paper_bid_sheet,
+    }),
+  };
+}
+
+router.get('/routes/:routeId/paper-bid-sheet', async (req, res, next) => {
+  try {
+    const routeId = String(req.params.routeId || '').trim();
+    const result = await loadPaperBidSheetForRoute(routeId);
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+    res.json(result.sheet);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/routes/:routeId/paper-bid-sheet.docx', async (req, res, next) => {
+  try {
+    const routeId = String(req.params.routeId || '').trim();
+    const result = await loadPaperBidSheetForRoute(routeId);
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+    if (!result.sheet.paper_bid_start_date) {
+      res.status(400).json({
+        error:
+          'Set a route start date before exporting the paper sign-up sheet.',
+      });
+      return;
+    }
+    const buffer = await buildPaperBidSheetDocxBuffer(result.sheet);
+    const filename = paperBidSheetDocxFilename(routeId);
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"`
+    );
+    res.send(Buffer.from(buffer));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/routes/:routeId/paper-bid-start-date', async (req, res, next) => {
+  try {
+    const routeId = String(req.params.routeId || '').trim();
+    const raw = req.body?.paper_bid_start_date;
+    const startDate =
+      raw == null || String(raw).trim() === ''
+        ? null
+        : String(raw).trim();
+    if (startDate && !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      res.status(400).json({
+        error: 'paper_bid_start_date must be YYYY-MM-DD or empty.',
+      });
+      return;
+    }
+    const [appSettings, state] = await Promise.all([
+      readAppSettings(dataDir()),
+      readRouteState(dataDir()),
+    ]);
+    if (!appSettings.paper_bid_signup_enabled) {
+      res.status(400).json({ error: 'Paper bid sign-up is off.' });
+      return;
+    }
+    const entry = state[routeId];
+    if (!entry || entry.status !== 'BID_PENDING') {
+      res.status(400).json({
+        error: 'Route must be BID_PENDING to set a paper sign-up start date.',
+      });
+      return;
+    }
+    state[routeId] = {
+      ...entry,
+      paper_bid_start_date: startDate,
+    };
+    await writeRouteState(state, dataDir());
+    res.json({
+      route_id: routeId,
+      paper_bid_start_date: startDate,
+    });
   } catch (error) {
     next(error);
   }
@@ -1169,9 +1266,10 @@ router.get('/changes/recent', async (req, res, next) => {
 router.post('/changes', async (req, res, next) => {
   try {
     const body = req.body ?? {};
-    const [reasons, staffNames, state, drivers] = await Promise.all([
+    const [reasons, staffNames, reasonCategories, state, drivers] = await Promise.all([
       readAdjustmentReasons(dataDir()),
       readStaffNames(dataDir()),
+      readReasonCategories(dataDir()),
       readRouteState(dataDir()),
       readDrivers(dataDir()),
     ]);
@@ -1242,7 +1340,7 @@ router.post('/changes', async (req, res, next) => {
       );
       if (!known) {
         res.status(400).json({
-          error: `Unknown driver "${driverName}". Select an existing driver, or use “Add new driver”.`,
+          error: `Unknown driver "${driverName}". Select an existing driver, or add them under Drivers/Routes.`,
         });
         return;
       }
@@ -1259,7 +1357,9 @@ router.post('/changes', async (req, res, next) => {
       }
     }
 
-    if (!driverName) {
+    // New routes may be created Unassigned; existing changes still need a driver
+    // (from the form or the route's current assignment above).
+    if (!driverName && !createNewRoute) {
       res.status(400).json({ error: 'Select a driver from the directory, or add a new one.' });
       return;
     }
@@ -1267,36 +1367,47 @@ router.post('/changes', async (req, res, next) => {
     const segment = String(body.segment || '').toUpperCase();
     const knownPrevious = getCurrentSegmentTime(state, routeId, segment);
     const previousTime = String(body.previous_time || knownPrevious || '').trim();
-    const newTime = String(body.new_time || '').trim();
+    // Creating a route seeds the segment — there is no prior→new change.
+    const newTime = createNewRoute
+      ? previousTime
+      : String(body.new_time || '').trim();
 
     let computedDelta;
     try {
-      computedDelta = computeDeltaMinutes(previousTime, newTime);
+      if (createNewRoute) {
+        computeDeltaMinutes(previousTime, previousTime); // validate format
+        computedDelta = 0;
+      } else {
+        computedDelta = computeDeltaMinutes(previousTime, newTime);
+      }
     } catch (error) {
       res.status(400).json({ error: /** @type {Error} */ (error).message });
       return;
     }
 
     const deltaOverride =
-      body.delta_minutes === undefined || body.delta_minutes === null || body.delta_minutes === ''
+      createNewRoute ||
+      body.delta_minutes === undefined ||
+      body.delta_minutes === null ||
+      body.delta_minutes === ''
         ? null
         : Number(body.delta_minutes);
 
     const deltaMinutes =
-      deltaOverride === null || Number.isNaN(deltaOverride)
+      createNewRoute || deltaOverride === null || Number.isNaN(deltaOverride)
         ? computedDelta
         : deltaOverride;
 
-    const wasAdjusted = deltaMinutes !== computedDelta;
+    const wasAdjusted = !createNewRoute && deltaMinutes !== computedDelta;
     const enteredBy = String(body.entered_by || '').trim();
 
     /** @type {import('../logic/stateMachine.js').ChangeEvent} */
     const event = {
       route_id: routeId,
-      driver_name: driverName,
+      driver_name: driverName || '',
       driver_id: driverId,
       segment: /** @type {'AM'|'MIDDAY'|'PM'} */ (segment),
-      submitted_at: new Date().toISOString(),
+      submitted_at: getAsOfTimestamp(),
       effective_date: String(body.effective_date || '').trim(),
       previous_time: previousTime,
       new_time: newTime,
@@ -1306,19 +1417,23 @@ router.post('/changes', async (req, res, next) => {
         ? {
             reason: String(body.adjustment_reason || '').trim(),
             adjusted_by: enteredBy,
-            adjusted_at: new Date().toISOString(),
+            adjusted_at: getAsOfTimestamp(),
           }
         : null,
-      reason_category: /** @type {'MV'|'SPED'|'OTHER'} */ (
-        String(body.reason_category || '').toUpperCase()
-      ),
+      reason_category: String(body.reason_category || '').trim(),
       note: String(body.note || ''),
       entered_by: enteredBy,
     };
 
     const errors = validateChangeEvent(event, reasons, staffNames);
-    if (!REASON_CATEGORIES.includes(event.reason_category)) {
-      errors.push(`reason_category must be one of: ${REASON_CATEGORIES.join(', ')}`);
+    if (!reasonCategories.length) {
+      errors.push(
+        'No reason categories configured. Add categories in Admin settings before submitting.'
+      );
+    } else if (!reasonCategories.includes(event.reason_category)) {
+      errors.push(
+        `reason_category must be one of: ${reasonCategories.join(', ')}`
+      );
     }
     if (errors.length) {
       res.status(400).json({ error: errors.join(' ') });
@@ -1377,7 +1492,7 @@ router.post('/adjustments', async (req, res, next) => {
       reason: String(body.reason || '').trim(),
       note: String(body.note || ''),
       adjusted_by: String(body.adjusted_by || '').trim(),
-      adjusted_at: new Date().toISOString(),
+      adjusted_at: getAsOfTimestamp(),
     };
 
     const errors = validateAdjustmentEvent(event, reasons, staffNames);
@@ -1467,7 +1582,7 @@ router.post('/routes/:routeId/reassign', async (req, res, next) => {
       resolution:
         body.resolution === 'bid_awarded' ? 'bid_awarded' : 'routine',
       reassigned_by: String(body.reassigned_by || '').trim(),
-      reassigned_at: new Date().toISOString(),
+      reassigned_at: getAsOfTimestamp(),
     };
 
     if (
@@ -1519,6 +1634,7 @@ router.post('/routes/:routeId/reassign', async (req, res, next) => {
       return;
     }
 
+    const priorState = state;
     const saved = await appendReassignmentEvent(event, dataDir());
     const routeState = await rebuildAndPersistRouteState(dataDir());
     const next = routeState[routeId] ?? null;
@@ -1526,19 +1642,29 @@ router.post('/routes/:routeId/reassign', async (req, res, next) => {
     const newDriver = newDriverId
       ? drivers.find((d) => d.driver_id === newDriverId)
       : null;
-    await enqueueNotifications(
-      [
-        buildReassignmentNotificationSpec({
-          route_id: routeId,
-          resolution: event.resolution ?? 'routine',
-          reassignment_id: saved.id,
-          new_driver_name: newDriverName,
-          new_driver_email: newDriver?.email?.trim() || null,
-          previous_driver_name: previousDriverName,
-        }),
-      ],
-      dataDir()
-    );
+    const notificationSpecs = [
+      buildReassignmentNotificationSpec({
+        route_id: routeId,
+        resolution: event.resolution ?? 'routine',
+        reassignment_id: saved.id,
+        new_driver_name: newDriverName,
+        new_driver_email: newDriver?.email?.trim() || null,
+        previous_driver_name: previousDriverName,
+      }),
+    ];
+    if (event.resolution === 'bid_awarded') {
+      const payrollSpec = buildBidAwardPayrollSpec({
+        route_id: routeId,
+        reassignment_id: saved.id,
+        priorState,
+        nextState: routeState,
+        new_driver_id: newDriverId,
+        new_driver_name: newDriverName,
+        new_driver_email: newDriver?.email?.trim() || null,
+      });
+      if (payrollSpec) notificationSpecs.push(payrollSpec);
+    }
+    await enqueueNotifications(notificationSpecs, dataDir());
 
     res.status(201).json({
       reassignment: saved,
@@ -1606,7 +1732,7 @@ router.post('/routes/:routeId/resolve-review', async (req, res, next) => {
       computed_status: route.reconciliation.computed_status,
       note,
       resolved_by: resolvedBy,
-      resolved_at: new Date().toISOString(),
+      resolved_at: getAsOfTimestamp(),
     };
 
     const errors = validateNeedsReviewResolutionEvent(event, staffNames);
@@ -1729,7 +1855,7 @@ router.post('/routes/:routeId/bump-decision', async (req, res, next) => {
 
     const bump_kind = route.bump_kind ?? 'original_decrease';
     const decision = String(body.decision || '').trim();
-    const decided_at = new Date().toISOString();
+    const decided_at = getAsOfTimestamp();
     const electing_driver_id = route.driver_id ?? null;
     const electing_driver_name = route.driver_name?.trim() || null;
 
@@ -1840,8 +1966,27 @@ router.post('/routes/:routeId/bump-decision', async (req, res, next) => {
       );
     }
 
+    const priorState = state;
     const rebuilt = await rebuildAndPersistRouteState(dataDir());
     const next = rebuilt[routeId] ?? null;
+
+    const driversById = new Map(
+      drivers.map((d) => [d.driver_id, { name: d.name, email: d.email }])
+    );
+    const payrollSpecs = collectBumpDecisionPayrollSpecs({
+      decision: /** @type {'keep_assignment' | 'elect_bump' | 'accept_unassigned'} */ (
+        decision
+      ),
+      decision_id: saved.id,
+      route_id: routeId,
+      target_route_id: event.target_route_id,
+      priorState,
+      nextState: rebuilt,
+      driversById,
+    });
+    if (payrollSpecs.length) {
+      await enqueueNotifications(payrollSpecs, dataDir());
+    }
 
     let message = 'Bump decision recorded.';
     if (decision === 'keep_assignment') {
@@ -2029,7 +2174,7 @@ router.post('/workbook/import-adjustment', async (req, res, next) => {
       reason: String(body.reason || 'Other').trim(),
       note: String(body.note || '').trim(),
       adjusted_by: String(body.adjusted_by || '').trim(),
-      adjusted_at: new Date().toISOString(),
+      adjusted_at: getAsOfTimestamp(),
     };
 
     const errors = validateAdjustmentEvent(event, reasons, staffNames);

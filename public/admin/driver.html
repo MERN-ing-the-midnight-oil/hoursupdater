@@ -3,25 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Driver · Admin · Route Change Tracker</title>
+    <title>Driver · Admin · Teamster Tracker</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="shell shell-wide">
       <div class="topbar">
-        <div class="brand" data-icon="bus">Route Change Tracker</div>
+        <div class="brand-block">
+          <a href="/" class="brand-home" aria-label="Home" data-icon="home"></a>
+          <div class="brand">Teamster Tracker</div>
+        </div>
         <nav class="site-nav" aria-label="Primary">
           <a href="/routing" data-icon="route">Routing</a>
           <a href="/admin" data-icon="clipboard-list">Admin</a>
-          <a href="/admin/drivers" aria-current="page" data-icon="users">Drivers</a>
-          <a href="/help" data-icon="book-open">How this app works</a>
+          <a href="/admin/drivers" aria-current="page" data-icon="users">Drivers/Routes</a>
+          <a href="/help" data-icon="book-open">Definitions</a>
         </nav>
       </div>
 
 
       <section class="panel">
         <p class="field-hint">
-          <a href="/admin/drivers" class="back-link" data-icon="arrow-left">All drivers</a>
+          <a href="/admin/drivers" class="back-link" data-icon="arrow-left">Drivers/Routes</a>
         </p>
         <div id="driver-status" class="status" role="status"></div>
 
@@ -42,10 +45,7 @@
               Current assignments
               <span class="section-count" id="count-assignments">0</span>
             </h2>
-            <p class="section-lead">
-              Every route this driver is on right now, with live status. A driver
-              can sit on multiple routes in different states at once.
-            </p>
+           
             <div id="list-assignments" class="queue-list"></div>
           </section>
 

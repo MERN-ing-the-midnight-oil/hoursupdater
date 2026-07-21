@@ -1,4 +1,5 @@
 import {
+  assignmentDriverLabel,
   emptyMessage,
   renderPendingChangesCard,
   renderRouteCard,
@@ -7,10 +8,82 @@ import {
 import { appendCitationLinks } from '../shared/contractCitationUi.js';
 import { enhanceGlossaryTips } from '../shared/glossaryTip.js';
 import { enhanceIcons, setLabeledIcon } from '../shared/icons.js';
-import '../shared/practiceBanner.js';
+import {
+  ATTENTION_STATUSES,
+  ATTENTION_STATUS_LABELS,
+  TOAST_EVENT_TYPES,
+  TOAST_EVENT_LABELS,
+  filterNotificationsByPrefs,
+  isStatusTriggerEnabled,
+  loadNotifyPrefs,
+  saveNotifyPrefs,
+  defaultNotifyPrefs,
+  shouldShowDesktopPopup,
+} from './notificationPrefs.js';
+import { openMailto } from '../shared/openMailto.js';
+import { initRosterImportTip } from '../shared/rosterImportTip.js';
 
 enhanceGlossaryTips();
 enhanceIcons();
+
+/** @type {import('./notificationPrefs.js').NotifyPrefs} */
+let notifyPrefs = loadNotifyPrefs();
+
+const settingsEl = document.getElementById('settings');
+const staffNamesSettingsEl = document.getElementById('settings-staff-names');
+const reasonCategoriesSettingsEl = document.getElementById(
+  'settings-reason-categories'
+);
+if (settingsEl instanceof HTMLDetailsElement) {
+  const openSettingsFromHash = () => {
+    const hash = window.location.hash;
+    if (
+      hash === '#settings' ||
+      hash === '#settings-staff-names' ||
+      hash === '#settings-reason-categories' ||
+      hash === '#settings-notifications' ||
+      hash === '#settings-bulk-import'
+    ) {
+      settingsEl.open = true;
+    }
+    if (
+      hash === '#settings-staff-names' &&
+      staffNamesSettingsEl instanceof HTMLDetailsElement
+    ) {
+      staffNamesSettingsEl.open = true;
+      staffNamesSettingsEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+    if (
+      hash === '#settings-reason-categories' &&
+      reasonCategoriesSettingsEl instanceof HTMLDetailsElement
+    ) {
+      reasonCategoriesSettingsEl.open = true;
+      reasonCategoriesSettingsEl.scrollIntoView({
+        block: 'nearest',
+        behavior: 'smooth',
+      });
+    }
+    if (hash === '#settings-notifications') {
+      const notifySettingsEl = document.getElementById('settings-notifications');
+      if (notifySettingsEl instanceof HTMLDetailsElement) {
+        notifySettingsEl.open = true;
+        notifySettingsEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+    if (hash === '#settings-bulk-import') {
+      const bulkImportSettingsEl = document.getElementById('settings-bulk-import');
+      if (bulkImportSettingsEl instanceof HTMLDetailsElement) {
+        bulkImportSettingsEl.open = true;
+        bulkImportSettingsEl.scrollIntoView({
+          block: 'nearest',
+          behavior: 'smooth',
+        });
+      }
+    }
+  };
+  openSettingsFromHash();
+  window.addEventListener('hashchange', openSettingsFromHash);
+}
 
 const BASE_TITLE = document.title;
 const FAVICON_HREF = '/favicon.svg';
@@ -18,8 +91,6 @@ const FAVICON_HREF = '/favicon.svg';
 const ATTENTION_POLL_MS = 45_000;
 
 const queueStatusEl = document.getElementById('queue-status');
-const showStableToggle = document.getElementById('show-stable');
-const listStable = document.getElementById('list-stable');
 
 const lists = {
   needsReview: document.getElementById('list-needs-review'),
@@ -27,22 +98,41 @@ const lists = {
   bidPending: document.getElementById('list-bid-pending'),
   bumpEligible: document.getElementById('list-bump-eligible'),
   pendingChanges: document.getElementById('list-pending-changes'),
-  stable: listStable,
+  stable: document.getElementById('list-stable'),
 };
 
-const counts = {
-  needsReview: document.getElementById('count-needs-review'),
-  accumulating: document.getElementById('count-accumulating'),
-  bidPending: document.getElementById('count-bid-pending'),
-  bumpEligible: document.getElementById('count-bump-eligible'),
-  pendingChanges: document.getElementById('count-pending-changes'),
-  stable: document.getElementById('count-stable'),
+const sectionPreviews = {
+  needsReview: document.getElementById('previews-needs-review'),
+  accumulating: document.getElementById('previews-accumulating'),
+  bidPending: document.getElementById('previews-bid-pending'),
+  bumpEligible: document.getElementById('previews-bump-eligible'),
+  pendingChanges: document.getElementById('previews-pending-changes'),
+  stable: document.getElementById('previews-stable'),
 };
+
+/**
+ * Fill a section summary with route · driver preview chips.
+ * @param {HTMLElement | null} el
+ * @param {object[]} rows
+ */
+function fillSectionPreviews(el, rows) {
+  if (!el) return;
+  el.replaceChildren();
+  for (const row of rows) {
+    const chip = document.createElement('span');
+    chip.className = 'section-route-preview';
+    chip.textContent = `${row.route_id || '—'} · ${assignmentDriverLabel(row.driver_name)}`;
+    el.appendChild(chip);
+  }
+}
 
 const notificationToastsEl = document.getElementById('notification-toasts');
 
 /** @type {number} */
 let pendingNotificationCount = 0;
+
+/** Flash pending email alerts once on first Admin page load. */
+let shouldFlashAlertsOnLoad = true;
 
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
@@ -60,43 +150,65 @@ function showStatus(el, message, kind = 'ok') {
 }
 
 /**
- * Bulk-import feedback should appear next to the CSV flow (not only at the
- * top of Settings, which is easy to miss while working in this section).
+ * Bulk-import feedback — CSV area, Settings header, and next to Commit
+ * (so errors are not buried above a long preview list).
  * @param {string} message
  * @param {'ok' | 'error' | 'warn'} [kind]
+ * @param {{ scrollToCommit?: boolean }} [options]
  */
-function showBulkImportStatus(message, kind = 'ok') {
+function showBulkImportStatus(message, kind = 'ok', options = {}) {
+  const commitStatus = document.getElementById('bulk-import-commit-status');
   showStatus(document.getElementById('bulk-import-status'), message, kind);
+  showStatus(commitStatus, message, kind);
   showStatus(document.getElementById('settings-status'), message, kind);
+  if (options.scrollToCommit !== false && (kind === 'error' || kind === 'warn')) {
+    const target =
+      commitStatus instanceof HTMLElement && !bulkImportPreviewPanel?.hidden
+        ? commitStatus
+        : document.getElementById('bulk-import-status');
+    target?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
 }
 
 function fillList(listEl, nodes, emptyText) {
   listEl.innerHTML = '';
   if (!nodes.length) {
     listEl.appendChild(emptyMessage(emptyText));
+    enhanceGlossaryTips(listEl);
     return;
   }
   for (const node of nodes) {
     listEl.appendChild(node);
   }
+  enhanceGlossaryTips(listEl);
 }
 
 /**
- * Routes that need Admin attention — open NEEDS_REVIEW, BID_PENDING before
- * Notify Payroll, BUMP_ELIGIBLE, plus pending email-offer notifications.
+ * Routes that need Admin attention — open NEEDS_REVIEW, BID_PENDING,
+ * BUMP_ELIGIBLE (when enabled in prefs), plus pending email-offer notifications
+ * that match enabled event triggers (`pendingNotificationCount`).
  * @param {object[]} rows
  * @returns {number}
  */
 function countAttentionItems(rows) {
-  const routeAttention = rows.filter((row) => {
-    if (row.status === 'NEEDS_REVIEW') return true;
-    if (row.status === 'BUMP_ELIGIBLE') return true;
-    if (row.status === 'BID_PENDING') {
-      return !row.bid_pending_report?.payroll_notified_at;
-    }
-    return false;
-  }).length;
+  const routeAttention = rows.filter((row) => isAttentionRouteStatus(row)).length;
   return routeAttention + pendingNotificationCount;
+}
+
+/**
+ * Same attention statuses as the tab-badge count (piece 1), gated by prefs.
+ * @param {object} row
+ * @returns {boolean}
+ */
+function isAttentionRouteStatus(row) {
+  if (
+    row.status !== 'NEEDS_REVIEW' &&
+    row.status !== 'BUMP_ELIGIBLE' &&
+    row.status !== 'BID_PENDING'
+  ) {
+    return false;
+  }
+  return isStatusTriggerEnabled(notifyPrefs, row.status);
 }
 
 /** @type {HTMLLinkElement | null} */
@@ -184,22 +296,458 @@ function drawBadgedFavicon(count) {
  * @param {number} count
  */
 function updateAttentionIndicator(count) {
+  const effective = notifyPrefs.channels.badge ? count : 0;
   document.title =
-    count > 0 ? `(${count}) ${BASE_TITLE}` : BASE_TITLE;
+    effective > 0 ? `(${effective}) ${BASE_TITLE}` : BASE_TITLE;
 
   const link = ensureFaviconLink();
-  if (count > 0) {
+  if (effective > 0) {
     link.type = 'image/png';
-    link.href = drawBadgedFavicon(count);
+    link.href = drawBadgedFavicon(effective);
   } else {
     link.type = 'image/svg+xml';
     link.href = FAVICON_HREF;
   }
 }
 
+const DESKTOP_NOTIFY_DISMISS_KEY = 'rct_admin_desktop_notify_dismissed';
+
+/** @type {Set<string>} */
+let seenDesktopAttentionKeys = new Set();
+/** After first snapshot, only newly appeared attention events fire OS popups. */
+let desktopAttentionPrimed = false;
+
+/**
+ * @returns {boolean}
+ */
+function desktopNotificationsSupported() {
+  return typeof window.Notification === 'function';
+}
+
+/**
+ * @returns {'unsupported' | NotificationPermission}
+ */
+function desktopNotificationPermission() {
+  if (!desktopNotificationsSupported()) return 'unsupported';
+  return Notification.permission;
+}
+
+/**
+ * Opt-in banner only when the API exists, desktop channel is on, and
+ * permission has not been decided.
+ */
+function refreshDesktopNotifyBanner() {
+  const banner = document.getElementById('desktop-notify-banner');
+  if (!(banner instanceof HTMLElement)) return;
+
+  const permission = desktopNotificationPermission();
+  const dismissed = localStorage.getItem(DESKTOP_NOTIFY_DISMISS_KEY) === '1';
+  const show =
+    notifyPrefs.channels.desktop &&
+    permission === 'default' &&
+    !dismissed;
+  banner.hidden = !show;
+  refreshDesktopPermissionStatus();
+}
+
+/**
+ * Short OS title from the in-app toast prompt (text before the em dash).
+ * @param {string | null | undefined} prompt
+ * @returns {string}
+ */
+function desktopTitleFromPrompt(prompt) {
+  const text = String(prompt || '').trim();
+  if (!text) return 'Admin alert';
+  const cut = text.indexOf(' — ');
+  return cut > 0 ? text.slice(0, cut) : text;
+}
+
+/**
+ * @param {object} row
+ * @returns {string}
+ */
+function desktopTitleForAttentionRoute(row) {
+  const route = row.route_id || '—';
+  switch (row.status) {
+    case 'NEEDS_REVIEW':
+      return `Route ${route} needs review`;
+    case 'BUMP_ELIGIBLE':
+      return `Route ${route} is bump-eligible`;
+    case 'BID_PENDING':
+      return `Route ${route} is bid pending`;
+    default:
+      return `Route ${route} needs attention`;
+  }
+}
+
+/**
+ * One attention event → one desktop delivery key. Pending email toasts cover
+ * their route so we do not also fire a separate route-status popup for the
+ * same underlying event.
+ * @param {object[]} rows
+ * @param {object[]} notifications
+ * @returns {{ key: string, title: string, body: string }[]}
+ */
+function collectDesktopAttentionEvents(rows, notifications) {
+  /** @type {{ key: string, title: string, body: string }[]} */
+  const events = [];
+  /** @type {Set<string>} */
+  const routesCoveredByToast = new Set();
+
+  for (const note of notifications) {
+    const id = String(note.id || '').trim();
+    if (!id) continue;
+    const routeId = String(note.route_id || '').trim();
+    if (routeId) routesCoveredByToast.add(routeId);
+    events.push({
+      key: `note:${id}`,
+      title: desktopTitleFromPrompt(note.prompt),
+      body: 'Click to review',
+    });
+  }
+
+  for (const row of rows) {
+    if (!isAttentionRouteStatus(row)) continue;
+    const routeId = String(row.route_id || '').trim();
+    if (!routeId || routesCoveredByToast.has(routeId)) continue;
+    events.push({
+      key: `route:${routeId}:${row.status}`,
+      title: desktopTitleForAttentionRoute(row),
+      body: 'Click to review',
+    });
+  }
+
+  return events;
+}
+
+/**
+ * @param {{ key: string, title: string, body: string }} event
+ */
+function showDesktopAttentionPopup(event) {
+  if (
+    !shouldShowDesktopPopup(notifyPrefs, {
+      permission: desktopNotificationPermission(),
+      documentHidden: document.hidden,
+    })
+  ) {
+    return;
+  }
+  try {
+    const popup = new Notification(event.title, {
+      body: event.body,
+      tag: event.key,
+      renotify: false,
+      icon: FAVICON_HREF,
+    });
+    popup.onclick = () => {
+      window.focus();
+      popup.close();
+    };
+  } catch {
+    // Notification construction can throw if permission flips mid-flight.
+  }
+}
+
+/**
+ * Second delivery channel for the same attention stream as toasts + tab badge.
+ * Primes on first snapshot (and after opt-in) so existing items do not spam.
+ * @param {object[]} rows
+ * @param {object[]} notifications
+ */
+function syncDesktopAttentionNotifications(rows, notifications) {
+  const filteredNotes = filterNotificationsByPrefs(notifyPrefs, notifications);
+  const events = collectDesktopAttentionEvents(rows, filteredNotes);
+  const nextKeys = new Set(events.map((event) => event.key));
+
+  if (!desktopAttentionPrimed) {
+    seenDesktopAttentionKeys = nextKeys;
+    desktopAttentionPrimed = true;
+    return;
+  }
+
+  const canPopup = shouldShowDesktopPopup(notifyPrefs, {
+    permission: desktopNotificationPermission(),
+    documentHidden: document.hidden,
+  });
+  if (canPopup) {
+    for (const event of events) {
+      if (seenDesktopAttentionKeys.has(event.key)) continue;
+      showDesktopAttentionPopup(event);
+    }
+  }
+
+  seenDesktopAttentionKeys = nextKeys;
+}
+
+function initDesktopNotifyOptIn() {
+  refreshDesktopNotifyBanner();
+
+  document
+    .getElementById('desktop-notify-enable')
+    ?.addEventListener('click', async () => {
+      await requestDesktopNotificationPermission();
+    });
+
+  document
+    .getElementById('desktop-notify-dismiss')
+    ?.addEventListener('click', () => {
+      localStorage.setItem(DESKTOP_NOTIFY_DISMISS_KEY, '1');
+      refreshDesktopNotifyBanner();
+    });
+}
+
+/**
+ * @returns {Promise<NotificationPermission | 'unsupported'>}
+ */
+async function requestDesktopNotificationPermission() {
+  if (!desktopNotificationsSupported()) {
+    refreshDesktopNotifyBanner();
+    return 'unsupported';
+  }
+  let permission = Notification.permission;
+  if (permission === 'default') {
+    permission = await Notification.requestPermission();
+  }
+  localStorage.removeItem(DESKTOP_NOTIFY_DISMISS_KEY);
+  // Re-prime so currently visible alerts do not all fire at once on grant.
+  desktopAttentionPrimed = false;
+  refreshDesktopNotifyBanner();
+  if (permission === 'granted') {
+    loadQueue({ silent: true }).catch(() => {});
+  }
+  return permission;
+}
+
+function refreshDesktopPermissionStatus() {
+  const statusEl = document.getElementById('notify-desktop-permission-status');
+  const enableBtn = document.getElementById('notify-desktop-enable');
+  if (!(statusEl instanceof HTMLElement)) return;
+
+  const permission = desktopNotificationPermission();
+  if (permission === 'unsupported') {
+    statusEl.textContent =
+      'This browser does not support desktop notifications.';
+    if (enableBtn) enableBtn.hidden = true;
+    return;
+  }
+  if (permission === 'granted') {
+    statusEl.textContent = 'Desktop permission: allowed on this browser.';
+    if (enableBtn) enableBtn.hidden = true;
+    return;
+  }
+  if (permission === 'denied') {
+    statusEl.textContent =
+      'Desktop permission: blocked. Use the browser site settings to allow notifications for this site, then reload.';
+    if (enableBtn) enableBtn.hidden = true;
+    return;
+  }
+  statusEl.textContent =
+    'Desktop permission: not enabled yet. Click below to allow OS pop-ups (only works while this tab is open).';
+  if (enableBtn) enableBtn.hidden = !notifyPrefs.channels.desktop;
+}
+
+/**
+ * Persist prefs from the Settings form and refresh attention channels.
+ * @param {boolean} [announce]
+ */
+function commitNotifyPrefsFromForm(announce = true) {
+  const next = readNotifyPrefsFromForm();
+  notifyPrefs = saveNotifyPrefs(next);
+  refreshDesktopNotifyBanner();
+  // Re-prime desktop keys so toggling triggers does not replay old events.
+  desktopAttentionPrimed = false;
+  if (announce) {
+    showStatus(
+      document.getElementById('notify-prefs-status'),
+      'Notification preferences saved on this browser.',
+      'ok'
+    );
+  }
+  loadQueue({ silent: true }).catch(() => {});
+}
+
+/**
+ * @returns {import('./notificationPrefs.js').NotifyPrefs}
+ */
+function readNotifyPrefsFromForm() {
+  const desktop = document.getElementById('notify-channel-desktop');
+  const quietEnabled = document.getElementById('notify-quiet-enabled');
+  const quietStart = document.getElementById('notify-quiet-start');
+  const quietEnd = document.getElementById('notify-quiet-end');
+
+  /** @type {Record<string, boolean>} */
+  const statuses = {};
+  for (const status of ATTENTION_STATUSES) {
+    const input = document.getElementById(`notify-status-${status}`);
+    statuses[status] =
+      input instanceof HTMLInputElement ? input.checked : true;
+  }
+
+  /** @type {Record<string, boolean>} */
+  const events = {};
+  for (const type of TOAST_EVENT_TYPES) {
+    const input = document.getElementById(`notify-event-${type}`);
+    events[type] = input instanceof HTMLInputElement ? input.checked : true;
+  }
+
+  return {
+    channels: {
+      // Channel toggles beyond desktop are no longer on the form; keep stored values.
+      toast: notifyPrefs.channels.toast !== false,
+      badge: notifyPrefs.channels.badge !== false,
+      desktop: desktop instanceof HTMLInputElement ? desktop.checked : true,
+      flashOnLoad: notifyPrefs.channels.flashOnLoad !== false,
+    },
+    when: {
+      desktopOnlyWhenHidden: notifyPrefs.when.desktopOnlyWhenHidden === true,
+      quietHoursEnabled:
+        quietEnabled instanceof HTMLInputElement ? quietEnabled.checked : false,
+      quietHoursStart:
+        quietStart instanceof HTMLInputElement && quietStart.value
+          ? quietStart.value
+          : '18:00',
+      quietHoursEnd:
+        quietEnd instanceof HTMLInputElement && quietEnd.value
+          ? quietEnd.value
+          : '08:00',
+    },
+    triggers: { statuses, events },
+  };
+}
+
+/**
+ * @param {import('./notificationPrefs.js').NotifyPrefs} prefs
+ */
+function writeNotifyPrefsToForm(prefs) {
+  const setChecked = (id, value) => {
+    const el = document.getElementById(id);
+    if (el instanceof HTMLInputElement) el.checked = value;
+  };
+  const setValue = (id, value) => {
+    const el = document.getElementById(id);
+    if (el instanceof HTMLInputElement) el.value = value;
+  };
+
+  setChecked('notify-channel-desktop', prefs.channels.desktop);
+  setChecked('notify-quiet-enabled', prefs.when.quietHoursEnabled);
+  setValue('notify-quiet-start', prefs.when.quietHoursStart);
+  setValue('notify-quiet-end', prefs.when.quietHoursEnd);
+
+  for (const status of ATTENTION_STATUSES) {
+    setChecked(`notify-status-${status}`, prefs.triggers.statuses[status] !== false);
+  }
+  for (const type of TOAST_EVENT_TYPES) {
+    setChecked(`notify-event-${type}`, prefs.triggers.events[type] !== false);
+  }
+
+  const quietRow = document.querySelector('.notify-quiet-hours-row');
+  if (quietRow instanceof HTMLElement) {
+    quietRow.hidden = !prefs.when.quietHoursEnabled;
+  }
+  refreshDesktopPermissionStatus();
+}
+
+/**
+ * @param {{ title: string, detail: string } | string} labelInfo
+ * @param {string} inputId
+ * @param {boolean} checked
+ * @returns {HTMLLabelElement}
+ */
+function createNotifyPrefCheckbox(labelInfo, inputId, checked) {
+  const label = document.createElement('label');
+  label.className = 'field checkbox-field checkbox-field-after';
+  const textSpan = document.createElement('span');
+  textSpan.className = 'checkbox-field-text';
+  if (labelInfo && typeof labelInfo === 'object') {
+    const title = document.createElement('strong');
+    title.className = 'checkbox-field-title';
+    title.textContent = labelInfo.title;
+    textSpan.append(title, document.createTextNode(` — ${labelInfo.detail}`));
+  } else {
+    textSpan.textContent = String(labelInfo || inputId);
+  }
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.id = inputId;
+  input.checked = checked;
+  label.append(textSpan, input);
+  return label;
+}
+
+function buildNotifyTriggerCheckboxes() {
+  const root = document.getElementById('notify-trigger-list');
+  if (!root) return;
+  root.innerHTML = '';
+  for (const status of ATTENTION_STATUSES) {
+    root.appendChild(
+      createNotifyPrefCheckbox(
+        ATTENTION_STATUS_LABELS[status] || status,
+        `notify-status-${status}`,
+        notifyPrefs.triggers.statuses[status] !== false
+      )
+    );
+  }
+  for (const type of TOAST_EVENT_TYPES) {
+    root.appendChild(
+      createNotifyPrefCheckbox(
+        TOAST_EVENT_LABELS[type] || type,
+        `notify-event-${type}`,
+        notifyPrefs.triggers.events[type] !== false
+      )
+    );
+  }
+}
+
+function initNotifyPrefsSettings() {
+  buildNotifyTriggerCheckboxes();
+  writeNotifyPrefsToForm(notifyPrefs);
+
+  const root = document.getElementById('settings-notifications');
+  if (!root) return;
+
+  const onChange = () => {
+    const quietEnabled = document.getElementById('notify-quiet-enabled');
+    const quietRow = document.querySelector('.notify-quiet-hours-row');
+    if (
+      quietRow instanceof HTMLElement &&
+      quietEnabled instanceof HTMLInputElement
+    ) {
+      quietRow.hidden = !quietEnabled.checked;
+    }
+    commitNotifyPrefsFromForm(true);
+  };
+
+  root.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('change', onChange);
+  });
+
+  document
+    .getElementById('notify-desktop-enable')
+    ?.addEventListener('click', async () => {
+      await requestDesktopNotificationPermission();
+    });
+
+  document.getElementById('notify-prefs-reset')?.addEventListener('click', () => {
+    notifyPrefs = saveNotifyPrefs(defaultNotifyPrefs());
+    writeNotifyPrefsToForm(notifyPrefs);
+    desktopAttentionPrimed = false;
+    refreshDesktopNotifyBanner();
+    showStatus(
+      document.getElementById('notify-prefs-status'),
+      'Notification preferences reset to defaults on this browser.',
+      'ok'
+    );
+    loadQueue({ silent: true }).catch(() => {});
+  });
+}
+
 /**
  * @param {object[]} rows
- * @param {{ payrollEmailConfigured?: boolean, electronicBidSignupEnabled?: boolean }} [options]
+ * @param {{
+ *   payrollEmailConfigured?: boolean,
+ *   electronicBidSignupEnabled?: boolean,
+ *   paperBidSignupEnabled?: boolean,
+ * }} [options]
  */
 function renderQueue(rows, options = {}) {
   const needsReview = rows.filter(
@@ -214,17 +762,18 @@ function renderQueue(rows, options = {}) {
   );
   const stable = rows.filter((row) => row.status === 'STABLE');
 
-  counts.needsReview.textContent = String(needsReview.length);
-  counts.accumulating.textContent = String(accumulating.length);
-  counts.bidPending.textContent = String(bidPending.length);
-  counts.bumpEligible.textContent = String(bumpEligible.length);
-  counts.pendingChanges.textContent = String(pendingBehindReview.length);
-  counts.stable.textContent = String(stable.length);
+  fillSectionPreviews(sectionPreviews.needsReview, needsReview);
+  fillSectionPreviews(sectionPreviews.accumulating, accumulating);
+  fillSectionPreviews(sectionPreviews.bidPending, bidPending);
+  fillSectionPreviews(sectionPreviews.bumpEligible, bumpEligible);
+  fillSectionPreviews(sectionPreviews.pendingChanges, pendingBehindReview);
+  fillSectionPreviews(sectionPreviews.stable, stable);
 
   const cardOptions = {
-    showNotifyPayroll: true,
+    showNotifyPayroll: false,
     payrollEmailConfigured: options.payrollEmailConfigured !== false,
     electronicBidSignupEnabled: options.electronicBidSignupEnabled === true,
+    paperBidSignupEnabled: options.paperBidSignupEnabled === true,
     onPayrollNotified: () => {
       loadQueue().catch((error) =>
         showStatus(queueStatusEl, error.message, 'error')
@@ -285,12 +834,7 @@ function renderQueue(rows, options = {}) {
   );
 }
 
-function applyStableVisibility() {
-  const show = showStableToggle.checked;
-  listStable.hidden = !show;
-}
-
-/** @type {{ payroll_email: string, message_template: string } | null} */
+/** @type {{ payroll_email: string, payroll_cc?: string, message_template: string } | null} */
 let payrollSettings = null;
 
 /** @type {object | null} */
@@ -300,40 +844,183 @@ let emailTemplatesSettings = null;
  *   electronic_bid_signup_enabled: boolean,
  *   bid_signup_workbook: string,
  *   open_bid_posting_to_email: string,
+ *   paper_bid_signup_enabled: boolean,
+ *   paper_bid_sheet: { title: string, intro: string, footer: string },
  * } | null} */
 let appSettings = null;
 
 const payrollEmailInput = document.getElementById('payroll-email');
+const payrollCcInput = document.getElementById('payroll-cc');
+const payrollEmailCurrentEl = document.getElementById('payroll-email-current');
+const payrollCcCurrentEl = document.getElementById('payroll-cc-current');
 const emailTemplatesRoot = document.getElementById('email-templates-root');
 const electronicBidEnabledInput = document.getElementById(
   'electronic-bid-signup-enabled'
 );
+const electronicBidFeatureToggle = document.getElementById(
+  'electronic-bid-feature-toggle'
+);
+const electronicBidStateLabel = document.getElementById(
+  'electronic-bid-signup-state-label'
+);
+const electronicBidSummaryStatus = document.getElementById(
+  'electronic-bid-signup-summary-status'
+);
 const bidSignupWorkbookInput = document.getElementById('bid-signup-workbook');
 const openBidToEmailInput = document.getElementById('open-bid-posting-to-email');
+const paperBidEnabledInput = document.getElementById('paper-bid-signup-enabled');
+const paperBidFeatureToggle = document.getElementById('paper-bid-feature-toggle');
+const paperBidStateLabel = document.getElementById('paper-bid-signup-state-label');
+const paperBidSummaryStatus = document.getElementById(
+  'paper-bid-signup-summary-status'
+);
+const paperBidSheetTitleInput = document.getElementById('paper-bid-sheet-title');
+const paperBidSheetIntroInput = document.getElementById('paper-bid-sheet-intro');
+const paperBidSheetFooterInput = document.getElementById('paper-bid-sheet-footer');
+
+/**
+ * Sync a feature toggle's switch, labels, and summary badge.
+ * @param {{
+ *   input: HTMLInputElement | null,
+ *   panel: HTMLElement | null,
+ *   stateLabel: HTMLElement | null,
+ *   summary: HTMLElement | null,
+ *   enabled: boolean,
+ *   onLabel: string,
+ *   offLabel: string,
+ *   enableAria: string,
+ *   disableAria: string,
+ *   summaryOn?: string,
+ *   summaryOff?: string,
+ * }} opts
+ */
+function renderFeatureToggle(opts) {
+  const on = opts.enabled === true;
+  if (opts.input) {
+    opts.input.checked = on;
+    opts.input.setAttribute('aria-checked', on ? 'true' : 'false');
+    opts.input.setAttribute('aria-label', on ? opts.disableAria : opts.enableAria);
+  }
+  opts.panel?.classList.toggle('is-on', on);
+  opts.panel?.classList.toggle('is-off', !on);
+  if (opts.stateLabel) {
+    opts.stateLabel.classList.toggle('is-on', on);
+    opts.stateLabel.classList.toggle('is-off', !on);
+    opts.stateLabel.textContent = on ? opts.onLabel : opts.offLabel;
+  }
+  if (opts.summary) {
+    opts.summary.classList.toggle('is-on', on);
+    opts.summary.classList.toggle('is-off', !on);
+    opts.summary.textContent = on
+      ? opts.summaryOn || 'Active'
+      : opts.summaryOff || 'Disabled';
+  }
+}
+
+/**
+ * Sync the e-bid feature toggle chrome (switch, labels, summary badge).
+ * @param {boolean} enabled
+ */
+function renderElectronicBidToggle(enabled) {
+  renderFeatureToggle({
+    input: electronicBidEnabledInput,
+    panel: electronicBidFeatureToggle,
+    stateLabel: electronicBidStateLabel,
+    summary: electronicBidSummaryStatus,
+    enabled,
+    onLabel: 'Active — Notify drivers + Forms record are authoritative',
+    offLabel: 'Disabled — paper sign-up remains in effect',
+    enableAria: 'Activate electronic bid sign-up',
+    disableAria: 'Disable electronic bid sign-up',
+  });
+}
+
+/**
+ * @param {boolean} enabled
+ */
+function renderPaperBidToggle(enabled) {
+  renderFeatureToggle({
+    input: paperBidEnabledInput,
+    panel: paperBidFeatureToggle,
+    stateLabel: paperBidStateLabel,
+    summary: paperBidSummaryStatus,
+    enabled,
+    onLabel: 'Active — bid-eligible routes offer a printable sign-up sheet',
+    offLabel: 'Disabled — no print-sheet prompts',
+    enableAria: 'Activate paper bid sign-up',
+    disableAria: 'Disable paper bid sign-up',
+  });
+}
 
 async function loadPayrollSettings() {
-  // Legacy shape still used by queue Notify Payroll can_send checks.
   payrollSettings = await fetchJson('/api/payroll-settings');
   return payrollSettings;
 }
 
 async function loadAppSettings() {
   appSettings = await fetchJson('/api/app-settings');
-  if (electronicBidEnabledInput) {
-    electronicBidEnabledInput.checked = !!appSettings.electronic_bid_signup_enabled;
-  }
+  renderElectronicBidToggle(!!appSettings.electronic_bid_signup_enabled);
+  renderPaperBidToggle(!!appSettings.paper_bid_signup_enabled);
   if (bidSignupWorkbookInput) {
     bidSignupWorkbookInput.value = appSettings.bid_signup_workbook || 'bid-signups.xlsx';
   }
   if (openBidToEmailInput) {
     openBidToEmailInput.value = appSettings.open_bid_posting_to_email || '';
   }
+  const sheet = appSettings.paper_bid_sheet || {};
+  if (paperBidSheetTitleInput) {
+    paperBidSheetTitleInput.value = sheet.title || '';
+  }
+  if (paperBidSheetIntroInput) {
+    paperBidSheetIntroInput.value = sheet.intro || '';
+  }
+  if (paperBidSheetFooterInput) {
+    paperBidSheetFooterInput.value = sheet.footer || '';
+  }
   return appSettings;
+}
+
+/**
+ * Show server-saved payroll To / CC as plain text under PAYROLL EMAIL.
+ * @param {object | null | undefined} settings
+ */
+function renderPayrollEmailSaved(settings) {
+  const to = String(settings?.payroll_email ?? '').trim();
+  const cc = String(settings?.payroll_cc ?? '')
+    .split(/[,;]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(', ');
+
+  if (payrollEmailCurrentEl) {
+    payrollEmailCurrentEl.textContent = to
+      ? `Current email being used: ${to}`
+      : 'Current email being used: (none set)';
+  }
+  if (payrollCcCurrentEl) {
+    if (cc) {
+      payrollCcCurrentEl.hidden = false;
+      payrollCcCurrentEl.textContent = `Current CC being used: ${cc}`;
+    } else {
+      payrollCcCurrentEl.hidden = true;
+      payrollCcCurrentEl.textContent = '';
+    }
+  }
+}
+
+function applyPayrollEmailFields(settings) {
+  if (payrollEmailInput) {
+    payrollEmailInput.value = settings?.payroll_email || '';
+  }
+  if (payrollCcInput) {
+    payrollCcInput.value = settings?.payroll_cc || '';
+  }
+  renderPayrollEmailSaved(settings);
 }
 
 async function loadEmailTemplates() {
   emailTemplatesSettings = await fetchJson('/api/email-templates');
-  payrollEmailInput.value = emailTemplatesSettings.payroll_email || '';
+  applyPayrollEmailFields(emailTemplatesSettings);
   renderEmailTemplatesEditor(emailTemplatesSettings);
   return emailTemplatesSettings;
 }
@@ -423,8 +1110,24 @@ function collectEmailTemplatesFromForm() {
     };
   }
   return {
-    payroll_email: payrollEmailInput.value,
+    payroll_email: payrollEmailInput?.value || '',
+    payroll_cc: payrollCcInput?.value || '',
     templates,
+  };
+}
+
+/**
+ * Keep legacy payrollSettings cache aligned after email-templates saves.
+ * @param {object} settings
+ */
+function syncPayrollSettingsFromEmailTemplates(settings) {
+  payrollSettings = {
+    payroll_email: settings?.payroll_email || '',
+    payroll_cc: settings?.payroll_cc || '',
+    message_template:
+      settings?.templates?.PAYROLL_CONTRACTED_HOURS_CHANGED?.body ||
+      settings?.templates?.WINDOW_BID_PENDING?.body ||
+      '',
   };
 }
 
@@ -434,10 +1137,31 @@ function collectEmailTemplatesFromForm() {
 function renderNotificationToasts(notifications) {
   if (!notificationToastsEl) return;
   notificationToastsEl.innerHTML = '';
-  for (const note of notifications) {
+  if (!notifyPrefs.channels.toast) return;
+
+  const visible = filterNotificationsByPrefs(notifyPrefs, notifications);
+  const flashOnLoad =
+    shouldFlashAlertsOnLoad &&
+    notifyPrefs.channels.flashOnLoad &&
+    visible.length > 0;
+  if (shouldFlashAlertsOnLoad) {
+    shouldFlashAlertsOnLoad = false;
+  }
+  for (const note of visible) {
     const toast = document.createElement('div');
-    toast.className = 'notification-toast';
+    toast.className = flashOnLoad
+      ? 'notification-toast is-flashing'
+      : 'notification-toast';
     toast.setAttribute('data-id', note.id);
+    if (flashOnLoad) {
+      toast.addEventListener(
+        'animationend',
+        () => {
+          toast.classList.remove('is-flashing');
+        },
+        { once: true }
+      );
+    }
 
     const text = document.createElement('p');
     text.className = 'notification-toast-text';
@@ -446,9 +1170,14 @@ function renderNotificationToasts(notifications) {
     const actions = document.createElement('div');
     actions.className = 'notification-toast-actions';
 
+    const isPaperBid = note.event_type === 'PAPER_BID_SIGNUP';
     const yesBtn = document.createElement('button');
     yesBtn.type = 'button';
-    setLabeledIcon(yesBtn, 'mail', 'Yes');
+    setLabeledIcon(
+      yesBtn,
+      isPaperBid ? 'printer' : 'mail',
+      isPaperBid ? 'Print sheet' : 'Yes'
+    );
     const dismissBtn = document.createElement('button');
     dismissBtn.type = 'button';
     dismissBtn.className = 'secondary';
@@ -460,7 +1189,10 @@ function renderNotificationToasts(notifications) {
     if (!note.draft?.can_send) {
       yesBtn.disabled = true;
       hint.textContent =
-        note.draft?.disabled_reason || 'No email on file for this recipient.';
+        note.draft?.disabled_reason ||
+        (isPaperBid
+          ? 'Paper sign-up sheet unavailable.'
+          : 'No email on file for this recipient.');
       hint.className = 'field-hint warn-text';
     }
 
@@ -472,8 +1204,11 @@ function renderNotificationToasts(notifications) {
           `/api/notifications/${encodeURIComponent(note.id)}/action`,
           { method: 'POST' }
         );
-        if (result.notification?.draft?.mailto_url) {
-          window.location.href = result.notification.draft.mailto_url;
+        const draft = result.notification?.draft;
+        if (draft?.action === 'print' && draft.print_url) {
+          window.open(draft.print_url, '_blank', 'noopener');
+        } else if (draft?.mailto_url) {
+          openMailto(draft.mailto_url);
         }
         await loadNotifications();
         await loadQueue({ silent: true });
@@ -512,7 +1247,8 @@ function renderNotificationToasts(notifications) {
 async function loadNotifications() {
   const data = await fetchJson('/api/notifications?pending=1');
   const list = data.notifications || [];
-  pendingNotificationCount = list.length;
+  const filtered = filterNotificationsByPrefs(notifyPrefs, list);
+  pendingNotificationCount = filtered.length;
   renderNotificationToasts(list);
   return list;
 }
@@ -536,16 +1272,21 @@ async function loadQueue(options = {}) {
           return s;
         }),
   ]);
-  await loadNotifications().catch(() => {
+  /** @type {object[]} */
+  let notifications = [];
+  try {
+    notifications = await loadNotifications();
+  } catch {
     pendingNotificationCount = 0;
-  });
+  }
   await loadBaseFavicon();
   renderQueue(rows, {
     payrollEmailConfigured: Boolean(settings?.payroll_email?.trim()),
     electronicBidSignupEnabled: bidSettings?.electronic_bid_signup_enabled === true,
+    paperBidSignupEnabled: bidSettings?.paper_bid_signup_enabled === true,
   });
-  applyStableVisibility();
   updateAttentionIndicator(countAttentionItems(rows));
+  syncDesktopAttentionNotifications(rows, notifications);
   if (options.silent) return;
   const active =
     rows.filter((r) => r.status !== 'STABLE').length +
@@ -557,8 +1298,6 @@ async function loadQueue(options = {}) {
     'ok'
   );
 }
-
-showStableToggle.addEventListener('change', applyStableVisibility);
 
 setReassignRefreshHandler(() => {
   loadQueue().catch((error) => {
@@ -590,7 +1329,7 @@ const MONTH_ABBREV = [
   'Nov',
   'Dec',
 ];
-const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 /** @param {string} iso YYYY-MM-DD */
 function formatCalendarDate(iso) {
@@ -803,12 +1542,33 @@ calendarYear.addEventListener('change', async () => {
   }
 });
 
+// Staff-name state must be initialized before boot loaders that fill selects.
+let staffNamesList = [];
+
+function openBulkImportSettings() {
+  window.location.hash = '#settings-bulk-import';
+  if (settingsEl instanceof HTMLDetailsElement) {
+    settingsEl.open = true;
+    const bulk = document.getElementById('settings-bulk-import');
+    if (bulk instanceof HTMLDetailsElement) {
+      bulk.open = true;
+      bulk.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }
+}
+
+initDesktopNotifyOptIn();
+initNotifyPrefsSettings();
+initRosterImportTip({ onShowWhere: openBulkImportSettings });
+
 Promise.all([
   loadQueue(),
   loadCalendar(),
   loadPayrollSettings(),
   loadEmailTemplates(),
   loadAppSettings(),
+  loadStaffNamesSettings(),
+  loadReasonCategoriesSettings(),
   loadYearRolloverStaffNames(),
   initYearRolloverFlow(),
 ]).catch((error) => {
@@ -821,6 +1581,94 @@ setInterval(() => {
     /* Keep the last indicator; next poll retries. */
   });
 }, ATTENTION_POLL_MS);
+
+/**
+ * Persist e-bid on/off immediately from the feature toggle.
+ * @param {boolean} enabled
+ */
+async function saveElectronicBidEnabled(enabled) {
+  const previous = appSettings?.electronic_bid_signup_enabled === true;
+  renderElectronicBidToggle(enabled);
+  try {
+    appSettings = await fetchJson('/api/app-settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ electronic_bid_signup_enabled: enabled }),
+    });
+    renderElectronicBidToggle(!!appSettings.electronic_bid_signup_enabled);
+    showStatus(
+      settingsStatusEl,
+      appSettings.electronic_bid_signup_enabled
+        ? 'Electronic bid sign-up is ON — Notify drivers + Forms record are authoritative.'
+        : 'Electronic bid sign-up is OFF.',
+      'ok'
+    );
+    await loadQueue();
+  } catch (error) {
+    renderElectronicBidToggle(previous);
+    showStatus(settingsStatusEl, error.message, 'error');
+  }
+}
+
+electronicBidEnabledInput?.addEventListener('change', () => {
+  void saveElectronicBidEnabled(electronicBidEnabledInput.checked === true);
+});
+
+/**
+ * Persist paper-bid on/off immediately from the feature toggle.
+ * @param {boolean} enabled
+ */
+async function savePaperBidEnabled(enabled) {
+  const previous = appSettings?.paper_bid_signup_enabled === true;
+  renderPaperBidToggle(enabled);
+  try {
+    appSettings = await fetchJson('/api/app-settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paper_bid_signup_enabled: enabled }),
+    });
+    renderPaperBidToggle(!!appSettings.paper_bid_signup_enabled);
+    showStatus(
+      settingsStatusEl,
+      appSettings.paper_bid_signup_enabled
+        ? 'Paper bid sign-up is ON — bid-eligible routes will offer a print sheet.'
+        : 'Paper bid sign-up is OFF.',
+      'ok'
+    );
+    await loadQueue();
+  } catch (error) {
+    renderPaperBidToggle(previous);
+    showStatus(settingsStatusEl, error.message, 'error');
+  }
+}
+
+paperBidEnabledInput?.addEventListener('change', () => {
+  void savePaperBidEnabled(paperBidEnabledInput.checked === true);
+});
+
+document
+  .getElementById('paper-bid-settings-save')
+  ?.addEventListener('click', async () => {
+    try {
+      appSettings = await fetchJson('/api/app-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paper_bid_signup_enabled: paperBidEnabledInput?.checked === true,
+          paper_bid_sheet: {
+            title: paperBidSheetTitleInput?.value?.trim() || 'Open Bid Sign-Up Sheet',
+            intro: paperBidSheetIntroInput?.value ?? '',
+            footer: paperBidSheetFooterInput?.value ?? '',
+          },
+        }),
+      });
+      await loadAppSettings();
+      showStatus(settingsStatusEl, 'Paper bid sheet template saved.', 'ok');
+      await loadQueue();
+    } catch (error) {
+      showStatus(settingsStatusEl, error.message, 'error');
+    }
+  });
 
 document
   .getElementById('app-settings-save')
@@ -838,11 +1686,30 @@ document
       await loadAppSettings();
       showStatus(
         settingsStatusEl,
-        appSettings.electronic_bid_signup_enabled
-          ? 'Electronic bid sign-up is ON — Notify drivers + Forms record are authoritative.'
-          : 'Electronic bid sign-up remains OFF.',
+        'Bid sign-up settings saved.',
         'ok'
       );
+      await loadQueue();
+    } catch (error) {
+      showStatus(settingsStatusEl, error.message, 'error');
+    }
+  });
+
+document
+  .getElementById('payroll-email-save')
+  ?.addEventListener('click', async () => {
+    try {
+      emailTemplatesSettings = await fetchJson('/api/email-templates', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payroll_email: payrollEmailInput?.value || '',
+          payroll_cc: payrollCcInput?.value || '',
+        }),
+      });
+      syncPayrollSettingsFromEmailTemplates(emailTemplatesSettings);
+      applyPayrollEmailFields(emailTemplatesSettings);
+      showStatus(settingsStatusEl, 'Payroll email saved.', 'ok');
       await loadQueue();
     } catch (error) {
       showStatus(settingsStatusEl, error.message, 'error');
@@ -858,12 +1725,8 @@ document
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(collectEmailTemplatesFromForm()),
       });
-      payrollSettings = {
-        payroll_email: emailTemplatesSettings.payroll_email || '',
-        message_template:
-          emailTemplatesSettings.templates?.WINDOW_BID_PENDING?.body || '',
-      };
-      payrollEmailInput.value = emailTemplatesSettings.payroll_email || '';
+      syncPayrollSettingsFromEmailTemplates(emailTemplatesSettings);
+      applyPayrollEmailFields(emailTemplatesSettings);
       renderEmailTemplatesEditor(emailTemplatesSettings);
       showStatus(settingsStatusEl, 'Email templates saved.', 'ok');
       await loadQueue();
@@ -1095,6 +1958,13 @@ document.getElementById('gen-commit').addEventListener('click', async () => {
 
 const yearArchiveStepEl = document.getElementById('year-archive-step');
 const yearImportStepEl = document.getElementById('year-import-step');
+const yearArchiveDoneEl = document.getElementById('year-archive-done');
+const yearArchiveDoneSummaryEl = document.getElementById(
+  'year-archive-done-summary'
+);
+const yearArchiveDoneFilesEl = document.getElementById(
+  'year-archive-done-files'
+);
 const yearArchiveFirstUseNoteEl = document.getElementById(
   'year-archive-first-use-note'
 );
@@ -1125,6 +1995,8 @@ const yearImportStepHintEl = document.getElementById('year-import-step-hint');
 let yearArchivePreview = null;
 /** Session flag: archive completed (or unnecessary) so import may proceed. */
 let yearImportUnlocked = false;
+/** After archive success, show the done screen until Admin starts import. */
+let yearArchiveJustCompleted = false;
 
 /**
  * @param {string} message
@@ -1152,8 +2024,68 @@ function fillStaffNameSelect(selectEl, names, previous) {
   }
 }
 
+/** @type {string[]} */
+const staffNamesListEl = document.getElementById('staff-names-list');
+const staffNamesNewInput = document.getElementById('staff-names-new');
+
+function renderStaffNamesList() {
+  if (!staffNamesListEl) return;
+  staffNamesListEl.innerHTML = '';
+  if (!staffNamesList.length) {
+    const empty = document.createElement('li');
+    empty.className = 'empty';
+    empty.textContent = 'No staff names yet.';
+    staffNamesListEl.appendChild(empty);
+    return;
+  }
+  for (const name of staffNamesList) {
+    const li = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = name;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'secondary';
+    setLabeledIcon(remove, 'trash', 'Remove');
+    remove.addEventListener('click', async () => {
+      try {
+        await saveStaffNames(staffNamesList.filter((n) => n !== name));
+        showStatus(settingsStatusEl, `Removed “${name}”.`, 'ok');
+      } catch (error) {
+        showStatus(settingsStatusEl, error.message, 'error');
+      }
+    });
+    li.append(label, remove);
+    staffNamesListEl.appendChild(li);
+  }
+}
+
+async function saveStaffNames(names) {
+  staffNamesList = await fetchJson('/api/staff-names', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(names),
+  });
+  renderStaffNamesList();
+  const previous = localStorage.getItem('rct_entered_by') || '';
+  fillStaffNameSelect(yearArchiveEnteredByEl, staffNamesList, previous);
+  fillStaffNameSelect(
+    document.getElementById('bulk-import-entered-by'),
+    staffNamesList,
+    previous
+  );
+  return staffNamesList;
+}
+
+async function loadStaffNamesSettings() {
+  staffNamesList = await fetchJson('/api/staff-names');
+  renderStaffNamesList();
+  return staffNamesList;
+}
+
 async function loadYearRolloverStaffNames() {
-  const names = await fetchJson('/api/staff-names');
+  const names = staffNamesList.length
+    ? staffNamesList
+    : await fetchJson('/api/staff-names');
   const previous = localStorage.getItem('rct_entered_by') || '';
   fillStaffNameSelect(yearArchiveEnteredByEl, names, previous);
   fillStaffNameSelect(
@@ -1163,13 +2095,117 @@ async function loadYearRolloverStaffNames() {
   );
 }
 
+document.getElementById('staff-names-add')?.addEventListener('click', async () => {
+  try {
+    const name = (staffNamesNewInput?.value || '').trim();
+    if (!name) throw new Error('Enter a name to add.');
+    if (staffNamesList.some((n) => n.toLowerCase() === name.toLowerCase())) {
+      throw new Error(`Already on the list: ${name}`);
+    }
+    await saveStaffNames([...staffNamesList, name]);
+    if (staffNamesNewInput) staffNamesNewInput.value = '';
+    showStatus(settingsStatusEl, `Added “${name}”.`, 'ok');
+  } catch (error) {
+    showStatus(settingsStatusEl, error.message, 'error');
+  }
+});
+
+staffNamesNewInput?.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  document.getElementById('staff-names-add')?.click();
+});
+
+/** @type {string[]} */
+let reasonCategoriesList = [];
+
+const reasonCategoriesListEl = document.getElementById('reason-categories-list');
+const reasonCategoriesNewInput = document.getElementById('reason-categories-new');
+
+function renderReasonCategoriesList() {
+  if (!reasonCategoriesListEl) return;
+  reasonCategoriesListEl.innerHTML = '';
+  if (!reasonCategoriesList.length) {
+    const empty = document.createElement('li');
+    empty.className = 'empty';
+    empty.textContent = 'No reason categories yet.';
+    reasonCategoriesListEl.appendChild(empty);
+    return;
+  }
+  for (const category of reasonCategoriesList) {
+    const li = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = category;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'secondary';
+    setLabeledIcon(remove, 'trash', 'Remove');
+    remove.addEventListener('click', async () => {
+      try {
+        await saveReasonCategories(
+          reasonCategoriesList.filter((c) => c !== category)
+        );
+        showStatus(settingsStatusEl, `Removed “${category}”.`, 'ok');
+      } catch (error) {
+        showStatus(settingsStatusEl, error.message, 'error');
+      }
+    });
+    li.append(label, remove);
+    reasonCategoriesListEl.appendChild(li);
+  }
+}
+
+async function saveReasonCategories(categories) {
+  reasonCategoriesList = await fetchJson('/api/reason-categories', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(categories),
+  });
+  renderReasonCategoriesList();
+  return reasonCategoriesList;
+}
+
+async function loadReasonCategoriesSettings() {
+  reasonCategoriesList = await fetchJson('/api/reason-categories');
+  renderReasonCategoriesList();
+  return reasonCategoriesList;
+}
+
+document
+  .getElementById('reason-categories-add')
+  ?.addEventListener('click', async () => {
+    try {
+      const category = (reasonCategoriesNewInput?.value || '').trim();
+      if (!category) throw new Error('Enter a category to add.');
+      if (
+        reasonCategoriesList.some(
+          (c) => c.toLowerCase() === category.toLowerCase()
+        )
+      ) {
+        throw new Error(`Already on the list: ${category}`);
+      }
+      await saveReasonCategories([...reasonCategoriesList, category]);
+      if (reasonCategoriesNewInput) reasonCategoriesNewInput.value = '';
+      showStatus(settingsStatusEl, `Added “${category}”.`, 'ok');
+    } catch (error) {
+      showStatus(settingsStatusEl, error.message, 'error');
+    }
+  });
+
+reasonCategoriesNewInput?.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  document.getElementById('reason-categories-add')?.click();
+});
+
 /**
  * @param {object} preview
- * @param {{ afterArchive?: boolean }} [options]
+ * @param {{ afterArchive?: boolean, showImport?: boolean }} [options]
  */
 function applyYearRolloverUi(preview, options = {}) {
   yearArchivePreview = preview;
   const afterArchive = options.afterArchive === true;
+  const showImport = options.showImport === true;
   const hasData = preview?.has_meaningful_data === true;
 
   if (yearArchivePurposeEl && preview?.purpose) {
@@ -1178,6 +2214,7 @@ function applyYearRolloverUi(preview, options = {}) {
 
   if (!hasData) {
     yearImportUnlocked = true;
+    yearArchiveJustCompleted = false;
     if (yearArchiveFirstUseNoteEl) {
       yearArchiveFirstUseNoteEl.hidden = false;
       yearArchiveFirstUseNoteEl.textContent =
@@ -1185,6 +2222,7 @@ function applyYearRolloverUi(preview, options = {}) {
         'No existing data found — nothing to archive. This will be the first roster import.';
     }
     if (yearArchiveStepEl) yearArchiveStepEl.hidden = true;
+    if (yearArchiveDoneEl) yearArchiveDoneEl.hidden = true;
     if (yearImportStepEl) yearImportStepEl.hidden = false;
     if (yearImportStepTitleEl) {
       yearImportStepTitleEl.textContent = 'Import new roster';
@@ -1200,21 +2238,89 @@ function applyYearRolloverUi(preview, options = {}) {
     yearArchiveFirstUseNoteEl.hidden = true;
     yearArchiveFirstUseNoteEl.textContent = '';
   }
-  if (yearArchiveStepEl) yearArchiveStepEl.hidden = false;
 
-  if (afterArchive || yearImportUnlocked) {
+  if (afterArchive || yearArchiveJustCompleted) {
+    yearArchiveJustCompleted = true;
     yearImportUnlocked = true;
-    if (yearImportStepEl) yearImportStepEl.hidden = false;
-    if (yearImportStepTitleEl) {
-      yearImportStepTitleEl.textContent = 'Step 2: Import new roster';
+    if (yearArchiveStepEl) yearArchiveStepEl.hidden = true;
+    if (yearArchiveDoneEl) yearArchiveDoneEl.hidden = false;
+    if (yearImportStepEl) yearImportStepEl.hidden = !showImport;
+    if (showImport) {
+      if (yearImportStepTitleEl) {
+        yearImportStepTitleEl.textContent = 'Step 2: Import new roster';
+      }
+      if (yearImportStepHintEl) {
+        yearImportStepHintEl.textContent =
+          'Paste into the table below, or use the CSV template workflow under the table.';
+      }
     }
-    if (yearImportStepHintEl) {
-      yearImportStepHintEl.textContent =
-        'Archive is done. Import is optional right now — you can stop after archiving, or continue below when ready. Paste into the table, or use the CSV template workflow.';
-    }
-  } else {
-    if (yearImportStepEl) yearImportStepEl.hidden = true;
+    return;
   }
+
+  if (yearArchiveDoneEl) yearArchiveDoneEl.hidden = true;
+  if (yearArchiveStepEl) yearArchiveStepEl.hidden = false;
+  if (yearImportStepEl) yearImportStepEl.hidden = true;
+}
+
+/**
+ * @param {object} result - commit response
+ */
+function showYearArchiveDoneScreen(result) {
+  const folder =
+    result.archive_folder_name || result.meta?.archive_folder_name || '';
+  const rel = result.relative_path || `archives/${folder}`;
+  const meta = result.meta || {};
+
+  if (yearArchiveDoneSummaryEl) {
+    const parts = [
+      `Saved to ${rel}.`,
+      `${meta.drivers_count ?? '—'} drivers`,
+      `${meta.routes_count ?? '—'} routes`,
+      `${meta.change_log_entries ?? '—'} change-log entries`,
+    ];
+    if (meta.entered_by) {
+      parts.push(`archived by ${meta.entered_by}`);
+    }
+    yearArchiveDoneSummaryEl.textContent = parts.join(' · ');
+  }
+
+  if (yearArchiveDoneFilesEl) {
+    yearArchiveDoneFilesEl.innerHTML = '';
+    const contents = Array.isArray(result.contents) ? result.contents : [];
+    if (!contents.length) {
+      const empty = document.createElement('div');
+      empty.className = 'field-hint';
+      empty.textContent = 'Archive folder created (file list unavailable).';
+      yearArchiveDoneFilesEl.appendChild(empty);
+    } else {
+      for (const item of contents) {
+        const row = document.createElement('div');
+        row.className = 'year-archive-file-row';
+        row.setAttribute('role', 'listitem');
+        const kind = document.createElement('span');
+        kind.className = 'year-archive-file-kind';
+        kind.textContent = item.type === 'directory' ? 'dir' : 'file';
+        const pathEl = document.createElement('span');
+        pathEl.className = 'year-archive-file-path';
+        pathEl.textContent =
+          item.type === 'directory'
+            ? `${item.path}/` +
+              (typeof item.children === 'number'
+                ? ` (${item.children} item${item.children === 1 ? '' : 's'})`
+                : '')
+            : item.path;
+        row.append(kind, pathEl);
+        yearArchiveDoneFilesEl.appendChild(row);
+      }
+    }
+  }
+
+  yearArchiveJustCompleted = true;
+  applyYearRolloverUi(result.preview || yearArchivePreview, {
+    afterArchive: true,
+    showImport: false,
+  });
+  yearArchiveDoneEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function initYearRolloverFlow() {
@@ -1286,6 +2392,7 @@ function renderYearArchivePreview(preview) {
     'Nothing will be deleted. Live data stays in place; this only creates a folder under archives/.';
   yearArchivePreviewBody.appendChild(copyNote);
 
+  enhanceGlossaryTips(yearArchivePreviewBody);
   if (yearArchivePreviewPanel) yearArchivePreviewPanel.hidden = false;
 }
 
@@ -1372,25 +2479,32 @@ document
       });
 
       localStorage.setItem('rct_entered_by', entered_by);
-      yearImportUnlocked = true;
-      applyYearRolloverUi(result.preview || yearArchivePreview, {
-        afterArchive: true,
-      });
 
       if (yearArchivePreviewPanel) yearArchivePreviewPanel.hidden = true;
       if (yearArchivePreviewBody) yearArchivePreviewBody.innerHTML = '';
       if (yearArchiveConfirmFolderEl) yearArchiveConfirmFolderEl.value = '';
       if (yearArchiveNoteEl) yearArchiveNoteEl.value = '';
 
-      const rel = result.relative_path || `archives/${archive_folder_name}`;
+      showYearArchiveDoneScreen(result);
       showYearArchiveStatus(
-        `Archive created at ${rel}. Live data was not changed. You can stop here, or continue with Step 2 Import below when ready.`,
+        `Archive created at ${result.relative_path || archive_folder_name}. Live data was not changed.`,
         'ok'
       );
-      yearImportStepEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      enhanceIcons();
     } catch (error) {
       showYearArchiveStatus(error.message, 'error');
     }
+  });
+
+document
+  .getElementById('year-archive-start-import')
+  ?.addEventListener('click', () => {
+    yearImportUnlocked = true;
+    applyYearRolloverUi(yearArchivePreview, {
+      afterArchive: true,
+      showImport: true,
+    });
+    yearImportStepEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
 // --- Import new roster (step 2 / first-use) ---
@@ -1880,7 +2994,7 @@ function renderBulkImportPreview(preview) {
     warn.appendChild(
       document.createTextNode(
         `${n} same-date seniority tie${n === 1 ? '' : 's'} will need ` +
-          `resolving on the Drivers page after office lots. The contract ` +
+          `resolving on the Drivers/Routes page after office lots. The contract ` +
           `requires same-date ties to be resolved by drawing lots (`
       )
     );
@@ -2064,14 +3178,8 @@ document.getElementById('bulk-import-commit').addEventListener('click', async ()
     if (!pendingBulkImport?.text) {
       throw new Error('Preview an import first.');
     }
-    const entered_by = bulkImportEnteredByEl.value.trim();
-    const note = bulkImportNoteEl.value.trim();
-    if (!entered_by) {
-      throw new Error('Select who is entering this import.');
-    }
-    if (!note) {
-      throw new Error('A note is required for the import.');
-    }
+    const entered_by = bulkImportEnteredByEl?.value.trim() || '';
+    const note = bulkImportNoteEl?.value.trim() || '';
 
     const resolutions = collectBulkResolutions();
     if (pendingBulkImport.preview.requires_resolutions) {
@@ -2091,6 +3199,7 @@ document.getElementById('bulk-import-commit').addEventListener('click', async ()
       }
     }
 
+    bulkImportCommitBtn.disabled = true;
     const result = await fetchJson('/api/bulk-import/commit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2102,13 +3211,15 @@ document.getElementById('bulk-import-commit').addEventListener('click', async ()
       }),
     });
 
-    localStorage.setItem('rct_entered_by', entered_by);
+    if (entered_by) {
+      localStorage.setItem('rct_entered_by', entered_by);
+    }
     pendingBulkImport = null;
     bulkImportPreviewPanel.hidden = true;
     bulkImportCommitBtn.hidden = true;
     bulkImportPreviewBody.innerHTML = '';
     clearBulkImportTable();
-    bulkImportNoteEl.value = '';
+    if (bulkImportNoteEl) bulkImportNoteEl.value = '';
 
     const s = result.summary;
     showBulkImportStatus(
@@ -2118,10 +3229,13 @@ document.getElementById('bulk-import-commit').addEventListener('click', async ()
           : '') +
         (s.skipped_row_count ? `, ${s.skipped_row_count} skipped` : '') +
         '.',
-      'ok'
+      'ok',
+      { scrollToCommit: false }
     );
     await loadQueue();
   } catch (error) {
     showBulkImportStatus(error.message, 'error');
+  } finally {
+    bulkImportCommitBtn.disabled = false;
   }
 });

@@ -1,16 +1,1 @@
-[
-  {
-    "driver_id": "drv-jane",
-    "name": "Jane Driver",
-    "email": null,
-    "hire_date": "2012-08-15",
-    "tie_break": null
-  },
-  {
-    "driver_id": "drv-tammy",
-    "name": "Tammy Trapp",
-    "email": null,
-    "hire_date": "2018-09-04",
-    "tie_break": null
-  }
-]
+[]

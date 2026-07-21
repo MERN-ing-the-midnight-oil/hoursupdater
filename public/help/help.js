@@ -1,7 +1,7 @@
 import { GLOSSARY, GLOSSARY_PAGE_ORDER } from '../shared/glossary.js';
 import { appendCitationLinks } from '../shared/contractCitationUi.js';
+import { enhanceGlossaryTips } from '../shared/glossaryTip.js';
 import { createIcon, enhanceIcons } from '../shared/icons.js';
-import '../shared/practiceBanner.js';
 
 enhanceIcons();
 
@@ -16,6 +16,8 @@ const GLOSSARY_ICONS = {
   lock_in: 'lock',
   accumulating: 'hourglass',
   needs_review: 'flag',
+  self_resolved: 'rotate-ccw',
+  admin_resolved: 'check-circle',
   bid_pending: 'gavel',
   bump_eligible: 'arrow-down-up',
   stable: 'check-circle',
@@ -58,3 +60,5 @@ for (const id of GLOSSARY_PAGE_ORDER) {
 
   root.appendChild(article);
 }
+
+enhanceGlossaryTips(root);

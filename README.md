@@ -1,8 +1,8 @@
-# Route Change Tracker
+# Teamster Tracker
 
 Local web app for school district transportation teams to log bus route time changes and track cumulative drift against contract thresholds.
 
-See **[KNOWN_OPEN_QUESTIONS.md](./KNOWN_OPEN_QUESTIONS.md)** for deliberately unresolved items. Check that file at the start of each phase. For moving from sandbox to Rachel’s real environment, see **[HANDOFF.md](./HANDOFF.md)**.
+See **[KNOWN_OPEN_QUESTIONS.md](./KNOWN_OPEN_QUESTIONS.md)** for deliberately unresolved items. Check that file at the start of each phase. For moving to Rachel’s real environment, see **[HANDOFF.md](./HANDOFF.md)**.
 
 ## Current status
 
@@ -21,19 +21,10 @@ See **[KNOWN_OPEN_QUESTIONS.md](./KNOWN_OPEN_QUESTIONS.md)** for deliberately un
 npm install
 cp .env.example .env
 npm run seed          # copies sample-data into ./data/_app_data (skips files that already exist)
-npm start             # http://localhost:3847 — uses .env (production / real path)
+npm start             # http://localhost:3847
 ```
 
 Open **http://localhost:3847/routing** for the Routing desk.
-
-### Environment files (do not mix)
-
-| File | Purpose | `DATA_DIR` |
-|------|---------|------------|
-| `.env` | Real / production path (OneDrive when going live) | Shared folder Rachel will use |
-| `.env.practice` | Local sandbox only | Always `./practice-data/` (gitignored) |
-
-**Never point both files at the same folder.** Practice and production are a one-way door, not a casual toggle — see [HANDOFF.md](./HANDOFF.md).
 
 Point `DATA_DIR` in `.env` at your OneDrive-synced **shared folder root** when you go live:
 
@@ -53,18 +44,16 @@ DATA_DIR/
     …
 ```
 
-## Practice / sandbox (local only)
+### Windows portable package (no Node install)
 
-Use this on your machine to learn the app **before** handoff. Data lives in `./practice-data/` and never touches OneDrive.
+For Rachel’s district PC, build a zip that includes a bundled Node runtime and `Start.bat`:
 
 ```bash
-npm run seed:practice     # calendar (~30 days) + fictional drivers/routes via bulk-import path
-npm run start:practice    # loads .env.practice — yellow PRACTICE MODE banner on every screen
-npm run reset:practice    # wipe practice-data and re-seed from scratch
+npm run build:portable-win
+# → dist/TeamsterTracker-win.zip
 ```
 
-- Seed attribution: `entered_by: "Practice Setup"`, note: `Local sandbox seed data — not real` (`BULK_IMPORT`).
-- Seed/reset **refuse** to run unless `PRACTICE_MODE=true` and `DATA_DIR` resolves to a folder named `practice-data`.
+Share the zip via OneDrive/Teams. She unzips to Desktop/Documents, sets `DATA_DIR` per **[SETUP-ONEDRIVE.md](./SETUP-ONEDRIVE.md)**, and double-clicks `Start.bat`. See **[TROUBLESHOOTING.md](./TROUBLESHOOTING.md)** and **[HANDOFF.md](./HANDOFF.md)**.
 
 ## Run tests
 
@@ -115,8 +104,8 @@ src/
 public/
   routing/              # Routing desk UI
   admin/                # Admin queue + settings
+  help/                 # Glossary / help
 sample-data/            # Starter files for local/OneDrive seed
-practice-data/          # Local sandbox only (gitignored; from seed:practice)
 HANDOFF.md              # Go-live steps for Rachel’s environment
 KNOWN_OPEN_QUESTIONS.md
 ```

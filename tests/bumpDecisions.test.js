@@ -191,6 +191,61 @@ describe('applyBumpDecisions (no auto outcomes)', () => {
     assert.deepEqual(next.X.baseline_segments, next.X.segments);
   });
 
+  it('keep_assignment still locks when rebuild raised NEEDS_REVIEW after a prior keep', () => {
+    const state = {
+      X: {
+        driver_id: 'drv-a',
+        driver_name: 'Alex',
+        status: 'NEEDS_REVIEW',
+        segments: { AM: '6:00-8:00', MIDDAY: null, PM: null },
+        baseline_segments: { AM: '6:00-8:00', MIDDAY: null, PM: null },
+        window_opened_date: null,
+        window_expires_date: null,
+        cumulative_drift_minutes: 0,
+        contributing_change_ids: [],
+        payroll_rounded_total_minutes: 120,
+        bump_decision_due_date: null,
+        bump_chain_id: null,
+        bump_chain_link: null,
+        bump_kind: null,
+        reconciliation: {
+          previous_finalized_status: 'STABLE',
+          computed_status: 'BUMP_ELIGIBLE',
+          computed_cumulative_drift_minutes: -35,
+          computed_payroll_rounded_total_minutes: 105,
+          causing_adjustment_id: null,
+          letter_or_action_exists: false,
+          raised_at: '2025-10-03T00:00:00.000Z',
+        },
+        pending_change_ids: [],
+        last_updated: '2025-10-03T00:00:00.000Z',
+      },
+    };
+    const next = applyBumpDecisions(
+      state,
+      [
+        {
+          id: 'bd1',
+          type: 'BUMP_DECISION',
+          route_id: 'X',
+          decision: 'keep_assignment',
+          bump_kind: 'original_decrease',
+          bump_chain_id: 'chain-1',
+          bump_chain_link: 1,
+          electing_driver_id: 'drv-a',
+          electing_driver_name: 'Alex',
+          note: 'Driver keeps assignment',
+          decided_by: 'Rachel',
+          decided_at: '2025-10-02T12:00:00.000Z',
+        },
+      ],
+      calendar
+    );
+    assert.equal(next.X.status, 'STABLE');
+    assert.equal(next.X.reconciliation, null);
+    assert.equal(next.X.cumulative_drift_minutes, 0);
+  });
+
   it('elect_bump opens a displacement card on the vacated route (no Unassigned)', () => {
     const state = {
       X: {

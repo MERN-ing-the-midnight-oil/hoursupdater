@@ -14,6 +14,7 @@ import {
   createStatusBadge,
 } from './glossaryTip.js';
 import { setLabeledIcon } from './icons.js';
+import { openMailto } from './openMailto.js';
 
 /** @type {Array<{ driver_id: string, name: string, email: string | null }> | null} */
 let cachedDrivers = null;
@@ -490,7 +491,7 @@ export function renderReassignPanel(row, options = {}) {
   setLabeledIcon(
     summary,
     eligible || awaitingFinalize ? 'award' : 'user-cog',
-    eligible || awaitingFinalize ? 'Award bid / reassign' : 'Reassign driver'
+    eligible || awaitingFinalize ? 'Award bid / reassign' : 'Reassign route'
   );
   details.appendChild(summary);
 
@@ -733,6 +734,79 @@ function statRow(label, value, glossaryId = null) {
   return row;
 }
 
+/** Open accumulation window length in school days. */
+const WINDOW_SCHOOL_DAYS = 15;
+
+/**
+ * Compact summary for collapsed Accumulating cards: route, driver, days left + bar.
+ * @param {object} row
+ * @param {boolean} linkDriver
+ * @returns {HTMLElement}
+ */
+function renderAccumulatingCompactSummary(row, linkDriver) {
+  const summary = document.createElement('summary');
+  summary.className = 'queue-card-compact';
+
+  const identity = document.createElement('div');
+  identity.className = 'queue-card-compact-identity';
+  const title = document.createElement('h3');
+  const driverPart = linkDriver
+    ? driverLabelHtml(row.driver_id, row.driver_name)
+    : assignmentDriverLabel(row.driver_name);
+  title.innerHTML = `${row.route_id} · ${driverPart}`;
+  for (const link of title.querySelectorAll('a')) {
+    link.addEventListener('click', (event) => event.stopPropagation());
+  }
+  identity.appendChild(title);
+
+  const windowMeta = document.createElement('div');
+  windowMeta.className = 'queue-card-compact-window';
+
+  const days =
+    typeof row.days_remaining === 'number' && Number.isFinite(row.days_remaining)
+      ? Math.max(0, row.days_remaining)
+      : null;
+  const daysLabel = document.createElement('span');
+  daysLabel.className = 'queue-card-compact-days';
+  if (days == null) {
+    daysLabel.textContent = 'School days remaining —';
+  } else if (days === 1) {
+    daysLabel.textContent = '1 school day remaining';
+  } else {
+    daysLabel.textContent = `${days} school days remaining`;
+  }
+
+  const clamped = days == null ? 0 : Math.min(days, WINDOW_SCHOOL_DAYS);
+  const bar = document.createElement('div');
+  bar.className = 'window-days-progress';
+  if (days != null && days <= 3) bar.classList.add('is-urgent');
+  else if (days != null && days <= 7) bar.classList.add('is-soon');
+  bar.setAttribute('role', 'progressbar');
+  bar.setAttribute('aria-valuemin', '0');
+  bar.setAttribute('aria-valuemax', String(WINDOW_SCHOOL_DAYS));
+  bar.setAttribute('aria-valuenow', String(clamped));
+  bar.setAttribute(
+    'aria-label',
+    days == null
+      ? 'School days remaining unknown'
+      : `${clamped} of ${WINDOW_SCHOOL_DAYS} school days remaining`
+  );
+  const track = document.createElement('div');
+  track.className = 'window-days-progress-track';
+  track.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < WINDOW_SCHOOL_DAYS; i += 1) {
+    const day = document.createElement('span');
+    day.className = 'window-days-progress-day';
+    if (i < clamped) day.classList.add('is-filled');
+    track.appendChild(day);
+  }
+  bar.appendChild(track);
+
+  windowMeta.append(daysLabel, bar);
+  summary.append(identity, windowMeta);
+  return summary;
+}
+
 /**
  * @param {object} row
  * @param {'needs-review' | 'accumulating' | 'bid-pending' | 'bump-eligible' | 'stable'} kind
@@ -747,6 +821,7 @@ function statRow(label, value, glossaryId = null) {
  *   onReviewResolved?: () => void,
  *   onBumpDecided?: () => void,
  *   electronicBidSignupEnabled?: boolean,
+ *   paperBidSignupEnabled?: boolean,
  * }} [options]
  */
 export function renderRouteCard(row, kind, options = {}) {
@@ -754,35 +829,42 @@ export function renderRouteCard(row, kind, options = {}) {
   const showSegments = options.showSegments === true;
   const enableReassign =
     options.enableReassign !== false && kind !== 'bump-eligible';
-  const showNotifyPayroll = options.showNotifyPayroll === true;
-  const payrollEmailConfigured = options.payrollEmailConfigured !== false;
   const electronicBidSignupEnabled = options.electronicBidSignupEnabled === true;
-  const card = document.createElement('article');
+  const paperBidSignupEnabled = options.paperBidSignupEnabled === true;
+  const isAccumulating = kind === 'accumulating';
+  const card = document.createElement(isAccumulating ? 'details' : 'article');
   card.className = 'queue-card';
+  if (isAccumulating) {
+    card.classList.add('queue-card-accumulating');
+  }
   if (kind === 'needs-review' && row.status !== 'NEEDS_REVIEW') {
     card.classList.add('queue-card-self-resolved');
   }
 
-  const header = document.createElement('header');
-  const title = document.createElement('h3');
-  const driverPart = linkDriver
-    ? driverLabelHtml(row.driver_id, row.driver_name)
-    : assignmentDriverLabel(row.driver_name);
-  title.innerHTML = `${row.route_id} · ${driverPart}`;
-  header.appendChild(title);
+  if (isAccumulating) {
+    card.appendChild(renderAccumulatingCompactSummary(row, linkDriver));
+  } else {
+    const header = document.createElement('header');
+    const title = document.createElement('h3');
+    const driverPart = linkDriver
+      ? driverLabelHtml(row.driver_id, row.driver_name)
+      : assignmentDriverLabel(row.driver_name);
+    title.innerHTML = `${row.route_id} · ${driverPart}`;
+    header.appendChild(title);
 
-  const meta = document.createElement('p');
-  meta.className = 'meta';
-  meta.append(document.createTextNode('Status '), createStatusBadge(row.status));
-  if (kind === 'needs-review' && row.status !== 'NEEDS_REVIEW') {
-    meta.append(document.createTextNode(' · '));
-    const selfBadge = document.createElement('span');
-    selfBadge.className = 'badge badge-self-resolved';
-    selfBadge.textContent = 'self-resolved recently';
-    meta.appendChild(selfBadge);
+    const meta = document.createElement('p');
+    meta.className = 'meta';
+    meta.append(document.createTextNode('Stage '), createStatusBadge(row.status));
+    if (kind === 'needs-review' && row.status !== 'NEEDS_REVIEW') {
+      meta.append(document.createTextNode(' · '));
+      const selfBadge = document.createElement('span');
+      selfBadge.className = 'badge badge-self-resolved';
+      selfBadge.textContent = 'self-resolved recently';
+      meta.appendChild(selfBadge);
+    }
+    header.appendChild(meta);
+    card.appendChild(header);
   }
-  header.appendChild(meta);
-  card.appendChild(header);
 
   if (kind === 'needs-review' && row.reconciliation) {
     const recon = row.reconciliation;
@@ -799,7 +881,7 @@ export function renderRouteCard(row, kind, options = {}) {
     stats.className = 'recon-stats';
     stats.append(
       statRow(
-        'Computed cumulative drift',
+        'Computed accumulated time difference',
         `${formatSignedMinutes(recon.computed_cumulative_drift_minutes)} min`,
         'cumulative_drift'
       ),
@@ -933,12 +1015,12 @@ export function renderRouteCard(row, kind, options = {}) {
     stats.className = 'recon-stats';
     stats.append(
       statRow(
-        'Cumulative drift (exact)',
+        'Accumulated time difference',
         `${formatSignedMinutes(row.cumulative_drift_minutes)} min`,
         'cumulative_drift'
       ),
       statRow(
-        'Days remaining in window',
+        'School days remaining in window',
         row.days_remaining == null ? '—' : String(row.days_remaining),
         'window'
       ),
@@ -994,12 +1076,13 @@ export function renderRouteCard(row, kind, options = {}) {
   if (kind === 'stable') {
     const stats = document.createElement('p');
     stats.className = 'meta';
-    const parts = [
-      document.createTextNode(
-        `Drift ${formatSignedMinutes(row.cumulative_drift_minutes)} min`
-      ),
-    ];
+    const parts = [];
     if (row.payroll_rounded_total_minutes != null) {
+      parts.push(
+        document.createTextNode(
+          'Route schedule rounds to current contract hours'
+        )
+      );
       parts.push(document.createTextNode(' · contracted '));
       const contracted = document.createElement('span');
       contracted.textContent = `${row.payroll_rounded_total_minutes} min`;
@@ -1008,12 +1091,15 @@ export function renderRouteCard(row, kind, options = {}) {
       if (tip) parts.push(tip);
     }
     if (row.last_updated) {
+      if (parts.length) parts.push(document.createTextNode(' · '));
       parts.push(
-        document.createTextNode(` · updated ${formatWhen(row.last_updated)}`)
+        document.createTextNode(`updated ${formatWhen(row.last_updated)}`)
       );
     }
-    stats.append(...parts);
-    card.appendChild(stats);
+    if (parts.length) {
+      stats.append(...parts);
+      card.appendChild(stats);
+    }
   }
 
   if (showSegments && row.segments) {
@@ -1027,24 +1113,15 @@ export function renderRouteCard(row, kind, options = {}) {
 
   card.appendChild(renderReviewHistory(row));
   card.appendChild(renderSeeTheMathDetails(row));
-  if (
-    showNotifyPayroll &&
-    kind === 'bid-pending' &&
-    row.bid_pending_report
-  ) {
-    card.appendChild(
-      renderNotifyPayrollRow(row, {
-        payrollEmailConfigured,
-        onPayrollNotified: options.onPayrollNotified,
-      })
-    );
-  }
   if (kind === 'bid-pending' && electronicBidSignupEnabled) {
     card.appendChild(
       renderOpenBidSignupPanel(row, {
         onOpenBidNotified: options.onOpenBidNotified,
       })
     );
+  }
+  if (kind === 'bid-pending' && paperBidSignupEnabled) {
+    card.appendChild(renderPaperBidSignupPanel(row));
   }
   if (kind === 'bump-eligible') {
     card.appendChild(
@@ -1319,6 +1396,51 @@ function renderBumpDecisionPanel(row, options = {}) {
 }
 
 /**
+ * Paper open-bid sign-up sheet (printable).
+ * @param {object} row
+ * @returns {HTMLElement}
+ */
+function renderPaperBidSignupPanel(row) {
+  const panel = document.createElement('div');
+  panel.className = 'bid-signup-panel paper-bid-panel';
+
+  const heading = document.createElement('h4');
+  setLabeledIcon(heading, 'printer', 'Paper bid sign-up');
+  panel.appendChild(heading);
+
+  const meta = document.createElement('p');
+  meta.className = 'meta';
+  const start = row.paper_bid_start_date
+    ? `Start date ${row.paper_bid_start_date}`
+    : 'Start date not set yet';
+  const due = row.bid_response_due_date
+    ? ` · sign-up due ${row.bid_response_due_date}`
+    : '';
+  meta.textContent = `${start}${due}`;
+  panel.appendChild(meta);
+
+  const actions = document.createElement('div');
+  actions.className = 'email-draft-row';
+  const printBtn = document.createElement('button');
+  printBtn.type = 'button';
+  printBtn.className = 'secondary';
+  setLabeledIcon(printBtn, 'printer', 'Open sign-up sheet');
+  const hint = document.createElement('p');
+  hint.className = 'field-hint';
+  hint.textContent =
+    'Opens the printable sheet. Set the route start date there before printing. Drivers more senior than the current holder print in bold.';
+  actions.append(printBtn, hint);
+  panel.appendChild(actions);
+
+  printBtn.addEventListener('click', () => {
+    const url = `/admin/paper-bid-sheet.html?route_id=${encodeURIComponent(row.route_id)}`;
+    window.open(url, '_blank', 'noopener');
+  });
+
+  return panel;
+}
+
+/**
  * Electronic open-bid posting + Forms Excel sign-up (read-only external file).
  * @param {object} row
  * @param {{ onOpenBidNotified?: () => void }} [options]
@@ -1406,7 +1528,7 @@ function renderOpenBidSignupPanel(row, options = {}) {
         `/api/routes/${encodeURIComponent(row.route_id)}/open-bid-notified`,
         { method: 'POST' }
       );
-      window.location.href = draft.mailto_url;
+      openMailto(draft.mailto_url);
       if (draft.missing_email_count) {
         hint.textContent = `Opened draft with ${draft.cc_count} CC — ${draft.missing_email_count} driver(s) have no email.`;
       } else {
@@ -1557,7 +1679,7 @@ function renderNotifyPayrollRow(row, options = {}) {
         `/api/routes/${encodeURIComponent(row.route_id)}/change-reports/${encodeURIComponent(report.id)}/payroll-notified`,
         { method: 'POST' }
       );
-      window.location.href = draft.mailto_url;
+      openMailto(draft.mailto_url);
       if (typeof options.onPayrollNotified === 'function') {
         options.onPayrollNotified();
       }
@@ -1589,7 +1711,7 @@ export function renderPendingChangesCard(row, options = {}) {
   title.innerHTML = `${row.route_id} · ${driverPart}`;
   const meta = document.createElement('p');
   meta.className = 'meta';
-  meta.append(document.createTextNode('Status '), createStatusBadge(row.status));
+  meta.append(document.createTextNode('Stage '), createStatusBadge(row.status));
   meta.append(document.createTextNode(' · '));
   const pendingBadge = document.createElement('span');
   pendingBadge.className = 'badge pending';
@@ -1715,7 +1837,7 @@ export function renderChangeReportCard(report) {
         emailHint.className = 'field-hint warn-text';
         return;
       }
-      window.location.href = draft.mailto_url;
+      openMailto(draft.mailto_url);
     } catch (error) {
       emailHint.textContent = error.message;
       emailHint.className = 'field-hint warn-text';

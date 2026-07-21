@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import ExcelJS from 'exceljs';
+import { getAsOfDate } from '../config.js';
 import { daysRemainingInWindow } from '../logic/calendar.js';
 import { getSeniorityOrder } from '../logic/seniority.js';
 import { isChangeEvent } from '../logic/stateMachine.js';
@@ -51,7 +52,7 @@ export function buildLogicalWorkbook({
   routeState,
   drivers,
   schoolCalendar,
-  asOfDate = new Date(),
+  asOfDate = getAsOfDate(),
 }) {
   /** @type {Map<string, number>} */
   const effectiveDeltas = new Map();
@@ -283,7 +284,7 @@ function writeTable(sheet, headers, rows) {
  */
 export async function renderWorkbookBuffer(logical) {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'Route Change Tracker';
+  workbook.creator = 'Teamster Tracker';
   workbook.created = new Date();
 
   const readMe = workbook.addWorksheet('Read Me');

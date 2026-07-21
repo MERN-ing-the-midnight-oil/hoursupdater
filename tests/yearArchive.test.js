@@ -172,6 +172,23 @@ describe('yearArchive commit (copy only)', () => {
 
     assert.equal(result.archive_folder_name, '2025-26 school year');
     assert.equal(result.workbook_copied, true);
+    assert.ok(Array.isArray(result.contents));
+    assert.ok(
+      result.contents.some(
+        (row) => row.path === 'RouteChangeTracker.xlsx' && row.type === 'file'
+      )
+    );
+    assert.ok(
+      result.contents.some(
+        (row) => row.path === '_app_data' && row.type === 'directory'
+      )
+    );
+    assert.ok(
+      result.contents.some(
+        (row) =>
+          row.path === `_app_data/${FILE_NAMES.drivers}` && row.type === 'file'
+      )
+    );
 
     const archivedDrivers = await fs.readFile(
       path.join(result.archive_path, '_app_data', FILE_NAMES.drivers),

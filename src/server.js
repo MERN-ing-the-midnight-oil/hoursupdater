@@ -4,12 +4,16 @@ import { fileURLToPath } from 'node:url';
 import {
   PORT,
   getAppDataDir,
+  getConfiguredDataDir,
   getSharedRoot,
   getWorkbookPath,
-  isPracticeMode,
 } from './config.js';
 import apiRouter from './routes/api.js';
 import { ensureDataDir } from './data/storage.js';
+import {
+  assertSharedRootReady,
+  isDataDirConfigError,
+} from './logic/dataDirValidation.js';
 import { syncWorkbook } from './services/workbookSync.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -63,6 +67,20 @@ app.use((error, _req, res, _next) => {
   });
 });
 
+try {
+  await assertSharedRootReady(getSharedRoot(), {
+    configured: getConfiguredDataDir(),
+  });
+} catch (error) {
+  if (isDataDirConfigError(error)) {
+    console.error('\n*** Cannot start Teamster Tracker ***\n');
+    console.error(error instanceof Error ? error.message : error);
+    console.error('');
+    process.exit(1);
+  }
+  throw error;
+}
+
 await ensureDataDir(getAppDataDir());
 try {
   const workbook = await syncWorkbook();
@@ -76,12 +94,15 @@ try {
 }
 
 app.listen(PORT, () => {
-  console.log(`Route Change Tracker listening on http://localhost:${PORT}`);
-  if (isPracticeMode()) {
-    console.log('*** PRACTICE MODE — test data only, not connected to real records ***');
-  }
+  console.log(`Teamster Tracker listening on http://localhost:${PORT}`);
   console.log(`Shared root (DATA_DIR)=${getSharedRoot()}`);
   console.log(`App data=_app_data → ${getAppDataDir()}`);
   console.log(`Workbook=${getWorkbookPath()}`);
   console.log(`Routing: http://localhost:${PORT}/routing`);
+  console.log('');
+  console.log('If your browser did not open, paste this into Edge:');
+  console.log(`  http://localhost:${PORT}`);
+  console.log('');
+  console.log('Leave this window open while you use the app.');
+  console.log('Close it (or press Ctrl+C) to stop the app.');
 });

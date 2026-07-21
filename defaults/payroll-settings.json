@@ -1,4 +1,5 @@
 {
   "payroll_email": "",
-  "message_template": "Route {{route_id}} (driver: {{driver_name}}) has reached the 30-minute contract threshold and is pending bid. Details attached in the workbook."
+  "payroll_cc": "",
+  "message_template": "Payroll notice: contracted hours changed for route {{route_id}} (driver: {{driver_name}}).\n\nRounded contracted minutes: {{before_payroll_rounded_total_minutes}} → {{after_payroll_rounded_total_minutes}}.\n\nDetails are in the Route Change Tracker workbook."
 }

@@ -1,9 +1,10 @@
 import { createStatusBadge, enhanceGlossaryTips } from '../shared/glossaryTip.js';
 import { enhanceIcons } from '../shared/icons.js';
-import '../shared/practiceBanner.js';
+import { initRosterImportTip } from '../shared/rosterImportTip.js';
 
 enhanceGlossaryTips();
 enhanceIcons();
+initRosterImportTip();
 
 const form = document.getElementById('change-form');
 const routeSearch = document.getElementById('route_search');
@@ -22,26 +23,29 @@ const driverNameInput = document.getElementById('driver_name');
 const driverListbox = document.getElementById('driver-listbox');
 const driverCombobox = document.getElementById('driver-combobox');
 const driverModeHint = document.getElementById('driver-mode-hint');
-const newDriverBtn = document.getElementById('new-driver-btn');
-const cancelNewDriverBtn = document.getElementById('cancel-new-driver-btn');
-const newDriverFields = document.getElementById('new-driver-fields');
-const newDriverNameInput = document.getElementById('new_driver_name');
-const newDriverEmailInput = document.getElementById('new_driver_email');
-const newDriverHireDateInput = document.getElementById('new_driver_hire_date');
-
 const segmentSelect = document.getElementById('segment');
 const previousInput = document.getElementById('previous_time');
+const previousTimeFormatHint = document.getElementById('previous-time-format-hint');
+const newTimeField = document.getElementById('new-time-field');
 const newTimeInput = document.getElementById('new_time');
+const deltaBox = document.getElementById('delta-box');
 const computedDeltaInput = document.getElementById('computed_delta');
 const deltaUsedInput = document.getElementById('delta_minutes');
 const adjustmentBlock = document.getElementById('adjustment-block');
 const adjustmentReason = document.getElementById('adjustment_reason');
+const reasonCategoryInput = document.getElementById('reason_category');
 const enteredByInput = document.getElementById('entered_by');
 const effectiveDateInput = document.getElementById('effective_date');
 const statusEl = document.getElementById('status');
 const recentList = document.getElementById('recent-list');
 const submitBtn = document.getElementById('submit-btn');
 const resetBtn = document.getElementById('reset-btn');
+
+const DRIVER_HINT_EXISTING_HTML =
+  'Pick a known driver from the list. Add someone new under <a href="/admin/drivers">Drivers/Routes</a>.';
+const DRIVER_HINT_NEW_HTML =
+  'Optional — leave blank to create the route as Unassigned. Assign a driver later under <a href="/admin/drivers">Drivers/Routes</a>.';
+const SCHEDULE_FORMAT_PLACEHOLDER = 'H:MM-H:MM (e.g. 6:35-8:55)';
 
 /** @type {Map<string, { route_id: string, driver_name: string, driver_id?: string|null, segments: Record<string, string|null> }>} */
 const routesById = new Map();
@@ -51,8 +55,6 @@ const driversById = new Map();
 
 /** @type {'existing' | 'new'} */
 let routeMode = 'existing';
-/** @type {'existing' | 'new'} */
-let driverMode = 'existing';
 let computedDelta = null;
 let previousLockedFromState = false;
 let activeRouteOptionIndex = -1;
@@ -84,17 +86,20 @@ function parseClock(time) {
   return hours * 60 + minutes;
 }
 
+function parseScheduleRange(range) {
+  const parts = String(range).trim().split('-');
+  if (parts.length !== 2) return null;
+  const start = parseClock(parts[0]);
+  const end = parseClock(parts[1]);
+  if (start == null || end == null || end <= start) return null;
+  return { start, end, duration: end - start };
+}
+
 function computeDelta(previousTime, newTime) {
-  const prevParts = String(previousTime).split('-');
-  const nextParts = String(newTime).split('-');
-  if (prevParts.length !== 2 || nextParts.length !== 2) return null;
-  const prevStart = parseClock(prevParts[0]);
-  const prevEnd = parseClock(prevParts[1]);
-  const nextStart = parseClock(nextParts[0]);
-  const nextEnd = parseClock(nextParts[1]);
-  if ([prevStart, prevEnd, nextStart, nextEnd].some((v) => v == null)) return null;
-  if (prevEnd <= prevStart || nextEnd <= nextStart) return null;
-  return nextEnd - nextStart - (prevEnd - prevStart);
+  const previous = parseScheduleRange(previousTime);
+  const next = parseScheduleRange(newTime);
+  if (!previous || !next) return null;
+  return next.duration - previous.duration;
 }
 
 function syncAdjustmentVisibility() {
@@ -205,7 +210,6 @@ function closeDriverListbox() {
 }
 
 function openDriverListbox() {
-  if (driverMode !== 'existing') return;
   driverListbox.hidden = false;
   driverSearch.setAttribute('aria-expanded', 'true');
 }
@@ -250,8 +254,8 @@ function renderDriverOptions(query = getDriverFilterQuery()) {
     const empty = document.createElement('li');
     empty.className = 'empty';
     empty.textContent = driversById.size
-      ? 'No matching drivers. Use “Add new driver” if this is someone new.'
-      : 'No drivers on file yet. Use “Add new driver”.';
+      ? 'No matching drivers. Add someone new under Drivers/Routes.'
+      : 'No drivers on file yet. Add them under Drivers/Routes.';
     driverListbox.appendChild(empty);
     openDriverListbox();
     return;
@@ -285,7 +289,6 @@ function selectExistingDriver(driverId, options = {}) {
   const driver = driversById.get(driverId);
   if (!driver) return;
 
-  driverMode = 'existing';
   driverIdInput.value = driver.driver_id;
   driverNameInput.value = driver.name;
   driverSearch.value = driver.name;
@@ -335,6 +338,28 @@ function selectExistingRoute(routeId, options = {}) {
   fillPreviousTime();
 }
 
+function syncNewRouteFormChrome() {
+  const isNew = routeMode === 'new';
+  previousTimeFormatHint.hidden = !isNew;
+  newTimeField.hidden = isNew;
+  newTimeInput.required = !isNew;
+  deltaBox.hidden = isNew;
+  driverNameInput.required = !isNew;
+  if (driverModeHint) {
+    driverModeHint.innerHTML = isNew ? DRIVER_HINT_NEW_HTML : DRIVER_HINT_EXISTING_HTML;
+  }
+  if (isNew) {
+    newTimeInput.value = '';
+    computedDelta = 0;
+    computedDeltaInput.value = '0';
+    deltaUsedInput.value = '0';
+    deltaUsedInput.dataset.touched = '';
+    adjustmentBlock.classList.remove('visible');
+    adjustmentReason.required = false;
+    adjustmentReason.value = '';
+  }
+}
+
 function enterNewRouteMode() {
   routeMode = 'new';
   routeIdInput.value = '';
@@ -346,8 +371,9 @@ function enterNewRouteMode() {
   newRouteIdInput.value = '';
   newRouteIdInput.required = true;
   clearPreviousSchedule({
-    placeholder: 'Enter the current (starting) schedule for this segment',
+    placeholder: SCHEDULE_FORMAT_PLACEHOLDER,
   });
+  syncNewRouteFormChrome();
   routeModeHint.textContent =
     'Creating a new route. Enter the route ID and the current segment schedule — there is no prior state to auto-fill.';
   closeRouteListbox();
@@ -369,6 +395,7 @@ function exitNewRouteMode(options = {}) {
   routeIdInput.value = '';
   routeSearch.value = '';
   clearPreviousSchedule();
+  syncNewRouteFormChrome();
   routeModeHint.textContent =
     'Pick a known route from the list. Use “Create new route” only for a route that isn’t in the system yet.';
   closeRouteListbox();
@@ -377,50 +404,11 @@ function exitNewRouteMode(options = {}) {
   }
 }
 
-function enterNewDriverMode() {
-  driverMode = 'new';
+function clearDriverSelection() {
   driverIdInput.value = '';
   driverNameInput.value = '';
   driverSearch.value = '';
-  driverSearch.disabled = true;
-  driverCombobox.classList.add('is-disabled');
-  newDriverFields.hidden = false;
-  newDriverBtn.hidden = true;
-  newDriverNameInput.value = '';
-  newDriverEmailInput.value = '';
-  newDriverHireDateInput.value = '';
-  newDriverNameInput.required = true;
-  newDriverHireDateInput.required = true;
-  driverModeHint.textContent =
-    'Adding a new driver to the directory. Hire date is required (seniority). Email is optional — without it, draft emails stay disabled until Admin adds one.';
   closeDriverListbox();
-  newDriverNameInput.focus();
-}
-
-/**
- * @param {{ focus?: boolean }} [options]
- */
-function exitNewDriverMode(options = {}) {
-  const { focus = true } = options;
-  driverMode = 'existing';
-  driverSearch.disabled = false;
-  driverCombobox.classList.remove('is-disabled');
-  newDriverFields.hidden = true;
-  newDriverBtn.hidden = false;
-  newDriverNameInput.required = false;
-  newDriverHireDateInput.required = false;
-  newDriverNameInput.value = '';
-  newDriverEmailInput.value = '';
-  newDriverHireDateInput.value = '';
-  driverIdInput.value = '';
-  driverNameInput.value = '';
-  driverSearch.value = '';
-  driverModeHint.textContent =
-    'Pick a known driver from the list. Use “Add new driver” only for someone who isn’t in the directory yet.';
-  closeDriverListbox();
-  if (focus) {
-    driverSearch.focus();
-  }
 }
 
 function resolveSelectedRouteId() {
@@ -431,21 +419,9 @@ function resolveSelectedRouteId() {
 }
 
 function resolveSelectedDriver() {
-  if (driverMode === 'new') {
-    return {
-      driver_id: null,
-      driver_name: newDriverNameInput.value.trim(),
-      driver_email: newDriverEmailInput.value.trim() || null,
-      hire_date: newDriverHireDateInput.value.trim() || null,
-      create_new_driver: true,
-    };
-  }
   return {
     driver_id: driverIdInput.value.trim() || null,
     driver_name: driverNameInput.value.trim(),
-    driver_email: null,
-    hire_date: null,
-    create_new_driver: false,
   };
 }
 
@@ -480,7 +456,7 @@ async function loadStaffNames() {
   }
   if (!names.length) {
     showStatus(
-      'No staff names configured yet. Add names under Admin → Settings before submitting.',
+      'No staff names configured yet. Use “Don\'t see your name?” below to add names in Admin Settings.',
       'warn'
     );
   }
@@ -494,6 +470,21 @@ async function loadAdjustmentReasons() {
     option.value = reason;
     option.textContent = reason;
     adjustmentReason.appendChild(option);
+  }
+}
+
+async function loadReasonCategories() {
+  const categories = await fetchJson('/api/reason-categories');
+  const previous = reasonCategoryInput.value;
+  reasonCategoryInput.innerHTML = '<option value="">Select a category…</option>';
+  for (const category of categories) {
+    const option = document.createElement('option');
+    option.value = category;
+    option.textContent = category;
+    reasonCategoryInput.appendChild(option);
+  }
+  if (previous && categories.includes(previous)) {
+    reasonCategoryInput.value = previous;
   }
 }
 
@@ -538,6 +529,7 @@ async function loadRecent() {
     li.append(top, meta, when);
     recentList.appendChild(li);
   }
+  enhanceGlossaryTips(recentList);
 }
 
 /**
@@ -601,9 +593,9 @@ async function fillPreviousTime() {
     if (resolveSelectedRouteId() !== routeId || segmentSelect.value !== segment) {
       return;
     }
-    if (data.driver_id && driversById.has(data.driver_id) && driverMode === 'existing') {
+    if (data.driver_id && driversById.has(data.driver_id)) {
       selectExistingDriver(data.driver_id, { syncRoute: false });
-    } else if (data.driver_name && driverMode === 'existing' && !driverIdInput.value) {
+    } else if (data.driver_name && !driverIdInput.value) {
       const match = [...driversById.values()].find(
         (d) => d.name.toLowerCase() === data.driver_name.toLowerCase()
       );
@@ -634,7 +626,7 @@ function resetFormFields(keepEnteredBy) {
   deltaUsedInput.dataset.touched = '';
   clearPreviousSchedule();
   exitNewRouteMode({ focus: false });
-  exitNewDriverMode({ focus: false });
+  clearDriverSelection();
   if (enteredBy) {
     enteredByInput.value = enteredBy;
   }
@@ -683,28 +675,43 @@ form.addEventListener('submit', async (event) => {
     }
 
     const driver = resolveSelectedDriver();
-    if (!driver.driver_name) {
+    if (routeMode !== 'new' && (!driver.driver_id || !driver.driver_name)) {
       throw new Error(
-        driverMode === 'new'
-          ? 'Enter the new driver’s name.'
-          : 'Select a driver from the list, or use “Add new driver”.'
+        'Select a driver from the directory. Add someone new under Drivers/Routes.'
       );
     }
-    if (driverMode === 'new' && !driver.hire_date) {
-      throw new Error('Enter the new driver’s hire date.');
-    }
-    if (driverMode === 'existing' && !driver.driver_id) {
-      throw new Error('Select a driver from the directory list.');
+
+    let previousTime = previousInput.value.trim();
+    let newTime = newTimeInput.value.trim();
+    let used;
+
+    if (routeMode === 'new') {
+      if (!previousTime || parseScheduleRange(previousTime) == null) {
+        throw new Error(
+          'Enter the current schedule as H:MM-H:MM (e.g. 6:35-8:55).'
+        );
+      }
+      // Creating a route seeds the segment — there is no prior→new change.
+      newTime = previousTime;
+      computedDelta = 0;
+      used = 0;
+    } else {
+      refreshComputedDelta();
+      used = Number(deltaUsedInput.value);
+      if (computedDelta == null || Number.isNaN(used)) {
+        throw new Error(
+          'Enter valid current/new schedules so the time difference can be calculated.'
+        );
+      }
+      if (used !== computedDelta && !adjustmentReason.value) {
+        throw new Error('Select a reason for adjusting Time Difference To Accumulate.');
+      }
     }
 
-    refreshComputedDelta();
-    const used = Number(deltaUsedInput.value);
-    if (computedDelta == null || Number.isNaN(used)) {
-      throw new Error('Enter valid current/new schedules so the time difference can be calculated.');
+    if (!reasonCategoryInput.value) {
+      throw new Error('Select a reason category.');
     }
-    if (used !== computedDelta && !adjustmentReason.value) {
-      throw new Error('Select a reason for adjusting Time Difference To Accumulate.');
-    }
+
     if (!enteredByInput.value) {
       throw new Error('Select your name from the staff list.');
     }
@@ -712,18 +719,16 @@ form.addEventListener('submit', async (event) => {
     const payload = {
       route_id: routeId,
       create_new_route: routeMode === 'new',
-      create_new_driver: driver.create_new_driver,
+      create_new_driver: false,
       driver_id: driver.driver_id,
       driver_name: driver.driver_name,
-      driver_email: driver.driver_email,
-      hire_date: driver.hire_date,
       segment: segmentSelect.value,
       effective_date: effectiveDateInput.value,
-      previous_time: previousInput.value.trim(),
-      new_time: newTimeInput.value.trim(),
+      previous_time: previousTime,
+      new_time: newTime,
       delta_minutes: used,
-      adjustment_reason: adjustmentReason.value || null,
-      reason_category: document.getElementById('reason_category').value,
+      adjustment_reason: routeMode === 'new' ? null : adjustmentReason.value || null,
+      reason_category: reasonCategoryInput.value,
       note: document.getElementById('note').value.trim(),
       entered_by: enteredByInput.value.trim(),
     };
@@ -769,8 +774,6 @@ resetBtn.addEventListener('click', () => {
 
 newRouteBtn.addEventListener('click', enterNewRouteMode);
 cancelNewRouteBtn.addEventListener('click', exitNewRouteMode);
-newDriverBtn.addEventListener('click', enterNewDriverMode);
-cancelNewDriverBtn.addEventListener('click', exitNewDriverMode);
 
 routeSearch.addEventListener('focus', () => {
   if (routeMode !== 'existing') return;
@@ -819,13 +822,11 @@ routeSearch.addEventListener('blur', () => {
 });
 
 driverSearch.addEventListener('focus', () => {
-  if (driverMode !== 'existing') return;
   renderDriverOptions();
   driverSearch.select();
 });
 
 driverSearch.addEventListener('input', () => {
-  if (driverMode !== 'existing') return;
   driverIdInput.value = '';
   driverNameInput.value = '';
   activeDriverOptionIndex = -1;
@@ -833,7 +834,6 @@ driverSearch.addEventListener('input', () => {
 });
 
 driverSearch.addEventListener('keydown', (event) => {
-  if (driverMode !== 'existing') return;
   const options = [...driverListbox.querySelectorAll('[role="option"]')];
 
   if (event.key === 'ArrowDown') {
@@ -862,7 +862,7 @@ driverSearch.addEventListener('keydown', (event) => {
 driverSearch.addEventListener('blur', () => {
   setTimeout(() => {
     closeDriverListbox();
-    if (driverMode === 'existing' && !driverIdInput.value) {
+    if (!driverIdInput.value) {
       driverSearch.value = '';
       driverNameInput.value = '';
     }
@@ -891,11 +891,12 @@ document.addEventListener('click', (event) => {
 async function init() {
   effectiveDateInput.value = todayLocalDate();
   exitNewRouteMode({ focus: false });
-  exitNewDriverMode({ focus: false });
+  clearDriverSelection();
   await Promise.all([
     loadRoutes(),
     loadDrivers(),
     loadStaffNames(),
+    loadReasonCategories(),
     loadAdjustmentReasons(),
     loadRecent(),
   ]);

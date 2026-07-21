@@ -3,348 +3,553 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Admin · Route Change Tracker</title>
+    <title>Admin · Teamster Tracker</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="shell shell-wide">
-      <div class="topbar">
-        <div class="brand" data-icon="bus">Route Change Tracker</div>
+      <div class="topbar topbar-with-settings">
+        <div class="brand-block">
+          <a href="/" class="brand-home" aria-label="Home" data-icon="home"></a>
+          <div class="brand">Teamster Tracker</div>
+        </div>
         <nav class="site-nav" aria-label="Primary">
           <a href="/routing" data-icon="route">Routing</a>
           <a href="/admin" aria-current="page" data-icon="clipboard-list">Admin</a>
-          <a href="/admin/drivers" data-icon="users">Drivers</a>
-          <a href="/help" data-icon="book-open">How this app works</a>
-        </nav>
-      </div>
+          <a href="/admin/drivers" data-icon="users">Drivers/Routes</a>
+          <a href="/help" data-icon="book-open">Definitions</a>
+          <details class="settings-collapse settings-in-header" id="settings">
+            <summary class="settings-summary" data-icon="settings">
+              Admin Settings
+            </summary>
+            <div class="settings-flyout panel">
+              <p class="lead">
+                Staff names, reason categories, notifications, school calendar, email templates, and
+                Archive Year &amp; Import New Roster are editable here. Other settings
+                (adjustment reasons) land in a later piece.
+              </p>
+              <div id="settings-status" class="status" role="status"></div>
 
-
-      <div id="notification-toasts" class="notification-toasts" aria-live="polite"></div>
-
-      <section class="panel">
-        <h1 data-icon="clipboard-list">Admin queue</h1>
-        <p class="lead">
-          Read-only view of routes by status. Confirm the shape here before resolve
-          actions, letters, and workbook tools land in later pieces.
-        </p>
-        <div id="queue-status" class="status" role="status"></div>
-
-        <div id="queue-root" class="queue-root">
-          <section class="queue-section" data-section="needs-review">
-            <h2 data-icon="flag">Needs Review<span data-glossary="needs_review"></span> <span class="section-count" id="count-needs-review">0</span></h2>
-            <p class="section-lead">
-              Finalized status flips held for Admin, plus recent self-resolved
-              review flags so ping-ponging stays visible.
-            </p>
-            <div id="list-needs-review" class="queue-list"></div>
-          </section>
-
-          <section class="queue-section" data-section="accumulating">
-            <h2 data-icon="hourglass">Accumulating<span data-glossary="accumulating"></span> <span class="section-count" id="count-accumulating">0</span></h2>
-            <p class="section-lead">
-              Open 15-school-day windows with exact cumulative drift and contributing changes.
-            </p>
-            <div id="list-accumulating" class="queue-list"></div>
-          </section>
-
-          <section class="queue-section" data-section="bid-pending">
-            <h2 data-icon="gavel">Bid Pending<span data-glossary="bid_pending"></span> <span class="section-count" id="count-bid-pending">0</span></h2>
-            <p class="section-lead">
-              Windows that finalized with an increase of 30 minutes or more — waiting on bidding.
-            </p>
-            <div id="list-bid-pending" class="queue-list"></div>
-          </section>
-
-          <section class="queue-section" data-section="bump-eligible">
-            <h2 data-icon="arrow-down-up">Bump Eligible<span data-glossary="bump_eligible"></span> <span class="section-count" id="count-bump-eligible">0</span></h2>
-            <p class="section-lead">
-              Windows that finalized with a decrease of 30 minutes or more — current driver has two school days to bump or keep the assignment.
-            </p>
-            <div id="list-bump-eligible" class="queue-list"></div>
-          </section>
-
-          <section class="queue-section" data-section="pending-changes">
-            <h2 data-icon="layers">Pending Changes <span class="section-count" id="count-pending-changes">0</span></h2>
-            <p class="section-lead">
-              Changes queued behind an open review — will process once that review is resolved.
-            </p>
-            <div id="list-pending-changes" class="queue-list"></div>
-          </section>
-
-          <section class="queue-section queue-section-stable" data-section="stable">
-            <div class="stable-toggle-row">
-              <h2 data-icon="check-circle">Stable<span data-glossary="stable"></span> <span class="section-count" id="count-stable">0</span></h2>
-              <label class="stable-toggle">
-                <input type="checkbox" id="show-stable" />
-                Show stable routes
-              </label>
+        <div class="settings-blocks">
+          <details
+            class="settings-block staff-names-settings"
+            id="settings-staff-names"
+          >
+            <summary class="settings-block-summary" data-icon="users">
+              <h3>Staff names</h3>
+            </summary>
+            <div class="settings-block-body">
+              <p class="field-hint">
+                Names shown in Entered by / Adjusted by dropdowns across Routing and
+                Admin. Add each person’s display name exactly as it should appear.
+              </p>
+              <ul id="staff-names-list" class="settings-list"></ul>
+              <div class="settings-add">
+                <input
+                  id="staff-names-new"
+                  type="text"
+                  placeholder="Add a name…"
+                  autocomplete="off"
+                />
+                <button type="button" id="staff-names-add" data-icon="plus">
+                  Add name
+                </button>
+              </div>
             </div>
-            <p class="section-lead">
-              Informational only — collapsed by default so attention stays on active work.
-            </p>
-            <div id="list-stable" class="queue-list" hidden></div>
-          </section>
-        </div>
-      </section>
+          </details>
 
-      <section class="panel" id="settings">
-        <details class="settings-collapse">
-          <summary class="settings-summary" data-icon="settings">
-            <h2>Settings</h2>
-          </summary>
-          <p class="lead">
-            School calendar, email templates, and Archive Year &amp; Import New
-            Roster are editable here. Other settings (staff names, adjustment
-            reasons) land in a later piece.
-          </p>
-          <div id="settings-status" class="status" role="status"></div>
-
-          <div class="settings-blocks">
-            <details class="settings-block payroll-settings" open>
-              <summary class="settings-block-summary" data-icon="mail">
-                <h3>Email templates</h3>
-              </summary>
-              <div class="settings-block-body">
-                <p class="field-hint">
-                  One template per trigger event. When an event fires, Admin gets an in-app
-                  prompt to open a mailto draft — the app never sends email itself.
-                </p>
-                <label class="field">
-                  Payroll email
-                  <input
-                    id="payroll-email"
-                    type="email"
-                    placeholder="payroll@example.org"
-                    autocomplete="off"
-                  />
-                </label>
-                <p class="field-hint">
-                  Used when a template’s recipient is payroll (e.g. bid-pending notice).
-                </p>
-                <div id="email-templates-root" class="email-templates-root"></div>
-                <div class="actions">
-                  <button type="button" id="email-templates-save" data-icon="save">Save email templates</button>
-                </div>
+          <details
+            class="settings-block reason-categories-settings"
+            id="settings-reason-categories"
+          >
+            <summary class="settings-block-summary" data-icon="list">
+              <h3>Reason categories</h3>
+            </summary>
+            <div class="settings-block-body">
+              <p class="field-hint">
+                Options shown in the Reason category dropdown on the Routing form
+                (for example MV, SPED, OTHER).
+              </p>
+              <ul id="reason-categories-list" class="settings-list"></ul>
+              <div class="settings-add">
+                <input
+                  id="reason-categories-new"
+                  type="text"
+                  placeholder="Add a category…"
+                  autocomplete="off"
+                />
+                <button type="button" id="reason-categories-add" data-icon="plus">
+                  Add category
+                </button>
               </div>
-            </details>
+            </div>
+          </details>
 
-            <details class="settings-block bid-signup-settings">
-              <summary class="settings-block-summary" data-icon="file-signature">
-                <h3>Electronic bid sign-up</h3>
-              </summary>
-              <div class="settings-block-body">
+          <details class="settings-block payroll-settings" open>
+            <summary class="settings-block-summary" data-icon="mail">
+              <h3>Email templates</h3>
+            </summary>
+            <div class="settings-block-body">
+              <p class="field-hint">
+                One template per trigger event. When an event fires, Admin gets an in-app
+                prompt to open a draft in your system default email app — the app never
+                sends email itself.
+              </p>
+              <div class="payroll-email-section">
+                <h4 class="payroll-email-heading">PAYROLL EMAIL</h4>
+                <p id="payroll-email-current" class="payroll-email-current"></p>
+                <p id="payroll-cc-current" class="payroll-email-current" hidden></p>
                 <p class="field-hint">
-                  Replaces the paper “initial next to their name” sheet (Art. 3.08(c)(1)) once
-                  the office and Union have formally agreed. Leave this off until that
-                  agreement is in place — while off, Notify drivers and the Forms sign-up
-                  record stay dormant and are not treated as authoritative.
+                  Used when a template’s recipient is payroll (contracted-hours change
+                  notice). Saved on the shared server so every device sees the same
+                  addresses.
                 </p>
-                <label class="field checkbox-field">
-                  <input id="electronic-bid-signup-enabled" type="checkbox" />
-                  Enable electronic bid sign-up
-                </label>
-                <label class="field">
-                  Forms → Excel filename in <code>_app_data</code>
-                  <input
-                    id="bid-signup-workbook"
-                    type="text"
-                    placeholder="bid-signups.xlsx"
-                    autocomplete="off"
-                  />
-                </label>
-                <label class="field">
-                  Open-bid mailto “To” (optional; drivers go in CC)
-                  <input
-                    id="open-bid-posting-to-email"
-                    type="email"
-                    placeholder="transportation@example.org"
-                    autocomplete="off"
-                  />
-                </label>
-                <div class="actions">
-                  <button type="button" id="app-settings-save" data-icon="save">Save bid sign-up settings</button>
-                </div>
-              </div>
-            </details>
-
-            <details class="settings-block calendar-settings">
-              <summary class="settings-block-summary" data-icon="calendar">
-                <h3>School calendar</h3>
-              </summary>
-              <div class="settings-block-body">
-                <p class="field-hint">
-                  Coverage is the full civil-day list with <code>is_school_day</code> flags.
-                  Add/remove toggles school days inside that range (snow days / makeups) —
-                  the 15-day window<span data-glossary="window"></span> only counts dates marked as school days.
-                </p>
-                <div class="calendar-meta">
+                <div class="payroll-email-edit">
                   <label class="field">
-                    School year label
-                    <input id="calendar-year" type="text" placeholder="2025-2027" />
-                  </label>
-                  <p class="field-hint" id="calendar-count"></p>
-                  <p class="field-hint" id="calendar-coverage"></p>
-                </div>
-                <div id="calendar-list" class="calendar-list"></div>
-                <div class="settings-add">
-                  <input id="calendar-new-date" type="date" />
-                  <button type="button" id="calendar-add" data-icon="calendar-plus">Mark as school day</button>
-                </div>
-              </div>
-            </details>
-
-            <details class="settings-block calendar-generate">
-              <summary class="settings-block-summary" data-icon="calendar-range">
-                <h3>Generate a school year</h3>
-              </summary>
-              <div class="settings-block-body">
-                <p class="field-hint">
-                  Build weekdays between first and last day, apply breaks/holidays, pad
-                  surrounding summer coverage, then preview before writing.
-                </p>
-
-                <div class="grid generate-grid">
-                  <label class="field">
-                    First day of school
-                    <input id="gen-first-day" type="date" required />
-                  </label>
-                  <label class="field">
-                    Last day of school
-                    <input id="gen-last-day" type="date" required />
-                  </label>
-                  <label class="field full">
-                    School year label (optional)
-                    <input id="gen-school-year" type="text" placeholder="2026-2027" />
-                  </label>
-                </div>
-
-                <div class="generate-subsection">
-                  <div class="stable-toggle-row">
-                    <h4>Breaks</h4>
-                    <button type="button" class="secondary" id="gen-add-break" data-icon="plus">Add break</button>
-                  </div>
-                  <div id="gen-breaks" class="generate-rows"></div>
-                </div>
-
-                <div class="generate-subsection">
-                  <div class="stable-toggle-row">
-                    <h4>Holidays</h4>
-                    <button type="button" class="secondary" id="gen-add-holiday" data-icon="plus">Add holiday</button>
-                  </div>
-                  <div id="gen-holidays" class="generate-rows"></div>
-                </div>
-
-                <div class="actions">
-                  <button type="button" id="gen-preview" data-icon="eye">Preview generation</button>
-                </div>
-
-                <div id="gen-preview-panel" class="gen-preview-panel" hidden>
-                  <h4>Preview</h4>
-                  <div id="gen-preview-body"></div>
-                  <div class="actions gen-preview-actions">
-                    <button type="button" id="gen-commit" hidden data-icon="check">Commit to calendar</button>
-                    <button type="button" class="secondary" id="gen-cancel-preview" data-icon="x">Cancel</button>
-                  </div>
-                </div>
-              </div>
-            </details>
-
-            <details class="settings-block bulk-import year-rollover">
-              <summary class="settings-block-summary" data-icon="table">
-                <h3>Archive Year &amp; Import New Roster</h3>
-              </summary>
-              <div class="settings-block-body">
-                <p class="field-hint">
-                  Use this when starting a new school year. When there is existing
-                  data, archive it first (a file copy — nothing is deleted), then
-                  import the new roster as a separate step.
-                </p>
-
-                <div
-                  id="year-archive-first-use-note"
-                  class="year-rollover-banner"
-                  hidden
-                  role="status"
-                ></div>
-
-                <section
-                  id="year-archive-step"
-                  class="year-rollover-step"
-                  aria-labelledby="year-archive-step-title"
-                  hidden
-                >
-                  <h4 id="year-archive-step-title">Step 1: Archive current year</h4>
-                  <p class="field-hint" id="year-archive-purpose"></p>
-                  <p class="field-hint">
-                    The archive is a copy of everything under <code>_app_data</code>
-                    plus the current <code>RouteChangeTracker.xlsx</code>. You name
-                    the folder yourself (for example, <code>2025-26 school year</code>).
-                    There is no in-app archive viewer yet — open the files in Excel,
-                    or ask Cursor later if a viewer becomes useful.
-                  </p>
-
-                  <label class="field">
-                    Archive folder name
+                    Payroll email
                     <input
-                      id="year-archive-folder-name"
-                      type="text"
-                      maxlength="120"
+                      id="payroll-email"
+                      type="email"
+                      placeholder="payroll@example.org"
                       autocomplete="off"
-                      placeholder="e.g. 2025-26 school year"
                     />
                   </label>
-
+                  <label class="field">
+                    Payroll CC (optional)
+                    <input
+                      id="payroll-cc"
+                      type="text"
+                      placeholder="supervisor@example.org, hr@example.org"
+                      autocomplete="off"
+                    />
+                  </label>
+                  <p class="field-hint">
+                    Separate multiple CC addresses with commas.
+                  </p>
                   <div class="actions">
-                    <button type="button" id="year-archive-preview" data-icon="eye">
-                      Preview archive
+                    <button type="button" id="payroll-email-save" data-icon="save">
+                      Save payroll email addresses
                     </button>
                   </div>
+                </div>
+              </div>
+              <div id="email-templates-root" class="email-templates-root"></div>
+              <div class="actions">
+                <button type="button" id="email-templates-save" data-icon="save">Save email templates</button>
+              </div>
+            </div>
+          </details>
 
-                  <div id="year-archive-preview-panel" class="gen-preview-panel" hidden>
-                    <h4>Archive preview</h4>
-                    <div id="year-archive-preview-body"></div>
-                    <div class="grid generate-grid bulk-import-attribution">
-                      <label class="field">
-                        Entered by
-                        <select id="year-archive-entered-by" required>
-                          <option value="">Select your name…</option>
-                        </select>
-                      </label>
-                      <label class="field full">
-                        Note
-                        <textarea
-                          id="year-archive-note"
-                          rows="2"
-                          required
-                          placeholder="Required — why is this year being archived?"
-                        ></textarea>
-                      </label>
-                      <label class="field full">
-                        Retype archive folder name to confirm
-                        <input
-                          id="year-archive-confirm-folder"
-                          type="text"
-                          maxlength="120"
-                          autocomplete="off"
-                          placeholder="Must match the folder name exactly"
-                        />
-                      </label>
-                    </div>
-                    <div class="actions gen-preview-actions">
-                      <button type="button" id="year-archive-commit" data-icon="check">
-                        Create archive
-                      </button>
-                      <button
-                        type="button"
-                        class="secondary"
-                        id="year-archive-cancel"
-                        data-icon="x"
-                      >
-                        Cancel
-                      </button>
-                    </div>
+          <details
+            class="settings-block notification-prefs-settings"
+            id="settings-notifications"
+          >
+            <summary class="settings-block-summary" data-icon="bell">
+              <h3>Notifications</h3>
+            </summary>
+            <div class="settings-block-body">
+              <p class="field-hint">
+                A desktop pop-up is a real notification from your computer, like
+                from any other app. It can appear even if you are looking at
+                something else — but only while this Admin browser tab is open.
+                These preferences stay on this device only.
+              </p>
+              <div id="notify-prefs-status" class="status" role="status"></div>
+
+              <div class="notify-prefs-section">
+                <label class="field checkbox-field checkbox-field-after">
+                  <span class="checkbox-field-text">
+                    <strong class="checkbox-field-title">Notify me when something needs my attention</strong>
+                    — turn this on to get desktop pop-ups for the usual cases;
+                    leave it off if you do not want them
+                  </span>
+                  <input type="checkbox" id="notify-channel-desktop" checked />
+                </label>
+                <div class="notify-desktop-permission">
+                  <p id="notify-desktop-permission-status" class="field-hint"></p>
+                  <button
+                    type="button"
+                    id="notify-desktop-enable"
+                    data-icon="bell"
+                    hidden
+                  >
+                    Enable desktop notifications
+                  </button>
+                </div>
+              </div>
+
+              <div class="notify-prefs-section">
+                <h4 class="notify-prefs-heading">Quiet hours</h4>
+                <label class="field checkbox-field checkbox-field-after">
+                  <span class="checkbox-field-text">
+                    <strong class="checkbox-field-title">Quiet hours</strong>
+                    — pause desktop pop-ups during set times
+                  </span>
+                  <input type="checkbox" id="notify-quiet-enabled" />
+                </label>
+                <div class="notify-quiet-hours-row">
+                  <label class="field">
+                    From
+                    <input type="time" id="notify-quiet-start" value="18:00" />
+                  </label>
+                  <label class="field">
+                    To
+                    <input type="time" id="notify-quiet-end" value="08:00" />
+                  </label>
+                </div>
+                <p class="field-hint">
+                  Quiet hours can wrap midnight (for example 6:00 PM to 8:00 AM).
+                </p>
+              </div>
+
+              <details class="notify-prefs-advanced">
+                <summary class="notify-prefs-advanced-summary">
+                  Customize which events
+                </summary>
+                <p class="field-hint">
+                  Turn off specific situations if you do not want alerts for them
+                  on this browser.
+                </p>
+                <div id="notify-trigger-list" class="notify-trigger-list"></div>
+              </details>
+
+              <div class="actions">
+                <button
+                  type="button"
+                  class="secondary"
+                  id="notify-prefs-reset"
+                  data-icon="rotate-ccw"
+                >
+                  Reset to defaults
+                </button>
+              </div>
+            </div>
+          </details>
+
+          <details class="settings-block paper-bid-signup-settings" open>
+            <summary class="settings-block-summary" data-icon="printer">
+              <h3>Paper bid sign-up</h3>
+              <span
+                id="paper-bid-signup-summary-status"
+                class="feature-toggle-summary is-off"
+                aria-live="polite"
+              >Disabled</span>
+            </summary>
+            <div class="settings-block-body">
+              <p class="field-hint">
+                When a route becomes bid-eligible, Admin is offered a printable
+                sign-up sheet (Art. 3.08(c)(1) — initial next to their name). Leave
+                this off if you are not using paper sheets for open bids.
+              </p>
+
+              <div class="feature-toggle" id="paper-bid-feature-toggle">
+                <div class="feature-toggle-copy">
+                  <p class="feature-toggle-title">Paper bid feature</p>
+                  <p id="paper-bid-signup-state-label" class="feature-toggle-state is-off">
+                    Disabled — no print-sheet prompts
+                  </p>
+                </div>
+                <label class="feature-toggle-switch">
+                  <input
+                    id="paper-bid-signup-enabled"
+                    type="checkbox"
+                    role="switch"
+                    aria-checked="false"
+                    aria-label="Activate paper bid sign-up"
+                  />
+                  <span class="feature-toggle-track" aria-hidden="true">
+                    <span class="feature-toggle-knob"></span>
+                  </span>
+                  <span class="feature-toggle-text" data-on="Active" data-off="Disabled"></span>
+                </label>
+              </div>
+
+              <details class="notify-prefs-advanced" id="paper-bid-sheet-template">
+                <summary class="notify-prefs-advanced-summary">
+                  Sheet template
+                </summary>
+                <p class="field-hint">
+                  Title, intro, and footer on the printable sign-up sheet. The
+                  printed header always includes route, full schedule (AM /
+                  Midday / PM), and the start date you set per route.
+                </p>
+                <label class="field">
+                  Sheet title
+                  <input
+                    id="paper-bid-sheet-title"
+                    type="text"
+                    autocomplete="off"
+                  />
+                </label>
+                <label class="field">
+                  Intro text
+                  <textarea id="paper-bid-sheet-intro" rows="4"></textarea>
+                </label>
+                <label class="field">
+                  Footer text
+                  <textarea id="paper-bid-sheet-footer" rows="2"></textarea>
+                </label>
+                <p class="field-hint">
+                  Placeholders:
+                  <code>{{route_id}}</code>,
+                  <code>{{driver_name}}</code>,
+                  <code>{{bid_response_due_date}}</code>,
+                  <code>{{start_date}}</code>,
+                  <code>{{schedule}}</code>.
+                </p>
+                <div class="actions">
+                  <button type="button" id="paper-bid-settings-save" data-icon="save">
+                    Save paper sheet template
+                  </button>
+                </div>
+              </details>
+            </div>
+          </details>
+
+          <details class="settings-block bid-signup-settings">
+            <summary class="settings-block-summary" data-icon="file-signature">
+              <h3>Electronic bid sign-up</h3>
+              <span
+                id="electronic-bid-signup-summary-status"
+                class="feature-toggle-summary is-off"
+                aria-live="polite"
+              >Disabled</span>
+            </summary>
+            <div class="settings-block-body">
+              <p class="field-hint">
+                Replaces the paper “initial next to their name” sheet (Art. 3.08(c)(1)) once
+                the office and Union have formally agreed. Leave this off until that
+                agreement is in place — while off, Notify drivers and the Forms sign-up
+                record stay dormant and are not treated as authoritative.
+              </p>
+
+              <div class="feature-toggle" id="electronic-bid-feature-toggle">
+                <div class="feature-toggle-copy">
+                  <p class="feature-toggle-title">E-bid feature</p>
+                  <p id="electronic-bid-signup-state-label" class="feature-toggle-state is-off">
+                    Disabled — paper sign-up remains in effect
+                  </p>
+                </div>
+                <label class="feature-toggle-switch">
+                  <input
+                    id="electronic-bid-signup-enabled"
+                    type="checkbox"
+                    role="switch"
+                    aria-checked="false"
+                    aria-label="Activate electronic bid sign-up"
+                  />
+                  <span class="feature-toggle-track" aria-hidden="true">
+                    <span class="feature-toggle-knob"></span>
+                  </span>
+                  <span class="feature-toggle-text" data-on="Active" data-off="Disabled"></span>
+                </label>
+              </div>
+
+              <label class="field">
+                Forms → Excel filename in <code>_app_data</code>
+                <input
+                  id="bid-signup-workbook"
+                  type="text"
+                  placeholder="bid-signups.xlsx"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="field">
+                Open-bid mailto “To” (optional; drivers go in CC)
+                <input
+                  id="open-bid-posting-to-email"
+                  type="email"
+                  placeholder="transportation@example.org"
+                  autocomplete="off"
+                />
+              </label>
+              <div class="actions">
+                <button type="button" id="app-settings-save" data-icon="save">Save bid sign-up settings</button>
+              </div>
+            </div>
+          </details>
+
+          <details class="settings-block calendar-settings">
+            <summary class="settings-block-summary" data-icon="calendar">
+              <h3>School calendar</h3>
+            </summary>
+            <div class="settings-block-body">
+              <p class="field-hint">
+                Coverage is the full civil-day list with <code>is_school_day</code> flags.
+                Add/remove toggles school days inside that range (snow days / makeups) —
+                the 15-school-day window<span data-glossary="window"></span> only counts dates marked as school days.
+              </p>
+              <div class="calendar-meta">
+                <label class="field">
+                  School year label
+                  <input id="calendar-year" type="text" placeholder="2025-2027" />
+                </label>
+                <p class="field-hint" id="calendar-count"></p>
+                <p class="field-hint" id="calendar-coverage"></p>
+              </div>
+              <div id="calendar-list" class="calendar-list"></div>
+              <div class="settings-add">
+                <input id="calendar-new-date" type="date" />
+                <button type="button" id="calendar-add" data-icon="calendar-plus">Mark as school day</button>
+              </div>
+            </div>
+          </details>
+
+          <details class="settings-block calendar-generate">
+            <summary class="settings-block-summary" data-icon="calendar-range">
+              <h3>Generate a school year</h3>
+            </summary>
+            <div class="settings-block-body">
+              <p class="field-hint">
+                Build weekdays between first and last day, apply breaks/holidays, pad
+                surrounding summer coverage, then preview before writing.
+              </p>
+
+              <div class="grid generate-grid">
+                <label class="field">
+                  First day of school
+                  <input id="gen-first-day" type="date" required />
+                </label>
+                <label class="field">
+                  Last day of school
+                  <input id="gen-last-day" type="date" required />
+                </label>
+                <label class="field full">
+                  School year label (optional)
+                  <input id="gen-school-year" type="text" placeholder="2026-2027" />
+                </label>
+              </div>
+
+              <div class="generate-subsection">
+                <div class="stable-toggle-row">
+                  <h4>Breaks</h4>
+                  <button type="button" class="secondary" id="gen-add-break" data-icon="plus">Add break</button>
+                </div>
+                <div id="gen-breaks" class="generate-rows"></div>
+              </div>
+
+              <div class="generate-subsection">
+                <div class="stable-toggle-row">
+                  <h4>Holidays</h4>
+                  <button type="button" class="secondary" id="gen-add-holiday" data-icon="plus">Add holiday</button>
+                </div>
+                <div id="gen-holidays" class="generate-rows"></div>
+              </div>
+
+              <div class="actions">
+                <button type="button" id="gen-preview" data-icon="eye">Preview generation</button>
+              </div>
+
+              <div id="gen-preview-panel" class="gen-preview-panel" hidden>
+                <h4>Preview</h4>
+                <div id="gen-preview-body"></div>
+                <div class="actions gen-preview-actions">
+                  <button type="button" id="gen-commit" hidden data-icon="check">Commit to calendar</button>
+                  <button type="button" class="secondary" id="gen-cancel-preview" data-icon="x">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details
+            class="settings-block bulk-import year-rollover"
+            id="settings-bulk-import"
+          >
+            <summary class="settings-block-summary" data-icon="table">
+              <h3>Archive Year &amp; Import New Roster</h3>
+            </summary>
+            <div class="settings-block-body">
+              <p class="field-hint">
+                Use this when starting a new school year. When there is existing
+                data, archive it first (a file copy — nothing is deleted), then
+                import the new roster as a separate step.
+              </p>
+
+              <div
+                id="year-archive-first-use-note"
+                class="year-rollover-banner"
+                hidden
+                role="status"
+              ></div>
+
+              <section
+                id="year-archive-step"
+                class="year-rollover-step"
+                aria-labelledby="year-archive-step-title"
+                hidden
+              >
+                <h4 id="year-archive-step-title">Step 1: Archive current year</h4>
+                <p class="field-hint" id="year-archive-purpose"></p>
+                <p class="field-hint">
+                  The archive is a copy of everything under <code>_app_data</code>
+                  plus the current <code>RouteChangeTracker.xlsx</code>. You name
+                  the folder yourself (for example, <code>2025-26 school year</code>).
+                  There is no in-app archive viewer yet — open the files in Excel,
+                  or ask Cursor later if a viewer becomes useful.
+                </p>
+
+                <label class="field">
+                  Archive folder name
+                  <input
+                    id="year-archive-folder-name"
+                    type="text"
+                    maxlength="120"
+                    autocomplete="off"
+                    placeholder="e.g. 2025-26 school year"
+                  />
+                </label>
+
+                <div class="actions">
+                  <button type="button" id="year-archive-preview" data-icon="eye">
+                    Preview archive
+                  </button>
+                </div>
+
+                <div id="year-archive-preview-panel" class="gen-preview-panel" hidden>
+                  <h4>Archive preview</h4>
+                  <div id="year-archive-preview-body"></div>
+                  <div class="grid generate-grid bulk-import-attribution">
+                    <label class="field">
+                      Entered by
+                      <select id="year-archive-entered-by" required>
+                        <option value="">Select your name…</option>
+                      </select>
+                    </label>
+                    <label class="field full">
+                      Note
+                      <textarea
+                        id="year-archive-note"
+                        rows="2"
+                        required
+                        placeholder="Required — why is this year being archived?"
+                      ></textarea>
+                    </label>
+                    <label class="field full">
+                      Retype archive folder name to confirm
+                      <input
+                        id="year-archive-confirm-folder"
+                        type="text"
+                        maxlength="120"
+                        autocomplete="off"
+                        placeholder="Must match the folder name exactly"
+                      />
+                    </label>
                   </div>
+                  <div class="actions gen-preview-actions">
+                    <button type="button" id="year-archive-commit" data-icon="check">
+                      Create archive
+                    </button>
+                    <button
+                      type="button"
+                      class="secondary"
+                      id="year-archive-cancel"
+                      data-icon="x"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
 
                   <div
                     id="year-archive-status"
@@ -355,173 +560,337 @@
                 </section>
 
                 <section
+                  id="year-archive-done"
+                  class="year-rollover-step year-archive-done"
+                  aria-labelledby="year-archive-done-title"
+                  hidden
+                >
+                  <h4 id="year-archive-done-title">Archive created</h4>
+                  <p class="field-hint" id="year-archive-done-summary"></p>
+                  <p class="field-hint">
+                    These are file copies only — live data was not deleted. Open them
+                    in Excel, or browse the folder on disk.
+                  </p>
+                  <div
+                    id="year-archive-done-files"
+                    class="year-archive-file-list"
+                    role="list"
+                    aria-label="Archived files"
+                  ></div>
+                  <div class="year-archive-done-cta">
+                    <button
+                      type="button"
+                      id="year-archive-start-import"
+                      class="year-archive-start-import"
+                      data-icon="table"
+                    >
+                      Start a New School Year by importing Routed Drivers
+                    </button>
+                    <p class="field-hint">
+                      Or stop here — you can come back to import later from this
+                      Admin Settings tool.
+                    </p>
+                  </div>
+                </section>
+
+                <section
                   id="year-import-step"
                   class="year-rollover-step"
                   aria-labelledby="year-import-step-title"
                   hidden
                 >
-                  <h4 id="year-import-step-title">Import new roster</h4>
-                  <p class="field-hint" id="year-import-step-hint">
-                    Paste into the table below, or use the CSV template workflow under
-                    the table.
-                  </p>
+                <h4 id="year-import-step-title">Import new roster</h4>
+                <p class="field-hint" id="year-import-step-hint">
+                  Paste into the table below, or use the CSV template workflow under
+                  the table.
+                </p>
 
-                <div class="bulk-import-table-wrap" id="bulk-import-table-wrap">
-                  <table class="bulk-import-table" id="bulk-import-table">
-                    <thead>
-                      <tr>
-                        <th scope="col" class="bulk-import-row-num-hd">#</th>
-                        <th scope="col">
-                          <span class="bulk-import-col-name">Driver Name</span>
-                          <span class="bulk-import-col-meta">Required</span>
-                        </th>
-                        <th scope="col">
-                          <span class="bulk-import-col-name">Driver Email</span>
-                          <span class="bulk-import-col-meta">Optional</span>
-                        </th>
-                        <th scope="col">
-                          <span class="bulk-import-col-name">Hire Date</span>
-                          <span class="bulk-import-col-meta">Required for new · YYYY-MM-DD</span>
-                        </th>
-                        <th scope="col">
-                          <span class="bulk-import-col-name">Route</span>
-                          <span class="bulk-import-col-meta">Required</span>
-                        </th>
-                        <th scope="col">
-                          <span class="bulk-import-col-name">AM Time</span>
-                          <span class="bulk-import-col-meta">H:MM-H:MM · ≥1 time req.</span>
-                        </th>
-                        <th scope="col">
-                          <span class="bulk-import-col-name">Midday Time</span>
-                          <span class="bulk-import-col-meta">H:MM-H:MM · ≥1 time req.</span>
-                        </th>
-                        <th scope="col">
-                          <span class="bulk-import-col-name">PM Time</span>
-                          <span class="bulk-import-col-meta">H:MM-H:MM · ≥1 time req.</span>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody id="bulk-import-tbody"></tbody>
-                  </table>
-                </div>
-                <div class="bulk-import-table-actions">
-                  <label class="field bulk-import-row-count-field">
-                    How many rows do you need?
-                    <input
-                      id="bulk-import-row-count"
-                      type="number"
-                      min="1"
-                      max="500"
-                      step="1"
-                      value="8"
-                    />
-                  </label>
-                  <button type="button" class="secondary" id="bulk-import-clear" data-icon="trash">
-                    Clear table
-                  </button>
-                </div>
-                <div class="bulk-import-csv-flow" aria-label="CSV template workflow">
-                  <p class="bulk-import-csv-flow-title">Prefer a spreadsheet?</p>
-                  <ol class="bulk-import-csv-steps">
-                    <li class="bulk-import-csv-step">
-                      <span class="bulk-import-csv-step-num" aria-hidden="true">1</span>
-                      <div class="bulk-import-csv-step-body">
-                        <p class="bulk-import-csv-step-label">Download a blank template</p>
-                        <div class="bulk-import-csv-step-controls">
-                          <label class="field bulk-import-template-count-field">
-                            How many drivers?
-                            <input
-                              id="bulk-import-template-count"
-                              type="number"
-                              min="1"
-                              max="500"
-                              step="1"
-                              value="20"
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            class="secondary"
-                            id="bulk-import-download-template"
-                            data-icon="download"
-                          >
-                            Download CSV template
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-                    <li class="bulk-import-csv-step">
-                      <span class="bulk-import-csv-step-num" aria-hidden="true">2</span>
-                      <div class="bulk-import-csv-step-body">
-                        <p class="bulk-import-csv-step-label">Fill in your roster</p>
-                        <p class="field-hint">
-                          Open the file and paste (or type) driver rows into the blank
-                          slots — keep the header row as-is.
-                        </p>
-                      </div>
-                    </li>
-                    <li class="bulk-import-csv-step">
-                      <span class="bulk-import-csv-step-num" aria-hidden="true">3</span>
-                      <div class="bulk-import-csv-step-body">
-                        <p class="bulk-import-csv-step-label">Upload the completed CSV</p>
-                        <p class="field-hint">
-                          This fills the table above. Then preview and commit below.
-                        </p>
-                        <label class="field">
+              <div class="bulk-import-table-wrap" id="bulk-import-table-wrap">
+                <table class="bulk-import-table" id="bulk-import-table">
+                  <thead>
+                    <tr>
+                      <th scope="col" class="bulk-import-row-num-hd">#</th>
+                      <th scope="col">
+                        <span class="bulk-import-col-name">Driver Name</span>
+                        <span class="bulk-import-col-meta">Required</span>
+                      </th>
+                      <th scope="col">
+                        <span class="bulk-import-col-name">Driver Email</span>
+                        <span class="bulk-import-col-meta">Optional</span>
+                      </th>
+                      <th scope="col">
+                        <span class="bulk-import-col-name">Hire Date</span>
+                        <span class="bulk-import-col-meta">Required for new · YYYY-MM-DD</span>
+                      </th>
+                      <th scope="col">
+                        <span class="bulk-import-col-name">Route</span>
+                        <span class="bulk-import-col-meta">Required</span>
+                      </th>
+                      <th scope="col">
+                        <span class="bulk-import-col-name">AM Time</span>
+                        <span class="bulk-import-col-meta">H:MM-H:MM · ≥1 time req.</span>
+                      </th>
+                      <th scope="col">
+                        <span class="bulk-import-col-name">Midday Time</span>
+                        <span class="bulk-import-col-meta">H:MM-H:MM · ≥1 time req.</span>
+                      </th>
+                      <th scope="col">
+                        <span class="bulk-import-col-name">PM Time</span>
+                        <span class="bulk-import-col-meta">H:MM-H:MM · ≥1 time req.</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody id="bulk-import-tbody"></tbody>
+                </table>
+              </div>
+              <div class="bulk-import-table-actions">
+                <label class="field bulk-import-row-count-field">
+                  How many rows do you need?
+                  <input
+                    id="bulk-import-row-count"
+                    type="number"
+                    min="1"
+                    max="500"
+                    step="1"
+                    value="8"
+                  />
+                </label>
+                <button type="button" class="secondary" id="bulk-import-clear" data-icon="trash">
+                  Clear table
+                </button>
+              </div>
+              <div class="bulk-import-csv-flow" aria-label="CSV template workflow">
+                <p class="bulk-import-csv-flow-title">Prefer a spreadsheet?</p>
+                <ol class="bulk-import-csv-steps">
+                  <li class="bulk-import-csv-step">
+                    <span class="bulk-import-csv-step-num" aria-hidden="true">1</span>
+                    <div class="bulk-import-csv-step-body">
+                      <p class="bulk-import-csv-step-label">Download a blank template</p>
+                      <div class="bulk-import-csv-step-controls">
+                        <label class="field bulk-import-template-count-field">
+                          How many drivers?
                           <input
-                            id="bulk-import-file"
-                            type="file"
-                            accept=".csv,text/csv,text/plain"
-                            aria-label="Upload completed CSV template"
+                            id="bulk-import-template-count"
+                            type="number"
+                            min="1"
+                            max="500"
+                            step="1"
+                            value="20"
                           />
                         </label>
+                        <button
+                          type="button"
+                          class="secondary"
+                          id="bulk-import-download-template"
+                          data-icon="download"
+                        >
+                          Download CSV template
+                        </button>
                       </div>
-                    </li>
-                  </ol>
-                  <div
-                    id="bulk-import-status"
-                    class="status"
-                    role="status"
-                    aria-live="polite"
-                  ></div>
-                </div>
-
-                <div class="grid generate-grid bulk-import-attribution">
-                  <label class="field">
-                    Entered by
-                    <select id="bulk-import-entered-by" required>
-                      <option value="">Select your name…</option>
-                    </select>
-                  </label>
-                  <label class="field full">
-                    Note
-                    <textarea
-                      id="bulk-import-note"
-                      rows="2"
-                      required
-                      placeholder="Required — why is this roster being imported?"
-                    ></textarea>
-                  </label>
-                </div>
-
-                <div class="actions">
-                  <button type="button" id="bulk-import-preview" data-icon="eye">Preview import</button>
-                </div>
-
-                <div id="bulk-import-preview-panel" class="gen-preview-panel" hidden>
-                  <h4>Preview</h4>
-                  <div id="bulk-import-preview-body"></div>
-                  <div class="actions gen-preview-actions">
-                    <button type="button" id="bulk-import-commit" hidden data-icon="check">Commit import</button>
-                    <button type="button" class="secondary" id="bulk-import-cancel" data-icon="x">Cancel</button>
-                  </div>
-                </div>
-                </section>
+                    </div>
+                  </li>
+                  <li class="bulk-import-csv-step">
+                    <span class="bulk-import-csv-step-num" aria-hidden="true">2</span>
+                    <div class="bulk-import-csv-step-body">
+                      <p class="bulk-import-csv-step-label">Fill in your roster</p>
+                      <p class="field-hint">
+                        Open the file and paste (or type) driver rows into the blank
+                        slots — keep the header row as-is.
+                      </p>
+                    </div>
+                  </li>
+                  <li class="bulk-import-csv-step">
+                    <span class="bulk-import-csv-step-num" aria-hidden="true">3</span>
+                    <div class="bulk-import-csv-step-body">
+                      <p class="bulk-import-csv-step-label">Upload the completed CSV</p>
+                      <p class="field-hint">
+                        This fills the table above. Then preview and commit below.
+                      </p>
+                      <label class="field">
+                        <input
+                          id="bulk-import-file"
+                          type="file"
+                          accept=".csv,text/csv,text/plain"
+                          aria-label="Upload completed CSV template"
+                        />
+                      </label>
+                    </div>
+                  </li>
+                </ol>
+                <div
+                  id="bulk-import-status"
+                  class="status"
+                  role="status"
+                  aria-live="polite"
+                ></div>
               </div>
-            </details>
-          </div>
-        </details>
+
+              <div class="grid generate-grid bulk-import-attribution">
+                <label class="field">
+                  Entered by (optional)
+                  <select id="bulk-import-entered-by">
+                    <option value="">Select your name…</option>
+                  </select>
+                </label>
+                <label class="field full">
+                  Note (optional)
+                  <textarea
+                    id="bulk-import-note"
+                    rows="2"
+                    placeholder="Optional — e.g. 2026-27 roster seed"
+                  ></textarea>
+                </label>
+              </div>
+
+              <div class="actions">
+                <button type="button" id="bulk-import-preview" data-icon="eye">Preview import</button>
+              </div>
+
+              <div id="bulk-import-preview-panel" class="gen-preview-panel" hidden>
+                <h4>Preview</h4>
+                <div id="bulk-import-preview-body"></div>
+                <p class="field-hint">
+                  Entered by and Note above are optional.
+                </p>
+                <div
+                  id="bulk-import-commit-status"
+                  class="status"
+                  role="status"
+                  aria-live="assertive"
+                ></div>
+                <div class="actions gen-preview-actions">
+                  <button type="button" id="bulk-import-commit" hidden data-icon="check">Commit import</button>
+                  <button type="button" class="secondary" id="bulk-import-cancel" data-icon="x">Cancel</button>
+                </div>
+              </div>
+              </section>
+            </div>
+          </details>
+              </div>
+            </div>
+          </details>
+        </nav>
+      </div>
+
+      <div
+        id="desktop-notify-banner"
+        class="desktop-notify-banner"
+        hidden
+        role="region"
+        aria-label="Desktop notifications"
+      >
+        <p class="desktop-notify-banner-text">
+          Want desktop pop-ups when something needs attention? Enable browser
+          notifications for Admin alerts. They only work while this tab is open
+          — closing the tab or shutting down the computer means no pop-ups, same
+          as today.
+        </p>
+        <div class="desktop-notify-banner-actions">
+          <button type="button" id="desktop-notify-enable" data-icon="bell">
+            Enable notifications
+          </button>
+          <button
+            type="button"
+            class="secondary"
+            id="desktop-notify-dismiss"
+            data-icon="x"
+          >
+            Not now
+          </button>
+        </div>
+      </div>
+
+      <div id="notification-toasts" class="notification-toasts" aria-live="polite"></div>
+
+      <section class="panel">
+        <h1 data-icon="clipboard-list">Admin queue</h1>
+        <p class="lead">
+          Read-only view of routes by status.
+        </p>
+        <div id="queue-status" class="status" role="status"></div>
+
+        <div id="queue-root" class="queue-root">
+          <details class="queue-section" data-section="needs-review">
+            <summary class="queue-section-summary">
+              <h2 data-icon="flag">Needs Review<span data-glossary="needs_review"></span></h2>
+              <span class="section-route-previews" id="previews-needs-review" aria-label="Routes needing review"></span>
+            </summary>
+            <div class="queue-section-body">
+              <p class="section-lead">
+                Finalized status flips held for Admin, plus recent self-resolved
+                review flags so ping-ponging stays visible.
+              </p>
+              <div id="list-needs-review" class="queue-list"></div>
+            </div>
+          </details>
+
+          <details class="queue-section" data-section="accumulating">
+            <summary class="queue-section-summary">
+              <h2 data-icon="hourglass">Accumulating<span data-glossary="accumulating"></span></h2>
+              <span class="section-route-previews" id="previews-accumulating" aria-label="Accumulating routes"></span>
+            </summary>
+            <div class="queue-section-body">
+              <p class="section-lead">
+                Open 15-school-day windows with accumulated time difference and contributing changes.
+              </p>
+              <div id="list-accumulating" class="queue-list"></div>
+            </div>
+          </details>
+
+          <details class="queue-section" data-section="bid-pending">
+            <summary class="queue-section-summary">
+              <h2 data-icon="gavel">Bid Pending<span data-glossary="bid_pending"></span></h2>
+              <span class="section-route-previews" id="previews-bid-pending" aria-label="Bid-pending routes"></span>
+            </summary>
+            <div class="queue-section-body">
+              <p class="section-lead">
+                Windows that finalized with an increase of 30 minutes or more — waiting on bidding.
+              </p>
+              <div id="list-bid-pending" class="queue-list"></div>
+            </div>
+          </details>
+
+          <details class="queue-section" data-section="bump-eligible">
+            <summary class="queue-section-summary">
+              <h2 data-icon="arrow-down-up">Bump Eligible<span data-glossary="bump_eligible"></span></h2>
+              <span class="section-route-previews" id="previews-bump-eligible" aria-label="Bump-eligible routes"></span>
+            </summary>
+            <div class="queue-section-body">
+              <p class="section-lead">
+                Windows that finalized with a decrease of 30 minutes or more — current driver has two school days to bump or keep the assignment.
+              </p>
+              <div id="list-bump-eligible" class="queue-list"></div>
+            </div>
+          </details>
+
+          <details class="queue-section" data-section="pending-changes">
+            <summary class="queue-section-summary">
+              <h2 data-icon="layers">Pending Changes</h2>
+              <span class="section-route-previews" id="previews-pending-changes" aria-label="Routes with pending changes"></span>
+            </summary>
+            <div class="queue-section-body">
+              <p class="section-lead">
+                Changes queued behind an open review — will process once that review is resolved.
+              </p>
+              <div id="list-pending-changes" class="queue-list"></div>
+            </div>
+          </details>
+
+          <details class="queue-section queue-section-stable" data-section="stable">
+            <summary class="queue-section-summary">
+              <h2 data-icon="check-circle">Stable<span data-glossary="stable"></span></h2>
+              <span class="section-route-previews" id="previews-stable" aria-label="Stable routes"></span>
+            </summary>
+            <div class="queue-section-body">
+              <p class="section-lead">
+                Informational only — collapsed by default so attention stays on active work.
+              </p>
+              <div id="list-stable" class="queue-list"></div>
+            </div>
+          </details>
+        </div>
       </section>
+
     </main>
 
     <script type="module" src="/admin/admin.js"></script>
