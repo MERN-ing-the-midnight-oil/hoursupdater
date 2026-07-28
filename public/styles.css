@@ -738,6 +738,133 @@ label.field > span:first-child {
   font-size: 0.9rem;
 }
 
+.req {
+  color: var(--danger);
+  font-weight: 700;
+  margin-left: 0.12em;
+}
+
+.routing-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 1rem;
+  padding: 0.3rem;
+  background: rgba(255, 252, 246, 0.72);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.routing-tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 0.7rem 1.1rem;
+  cursor: pointer;
+  flex: 1 1 auto;
+  min-width: 10rem;
+  text-align: center;
+}
+
+.routing-tab:hover {
+  color: var(--ink);
+  background: rgba(28, 36, 48, 0.04);
+}
+
+.routing-tab.is-active {
+  color: var(--ink);
+  background: var(--card);
+  border-color: var(--line);
+  box-shadow: 0 1px 0 rgba(28, 36, 48, 0.06);
+}
+
+.routing-tab[data-tab='create-route'].is-active {
+  color: #163a5f;
+  background: #e8f1f8;
+  border-color: #9db8ce;
+}
+
+.routing-panel[hidden] {
+  display: none;
+}
+
+.create-route-panel {
+  border-color: #9db8ce;
+  background:
+    linear-gradient(180deg, #eef5fb 0%, #e4eef7 100%);
+  box-shadow: 0 10px 30px rgba(22, 58, 95, 0.1);
+}
+
+.create-route-panel h1,
+.create-route-panel h2 {
+  color: #163a5f;
+}
+
+.create-route-panel .lead {
+  color: #3d5670;
+}
+
+.create-route-panel label {
+  color: #3d5670;
+}
+
+.create-route-panel input,
+.create-route-panel select,
+.create-route-panel textarea {
+  border-color: #9db8ce;
+  background: #fbfdff;
+}
+
+.create-route-panel input:focus,
+.create-route-panel select:focus,
+.create-route-panel textarea:focus {
+  outline-color: #2f6f9f;
+  border-color: #2f6f9f;
+}
+
+.create-route-panel .actions button:not(.secondary) {
+  background: #2f6f9f;
+  border-color: #2f6f9f;
+}
+
+.create-route-panel .actions button:not(.secondary):hover {
+  background: #245a82;
+  border-color: #245a82;
+}
+
+.create-route-panel .actions .secondary {
+  border-color: #9db8ce;
+  color: #163a5f;
+  background: #f7fbfe;
+}
+
+.create-segments {
+  margin-top: 0.25rem;
+  padding: 1rem 1.05rem 1.1rem;
+  border: 1px solid #9db8ce;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.create-segments-heading h2 {
+  margin: 0 0 0.2rem;
+  font-size: 1.35rem;
+}
+
+.create-segments-heading .field-hint {
+  margin: 0 0 0.85rem;
+}
+
+.create-segments-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem 1rem;
+}
+
 a.field-settings-link {
   display: inline-flex;
   align-items: center;
@@ -799,22 +926,6 @@ a.field-settings-link .icon {
 .route-listbox .empty {
   color: var(--muted);
   cursor: default;
-}
-
-.new-route-fields {
-  grid-column: 1 / -1;
-  margin: 0.15rem 0 0.35rem;
-  padding: 0.9rem;
-  border: 1px solid #c5d7cf;
-  background: #f2f7f4;
-}
-
-.new-route-fields[hidden] {
-  display: none;
-}
-
-.route-mode-actions button {
-  width: 100%;
 }
 
 .combobox.is-disabled input {
@@ -2322,11 +2433,16 @@ a.button-link:hover {
   .settings-grid,
   .settings-grid-3,
   .math-grid,
-  .drivers-add {
+  .drivers-add,
+  .create-segments-grid {
     grid-template-columns: 1fr;
   }
 
   .topbar {
+    flex-direction: column;
+  }
+
+  .routing-tabs {
     flex-direction: column;
   }
 }

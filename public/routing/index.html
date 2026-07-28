@@ -21,8 +21,38 @@
         </nav>
       </div>
 
+      <div class="routing-tabs" role="tablist" aria-label="Routing tasks">
+        <button
+          type="button"
+          class="routing-tab is-active"
+          id="tab-log-change"
+          role="tab"
+          data-tab="log-change"
+          aria-controls="panel-log-change"
+          aria-selected="true"
+        >
+          Log a time change
+        </button>
+        <button
+          type="button"
+          class="routing-tab"
+          id="tab-create-route"
+          role="tab"
+          data-tab="create-route"
+          aria-controls="panel-create-route"
+          aria-selected="false"
+        >
+          Create new route
+        </button>
+      </div>
 
-      <section class="panel">
+      <section
+        class="panel routing-panel"
+        id="panel-log-change"
+        data-tab-panel="log-change"
+        role="tabpanel"
+        aria-labelledby="tab-log-change"
+      >
         <h1 data-icon="clock">Log a time change</h1>
         <p class="lead">
           Current schedule fills from the current route state. Time Difference To
@@ -33,57 +63,35 @@
         <form id="change-form" novalidate>
           <div class="grid">
             <div class="field full route-picker">
-              <label for="route_search" data-icon="route">Route</label>
-              <div class="route-picker-row">
-                <div class="combobox" id="route-combobox">
-                  <input
-                    type="text"
-                    id="route_search"
-                    placeholder="Search existing routes…"
-                    autocomplete="off"
-                    aria-autocomplete="list"
-                    aria-controls="route-listbox"
-                    aria-expanded="false"
-                  />
-                  <input type="hidden" id="route_id" name="route_id" required />
-                  <ul id="route-listbox" class="route-listbox" role="listbox" hidden></ul>
-                </div>
-                <button type="button" class="secondary" id="new-route-btn" data-icon="plus">
-                  Create new route
-                </button>
+              <label for="route_search" data-icon="route"
+                >Route <span class="req" aria-hidden="true">*</span></label
+              >
+              <div class="combobox" id="route-combobox">
+                <input
+                  type="text"
+                  id="route_search"
+                  placeholder="Search existing routes…"
+                  autocomplete="off"
+                  aria-autocomplete="list"
+                  aria-controls="route-listbox"
+                  aria-expanded="false"
+                  required
+                />
+                <input type="hidden" id="route_id" name="route_id" required />
+                <ul id="route-listbox" class="route-listbox" role="listbox" hidden></ul>
               </div>
               <p id="route-mode-hint" class="field-hint">
-                Pick a known route from the list. Use “Create new route” only for a route that isn’t in the system yet.
-              </p>
-            </div>
-
-            <div id="new-route-fields" class="new-route-fields" hidden>
-              <div class="grid">
-                <div class="field">
-                  <label for="new_route_id">New route ID</label>
-                  <input
-                    id="new_route_id"
-                    name="new_route_id"
-                    placeholder="e.g. S 42"
-                    autocomplete="off"
-                  />
-                </div>
-                <div class="field route-mode-actions">
-                  <label>&nbsp;</label>
-                  <button type="button" class="secondary" id="cancel-new-route-btn" data-icon="x">
-                    Cancel — use existing route
-                  </button>
-                </div>
-              </div>
-              <p class="field-hint">
-                Creating a route still requires <strong>Entered by</strong> below —
-                same attribution as any other change. Driver is optional (leave blank
-                for Unassigned).
+                Pick a known route from the list. To add a route that isn’t in the
+                system yet, use the
+                <a href="#create-route" class="js-goto-create-route">Create new route</a>
+                tab.
               </p>
             </div>
 
             <div class="field full driver-picker">
-              <label for="driver_search" data-icon="user">Driver</label>
+              <label for="driver_search" data-icon="user"
+                >Driver <span class="req" aria-hidden="true">*</span></label
+              >
               <div class="combobox" id="driver-combobox">
                 <input
                   type="text"
@@ -93,6 +101,7 @@
                   aria-autocomplete="list"
                   aria-controls="driver-listbox"
                   aria-expanded="false"
+                  required
                 />
                 <input type="hidden" id="driver_id" name="driver_id" />
                 <input type="hidden" id="driver_name" name="driver_name" />
@@ -105,7 +114,9 @@
             </div>
 
             <div class="field">
-              <label for="segment" data-icon="sun">Segment</label>
+              <label for="segment" data-icon="sun"
+                >Segment <span class="req" aria-hidden="true">*</span></label
+              >
               <select id="segment" name="segment" required>
                 <option value="AM">AM</option>
                 <option value="MIDDAY">Midday</option>
@@ -114,13 +125,17 @@
             </div>
 
             <div class="field">
-              <label for="effective_date" data-icon="calendar">Start Date</label>
+              <label for="effective_date" data-icon="calendar"
+                >Start Date <span class="req" aria-hidden="true">*</span></label
+              >
               <input id="effective_date" name="effective_date" type="date" required />
             </div>
 
             <div class="field">
               <div class="field-label-row">
-                <label for="previous_time" data-icon="clock">Current Schedule</label>
+                <label for="previous_time" data-icon="clock"
+                  >Current Schedule <span class="req" aria-hidden="true">*</span></label
+                >
                 <span data-glossary="scheduled_time"></span>
               </div>
               <input
@@ -128,8 +143,9 @@
                 name="previous_time"
                 required
                 autocomplete="off"
+                placeholder="H:MM-H:MM (e.g. 6:35-8:55)"
               />
-              <p id="previous-time-format-hint" class="field-hint" hidden>
+              <p class="field-hint">
                 Format: <strong>H:MM-H:MM</strong> (e.g. <code>6:35-8:55</code>).
                 Start and end use 24-hour clock times; minutes are two digits.
               </p>
@@ -137,18 +153,23 @@
 
             <div class="field" id="new-time-field">
               <div class="field-label-row">
-                <label for="new_time" data-icon="clock">New Schedule</label>
+                <label for="new_time" data-icon="clock"
+                  >New Schedule <span class="req" aria-hidden="true">*</span></label
+                >
                 <span data-glossary="scheduled_time"></span>
               </div>
               <input
                 id="new_time"
                 name="new_time"
                 required
+                placeholder="H:MM-H:MM (e.g. 6:35-8:55)"
               />
             </div>
 
             <div class="field">
-              <label for="reason_category">Reason category</label>
+              <label for="reason_category"
+                >Reason category <span class="req" aria-hidden="true">*</span></label
+              >
               <select id="reason_category" name="reason_category" required>
                 <option value="">Select a category…</option>
               </select>
@@ -162,7 +183,9 @@
             </div>
 
             <div class="field">
-              <label for="entered_by" data-icon="pen-line">Entered by</label>
+              <label for="entered_by" data-icon="pen-line"
+                >Entered by <span class="req" aria-hidden="true">*</span></label
+              >
               <select id="entered_by" name="entered_by" required>
                 <option value="">Select your name…</option>
               </select>
@@ -219,6 +242,178 @@
         </form>
 
         <div id="status" class="status" role="status"></div>
+      </section>
+
+      <section
+        class="panel routing-panel create-route-panel"
+        id="panel-create-route"
+        data-tab-panel="create-route"
+        role="tabpanel"
+        aria-labelledby="tab-create-route"
+        hidden
+      >
+        <h1 data-icon="plus">Create new route</h1>
+        <p class="lead">
+          Add a route that isn’t in the system yet. Enter the route ID, who is
+          logging it, and at least one segment schedule. Driver is optional.
+        </p>
+
+        <form id="create-route-form" novalidate>
+          <div class="grid">
+            <div class="field">
+              <label for="create_entered_by" data-icon="pen-line"
+                >Entered by <span class="req" aria-hidden="true">*</span></label
+              >
+              <select id="create_entered_by" name="entered_by" required>
+                <option value="">Select your name…</option>
+              </select>
+              <p class="field-hint">
+                Required before the route can be saved.
+                <a
+                  href="/admin#settings-staff-names"
+                  class="field-settings-link"
+                  data-icon="settings"
+                >Don't see your name?</a>
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="create_route_id" data-icon="route"
+                >New route ID <span class="req" aria-hidden="true">*</span></label
+              >
+              <input
+                id="create_route_id"
+                name="route_id"
+                placeholder="e.g. S 42"
+                autocomplete="off"
+                required
+              />
+            </div>
+
+            <div class="field full driver-picker">
+              <label for="create_driver_search" data-icon="user">Driver</label>
+              <div class="combobox" id="create-driver-combobox">
+                <input
+                  type="text"
+                  id="create_driver_search"
+                  placeholder="Optional — leave blank for Unassigned"
+                  autocomplete="off"
+                  aria-autocomplete="list"
+                  aria-controls="create-driver-listbox"
+                  aria-expanded="false"
+                />
+                <input type="hidden" id="create_driver_id" name="driver_id" />
+                <input type="hidden" id="create_driver_name" name="driver_name" />
+                <ul
+                  id="create-driver-listbox"
+                  class="route-listbox"
+                  role="listbox"
+                  hidden
+                ></ul>
+              </div>
+              <p class="field-hint">
+                Optional — leave blank to create the route as Unassigned. Assign a
+                driver later under
+                <a href="/admin/drivers">Drivers/Routes</a>.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="create_effective_date" data-icon="calendar"
+                >Start Date <span class="req" aria-hidden="true">*</span></label
+              >
+              <input
+                id="create_effective_date"
+                name="effective_date"
+                type="date"
+                required
+              />
+            </div>
+
+            <div class="field">
+              <label for="create_reason_category"
+                >Reason category <span class="req" aria-hidden="true">*</span></label
+              >
+              <select id="create_reason_category" name="reason_category" required>
+                <option value="">Select a category…</option>
+              </select>
+              <p class="field-hint">
+                <a
+                  href="/admin#settings-reason-categories"
+                  class="field-settings-link"
+                  data-icon="settings"
+                >Edit this selector</a>
+              </p>
+            </div>
+
+            <div class="field full create-segments">
+              <div class="create-segments-heading">
+                <h2>Segment schedules</h2>
+                <p class="field-hint">
+                  Enter at least one. Format:
+                  <strong>H:MM-H:MM</strong> (e.g. <code>6:35-8:55</code>).
+                  Leave unused segments blank.
+                </p>
+              </div>
+              <div class="create-segments-grid">
+                <div class="field">
+                  <label for="create_schedule_am" data-icon="sun">AM schedule</label>
+                  <input
+                    id="create_schedule_am"
+                    name="schedule_am"
+                    autocomplete="off"
+                    placeholder="e.g. 6:35-8:55"
+                  />
+                </div>
+                <div class="field">
+                  <label for="create_schedule_midday" data-icon="sun"
+                    >Midday schedule</label
+                  >
+                  <input
+                    id="create_schedule_midday"
+                    name="schedule_midday"
+                    autocomplete="off"
+                    placeholder="e.g. 11:00-13:00"
+                  />
+                </div>
+                <div class="field">
+                  <label for="create_schedule_pm" data-icon="clock">PM schedule</label>
+                  <input
+                    id="create_schedule_pm"
+                    name="schedule_pm"
+                    autocomplete="off"
+                    placeholder="e.g. 14:05-16:25"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div class="field full">
+              <label for="create_note">Note</label>
+              <textarea
+                id="create_note"
+                name="note"
+                placeholder="OPTIONAL"
+              ></textarea>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button type="submit" id="create-submit-btn" data-icon="check">
+              Create route
+            </button>
+            <button
+              type="button"
+              class="secondary"
+              id="create-reset-btn"
+              data-icon="rotate-ccw"
+            >
+              Clear
+            </button>
+          </div>
+        </form>
+
+        <div id="create-status" class="status" role="status"></div>
       </section>
 
       <section class="panel recent">

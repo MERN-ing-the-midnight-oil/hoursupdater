@@ -6,29 +6,22 @@ enhanceGlossaryTips();
 enhanceIcons();
 initRosterImportTip();
 
-const form = document.getElementById('change-form');
+const changeForm = document.getElementById('change-form');
+const createForm = document.getElementById('create-route-form');
 const routeSearch = document.getElementById('route_search');
 const routeIdInput = document.getElementById('route_id');
 const routeListbox = document.getElementById('route-listbox');
 const routeCombobox = document.getElementById('route-combobox');
 const routeModeHint = document.getElementById('route-mode-hint');
-const newRouteBtn = document.getElementById('new-route-btn');
-const cancelNewRouteBtn = document.getElementById('cancel-new-route-btn');
-const newRouteFields = document.getElementById('new-route-fields');
-const newRouteIdInput = document.getElementById('new_route_id');
 
 const driverSearch = document.getElementById('driver_search');
 const driverIdInput = document.getElementById('driver_id');
 const driverNameInput = document.getElementById('driver_name');
 const driverListbox = document.getElementById('driver-listbox');
 const driverCombobox = document.getElementById('driver-combobox');
-const driverModeHint = document.getElementById('driver-mode-hint');
 const segmentSelect = document.getElementById('segment');
 const previousInput = document.getElementById('previous_time');
-const previousTimeFormatHint = document.getElementById('previous-time-format-hint');
-const newTimeField = document.getElementById('new-time-field');
 const newTimeInput = document.getElementById('new_time');
-const deltaBox = document.getElementById('delta-box');
 const computedDeltaInput = document.getElementById('computed_delta');
 const deltaUsedInput = document.getElementById('delta_minutes');
 const adjustmentBlock = document.getElementById('adjustment-block');
@@ -41,11 +34,29 @@ const recentList = document.getElementById('recent-list');
 const submitBtn = document.getElementById('submit-btn');
 const resetBtn = document.getElementById('reset-btn');
 
-const DRIVER_HINT_EXISTING_HTML =
-  'Pick a known driver from the list. Add someone new under <a href="/admin/drivers">Drivers/Routes</a>.';
-const DRIVER_HINT_NEW_HTML =
-  'Optional — leave blank to create the route as Unassigned. Assign a driver later under <a href="/admin/drivers">Drivers/Routes</a>.';
+const createEnteredByInput = document.getElementById('create_entered_by');
+const createRouteIdInput = document.getElementById('create_route_id');
+const createDriverSearch = document.getElementById('create_driver_search');
+const createDriverIdInput = document.getElementById('create_driver_id');
+const createDriverNameInput = document.getElementById('create_driver_name');
+const createDriverListbox = document.getElementById('create-driver-listbox');
+const createDriverCombobox = document.getElementById('create-driver-combobox');
+const createEffectiveDateInput = document.getElementById('create_effective_date');
+const createReasonCategoryInput = document.getElementById('create_reason_category');
+const createScheduleAm = document.getElementById('create_schedule_am');
+const createScheduleMidday = document.getElementById('create_schedule_midday');
+const createSchedulePm = document.getElementById('create_schedule_pm');
+const createNoteInput = document.getElementById('create_note');
+const createStatusEl = document.getElementById('create-status');
+const createSubmitBtn = document.getElementById('create-submit-btn');
+const createResetBtn = document.getElementById('create-reset-btn');
+
+const tabButtons = [...document.querySelectorAll('.routing-tab')];
+const tabPanels = [...document.querySelectorAll('[data-tab-panel]')];
+
 const SCHEDULE_FORMAT_PLACEHOLDER = 'H:MM-H:MM (e.g. 6:35-8:55)';
+const ROUTE_HINT_HTML =
+  'Pick a known route from the list. To add a route that isn’t in the system yet, use the <a href="#create-route" class="js-goto-create-route">Create new route</a> tab.';
 
 /** @type {Map<string, { route_id: string, driver_name: string, driver_id?: string|null, segments: Record<string, string|null> }>} */
 const routesById = new Map();
@@ -53,12 +64,11 @@ const routesById = new Map();
 /** @type {Map<string, { driver_id: string, name: string, email: string|null }>} */
 const driversById = new Map();
 
-/** @type {'existing' | 'new'} */
-let routeMode = 'existing';
 let computedDelta = null;
 let previousLockedFromState = false;
 let activeRouteOptionIndex = -1;
 let activeDriverOptionIndex = -1;
+let activeCreateDriverOptionIndex = -1;
 
 function todayLocalDate() {
   const now = new Date();
@@ -67,14 +77,14 @@ function todayLocalDate() {
   return local.toISOString().slice(0, 10);
 }
 
-function showStatus(message, kind = 'ok') {
-  statusEl.textContent = message;
-  statusEl.className = `status visible ${kind}`;
+function showStatus(el, message, kind = 'ok') {
+  el.textContent = message;
+  el.className = `status visible ${kind}`;
 }
 
-function clearStatus() {
-  statusEl.textContent = '';
-  statusEl.className = 'status';
+function clearStatus(el) {
+  el.textContent = '';
+  el.className = 'status';
 }
 
 function parseClock(time) {
@@ -172,14 +182,14 @@ function getRouteFilterQuery() {
   return routeSearch.value;
 }
 
-function getDriverFilterQuery() {
-  if (driverIdInput.value) {
-    const driver = driversById.get(driverIdInput.value);
-    if (driver && driverSearch.value === driver.name) {
+function getDriverFilterQuery(searchInput, idInput) {
+  if (idInput.value) {
+    const driver = driversById.get(idInput.value);
+    if (driver && searchInput.value === driver.name) {
       return '';
     }
   }
-  return driverSearch.value;
+  return searchInput.value;
 }
 
 function findRouteForDriver(driver) {
@@ -198,7 +208,6 @@ function closeRouteListbox() {
 }
 
 function openRouteListbox() {
-  if (routeMode !== 'existing') return;
   routeListbox.hidden = false;
   routeSearch.setAttribute('aria-expanded', 'true');
 }
@@ -214,6 +223,17 @@ function openDriverListbox() {
   driverSearch.setAttribute('aria-expanded', 'true');
 }
 
+function closeCreateDriverListbox() {
+  createDriverListbox.hidden = true;
+  createDriverSearch.setAttribute('aria-expanded', 'false');
+  activeCreateDriverOptionIndex = -1;
+}
+
+function openCreateDriverListbox() {
+  createDriverListbox.hidden = false;
+  createDriverSearch.setAttribute('aria-expanded', 'true');
+}
+
 function renderRouteOptions(query = getRouteFilterQuery()) {
   const matches = filteredRoutes(query);
   routeListbox.innerHTML = '';
@@ -221,9 +241,9 @@ function renderRouteOptions(query = getRouteFilterQuery()) {
   if (!matches.length) {
     const empty = document.createElement('li');
     empty.className = 'empty';
-    empty.textContent = routesById.size
-      ? 'No matching routes. Use “Create new route” if this is brand new.'
-      : 'No routes on file yet. Use “Create new route”.';
+    empty.innerHTML = routesById.size
+      ? 'No matching routes. Use the <a href="#create-route" class="js-goto-create-route">Create new route</a> tab if this is brand new.'
+      : 'No routes on file yet. Use the <a href="#create-route" class="js-goto-create-route">Create new route</a> tab.';
     routeListbox.appendChild(empty);
     openRouteListbox();
     return;
@@ -246,9 +266,17 @@ function renderRouteOptions(query = getRouteFilterQuery()) {
   openRouteListbox();
 }
 
-function renderDriverOptions(query = getDriverFilterQuery()) {
+/**
+ * @param {HTMLUListElement} listbox
+ * @param {() => void} openFn
+ * @param {(driverId: string) => void} onSelect
+ * @param {number} activeIndex
+ * @param {string} idPrefix
+ * @param {string} query
+ */
+function renderDriverOptionsInto(listbox, openFn, onSelect, activeIndex, idPrefix, query) {
   const matches = filteredDrivers(query);
-  driverListbox.innerHTML = '';
+  listbox.innerHTML = '';
 
   if (!matches.length) {
     const empty = document.createElement('li');
@@ -256,28 +284,52 @@ function renderDriverOptions(query = getDriverFilterQuery()) {
     empty.textContent = driversById.size
       ? 'No matching drivers. Add someone new under Drivers/Routes.'
       : 'No drivers on file yet. Add them under Drivers/Routes.';
-    driverListbox.appendChild(empty);
-    openDriverListbox();
+    listbox.appendChild(empty);
+    openFn();
     return;
   }
 
   matches.forEach((driver, index) => {
     const li = document.createElement('li');
-    li.id = `driver-option-${index}`;
+    li.id = `${idPrefix}-${index}`;
     li.setAttribute('role', 'option');
-    li.setAttribute('aria-selected', index === activeDriverOptionIndex ? 'true' : 'false');
+    li.setAttribute('aria-selected', index === activeIndex ? 'true' : 'false');
     li.dataset.driverId = driver.driver_id;
     li.textContent = driver.email
       ? `${driver.name} · ${driver.email}`
       : `${driver.name} · no email`;
     li.addEventListener('mousedown', (event) => {
       event.preventDefault();
-      selectExistingDriver(driver.driver_id);
+      onSelect(driver.driver_id);
     });
-    driverListbox.appendChild(li);
+    listbox.appendChild(li);
   });
 
-  openDriverListbox();
+  openFn();
+}
+
+function renderChangeDriverOptions(query = getDriverFilterQuery(driverSearch, driverIdInput)) {
+  renderDriverOptionsInto(
+    driverListbox,
+    openDriverListbox,
+    (driverId) => selectExistingDriver(driverId),
+    activeDriverOptionIndex,
+    'driver-option',
+    query
+  );
+}
+
+function renderCreateDriverOptions(
+  query = getDriverFilterQuery(createDriverSearch, createDriverIdInput)
+) {
+  renderDriverOptionsInto(
+    createDriverListbox,
+    openCreateDriverListbox,
+    (driverId) => selectCreateDriver(driverId),
+    activeCreateDriverOptionIndex,
+    'create-driver-option',
+    query
+  );
 }
 
 /**
@@ -294,12 +346,21 @@ function selectExistingDriver(driverId, options = {}) {
   driverSearch.value = driver.name;
   closeDriverListbox();
 
-  if (syncRoute && routeMode === 'existing') {
+  if (syncRoute) {
     const match = findRouteForDriver(driver);
     if (match) {
       selectExistingRoute(match.route_id, { syncDriver: false });
     }
   }
+}
+
+function selectCreateDriver(driverId) {
+  const driver = driversById.get(driverId);
+  if (!driver) return;
+  createDriverIdInput.value = driver.driver_id;
+  createDriverNameInput.value = driver.name;
+  createDriverSearch.value = driver.name;
+  closeCreateDriverListbox();
 }
 
 /**
@@ -311,7 +372,6 @@ function selectExistingRoute(routeId, options = {}) {
   const route = routesById.get(routeId);
   if (!route) return;
 
-  routeMode = 'existing';
   routeIdInput.value = route.route_id;
   routeSearch.value = routeDisplayLabel(route);
   if (syncDriver) {
@@ -338,72 +398,6 @@ function selectExistingRoute(routeId, options = {}) {
   fillPreviousTime();
 }
 
-function syncNewRouteFormChrome() {
-  const isNew = routeMode === 'new';
-  previousTimeFormatHint.hidden = !isNew;
-  newTimeField.hidden = isNew;
-  newTimeInput.required = !isNew;
-  deltaBox.hidden = isNew;
-  driverNameInput.required = !isNew;
-  if (driverModeHint) {
-    driverModeHint.innerHTML = isNew ? DRIVER_HINT_NEW_HTML : DRIVER_HINT_EXISTING_HTML;
-  }
-  if (isNew) {
-    newTimeInput.value = '';
-    computedDelta = 0;
-    computedDeltaInput.value = '0';
-    deltaUsedInput.value = '0';
-    deltaUsedInput.dataset.touched = '';
-    adjustmentBlock.classList.remove('visible');
-    adjustmentReason.required = false;
-    adjustmentReason.value = '';
-  }
-}
-
-function enterNewRouteMode() {
-  routeMode = 'new';
-  routeIdInput.value = '';
-  routeSearch.value = '';
-  routeSearch.disabled = true;
-  routeCombobox.classList.add('is-disabled');
-  newRouteFields.hidden = false;
-  newRouteBtn.hidden = true;
-  newRouteIdInput.value = '';
-  newRouteIdInput.required = true;
-  clearPreviousSchedule({
-    placeholder: SCHEDULE_FORMAT_PLACEHOLDER,
-  });
-  syncNewRouteFormChrome();
-  routeModeHint.textContent =
-    'Creating a new route. Enter the route ID and the current segment schedule — there is no prior state to auto-fill.';
-  closeRouteListbox();
-  newRouteIdInput.focus();
-}
-
-/**
- * @param {{ focus?: boolean }} [options]
- */
-function exitNewRouteMode(options = {}) {
-  const { focus = true } = options;
-  routeMode = 'existing';
-  routeSearch.disabled = false;
-  routeCombobox.classList.remove('is-disabled');
-  newRouteFields.hidden = true;
-  newRouteBtn.hidden = false;
-  newRouteIdInput.required = false;
-  newRouteIdInput.value = '';
-  routeIdInput.value = '';
-  routeSearch.value = '';
-  clearPreviousSchedule();
-  syncNewRouteFormChrome();
-  routeModeHint.textContent =
-    'Pick a known route from the list. Use “Create new route” only for a route that isn’t in the system yet.';
-  closeRouteListbox();
-  if (focus) {
-    routeSearch.focus();
-  }
-}
-
 function clearDriverSelection() {
   driverIdInput.value = '';
   driverNameInput.value = '';
@@ -411,10 +405,14 @@ function clearDriverSelection() {
   closeDriverListbox();
 }
 
+function clearCreateDriverSelection() {
+  createDriverIdInput.value = '';
+  createDriverNameInput.value = '';
+  createDriverSearch.value = '';
+  closeCreateDriverListbox();
+}
+
 function resolveSelectedRouteId() {
-  if (routeMode === 'new') {
-    return newRouteIdInput.value.trim();
-  }
   return routeIdInput.value.trim();
 }
 
@@ -422,6 +420,13 @@ function resolveSelectedDriver() {
   return {
     driver_id: driverIdInput.value.trim() || null,
     driver_name: driverNameInput.value.trim(),
+  };
+}
+
+function resolveCreateDriver() {
+  return {
+    driver_id: createDriverIdInput.value.trim() || null,
+    driver_name: createDriverNameInput.value.trim(),
   };
 }
 
@@ -441,22 +446,40 @@ async function loadDrivers() {
   }
 }
 
-async function loadStaffNames() {
+/**
+ * @param {HTMLSelectElement} select
+ * @param {string} [prefer]
+ */
+async function fillStaffNames(select, prefer = '') {
   const names = await fetchJson('/api/staff-names');
-  const previous = enteredByInput.value || localStorage.getItem('rct_entered_by') || '';
-  enteredByInput.innerHTML = '<option value="">Select your name…</option>';
+  const previous = prefer || select.value || localStorage.getItem('rct_entered_by') || '';
+  select.innerHTML = '<option value="">Select your name…</option>';
   for (const name of names) {
     const option = document.createElement('option');
     option.value = name;
     option.textContent = name;
-    enteredByInput.appendChild(option);
+    select.appendChild(option);
   }
   if (previous && names.includes(previous)) {
-    enteredByInput.value = previous;
+    select.value = previous;
   }
-  if (!names.length) {
+  return names;
+}
+
+async function loadStaffNames() {
+  const names = await Promise.all([
+    fillStaffNames(enteredByInput),
+    fillStaffNames(createEnteredByInput),
+  ]);
+  if (!names[0].length) {
     showStatus(
+      statusEl,
       'No staff names configured yet. Use “Don\'t see your name?” below to add names in Admin Settings.',
+      'warn'
+    );
+    showStatus(
+      createStatusEl,
+      'No staff names configured yet. Add names in Admin Settings before creating a route.',
       'warn'
     );
   }
@@ -473,19 +496,29 @@ async function loadAdjustmentReasons() {
   }
 }
 
-async function loadReasonCategories() {
+/**
+ * @param {HTMLSelectElement} select
+ */
+async function fillReasonCategories(select) {
   const categories = await fetchJson('/api/reason-categories');
-  const previous = reasonCategoryInput.value;
-  reasonCategoryInput.innerHTML = '<option value="">Select a category…</option>';
+  const previous = select.value;
+  select.innerHTML = '<option value="">Select a category…</option>';
   for (const category of categories) {
     const option = document.createElement('option');
     option.value = category;
     option.textContent = category;
-    reasonCategoryInput.appendChild(option);
+    select.appendChild(option);
   }
   if (previous && categories.includes(previous)) {
-    reasonCategoryInput.value = previous;
+    select.value = previous;
   }
+}
+
+async function loadReasonCategories() {
+  await Promise.all([
+    fillReasonCategories(reasonCategoryInput),
+    fillReasonCategories(createReasonCategoryInput),
+  ]);
 }
 
 async function loadRecent() {
@@ -505,7 +538,7 @@ async function loadRecent() {
         ? ` · adjusted from ${change.computed_delta_minutes}`
         : '';
     const top = document.createElement('div');
-    top.innerHTML = `<strong>${change.route_id}</strong> · ${change.driver_name} · ${change.segment}`;
+    top.innerHTML = `<strong>${change.route_id}</strong> · ${change.driver_name || 'Unassigned'} · ${change.segment}`;
     if (change.pending) {
       const pendingBadge = document.createElement('span');
       pendingBadge.className = 'badge pending';
@@ -515,9 +548,13 @@ async function loadRecent() {
 
     const meta = document.createElement('div');
     meta.className = 'meta';
+    const isSeed =
+      change.previous_time === change.new_time && change.delta_minutes === 0;
     meta.append(
       document.createTextNode(
-        `${change.previous_time} → ${change.new_time} · time difference ${change.delta_minutes}${adjusted} · status `
+        isSeed
+          ? `schedule ${change.new_time} · seeded · status `
+          : `${change.previous_time} → ${change.new_time} · time difference ${change.delta_minutes}${adjusted} · status `
       ),
       createStatusBadge(change.route_status ?? '—')
     );
@@ -540,7 +577,7 @@ function applyPreviousSchedule(options = {}) {
   previousInput.value = value;
   previousLockedFromState = Boolean(options.locked && value);
   previousInput.readOnly = previousLockedFromState;
-  previousInput.placeholder = options.placeholder || '';
+  previousInput.placeholder = options.placeholder || SCHEDULE_FORMAT_PLACEHOLDER;
   refreshComputedDelta();
 }
 
@@ -551,7 +588,7 @@ function clearPreviousSchedule(options = {}) {
   applyPreviousSchedule({
     value: '',
     locked: false,
-    placeholder: options.placeholder || '',
+    placeholder: options.placeholder || SCHEDULE_FORMAT_PLACEHOLDER,
   });
 }
 
@@ -570,10 +607,8 @@ function localSegmentTime(routeId, segment) {
 async function fillPreviousTime() {
   const routeId = resolveSelectedRouteId();
   const segment = segmentSelect.value;
-  if (!routeId || routeMode === 'new') {
-    if (routeMode !== 'new') {
-      clearPreviousSchedule();
-    }
+  if (!routeId) {
+    clearPreviousSchedule();
     return;
   }
 
@@ -617,95 +652,134 @@ async function fillPreviousTime() {
   }
 }
 
-function resetFormFields(keepEnteredBy) {
+function resetChangeForm(keepEnteredBy) {
   const enteredBy = keepEnteredBy ?? enteredByInput.value;
-  form.reset();
+  changeForm.reset();
   effectiveDateInput.value = todayLocalDate();
   computedDelta = null;
   computedDeltaInput.value = '';
   deltaUsedInput.dataset.touched = '';
   clearPreviousSchedule();
-  exitNewRouteMode({ focus: false });
   clearDriverSelection();
+  routeIdInput.value = '';
   if (enteredBy) {
     enteredByInput.value = enteredBy;
   }
   syncAdjustmentVisibility();
 }
 
-// Enter in a text/select field submits the form by default. That accidentally
-// logs a change (Entered by is often restored from localStorage) and clears the
-// form via reset — which also focused Driver. Combobox handlers still call
-// preventDefault when Enter selects a list option.
-form.addEventListener('keydown', (event) => {
-  if (event.key !== 'Enter') return;
-  const target = event.target;
-  if (!(target instanceof HTMLElement) || !form.contains(target)) return;
-  if (target instanceof HTMLTextAreaElement) return;
-  if (target instanceof HTMLButtonElement) return;
-  if (target === submitBtn) return;
-  event.preventDefault();
-});
+function resetCreateForm(keepEnteredBy) {
+  const enteredBy = keepEnteredBy ?? createEnteredByInput.value;
+  createForm.reset();
+  createEffectiveDateInput.value = todayLocalDate();
+  clearCreateDriverSelection();
+  if (enteredBy) {
+    createEnteredByInput.value = enteredBy;
+  }
+}
 
-form.addEventListener('submit', async (event) => {
+/** @param {'log-change' | 'create-route'} tab */
+function setActiveTab(tab) {
+  const next = tab === 'create-route' ? 'create-route' : 'log-change';
+  for (const button of tabButtons) {
+    const active = button.dataset.tab === next;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-selected', active ? 'true' : 'false');
+  }
+  for (const panel of tabPanels) {
+    panel.hidden = panel.dataset.tabPanel !== next;
+  }
+  const hash = next === 'create-route' ? '#create-route' : '#log-change';
+  if (window.location.hash !== hash) {
+    history.replaceState(null, '', hash);
+  }
+  if (next === 'create-route') {
+    createRouteIdInput.focus();
+  }
+}
+
+function tabFromHash() {
+  return window.location.hash === '#create-route' ? 'create-route' : 'log-change';
+}
+
+function bindComboboxKeyboard(searchInput, listbox, getActiveIndex, setActiveIndex, render, onEnterSelect) {
+  searchInput.addEventListener('keydown', (event) => {
+    const options = [...listbox.querySelectorAll('[role="option"]')];
+    let activeIndex = getActiveIndex();
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      if (listbox.hidden) render();
+      activeIndex = Math.min(activeIndex + 1, options.length - 1);
+      setActiveIndex(activeIndex);
+      render();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      activeIndex = Math.max(activeIndex - 1, 0);
+      setActiveIndex(activeIndex);
+      render();
+    } else if (event.key === 'Enter') {
+      if (!listbox.hidden && activeIndex >= 0 && options[activeIndex]) {
+        event.preventDefault();
+        onEnterSelect(options[activeIndex]);
+      }
+    } else if (event.key === 'Escape') {
+      listbox.hidden = true;
+      searchInput.setAttribute('aria-expanded', 'false');
+      setActiveIndex(-1);
+    }
+  });
+}
+
+function preventEnterSubmit(form) {
+  form.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || !form.contains(target)) return;
+    if (target instanceof HTMLTextAreaElement) return;
+    if (target instanceof HTMLButtonElement) return;
+    event.preventDefault();
+  });
+}
+
+preventEnterSubmit(changeForm);
+preventEnterSubmit(createForm);
+
+changeForm.addEventListener('submit', async (event) => {
   event.preventDefault();
-  clearStatus();
+  clearStatus(statusEl);
   submitBtn.disabled = true;
 
   try {
     const routeId = resolveSelectedRouteId();
     if (!routeId) {
-      throw new Error(
-        routeMode === 'new'
-          ? 'Enter a new route ID.'
-          : 'Select an existing route from the list, or use “Create new route”.'
-      );
+      throw new Error('Select an existing route from the list.');
     }
 
-    if (routeMode === 'existing' && !routesById.has(routeId)) {
+    if (!routesById.has(routeId)) {
       throw new Error(
-        'That route isn’t in the current route list. Select one from the dropdown, or use “Create new route”.'
-      );
-    }
-
-    if (routeMode === 'new' && routesById.has(routeId)) {
-      throw new Error(
-        `Route “${routeId}” already exists. Cancel create-new and select it from the list instead.`
+        'That route isn’t in the current route list. Select one from the dropdown, or use the Create new route tab.'
       );
     }
 
     const driver = resolveSelectedDriver();
-    if (routeMode !== 'new' && (!driver.driver_id || !driver.driver_name)) {
+    if (!driver.driver_id || !driver.driver_name) {
       throw new Error(
         'Select a driver from the directory. Add someone new under Drivers/Routes.'
       );
     }
 
-    let previousTime = previousInput.value.trim();
-    let newTime = newTimeInput.value.trim();
-    let used;
-
-    if (routeMode === 'new') {
-      if (!previousTime || parseScheduleRange(previousTime) == null) {
-        throw new Error(
-          'Enter the current schedule as H:MM-H:MM (e.g. 6:35-8:55).'
-        );
-      }
-      // Creating a route seeds the segment — there is no prior→new change.
-      newTime = previousTime;
-      computedDelta = 0;
-      used = 0;
-    } else {
-      refreshComputedDelta();
-      used = Number(deltaUsedInput.value);
-      if (computedDelta == null || Number.isNaN(used)) {
-        throw new Error(
-          'Enter valid current/new schedules so the time difference can be calculated.'
-        );
-      }
-      if (used !== computedDelta && !adjustmentReason.value) {
-        throw new Error('Select a reason for adjusting Time Difference To Accumulate.');
-      }
+    const previousTime = previousInput.value.trim();
+    const newTime = newTimeInput.value.trim();
+    refreshComputedDelta();
+    const used = Number(deltaUsedInput.value);
+    if (computedDelta == null || Number.isNaN(used)) {
+      throw new Error(
+        'Enter valid current/new schedules as H:MM-H:MM so the time difference can be calculated.'
+      );
+    }
+    if (used !== computedDelta && !adjustmentReason.value) {
+      throw new Error('Select a reason for adjusting Time Difference To Accumulate.');
     }
 
     if (!reasonCategoryInput.value) {
@@ -718,7 +792,7 @@ form.addEventListener('submit', async (event) => {
 
     const payload = {
       route_id: routeId,
-      create_new_route: routeMode === 'new',
+      create_new_route: false,
       create_new_driver: false,
       driver_id: driver.driver_id,
       driver_name: driver.driver_name,
@@ -727,7 +801,7 @@ form.addEventListener('submit', async (event) => {
       previous_time: previousTime,
       new_time: newTime,
       delta_minutes: used,
-      adjustment_reason: routeMode === 'new' ? null : adjustmentReason.value || null,
+      adjustment_reason: adjustmentReason.value || null,
       reason_category: reasonCategoryInput.value,
       note: document.getElementById('note').value.trim(),
       entered_by: enteredByInput.value.trim(),
@@ -741,7 +815,7 @@ form.addEventListener('submit', async (event) => {
 
     localStorage.setItem('rct_entered_by', payload.entered_by);
     const statusKind = result.pending ? 'warn' : 'ok';
-    showStatus(result.message, statusKind);
+    showStatus(statusEl, result.message, statusKind);
 
     const driverId = result.change?.driver_id || payload.driver_id;
     if (driverId) {
@@ -749,80 +823,193 @@ form.addEventListener('submit', async (event) => {
         'rct_flash',
         JSON.stringify({ message: result.message, kind: statusKind })
       );
-      // Brief pause so the success message is visible before leaving the form.
       window.setTimeout(() => {
         window.location.assign(
           `/admin/drivers/${encodeURIComponent(driverId)}#change-history`
         );
       }, 1200);
-      return; // leave Submit disabled until navigation
+      return;
     }
 
-    resetFormFields(payload.entered_by);
+    resetChangeForm(payload.entered_by);
     await Promise.all([loadRoutes(), loadDrivers(), loadRecent()]);
     submitBtn.disabled = false;
   } catch (error) {
-    showStatus(error.message, 'error');
+    showStatus(statusEl, error.message, 'error');
     submitBtn.disabled = false;
   }
 });
 
-resetBtn.addEventListener('click', () => {
-  resetFormFields();
-  clearStatus();
+createForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  clearStatus(createStatusEl);
+  createSubmitBtn.disabled = true;
+
+  try {
+    if (!createEnteredByInput.value) {
+      throw new Error('Select your name from the staff list (Entered by).');
+    }
+
+    const routeId = createRouteIdInput.value.trim();
+    if (!routeId) {
+      throw new Error('Enter a new route ID.');
+    }
+    if (routesById.has(routeId)) {
+      throw new Error(
+        `Route “${routeId}” already exists. Switch to Log a time change and select it from the list.`
+      );
+    }
+
+    if (!createReasonCategoryInput.value) {
+      throw new Error('Select a reason category.');
+    }
+
+    if (!createEffectiveDateInput.value) {
+      throw new Error('Choose a start date.');
+    }
+
+    const segments = {
+      AM: createScheduleAm.value.trim(),
+      MIDDAY: createScheduleMidday.value.trim(),
+      PM: createSchedulePm.value.trim(),
+    };
+
+    const filled = Object.entries(segments).filter(([, time]) => time);
+    if (!filled.length) {
+      throw new Error(
+        'Enter at least one segment schedule as H:MM-H:MM (e.g. 6:35-8:55).'
+      );
+    }
+    for (const [seg, time] of filled) {
+      if (parseScheduleRange(time) == null) {
+        throw new Error(
+          `${seg === 'MIDDAY' ? 'Midday' : seg} schedule must be H:MM-H:MM (e.g. 6:35-8:55).`
+        );
+      }
+    }
+
+    const driver = resolveCreateDriver();
+    if (createDriverSearch.value.trim() && !driver.driver_id) {
+      throw new Error(
+        'Pick a driver from the list, or clear the driver field to leave the route Unassigned.'
+      );
+    }
+
+    const payload = {
+      route_id: routeId,
+      create_new_route: true,
+      create_new_driver: false,
+      driver_id: driver.driver_id,
+      driver_name: driver.driver_name,
+      effective_date: createEffectiveDateInput.value,
+      segments: {
+        AM: segments.AM || null,
+        MIDDAY: segments.MIDDAY || null,
+        PM: segments.PM || null,
+      },
+      reason_category: createReasonCategoryInput.value,
+      note: createNoteInput.value.trim(),
+      entered_by: createEnteredByInput.value.trim(),
+    };
+
+    const result = await fetchJson('/api/changes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    localStorage.setItem('rct_entered_by', payload.entered_by);
+    createEnteredByInput.value = payload.entered_by;
+    enteredByInput.value = payload.entered_by;
+    showStatus(createStatusEl, result.message, 'ok');
+
+    const driverId = result.change?.driver_id || payload.driver_id;
+    if (driverId) {
+      sessionStorage.setItem(
+        'rct_flash',
+        JSON.stringify({ message: result.message, kind: 'ok' })
+      );
+      window.setTimeout(() => {
+        window.location.assign(
+          `/admin/drivers/${encodeURIComponent(driverId)}#change-history`
+        );
+      }, 1200);
+      return;
+    }
+
+    resetCreateForm(payload.entered_by);
+    await Promise.all([loadRoutes(), loadDrivers(), loadRecent()]);
+    createSubmitBtn.disabled = false;
+  } catch (error) {
+    showStatus(createStatusEl, error.message, 'error');
+    createSubmitBtn.disabled = false;
+  }
 });
 
-newRouteBtn.addEventListener('click', enterNewRouteMode);
-cancelNewRouteBtn.addEventListener('click', exitNewRouteMode);
+resetBtn.addEventListener('click', () => {
+  resetChangeForm();
+  clearStatus(statusEl);
+});
+
+createResetBtn.addEventListener('click', () => {
+  resetCreateForm();
+  clearStatus(createStatusEl);
+});
+
+for (const button of tabButtons) {
+  button.addEventListener('click', () => {
+    setActiveTab(/** @type {'log-change' | 'create-route'} */ (button.dataset.tab));
+  });
+}
+
+document.addEventListener('click', (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const link = target.closest('.js-goto-create-route');
+  if (link) {
+    event.preventDefault();
+    setActiveTab('create-route');
+  }
+});
+
+window.addEventListener('hashchange', () => {
+  setActiveTab(tabFromHash());
+});
 
 routeSearch.addEventListener('focus', () => {
-  if (routeMode !== 'existing') return;
   renderRouteOptions();
   routeSearch.select();
 });
 
 routeSearch.addEventListener('input', () => {
-  if (routeMode !== 'existing') return;
   routeIdInput.value = '';
   clearPreviousSchedule();
   activeRouteOptionIndex = -1;
   renderRouteOptions(routeSearch.value);
 });
 
-routeSearch.addEventListener('keydown', (event) => {
-  if (routeMode !== 'existing') return;
-  const options = [...routeListbox.querySelectorAll('[role="option"]')];
-
-  if (event.key === 'ArrowDown') {
-    event.preventDefault();
-    if (routeListbox.hidden) renderRouteOptions();
-    activeRouteOptionIndex = Math.min(activeRouteOptionIndex + 1, options.length - 1);
-    renderRouteOptions();
-  } else if (event.key === 'ArrowUp') {
-    event.preventDefault();
-    activeRouteOptionIndex = Math.max(activeRouteOptionIndex - 1, 0);
-    renderRouteOptions();
-  } else if (event.key === 'Enter') {
-    if (!routeListbox.hidden && activeRouteOptionIndex >= 0 && options[activeRouteOptionIndex]) {
-      event.preventDefault();
-      selectExistingRoute(options[activeRouteOptionIndex].dataset.routeId);
-    }
-  } else if (event.key === 'Escape') {
-    closeRouteListbox();
-  }
-});
+bindComboboxKeyboard(
+  routeSearch,
+  routeListbox,
+  () => activeRouteOptionIndex,
+  (value) => {
+    activeRouteOptionIndex = value;
+  },
+  () => renderRouteOptions(),
+  (option) => selectExistingRoute(option.dataset.routeId)
+);
 
 routeSearch.addEventListener('blur', () => {
   setTimeout(() => {
     closeRouteListbox();
-    if (routeMode === 'existing' && !routeIdInput.value) {
+    if (!routeIdInput.value) {
       routeSearch.value = '';
     }
   }, 120);
 });
 
 driverSearch.addEventListener('focus', () => {
-  renderDriverOptions();
+  renderChangeDriverOptions();
   driverSearch.select();
 });
 
@@ -830,34 +1017,19 @@ driverSearch.addEventListener('input', () => {
   driverIdInput.value = '';
   driverNameInput.value = '';
   activeDriverOptionIndex = -1;
-  renderDriverOptions(driverSearch.value);
+  renderChangeDriverOptions(driverSearch.value);
 });
 
-driverSearch.addEventListener('keydown', (event) => {
-  const options = [...driverListbox.querySelectorAll('[role="option"]')];
-
-  if (event.key === 'ArrowDown') {
-    event.preventDefault();
-    if (driverListbox.hidden) renderDriverOptions();
-    activeDriverOptionIndex = Math.min(activeDriverOptionIndex + 1, options.length - 1);
-    renderDriverOptions();
-  } else if (event.key === 'ArrowUp') {
-    event.preventDefault();
-    activeDriverOptionIndex = Math.max(activeDriverOptionIndex - 1, 0);
-    renderDriverOptions();
-  } else if (event.key === 'Enter') {
-    if (
-      !driverListbox.hidden &&
-      activeDriverOptionIndex >= 0 &&
-      options[activeDriverOptionIndex]
-    ) {
-      event.preventDefault();
-      selectExistingDriver(options[activeDriverOptionIndex].dataset.driverId);
-    }
-  } else if (event.key === 'Escape') {
-    closeDriverListbox();
-  }
-});
+bindComboboxKeyboard(
+  driverSearch,
+  driverListbox,
+  () => activeDriverOptionIndex,
+  (value) => {
+    activeDriverOptionIndex = value;
+  },
+  () => renderChangeDriverOptions(),
+  (option) => selectExistingDriver(option.dataset.driverId)
+);
 
 driverSearch.addEventListener('blur', () => {
   setTimeout(() => {
@@ -865,6 +1037,39 @@ driverSearch.addEventListener('blur', () => {
     if (!driverIdInput.value) {
       driverSearch.value = '';
       driverNameInput.value = '';
+    }
+  }, 120);
+});
+
+createDriverSearch.addEventListener('focus', () => {
+  renderCreateDriverOptions();
+  createDriverSearch.select();
+});
+
+createDriverSearch.addEventListener('input', () => {
+  createDriverIdInput.value = '';
+  createDriverNameInput.value = '';
+  activeCreateDriverOptionIndex = -1;
+  renderCreateDriverOptions(createDriverSearch.value);
+});
+
+bindComboboxKeyboard(
+  createDriverSearch,
+  createDriverListbox,
+  () => activeCreateDriverOptionIndex,
+  (value) => {
+    activeCreateDriverOptionIndex = value;
+  },
+  () => renderCreateDriverOptions(),
+  (option) => selectCreateDriver(option.dataset.driverId)
+);
+
+createDriverSearch.addEventListener('blur', () => {
+  setTimeout(() => {
+    closeCreateDriverListbox();
+    if (!createDriverIdInput.value) {
+      createDriverSearch.value = '';
+      createDriverNameInput.value = '';
     }
   }, 120);
 });
@@ -886,12 +1091,20 @@ document.addEventListener('click', (event) => {
   if (!driverCombobox.contains(event.target)) {
     closeDriverListbox();
   }
+  if (!createDriverCombobox.contains(event.target)) {
+    closeCreateDriverListbox();
+  }
 });
 
 async function init() {
   effectiveDateInput.value = todayLocalDate();
-  exitNewRouteMode({ focus: false });
+  createEffectiveDateInput.value = todayLocalDate();
   clearDriverSelection();
+  clearCreateDriverSelection();
+  if (routeModeHint) {
+    routeModeHint.innerHTML = ROUTE_HINT_HTML;
+  }
+  setActiveTab(tabFromHash());
   await Promise.all([
     loadRoutes(),
     loadDrivers(),
@@ -903,5 +1116,6 @@ async function init() {
 }
 
 init().catch((error) => {
-  showStatus(error.message, 'error');
+  showStatus(statusEl, error.message, 'error');
+  showStatus(createStatusEl, error.message, 'error');
 });

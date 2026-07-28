@@ -814,13 +814,12 @@ export function applyChangeToRoute(
       ? deltaOverride
       : changeEvent.delta_minutes;
 
-  // Seed-only create (new route with starting schedule, no real change): keep
-  // STABLE from createInitialRouteState — do not open a 15-day window.
-  if (
-    isFirstEvent &&
-    delta === 0 &&
-    changeEvent.previous_time === changeEvent.new_time
-  ) {
+  // Seed-only schedule write (create route / add another segment with no
+  // prior→new change): update segment times only — do not open a 15-day window.
+  if (delta === 0 && changeEvent.previous_time === changeEvent.new_time) {
+    if (state.status === 'STABLE') {
+      state.baseline_segments[changeEvent.segment] = changeEvent.new_time;
+    }
     return state;
   }
 

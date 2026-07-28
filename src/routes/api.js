@@ -1364,6 +1364,102 @@ router.post('/changes', async (req, res, next) => {
       return;
     }
 
+    const enteredBy = String(body.entered_by || '').trim();
+    const reasonCategory = String(body.reason_category || '').trim();
+    const note = String(body.note || '');
+    const effectiveDate = String(body.effective_date || '').trim();
+    const submittedAt = getAsOfTimestamp();
+
+    /** @returns {string[]} */
+    function categoryErrors(category) {
+      /** @type {string[]} */
+      const errors = [];
+      if (!reasonCategories.length) {
+        errors.push(
+          'No reason categories configured. Add categories in Admin settings before submitting.'
+        );
+      } else if (!reasonCategories.includes(category)) {
+        errors.push(
+          `reason_category must be one of: ${reasonCategories.join(', ')}`
+        );
+      }
+      return errors;
+    }
+
+    // Create-new with an explicit segments map (AM / Midday / PM schedules).
+    if (createNewRoute && body.segments && typeof body.segments === 'object') {
+      /** @type {{ segment: 'AM'|'MIDDAY'|'PM', time: string }[]} */
+      const filled = [];
+      for (const seg of SEGMENTS) {
+        const time = String(body.segments[seg] ?? '').trim();
+        if (!time) continue;
+        try {
+          computeDeltaMinutes(time, time);
+        } catch (error) {
+          res.status(400).json({
+            error: `${seg}: ${/** @type {Error} */ (error).message}`,
+          });
+          return;
+        }
+        filled.push({ segment: /** @type {'AM'|'MIDDAY'|'PM'} */ (seg), time });
+      }
+      if (!filled.length) {
+        res.status(400).json({
+          error: 'Enter at least one segment schedule (AM, Midday, or PM) as H:MM-H:MM.',
+        });
+        return;
+      }
+
+      /** @type {import('../logic/stateMachine.js').ChangeEvent[]} */
+      const events = filled.map(({ segment, time }) => ({
+        route_id: routeId,
+        driver_name: driverName || '',
+        driver_id: driverId,
+        segment,
+        submitted_at: submittedAt,
+        effective_date: effectiveDate,
+        previous_time: time,
+        new_time: time,
+        computed_delta_minutes: 0,
+        delta_minutes: 0,
+        routing_adjustment: null,
+        reason_category: reasonCategory,
+        note,
+        entered_by: enteredBy,
+      }));
+
+      /** @type {string[]} */
+      const errors = [];
+      for (const event of events) {
+        errors.push(...validateChangeEvent(event, reasons, staffNames));
+      }
+      errors.push(...categoryErrors(reasonCategory));
+      if (errors.length) {
+        res.status(400).json({ error: [...new Set(errors)].join(' ') });
+        return;
+      }
+
+      /** @type {import('../logic/stateMachine.js').ChangeEvent[]} */
+      const savedChanges = [];
+      for (const event of events) {
+        savedChanges.push(await appendChangeEvent(event, dataDir()));
+      }
+      const routeState = await rebuildAndPersistRouteState(dataDir());
+      const route = routeState[routeId] ?? null;
+      const first = savedChanges[0];
+
+      res.status(201).json({
+        change: first,
+        changes: savedChanges,
+        route_status: route?.status ?? null,
+        pending: route?.pending_change_ids?.includes(first.id) ?? false,
+        message: `New route created with ${savedChanges.length} segment schedule${
+          savedChanges.length === 1 ? '' : 's'
+        }.`,
+      });
+      return;
+    }
+
     const segment = String(body.segment || '').toUpperCase();
     const knownPrevious = getCurrentSegmentTime(state, routeId, segment);
     const previousTime = String(body.previous_time || knownPrevious || '').trim();
@@ -1399,7 +1495,6 @@ router.post('/changes', async (req, res, next) => {
         : deltaOverride;
 
     const wasAdjusted = !createNewRoute && deltaMinutes !== computedDelta;
-    const enteredBy = String(body.entered_by || '').trim();
 
     /** @type {import('../logic/stateMachine.js').ChangeEvent} */
     const event = {
@@ -1407,8 +1502,8 @@ router.post('/changes', async (req, res, next) => {
       driver_name: driverName || '',
       driver_id: driverId,
       segment: /** @type {'AM'|'MIDDAY'|'PM'} */ (segment),
-      submitted_at: getAsOfTimestamp(),
-      effective_date: String(body.effective_date || '').trim(),
+      submitted_at: submittedAt,
+      effective_date: effectiveDate,
       previous_time: previousTime,
       new_time: newTime,
       computed_delta_minutes: computedDelta,
@@ -1417,24 +1512,16 @@ router.post('/changes', async (req, res, next) => {
         ? {
             reason: String(body.adjustment_reason || '').trim(),
             adjusted_by: enteredBy,
-            adjusted_at: getAsOfTimestamp(),
+            adjusted_at: submittedAt,
           }
         : null,
-      reason_category: String(body.reason_category || '').trim(),
-      note: String(body.note || ''),
+      reason_category: reasonCategory,
+      note,
       entered_by: enteredBy,
     };
 
     const errors = validateChangeEvent(event, reasons, staffNames);
-    if (!reasonCategories.length) {
-      errors.push(
-        'No reason categories configured. Add categories in Admin settings before submitting.'
-      );
-    } else if (!reasonCategories.includes(event.reason_category)) {
-      errors.push(
-        `reason_category must be one of: ${reasonCategories.join(', ')}`
-      );
-    }
+    errors.push(...categoryErrors(reasonCategory));
     if (errors.length) {
       res.status(400).json({ error: errors.join(' ') });
       return;

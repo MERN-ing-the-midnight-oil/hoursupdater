@@ -65,6 +65,40 @@ describe('stateMachine', () => {
     assert.equal(result.driver_id, null);
   });
 
+  it('seeds additional segments on an existing STABLE route without opening a window', () => {
+    const am = makeChange({
+      driver_name: '',
+      driver_id: null,
+      segment: 'AM',
+      previous_time: '6:00-8:00',
+      new_time: '6:00-8:00',
+      computed_delta_minutes: 0,
+      delta_minutes: 0,
+    });
+    let state = applyChangeToRoute(null, am, calendar);
+
+    const pm = makeChange({
+      id: 'c2',
+      driver_name: '',
+      driver_id: null,
+      segment: 'PM',
+      previous_time: '14:00-16:00',
+      new_time: '14:00-16:00',
+      computed_delta_minutes: 0,
+      delta_minutes: 0,
+    });
+    state = applyChangeToRoute(state, pm, calendar);
+
+    assert.equal(state.status, 'STABLE');
+    assert.equal(state.window_expires_date, null);
+    assert.equal(state.cumulative_drift_minutes, 0);
+    assert.deepEqual(state.contributing_change_ids, []);
+    assert.equal(state.segments.AM, '6:00-8:00');
+    assert.equal(state.segments.PM, '14:00-16:00');
+    assert.equal(state.baseline_segments.AM, '6:00-8:00');
+    assert.equal(state.baseline_segments.PM, '14:00-16:00');
+  });
+
   it('opens a new window from STABLE on first change (Rule 2)', () => {
     const change = makeChange({ delta_minutes: 5 });
     const result = applyChangeToRoute(null, change, calendar);
