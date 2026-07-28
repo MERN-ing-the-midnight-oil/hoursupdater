@@ -1,6 +1,6 @@
 # Set Up on OneDrive
 
-Teamster Tracker stores its **data** in a OneDrive folder. The **app** itself stays in a normal folder on your PC (Desktop, Downloads, etc.) — not inside OneDrive.
+Teamster Tracker stores its **data** in a OneDrive folder. The **app** itself stays in a normal folder on your PC that is **not** OneDrive-synced (local Documents is often safest — Desktop may sync to OneDrive on district PCs).
 
 ```
 Your PC (local folder)                    OneDrive (shared data)

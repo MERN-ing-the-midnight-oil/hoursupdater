@@ -40,9 +40,11 @@ Files from email/zip often get a “downloaded from the internet” flag.
 
 Tip: open the folder in File Explorer, select all files, Properties, Unblock (when shown).
 
-### 2. Run from a normal folder
+### 2. Run from a normal folder (not OneDrive-synced)
 
-Move/unzip the whole `TeamsterTracker` folder to your **Desktop** or **Documents** (not deep inside a temp email folder). Then double-click `Start.bat` there.
+Move/unzip the whole `TeamsterTracker` app folder somewhere that is **not** syncing through OneDrive. Prefer a local **Documents** folder if Desktop is backed by OneDrive (many district PCs redirect Desktop there). Then double-click `Start.bat` there.
+
+Only the shared **data** folder (`TeamsterTracker` / `RouteChangeTracker` in OneDrive) should live on OneDrive — not the app itself.
 
 ### 3. Run it in a way that keeps the window open
 
@@ -95,6 +97,32 @@ That question is intentionally narrow: no cloud hosting request, no admin instal
 4. If the browser did not open at all, paste this into Edge manually:
 
    `http://localhost:3847`
+
+---
+
+## Start.bat warns the app folder is inside OneDrive
+
+**What you see:** A yellow/plain warning that the app folder appears to be OneDrive-synced, but the app still starts.
+
+**What it means:** Windows “Known Folder Move” often puts **Desktop** (and sometimes Documents) under OneDrive. Running the portable app from there can cause sync fights, slow starts, or missing files.
+
+**What to do:**
+
+1. Move the whole app folder (the one with `Start.bat`) to a location that is **not** under OneDrive.
+2. Keep only the shared **data** folder in OneDrive — leave `DATA_DIR` pointing there.
+3. Double-click `Start.bat` from the new location.
+
+This is a warning only; you can keep working, but moving the app folder is more reliable.
+
+---
+
+## Start.bat says DATA_DIR looks like a web link
+
+You pasted a browser/sharing URL into `.env` instead of a folder path.
+
+1. Open the data folder in **File Explorer** (not the browser).
+2. Click the address bar, or right-click the folder → **Copy as path**.
+3. Paste that path into `.env` as `DATA_DIR=` (no quotes). See **[SETUP-ONEDRIVE.md](./SETUP-ONEDRIVE.md)**.
 
 ---
 
@@ -157,7 +185,7 @@ Prefer sharing the portable zip via **OneDrive / Teams link** (or USB), not as a
 | Issue | What it looks like | What to do |
 |--------|--------------------|------------|
 | **ARM / unusual PC** | `node.exe` won’t run; “not a valid Win32 application” | This package is **64-bit Windows (x64)**. Ask IT whether the PC is ARM; you may need an ARM build. |
-| **Running from OneDrive itself** | Random missing modules, sync fights, slow starts | Move the **app** folder to Desktop/Documents. Only **data** belongs on OneDrive. |
+| **Running from OneDrive itself** (incl. Desktop synced via Known Folder Move) | Warning at startup; random missing modules, sync fights, slow starts | Move the **app** folder off OneDrive (local Documents if that is separate). Only **data** belongs on OneDrive. |
 | **Controlled Folder Access** | Node cannot write to Documents/OneDrive | Windows Security → allow `runtime\node.exe`, or ask IT. |
 | **Offline / VPN** | OneDrive path missing until connected | Sign in to OneDrive / connect VPN, confirm the folder opens, retry. |
 | **Wrong browser URL** | Typed `https://` or a network address | Use exactly `http://localhost:3847` (http, not https). |

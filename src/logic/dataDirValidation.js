@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 
 /**
  * Plain-English guidance when the configured shared folder is missing or unusable.
@@ -7,6 +8,16 @@ import fs from 'node:fs/promises';
 export const DATA_DIR_SETUP_HINT =
   'See SETUP-ONEDRIVE.md (Set Up on OneDrive): create the folder in File Explorer, ' +
   'then put that full path in the .env file as DATA_DIR.';
+
+/**
+ * Non-blocking warning when the portable app folder itself lives under OneDrive
+ * (including Desktop/Documents redirected by Known Folder Move).
+ */
+export const APP_FOLDER_ONEDRIVE_WARNING =
+  'Heads up: this app folder appears to be inside a OneDrive-synced location. ' +
+  'For best reliability, move this app folder somewhere that isn\'t OneDrive-synced ' +
+  '(like Documents, if that\'s separate) and keep only the TeamsterTracker data ' +
+  'folder in OneDrive. See TROUBLESHOOTING.md.';
 
 /**
  * @param {unknown} error
@@ -55,6 +66,62 @@ export function looksLikeWebUrlDataDir(configured) {
 }
 
 /**
+ * Normalize a filesystem path for OneDrive prefix / segment checks.
+ * @param {string} folderPath
+ * @returns {string}
+ */
+function normalizePathForCompare(folderPath) {
+  return path.resolve(String(folderPath)).replace(/\\/g, '/').toLowerCase();
+}
+
+/**
+ * True when a folder path looks like it lives inside a OneDrive-synced tree.
+ * Catches explicit OneDrive roots and Known Folder Move (Desktop/Documents
+ * under "OneDrive - District", etc.).
+ *
+ * @param {string | undefined | null} folderPath
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {boolean}
+ */
+export function looksLikeOneDriveSyncedPath(folderPath, env = process.env) {
+  if (folderPath == null || String(folderPath).trim() === '') return false;
+  const normalized = normalizePathForCompare(folderPath);
+
+  // Path segment: .../OneDrive/... or .../OneDrive - District/...
+  if (/(^|\/)onedrive(\/|$| - )/i.test(normalized)) {
+    return true;
+  }
+
+  const roots = [env.OneDrive, env.OneDriveCommercial, env.OneDriveConsumer]
+    .filter((value) => value != null && String(value).trim() !== '')
+    .map((value) => normalizePathForCompare(value));
+
+  for (const root of roots) {
+    if (normalized === root || normalized.startsWith(`${root}/`)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Non-blocking warning text when the install folder (Start.bat / .env) is under
+ * OneDrive. Returns null when the location looks fine.
+ *
+ * @param {string | undefined | null} installRoot
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string | null}
+ */
+export function getAppFolderOneDriveWarning(installRoot, env = process.env) {
+  if (!looksLikeOneDriveSyncedPath(installRoot, env)) return null;
+  return (
+    `${APP_FOLDER_ONEDRIVE_WARNING}\n\n` +
+    `  App folder: ${path.resolve(String(installRoot))}`
+  );
+}
+
+/**
  * Ensure DATA_DIR is set to a real folder that already exists.
  * Does not create the shared root — Rachel (or IT) creates it in OneDrive first.
  *
@@ -87,8 +154,8 @@ export async function assertSharedRootReady(sharedRoot, options = {}) {
     const error = new Error(
       'DATA_DIR looks like a web link, not a folder location.\n\n' +
         `  ${configuredText}\n\n` +
-        "Please use 'Copy as path' from File Explorer instead of a sharing " +
-        'link — see SETUP-ONEDRIVE.md.'
+        "Use 'Copy as path' from File Explorer instead of a sharing link — " +
+        'see SETUP-ONEDRIVE.md.'
     );
     error.code = 'DATA_DIR_URL';
     throw error;

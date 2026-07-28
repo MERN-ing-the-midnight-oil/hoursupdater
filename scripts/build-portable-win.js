@@ -136,6 +136,38 @@ async function main() {
     await fs.copyFile(path.join(root, doc), path.join(outDir, doc));
   }
 
+  const pkg = JSON.parse(
+    await fs.readFile(path.join(root, 'package.json'), 'utf8')
+  );
+  let gitSha = 'unknown';
+  try {
+    gitSha = execSync('git rev-parse --short HEAD', {
+      cwd: root,
+      encoding: 'utf8',
+    }).trim();
+    const dirty = execSync('git status --porcelain', {
+      cwd: root,
+      encoding: 'utf8',
+    }).trim();
+    if (dirty) gitSha += '-dirty';
+  } catch {
+    // ignore — build hosts without git still produce a package
+  }
+  const buildInfo = [
+    'Teamster Tracker — portable Windows package',
+    `version: ${pkg.version}`,
+    `git:     ${gitSha}`,
+    `built:   ${new Date().toISOString()}`,
+    `node:    ${NODE_VERSION} (bundled win-x64)`,
+    '',
+    'Includes:',
+    '  - Routing UI: separate Log Change / Create Route tabs',
+    '  - DATA_DIR web-link detection (http/https → Copy as path message)',
+    '  - Warning when the app folder itself is under OneDrive',
+    '',
+  ].join('\n');
+  await fs.writeFile(path.join(outDir, 'BUILD_INFO.txt'), buildInfo);
+
   const appDir = path.join(outDir, 'app');
   await fs.mkdir(appDir, { recursive: true });
   // sample-data stays out of the portable zip — roster CSVs are emailed separately.

@@ -4,8 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import {
+  APP_FOLDER_ONEDRIVE_WARNING,
   assertSharedRootReady,
+  getAppFolderOneDriveWarning,
   isDataDirConfigError,
+  looksLikeOneDriveSyncedPath,
   looksLikeUnsetOrPlaceholderDataDir,
   looksLikeWebUrlDataDir,
 } from '../src/logic/dataDirValidation.js';
@@ -57,6 +60,65 @@ describe('dataDirValidation', () => {
         assert.doesNotMatch(String(error.message), /not found/i);
         return true;
       }
+    );
+  });
+
+  it('detects app folders under OneDrive / Known Folder Move paths', () => {
+    assert.equal(
+      looksLikeOneDriveSyncedPath(
+        'C:\\Users\\rachel\\OneDrive - District\\Desktop\\TeamsterTracker-win'
+      ),
+      true
+    );
+    assert.equal(
+      looksLikeOneDriveSyncedPath(
+        'C:\\Users\\rachel\\OneDrive\\TeamsterTracker-win'
+      ),
+      true
+    );
+    assert.equal(
+      looksLikeOneDriveSyncedPath(
+        'C:\\Users\\rachel\\Documents\\TeamsterTracker-win',
+        {}
+      ),
+      false
+    );
+    assert.equal(
+      looksLikeOneDriveSyncedPath(
+        'C:\\Users\\rachel\\Documents\\TeamsterTracker-win',
+        {
+          OneDrive: 'C:\\Users\\rachel\\OneDrive - District',
+        }
+      ),
+      false
+    );
+    assert.equal(
+      looksLikeOneDriveSyncedPath(
+        'C:\\Users\\rachel\\OneDrive - District\\Documents\\TeamsterTracker-win',
+        {
+          OneDrive: 'C:\\Users\\rachel\\OneDrive - District',
+        }
+      ),
+      true
+    );
+  });
+
+  it('returns a non-blocking warning for OneDrive install roots', () => {
+    const warning = getAppFolderOneDriveWarning(
+      'C:\\Users\\rachel\\OneDrive - District\\Desktop\\TeamsterTracker-win'
+    );
+    assert.ok(warning);
+    assert.match(warning, /Heads up/i);
+    assert.match(warning, /OneDrive-synced/i);
+    assert.match(warning, /TROUBLESHOOTING/);
+    assert.match(warning, /TeamsterTracker/);
+    assert.ok(warning.startsWith(APP_FOLDER_ONEDRIVE_WARNING));
+    assert.equal(
+      getAppFolderOneDriveWarning(
+        'C:\\Users\\rachel\\Documents\\TeamsterTracker-win',
+        {}
+      ),
+      null
     );
   });
 

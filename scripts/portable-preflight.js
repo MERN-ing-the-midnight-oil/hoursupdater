@@ -15,6 +15,7 @@ import {
 } from '../src/config.js';
 import {
   assertSharedRootReady,
+  getAppFolderOneDriveWarning,
   isDataDirConfigError,
 } from '../src/logic/dataDirValidation.js';
 
@@ -27,6 +28,26 @@ function fail(message) {
   console.error(message);
   console.error('');
   process.exit(1);
+}
+
+function warn(message) {
+  console.warn('');
+  console.warn('*** Warning (app will still start) ***');
+  console.warn('');
+  console.warn(message);
+  console.warn('');
+}
+
+/**
+ * Folder that contains Start.bat / .env (portable install root).
+ * Falls back to the repo root when running outside the zip layout.
+ */
+function getInstallRoot() {
+  const envFile = getEnvFilePath();
+  if (envFile) {
+    return path.dirname(envFile);
+  }
+  return path.resolve(__dirname, '..');
 }
 
 async function portLooksFree(port) {
@@ -49,6 +70,12 @@ async function main() {
       `Missing .env file:\n  ${envPath}\n\n` +
         'Copy .env.example to .env (same folder as Start.bat), then follow SETUP-ONEDRIVE.md.'
     );
+  }
+
+  const installRoot = getInstallRoot();
+  const oneDriveWarning = getAppFolderOneDriveWarning(installRoot);
+  if (oneDriveWarning) {
+    warn(oneDriveWarning);
   }
 
   let sharedRoot;
@@ -89,7 +116,7 @@ async function main() {
   console.log(`  .env       ${envPath}`);
   console.log(`  DATA_DIR   ${sharedRoot}`);
   console.log(`  PORT       ${PORT}`);
-  console.log(`  app root   ${path.resolve(__dirname, '..')}`);
+  console.log(`  install    ${installRoot}`);
   // Machine-readable line for Start.bat (do not reword)
   console.log(`PREFLIGHT_URL=http://localhost:${PORT}`);
 }

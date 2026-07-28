@@ -1,6 +1,6 @@
 {
   "name": "teamster-tracker",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local web app for tracking school bus route time changes",
   "type": "module",
   "scripts": {

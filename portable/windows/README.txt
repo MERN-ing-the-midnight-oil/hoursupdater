@@ -17,4 +17,5 @@ If something goes wrong
 Open TROUBLESHOOTING.md in this folder.
 
 Do NOT put this whole app folder inside OneDrive.
-Only the DATA_DIR folder (RouteChangeTracker) belongs on OneDrive.
+(That includes Desktop if your Desktop syncs to OneDrive.)
+Only the DATA_DIR folder (TeamsterTracker / RouteChangeTracker) belongs on OneDrive.

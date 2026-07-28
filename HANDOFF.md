@@ -22,7 +22,7 @@ Also read:
 
 2. Share the **zip via OneDrive/Teams** (prefer not email — many districts block `.exe` / large zips).
 
-3. Tell her to unzip to **Desktop** or **Documents** (not inside OneDrive), then follow `README.txt` + `SETUP-ONEDRIVE.md`.
+3. Tell her to unzip somewhere **not OneDrive-synced** (local Documents if Desktop syncs to OneDrive), then follow `README.txt` + `SETUP-ONEDRIVE.md`.
 
 Layout after unzip:
 

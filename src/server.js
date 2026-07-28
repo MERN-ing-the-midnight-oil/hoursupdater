@@ -5,6 +5,7 @@ import {
   PORT,
   getAppDataDir,
   getConfiguredDataDir,
+  getEnvFilePath,
   getSharedRoot,
   getWorkbookPath,
 } from './config.js';
@@ -12,6 +13,7 @@ import apiRouter from './routes/api.js';
 import { ensureDataDir } from './data/storage.js';
 import {
   assertSharedRootReady,
+  getAppFolderOneDriveWarning,
   isDataDirConfigError,
 } from './logic/dataDirValidation.js';
 import { syncWorkbook } from './services/workbookSync.js';
@@ -79,6 +81,14 @@ try {
     process.exit(1);
   }
   throw error;
+}
+
+const installRoot = path.dirname(getEnvFilePath());
+const oneDriveWarning = getAppFolderOneDriveWarning(installRoot);
+if (oneDriveWarning) {
+  console.warn('\n*** Warning (app will still start) ***\n');
+  console.warn(oneDriveWarning);
+  console.warn('');
 }
 
 await ensureDataDir(getAppDataDir());
