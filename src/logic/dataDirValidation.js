@@ -18,7 +18,8 @@ export function isDataDirConfigError(error) {
     (error.code === 'DATA_DIR_MISSING' ||
       error.code === 'DATA_DIR_NOT_DIR' ||
       error.code === 'DATA_DIR_UNSET' ||
-      error.code === 'DATA_DIR_PLACEHOLDER')
+      error.code === 'DATA_DIR_PLACEHOLDER' ||
+      error.code === 'DATA_DIR_URL')
   );
 }
 
@@ -38,6 +39,19 @@ export function looksLikeUnsetOrPlaceholderDataDir(configured) {
     upper.includes('PATH/TO/') ||
     upper.includes('EXAMPLE')
   );
+}
+
+/**
+ * True when DATA_DIR looks like a browser/share link instead of a folder path.
+ * Common mistake: pasting a OneDrive sharing URL instead of "Copy as path".
+ *
+ * @param {string | undefined | null} configured
+ * @returns {boolean}
+ */
+export function looksLikeWebUrlDataDir(configured) {
+  if (configured == null) return false;
+  const text = String(configured).trim().toLowerCase();
+  return text.startsWith('http://') || text.startsWith('https://');
 }
 
 /**
@@ -63,6 +77,20 @@ export async function assertSharedRootReady(sharedRoot, options = {}) {
         DATA_DIR_SETUP_HINT
     );
     error.code = 'DATA_DIR_PLACEHOLDER';
+    throw error;
+  }
+
+  const configuredText =
+    configured != null ? String(configured).trim() : String(sharedRoot).trim();
+
+  if (looksLikeWebUrlDataDir(configuredText)) {
+    const error = new Error(
+      'DATA_DIR looks like a web link, not a folder location.\n\n' +
+        `  ${configuredText}\n\n` +
+        "Please use 'Copy as path' from File Explorer instead of a sharing " +
+        'link — see SETUP-ONEDRIVE.md.'
+    );
+    error.code = 'DATA_DIR_URL';
     throw error;
   }
 

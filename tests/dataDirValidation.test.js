@@ -7,6 +7,7 @@ import {
   assertSharedRootReady,
   isDataDirConfigError,
   looksLikeUnsetOrPlaceholderDataDir,
+  looksLikeWebUrlDataDir,
 } from '../src/logic/dataDirValidation.js';
 
 describe('dataDirValidation', () => {
@@ -23,6 +24,39 @@ describe('dataDirValidation', () => {
         'C:\\Users\\rachel\\OneDrive - District\\RouteChangeTracker'
       ),
       false
+    );
+  });
+
+  it('detects web-link DATA_DIR values', () => {
+    assert.equal(
+      looksLikeWebUrlDataDir('https://onedrive.live.com/?id=abc'),
+      true
+    );
+    assert.equal(
+      looksLikeWebUrlDataDir('http://sharepoint.example.com/folder'),
+      true
+    );
+    assert.equal(
+      looksLikeWebUrlDataDir(
+        'C:\\Users\\rachel\\OneDrive - District\\RouteChangeTracker'
+      ),
+      false
+    );
+  });
+
+  it('rejects sharing URLs with a distinct Copy-as-path message', async () => {
+    const url = 'https://onedrive.live.com/?cid=abc&id=RouteChangeTracker';
+    await assert.rejects(
+      () => assertSharedRootReady(url, { configured: url }),
+      (error) => {
+        assert.ok(isDataDirConfigError(error));
+        assert.equal(error.code, 'DATA_DIR_URL');
+        assert.match(String(error.message), /web link/i);
+        assert.match(String(error.message), /Copy as path/);
+        assert.match(String(error.message), /SETUP-ONEDRIVE/);
+        assert.doesNotMatch(String(error.message), /not found/i);
+        return true;
+      }
     );
   });
 
