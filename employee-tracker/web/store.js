@@ -130,7 +130,7 @@ export function importState(json, storage = globalThis.localStorage) {
     throw new Error('That file is not valid JSON.');
   }
   if (!parsed || typeof parsed !== 'object' || !parsed.profiles) {
-    throw new Error('That file is not a My Hours Tracker backup.');
+    throw new Error('That file is not a My Teamster Contract Hours Tracker backup.');
   }
   const next = {
     version: 1,

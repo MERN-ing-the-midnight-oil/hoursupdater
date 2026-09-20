@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>My Hours Tracker</title>
+    <title>My Teamster Contract Hours Tracker</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main class="shell">
       <header class="topbar">
         <div class="brand-block">
-          <div class="brand">My Hours Tracker</div>
+          <div class="brand">My Teamster Contract Hours Tracker</div>
           <p class="brand-sub">Personal Teamster hours calculator</p>
         </div>
         <p class="calendar-pill" id="calendar-pill">BPS 2026–2027 calendar</p>
@@ -73,6 +73,33 @@
           <h2>Your clock times</h2>
           <p class="lead" id="schedule-lead"></p>
           <div class="schedule-cards" id="schedule-cards"></div>
+          <div class="actions">
+            <button type="button" class="secondary" id="edit-start-btn">
+              Correct starting times
+            </button>
+          </div>
+          <form id="start-edit-form" class="edit-form" hidden>
+            <p class="lead">
+              Fix a typo in the times you started with. Later logged changes stay
+              in place and are recalculated from these times.
+            </p>
+            <div class="grid">
+              <div class="field">
+                <label for="start_edit_name">Your name</label>
+                <input id="start_edit_name" name="name" autocomplete="name" />
+              </div>
+              <div class="field">
+                <label for="start_edit_date">These times started on</label>
+                <input id="start_edit_date" name="start_date" type="date" required />
+              </div>
+            </div>
+            <div class="run-grid" id="start-edit-runs"></div>
+            <div class="actions">
+              <button type="submit">Save corrections</button>
+              <button type="button" class="secondary" id="start-edit-cancel">Cancel</button>
+            </div>
+            <div id="start-edit-status" class="status" role="status"></div>
+          </form>
         </section>
 
         <section class="panel">
@@ -120,6 +147,41 @@
 
         <section class="panel">
           <h2>Change history</h2>
+          <p class="lead">
+            Edit or remove a change if you recorded the wrong times or date.
+            The 15-school-day math is rebuilt from the corrected list.
+          </p>
+          <form id="change-edit-form" class="edit-form" hidden>
+            <h3 id="change-edit-title">Correct a recorded change</h3>
+            <input type="hidden" id="change_edit_id" />
+            <div class="grid">
+              <div class="field">
+                <label for="change_edit_date">Date the change took place</label>
+                <input id="change_edit_date" type="date" required />
+              </div>
+              <div class="field">
+                <span class="field-static-label">Run</span>
+                <p id="change_edit_segment" class="field-static"></p>
+              </div>
+              <div class="field">
+                <label for="change_edit_in">Clock-in</label>
+                <input id="change_edit_in" type="time" step="60" required />
+              </div>
+              <div class="field">
+                <label for="change_edit_out">Clock-out</label>
+                <input id="change_edit_out" type="time" step="60" required />
+              </div>
+              <div class="field full">
+                <label for="change_edit_note">Note</label>
+                <textarea id="change_edit_note" placeholder="Optional"></textarea>
+              </div>
+            </div>
+            <div class="actions">
+              <button type="submit">Save correction</button>
+              <button type="button" class="secondary" id="change-edit-cancel">Cancel</button>
+            </div>
+            <div id="change-edit-status" class="status" role="status"></div>
+          </form>
           <ul id="history-list" class="history-list"></ul>
         </section>
 

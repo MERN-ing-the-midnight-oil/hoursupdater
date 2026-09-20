@@ -224,6 +224,7 @@ button.secondary:hover {
 }
 
 .run-card .pair,
+.schedule-card .pair,
 .schedule-meta {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -327,6 +328,36 @@ button.secondary:hover {
 .history-list .meta {
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.history-list .row-actions,
+.schedule-card .row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.55rem;
+}
+
+.history-list .row-actions button,
+.schedule-card .row-actions button {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.85rem;
+}
+
+.edit-form {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.field-static-label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.field-static {
+  margin: 0;
+  padding: 0.55rem 0;
 }
 
 .empty {

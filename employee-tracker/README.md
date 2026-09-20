@@ -1,4 +1,4 @@
-# My Hours Tracker
+# My Teamster Contract Hours Tracker
 
 A static app for employees to record their own clock-in / clock-out changes and see when those times become contracted under the same Teamster rules as Teamster Tracker.
 

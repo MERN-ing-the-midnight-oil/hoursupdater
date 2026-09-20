@@ -1601,7 +1601,7 @@ function importState(json, storage = globalThis.localStorage) {
     throw new Error("That file is not valid JSON.");
   }
   if (!parsed || typeof parsed !== "object" || !parsed.profiles) {
-    throw new Error("That file is not a My Hours Tracker backup.");
+    throw new Error("That file is not a My Teamster Contract Hours Tracker backup.");
   }
   const next = {
     version: 1,
@@ -1651,6 +1651,54 @@ function requireClockPair(clockIn, clockOut, label) {
     throw new Error(`${label} needs both a clock-in and a clock-out.`);
   }
   return formatSegmentRange(inTrim, outTrim);
+}
+function isSeedEvent(change) {
+  return change && change.delta_minutes === 0 && change.previous_time === change.new_time;
+}
+function relinkChangeLog(changeLog, name = "") {
+  const events = [...changeLog ?? []].sort((a, b) => {
+    const dateCompare = toDateString(a.effective_date).localeCompare(
+      toDateString(b.effective_date)
+    );
+    if (dateCompare !== 0) {
+      return dateCompare;
+    }
+    return String(a.submitted_at).localeCompare(String(b.submitted_at));
+  });
+  const current = { AM: null, MIDDAY: null, PM: null };
+  return events.map((event) => {
+    const next = {
+      ...event,
+      driver_name: name || event.driver_name,
+      entered_by: name || event.entered_by || "Self"
+    };
+    if (isSeedEvent(event)) {
+      current[event.segment] = event.new_time;
+      next.previous_time = event.new_time;
+      next.computed_delta_minutes = 0;
+      next.delta_minutes = 0;
+      return next;
+    }
+    const previous = current[event.segment];
+    if (!previous) {
+      next.previous_time = event.new_time;
+      next.computed_delta_minutes = 0;
+      next.delta_minutes = 0;
+      current[event.segment] = event.new_time;
+      return next;
+    }
+    const delta = computeDeltaMinutes(previous, event.new_time);
+    next.previous_time = previous;
+    next.computed_delta_minutes = delta;
+    next.delta_minutes = delta;
+    current[event.segment] = event.new_time;
+    return next;
+  });
+}
+function persistRelinked(profile, storage) {
+  profile.changeLog = relinkChangeLog(profile.changeLog, profile.name?.trim() || "");
+  saveProfile(profile, storage);
+  return currentSnapshot(storage);
 }
 function makeSeedChange({ segment, range, startDate, name, submittedAt }) {
   return {
@@ -1819,6 +1867,155 @@ function recordChange(body, storage) {
   saveProfile(profile, storage);
   return currentSnapshot(storage);
 }
+function updateChange(changeId, body, storage) {
+  const profile = getCurrentProfile(storage);
+  if (!profile) {
+    throw new Error("Set up a person first.");
+  }
+  const index = profile.changeLog.findIndex((entry) => entry.id === changeId);
+  if (index < 0) {
+    throw new Error("That change was not found.");
+  }
+  const existing = profile.changeLog[index];
+  if (isSeedEvent(existing)) {
+    throw new Error("Correct starting times from Your clock times, not from history.");
+  }
+  const newTime = formatSegmentRange(body.clock_in, body.clock_out);
+  const changeDate = toDateString(body.change_date || existing.effective_date);
+  profile.changeLog[index] = {
+    ...existing,
+    effective_date: changeDate,
+    new_time: newTime,
+    note: body.note != null ? String(body.note).trim() : existing.note
+  };
+  profile.changeLog = relinkChangeLog(profile.changeLog, profile.name?.trim() || "");
+  const updated = profile.changeLog.find((entry) => entry.id === changeId);
+  if (updated && updated.previous_time === updated.new_time) {
+    throw new Error("Those times match the previous times. Remove this change instead.");
+  }
+  saveProfile(profile, storage);
+  return currentSnapshot(storage);
+}
+function deleteChange(changeId, storage) {
+  const profile = getCurrentProfile(storage);
+  if (!profile) {
+    throw new Error("Set up a person first.");
+  }
+  const existing = profile.changeLog.find((entry) => entry.id === changeId);
+  if (!existing) {
+    throw new Error("That change was not found.");
+  }
+  if (isSeedEvent(existing)) {
+    throw new Error("Starting times cannot be removed here.");
+  }
+  profile.changeLog = profile.changeLog.filter((entry) => entry.id !== changeId);
+  return persistRelinked(profile, storage);
+}
+function correctCurrentTimes(body, storage) {
+  const profile = getCurrentProfile(storage);
+  if (!profile) {
+    throw new Error("Set up a person first.");
+  }
+  const segment = String(body.segment || "").trim();
+  if (!SEGMENTS.includes(segment)) {
+    throw new Error(`segment must be one of: ${SEGMENTS.join(", ")}.`);
+  }
+  const newTime = formatSegmentRange(body.clock_in, body.clock_out);
+  const last = [...profile.changeLog].reverse().find((entry) => entry.segment === segment);
+  if (!last) {
+    throw new Error(`No ${segment} times on file yet.`);
+  }
+  if (isSeedEvent(last)) {
+    last.previous_time = newTime;
+    last.new_time = newTime;
+    last.computed_delta_minutes = 0;
+    last.delta_minutes = 0;
+    return persistRelinked(profile, storage);
+  }
+  last.new_time = newTime;
+  profile.changeLog = relinkChangeLog(profile.changeLog, profile.name?.trim() || "");
+  const updated = profile.changeLog.find((entry) => entry.id === last.id);
+  if (updated && updated.previous_time === updated.new_time) {
+    profile.changeLog = profile.changeLog.filter((entry) => entry.id !== last.id);
+  }
+  return persistRelinked(profile, storage);
+}
+function updateStartingSchedule(body, storage) {
+  const profile = getCurrentProfile(storage);
+  if (!profile) {
+    throw new Error("Set up a person first.");
+  }
+  const name = String(body.name ?? profile.name ?? "").trim();
+  const startDate = toDateString(body.start_date || profile.start_date || getAsOfDate());
+  const segments = [];
+  for (const segment of SEGMENTS) {
+    const key = segment.toLowerCase();
+    const range = requireClockPair(
+      body[`${key}_in`] ?? body[`${key}_clock_in`],
+      body[`${key}_out`] ?? body[`${key}_clock_out`],
+      segment
+    );
+    if (range) {
+      segments.push({ segment, range });
+    }
+  }
+  if (!segments.length) {
+    throw new Error("Enter clock-in and clock-out for at least one run.");
+  }
+  const laterBySegment = new Set(
+    profile.changeLog.filter((entry) => !isSeedEvent(entry)).map((entry) => entry.segment)
+  );
+  for (const segment of laterBySegment) {
+    if (!segments.some((item) => item.segment === segment)) {
+      throw new Error(
+        `Keep ${segment} starting times \u2014 later changes still depend on that run.`
+      );
+    }
+  }
+  const seeds = profile.changeLog.filter(isSeedEvent);
+  const nonSeeds = profile.changeLog.filter((entry) => !isSeedEvent(entry));
+  const nextSeeds = segments.map((item, index) => {
+    const existing = seeds.find((seed) => seed.segment === item.segment);
+    if (existing) {
+      return {
+        ...existing,
+        driver_name: name,
+        entered_by: name || "Self",
+        effective_date: startDate,
+        previous_time: item.range,
+        new_time: item.range,
+        computed_delta_minutes: 0,
+        delta_minutes: 0
+      };
+    }
+    return makeSeedChange({
+      segment: item.segment,
+      range: item.range,
+      startDate,
+      name,
+      submittedAt: new Date(Date.now() + index).toISOString()
+    });
+  });
+  profile.name = name;
+  profile.start_date = startDate;
+  profile.changeLog = [...nextSeeds, ...nonSeeds];
+  return persistRelinked(profile, storage);
+}
+function startingScheduleFields(storage) {
+  const profile = getCurrentProfile(storage);
+  if (!profile) {
+    return { name: "", start_date: getAsOfDate(), segments: {} };
+  }
+  const segments = {};
+  for (const seed of profile.changeLog.filter(isSeedEvent)) {
+    segments[seed.segment] = splitSegmentRange(seed.new_time);
+  }
+  return {
+    name: profile.name || "",
+    start_date: profile.start_date || getAsOfDate(),
+    segments
+  };
+}
 function switchPerson(id, storage) {
   setCurrentProfile(id, storage);
   return currentSnapshot(storage);
@@ -1875,6 +2072,11 @@ var reportList = document.querySelector("#report-list");
 var calendarMonths = document.querySelector("#calendar-months");
 var calendarPill = document.querySelector("#calendar-pill");
 var profileSelect = document.querySelector("#profile_select");
+var startEditForm = document.querySelector("#start-edit-form");
+var startEditRuns = document.querySelector("#start-edit-runs");
+var startEditStatus = document.querySelector("#start-edit-status");
+var changeEditForm = document.querySelector("#change-edit-form");
+var changeEditStatus = document.querySelector("#change-edit-status");
 var snapshot = null;
 var addingPerson = false;
 var calendarRendered = false;
@@ -1972,16 +2174,35 @@ function renderHero() {
 }
 function renderSchedule() {
   const start = snapshot.employee?.start_date;
-  scheduleLead.textContent = start ? `Starting schedule as of ${prettyDate2(start)}. Times below update as soon as you log a change; contracted hours wait for the window to close.` : "";
+  scheduleLead.textContent = start ? `Starting schedule as of ${prettyDate2(start)}. Times below update as soon as you log a change; contracted hours wait for the window to close. Use Correct if you typed a time wrong.` : "";
   scheduleCards.innerHTML = RUNS.map((run) => {
     const item = snapshot.schedule?.[run.id];
     if (!item) {
       return `<article class="schedule-card"><h3>${run.label}</h3><p class="muted">Not on your schedule</p></article>`;
     }
-    return `<article class="schedule-card">
+    return `<article class="schedule-card" data-segment="${run.id}">
       <h3>${run.label}</h3>
       <p class="times">${item.clock_in} \u2013 ${item.clock_out}</p>
       <p class="muted">${item.duration_minutes} min</p>
+      <div class="correct-fields" hidden>
+        <div class="pair">
+          <div class="field">
+            <label>Clock-in</label>
+            <input class="correct-in" type="time" step="60" value="${toTimeInput(item.clock_in)}" />
+          </div>
+          <div class="field">
+            <label>Clock-out</label>
+            <input class="correct-out" type="time" step="60" value="${toTimeInput(item.clock_out)}" />
+          </div>
+        </div>
+        <div class="row-actions">
+          <button type="button" class="js-save-correct">Save</button>
+          <button type="button" class="secondary js-cancel-correct">Cancel</button>
+        </div>
+      </div>
+      <div class="row-actions">
+        <button type="button" class="secondary js-correct-times">Correct these times</button>
+      </div>
     </article>`;
   }).join("");
 }
@@ -1992,10 +2213,14 @@ function renderHistory() {
     return;
   }
   historyList.innerHTML = items.map(
-    (change) => `<li>
+    (change) => `<li data-change-id="${change.id}">
         <strong>${prettyDate2(change.change_date)} \xB7 ${change.segment}</strong>
         <div>${change.previous_time} \u2192 ${change.new_time} (${change.delta_label})</div>
         ${change.note ? `<div class="meta">${change.note}</div>` : ""}
+        <div class="row-actions">
+          <button type="button" class="secondary js-edit-change">Edit</button>
+          <button type="button" class="secondary js-delete-change">Remove</button>
+        </div>
       </li>`
   ).join("");
 }
@@ -2066,6 +2291,8 @@ function renderApp() {
   fillChangeFormFromSegment();
 }
 function loadAll() {
+  startEditForm.hidden = true;
+  changeEditForm.hidden = true;
   snapshot = addingPerson ? buildSnapshot(null) : currentSnapshot();
   calendarPill.textContent = `BPS ${snapshot.calendar?.school_year || "2026-2027"} \xB7 ${snapshot.calendar?.school_day_count ?? 180} school days`;
   if (!document.querySelector("#setup_start_date").value) {
@@ -2182,6 +2409,131 @@ document.querySelector("#export-btn").addEventListener("click", () => {
 });
 document.querySelector("#import-btn").addEventListener("click", () => {
   document.querySelector("#import-file").click();
+});
+function fillStartEditForm() {
+  const fields = startingScheduleFields();
+  document.querySelector("#start_edit_name").value = fields.name;
+  document.querySelector("#start_edit_date").value = fields.start_date;
+  startEditRuns.innerHTML = RUNS.map((run) => {
+    const item = fields.segments[run.id];
+    return `
+      <div class="run-card">
+        <h3>${run.label}</h3>
+        <div class="pair">
+          <div class="field">
+            <label for="start_edit_${run.inName}">Clock-in</label>
+            <input id="start_edit_${run.inName}" name="${run.inName}" type="time" step="60" value="${item ? toTimeInput(item.clock_in) : ""}" />
+          </div>
+          <div class="field">
+            <label for="start_edit_${run.outName}">Clock-out</label>
+            <input id="start_edit_${run.outName}" name="${run.outName}" type="time" step="60" value="${item ? toTimeInput(item.clock_out) : ""}" />
+          </div>
+        </div>
+      </div>`;
+  }).join("");
+}
+document.querySelector("#edit-start-btn").addEventListener("click", () => {
+  fillStartEditForm();
+  startEditForm.hidden = false;
+  setStatus(startEditStatus, "");
+  startEditForm.scrollIntoView({ behavior: "smooth", block: "nearest" });
+});
+document.querySelector("#start-edit-cancel").addEventListener("click", () => {
+  startEditForm.hidden = true;
+  setStatus(startEditStatus, "");
+});
+startEditForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(startEditForm));
+  try {
+    snapshot = updateStartingSchedule(data);
+    startEditForm.hidden = true;
+    setStatus(changeStatus, "Starting times corrected.", "ok");
+    renderApp();
+  } catch (error) {
+    setStatus(startEditStatus, error.message, "error");
+  }
+});
+scheduleCards.addEventListener("click", (event) => {
+  const card = event.target.closest(".schedule-card");
+  if (!card) return;
+  const fields = card.querySelector(".correct-fields");
+  if (event.target.closest(".js-correct-times")) {
+    if (fields) fields.hidden = false;
+    return;
+  }
+  if (event.target.closest(".js-cancel-correct")) {
+    if (fields) fields.hidden = true;
+    return;
+  }
+  if (event.target.closest(".js-save-correct")) {
+    try {
+      snapshot = correctCurrentTimes({
+        segment: card.dataset.segment,
+        clock_in: card.querySelector(".correct-in").value,
+        clock_out: card.querySelector(".correct-out").value
+      });
+      setStatus(changeStatus, "Clock times corrected.", "ok");
+      renderApp();
+    } catch (error) {
+      setStatus(changeStatus, error.message, "error");
+    }
+  }
+});
+function openChangeEditor(changeId) {
+  const change = (snapshot.changes || []).find((item) => item.id === changeId);
+  if (!change) return;
+  document.querySelector("#change_edit_id").value = change.id;
+  document.querySelector("#change_edit_date").value = change.change_date;
+  document.querySelector("#change_edit_segment").textContent = change.segment;
+  document.querySelector("#change_edit_in").value = toTimeInput(change.next?.clock_in);
+  document.querySelector("#change_edit_out").value = toTimeInput(change.next?.clock_out);
+  document.querySelector("#change_edit_note").value = change.note || "";
+  changeEditForm.hidden = false;
+  setStatus(changeEditStatus, "");
+  changeEditForm.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+historyList.addEventListener("click", (event) => {
+  const row = event.target.closest("[data-change-id]");
+  if (!row) return;
+  const changeId = row.dataset.changeId;
+  if (event.target.closest(".js-edit-change")) {
+    openChangeEditor(changeId);
+    return;
+  }
+  if (event.target.closest(".js-delete-change")) {
+    if (!confirm("Remove this recorded change? The hours math will be rebuilt without it.")) {
+      return;
+    }
+    try {
+      snapshot = deleteChange(changeId);
+      changeEditForm.hidden = true;
+      setStatus(changeStatus, "Change removed.", "ok");
+      renderApp();
+    } catch (error) {
+      setStatus(changeStatus, error.message, "error");
+    }
+  }
+});
+changeEditForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  try {
+    snapshot = updateChange(document.querySelector("#change_edit_id").value, {
+      change_date: document.querySelector("#change_edit_date").value,
+      clock_in: document.querySelector("#change_edit_in").value,
+      clock_out: document.querySelector("#change_edit_out").value,
+      note: document.querySelector("#change_edit_note").value
+    });
+    changeEditForm.hidden = true;
+    setStatus(changeStatus, "Change corrected.", "ok");
+    renderApp();
+  } catch (error) {
+    setStatus(changeEditStatus, error.message, "error");
+  }
+});
+document.querySelector("#change-edit-cancel").addEventListener("click", () => {
+  changeEditForm.hidden = true;
+  setStatus(changeEditStatus, "");
 });
 document.querySelector("#import-file").addEventListener("change", async (event) => {
   const file = event.target.files?.[0];

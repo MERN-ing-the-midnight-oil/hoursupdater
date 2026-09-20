@@ -1,7 +1,9 @@
 import {
   buildSnapshot,
   calendarPayload,
+  correctCurrentTimes,
   currentSnapshot,
+  deleteChange,
   getAsOfDate,
   importBackup,
   peopleList,
@@ -9,7 +11,10 @@ import {
   recordChange,
   removeCurrentPerson,
   setupProfile,
+  startingScheduleFields,
   switchPerson,
+  updateChange,
+  updateStartingSchedule,
 } from './engine.js';
 import { exportState, getCurrentProfile } from './store.js';
 
@@ -35,6 +40,11 @@ const reportList = document.querySelector('#report-list');
 const calendarMonths = document.querySelector('#calendar-months');
 const calendarPill = document.querySelector('#calendar-pill');
 const profileSelect = document.querySelector('#profile_select');
+const startEditForm = document.querySelector('#start-edit-form');
+const startEditRuns = document.querySelector('#start-edit-runs');
+const startEditStatus = document.querySelector('#start-edit-status');
+const changeEditForm = document.querySelector('#change-edit-form');
+const changeEditStatus = document.querySelector('#change-edit-status');
 
 let snapshot = null;
 let addingPerson = false;
@@ -168,17 +178,36 @@ function renderHero() {
 function renderSchedule() {
   const start = snapshot.employee?.start_date;
   scheduleLead.textContent = start
-    ? `Starting schedule as of ${prettyDate(start)}. Times below update as soon as you log a change; contracted hours wait for the window to close.`
+    ? `Starting schedule as of ${prettyDate(start)}. Times below update as soon as you log a change; contracted hours wait for the window to close. Use Correct if you typed a time wrong.`
     : '';
   scheduleCards.innerHTML = RUNS.map((run) => {
     const item = snapshot.schedule?.[run.id];
     if (!item) {
       return `<article class="schedule-card"><h3>${run.label}</h3><p class="muted">Not on your schedule</p></article>`;
     }
-    return `<article class="schedule-card">
+    return `<article class="schedule-card" data-segment="${run.id}">
       <h3>${run.label}</h3>
       <p class="times">${item.clock_in} – ${item.clock_out}</p>
       <p class="muted">${item.duration_minutes} min</p>
+      <div class="correct-fields" hidden>
+        <div class="pair">
+          <div class="field">
+            <label>Clock-in</label>
+            <input class="correct-in" type="time" step="60" value="${toTimeInput(item.clock_in)}" />
+          </div>
+          <div class="field">
+            <label>Clock-out</label>
+            <input class="correct-out" type="time" step="60" value="${toTimeInput(item.clock_out)}" />
+          </div>
+        </div>
+        <div class="row-actions">
+          <button type="button" class="js-save-correct">Save</button>
+          <button type="button" class="secondary js-cancel-correct">Cancel</button>
+        </div>
+      </div>
+      <div class="row-actions">
+        <button type="button" class="secondary js-correct-times">Correct these times</button>
+      </div>
     </article>`;
   }).join('');
 }
@@ -191,10 +220,14 @@ function renderHistory() {
   }
   historyList.innerHTML = items
     .map(
-      (change) => `<li>
+      (change) => `<li data-change-id="${change.id}">
         <strong>${prettyDate(change.change_date)} · ${change.segment}</strong>
         <div>${change.previous_time} → ${change.new_time} (${change.delta_label})</div>
         ${change.note ? `<div class="meta">${change.note}</div>` : ''}
+        <div class="row-actions">
+          <button type="button" class="secondary js-edit-change">Edit</button>
+          <button type="button" class="secondary js-delete-change">Remove</button>
+        </div>
       </li>`
     )
     .join('');
@@ -288,6 +321,8 @@ function renderApp() {
 }
 
 function loadAll() {
+  startEditForm.hidden = true;
+  changeEditForm.hidden = true;
   snapshot = addingPerson ? buildSnapshot(null) : currentSnapshot();
   calendarPill.textContent = `BPS ${snapshot.calendar?.school_year || '2026-2027'} · ${
     snapshot.calendar?.school_day_count ?? 180
@@ -415,6 +450,144 @@ document.querySelector('#export-btn').addEventListener('click', () => {
 
 document.querySelector('#import-btn').addEventListener('click', () => {
   document.querySelector('#import-file').click();
+});
+
+function fillStartEditForm() {
+  const fields = startingScheduleFields();
+  document.querySelector('#start_edit_name').value = fields.name;
+  document.querySelector('#start_edit_date').value = fields.start_date;
+  startEditRuns.innerHTML = RUNS.map((run) => {
+    const item = fields.segments[run.id];
+    return `
+      <div class="run-card">
+        <h3>${run.label}</h3>
+        <div class="pair">
+          <div class="field">
+            <label for="start_edit_${run.inName}">Clock-in</label>
+            <input id="start_edit_${run.inName}" name="${run.inName}" type="time" step="60" value="${
+              item ? toTimeInput(item.clock_in) : ''
+            }" />
+          </div>
+          <div class="field">
+            <label for="start_edit_${run.outName}">Clock-out</label>
+            <input id="start_edit_${run.outName}" name="${run.outName}" type="time" step="60" value="${
+              item ? toTimeInput(item.clock_out) : ''
+            }" />
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+document.querySelector('#edit-start-btn').addEventListener('click', () => {
+  fillStartEditForm();
+  startEditForm.hidden = false;
+  setStatus(startEditStatus, '');
+  startEditForm.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+
+document.querySelector('#start-edit-cancel').addEventListener('click', () => {
+  startEditForm.hidden = true;
+  setStatus(startEditStatus, '');
+});
+
+startEditForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(startEditForm));
+  try {
+    snapshot = updateStartingSchedule(data);
+    startEditForm.hidden = true;
+    setStatus(changeStatus, 'Starting times corrected.', 'ok');
+    renderApp();
+  } catch (error) {
+    setStatus(startEditStatus, error.message, 'error');
+  }
+});
+
+scheduleCards.addEventListener('click', (event) => {
+  const card = event.target.closest('.schedule-card');
+  if (!card) return;
+  const fields = card.querySelector('.correct-fields');
+  if (event.target.closest('.js-correct-times')) {
+    if (fields) fields.hidden = false;
+    return;
+  }
+  if (event.target.closest('.js-cancel-correct')) {
+    if (fields) fields.hidden = true;
+    return;
+  }
+  if (event.target.closest('.js-save-correct')) {
+    try {
+      snapshot = correctCurrentTimes({
+        segment: card.dataset.segment,
+        clock_in: card.querySelector('.correct-in').value,
+        clock_out: card.querySelector('.correct-out').value,
+      });
+      setStatus(changeStatus, 'Clock times corrected.', 'ok');
+      renderApp();
+    } catch (error) {
+      setStatus(changeStatus, error.message, 'error');
+    }
+  }
+});
+
+function openChangeEditor(changeId) {
+  const change = (snapshot.changes || []).find((item) => item.id === changeId);
+  if (!change) return;
+  document.querySelector('#change_edit_id').value = change.id;
+  document.querySelector('#change_edit_date').value = change.change_date;
+  document.querySelector('#change_edit_segment').textContent = change.segment;
+  document.querySelector('#change_edit_in').value = toTimeInput(change.next?.clock_in);
+  document.querySelector('#change_edit_out').value = toTimeInput(change.next?.clock_out);
+  document.querySelector('#change_edit_note').value = change.note || '';
+  changeEditForm.hidden = false;
+  setStatus(changeEditStatus, '');
+  changeEditForm.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+historyList.addEventListener('click', (event) => {
+  const row = event.target.closest('[data-change-id]');
+  if (!row) return;
+  const changeId = row.dataset.changeId;
+  if (event.target.closest('.js-edit-change')) {
+    openChangeEditor(changeId);
+    return;
+  }
+  if (event.target.closest('.js-delete-change')) {
+    if (!confirm('Remove this recorded change? The hours math will be rebuilt without it.')) {
+      return;
+    }
+    try {
+      snapshot = deleteChange(changeId);
+      changeEditForm.hidden = true;
+      setStatus(changeStatus, 'Change removed.', 'ok');
+      renderApp();
+    } catch (error) {
+      setStatus(changeStatus, error.message, 'error');
+    }
+  }
+});
+
+changeEditForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  try {
+    snapshot = updateChange(document.querySelector('#change_edit_id').value, {
+      change_date: document.querySelector('#change_edit_date').value,
+      clock_in: document.querySelector('#change_edit_in').value,
+      clock_out: document.querySelector('#change_edit_out').value,
+      note: document.querySelector('#change_edit_note').value,
+    });
+    changeEditForm.hidden = true;
+    setStatus(changeStatus, 'Change corrected.', 'ok');
+    renderApp();
+  } catch (error) {
+    setStatus(changeEditStatus, error.message, 'error');
+  }
+});
+
+document.querySelector('#change-edit-cancel').addEventListener('click', () => {
+  changeEditForm.hidden = true;
+  setStatus(changeEditStatus, '');
 });
 
 document.querySelector('#import-file').addEventListener('change', async (event) => {

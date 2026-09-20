@@ -274,4 +274,81 @@ describe('independent browser profiles', () => {
     assert.equal(alex.window.status, 'STABLE');
     assert.equal(alex.window.cumulative_drift_minutes, 0);
   });
+
+  it('lets a person correct a mistyped change and rebuild the window', async () => {
+    const { deleteChange, recordChange, setupProfile, updateChange } = await import(
+      '../employee-tracker/web/engine.js'
+    );
+    const storage = memoryStorage();
+    setupProfile(
+      {
+        name: 'Alex',
+        start_date: '2026-09-08',
+        am_in: '06:35',
+        am_out: '08:55',
+      },
+      storage
+    );
+    const wrong = recordChange(
+      {
+        segment: 'AM',
+        change_date: '2026-09-08',
+        clock_in: '05:35',
+        clock_out: '08:55',
+      },
+      storage
+    );
+    assert.equal(wrong.window.cumulative_drift_minutes, 60);
+    const changeId = wrong.changes.find((change) => !change.is_seed).id;
+
+    const fixed = updateChange(
+      changeId,
+      {
+        change_date: '2026-09-08',
+        clock_in: '06:28',
+        clock_out: '08:55',
+      },
+      storage
+    );
+    assert.equal(fixed.schedule.AM.clock_in, '6:28');
+    assert.equal(fixed.window.cumulative_drift_minutes, 7);
+    assert.equal(fixed.window.projected_outcome, 'STABLE');
+
+    const removed = deleteChange(changeId, storage);
+    assert.equal(removed.schedule.AM.clock_in, '6:35');
+    assert.equal(removed.window.status, 'STABLE');
+    assert.equal(removed.changes.filter((change) => !change.is_seed).length, 0);
+  });
+
+  it('corrects current clock times without adding a new history row', async () => {
+    const { correctCurrentTimes, recordChange, setupProfile } = await import(
+      '../employee-tracker/web/engine.js'
+    );
+    const storage = memoryStorage();
+    setupProfile(
+      {
+        name: 'Alex',
+        start_date: '2026-09-08',
+        am_in: '06:35',
+        am_out: '08:55',
+      },
+      storage
+    );
+    recordChange(
+      {
+        segment: 'AM',
+        change_date: '2026-09-08',
+        clock_in: '06:20',
+        clock_out: '08:55',
+      },
+      storage
+    );
+    const corrected = correctCurrentTimes(
+      { segment: 'AM', clock_in: '06:28', clock_out: '08:55' },
+      storage
+    );
+    assert.equal(corrected.schedule.AM.clock_in, '6:28');
+    assert.equal(corrected.window.cumulative_drift_minutes, 7);
+    assert.equal(corrected.changes.filter((change) => !change.is_seed).length, 1);
+  });
 });

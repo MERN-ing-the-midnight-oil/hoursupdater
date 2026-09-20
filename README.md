@@ -26,7 +26,7 @@ npm start             # http://localhost:3847
 
 Open **http://localhost:3847/routing** for the Routing desk.
 
-A separate employee app, **My Hours Tracker**, uses the same contract math with the built-in BPS 2026–2027 calendar. Each person is stored independently in their own browser.
+A separate employee app, **My Teamster Contract Hours Tracker**, uses the same contract math with the built-in BPS 2026–2027 calendar. Each person is stored independently in their own browser.
 
 ```bash
 npm run start:employee   # http://localhost:3848
