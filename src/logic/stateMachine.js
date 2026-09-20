@@ -1,4 +1,9 @@
-import { BID_THRESHOLD_MINUTES, BUMP_DECISION_SCHOOL_DAYS, BID_RESPONSE_SCHOOL_DAYS, SEGMENTS } from '../config.js';
+import {
+  BID_RESPONSE_SCHOOL_DAYS,
+  BID_THRESHOLD_MINUTES,
+  BUMP_DECISION_SCHOOL_DAYS,
+  SEGMENTS,
+} from './constants.js';
 import {
   addSchoolDays,
   isWindowExpired,

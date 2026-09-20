@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>My Hours Tracker</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand">My Hours Tracker</div>
+          <p class="brand-sub">Personal Teamster hours calculator</p>
+        </div>
+        <p class="calendar-pill" id="calendar-pill">BPS 2026–2027 calendar</p>
+      </header>
+
+      <div class="people-bar" id="people-bar">
+        <div class="field people-select">
+          <label for="profile_select">Person on this device</label>
+          <select id="profile_select">
+            <option value="">Add a person…</option>
+          </select>
+        </div>
+        <div class="people-actions">
+          <button type="button" class="secondary" id="add-person-btn">Add person</button>
+          <button type="button" class="secondary" id="export-btn">Download backup</button>
+          <button type="button" class="secondary" id="import-btn">Load backup</button>
+          <input id="import-file" type="file" accept="application/json,.json" hidden />
+        </div>
+      </div>
+
+      <p class="disclaimer">
+        Each person is stored only in this browser. Switching people does not
+        mix their hours. Download a backup if you change computers. Nothing is
+        sent to the district or payroll.
+      </p>
+
+      <section id="setup-view" class="panel" hidden>
+        <h1>Set your current clock times</h1>
+        <p class="lead">
+          Enter the times you work now. Later you will record only what changed,
+          and the app will count 15 school days until those times become
+          contracted.
+        </p>
+        <form id="setup-form" novalidate>
+          <div class="grid">
+            <div class="field">
+              <label for="setup_name">Your name</label>
+              <input id="setup_name" name="name" autocomplete="name" placeholder="Optional" />
+            </div>
+            <div class="field">
+              <label for="setup_start_date">These times started on</label>
+              <input id="setup_start_date" name="start_date" type="date" required />
+            </div>
+          </div>
+
+          <div class="run-grid" id="setup-runs"></div>
+          <p class="field-hint">Fill in at least one run. Leave unused runs blank.</p>
+
+          <div class="actions">
+            <button type="submit" id="setup-submit">Save starting times</button>
+          </div>
+          <div id="setup-status" class="status" role="status"></div>
+        </form>
+      </section>
+
+      <div id="app-view" hidden>
+        <section class="hero panel" id="hero"></section>
+
+        <section class="panel">
+          <h2>Your clock times</h2>
+          <p class="lead" id="schedule-lead"></p>
+          <div class="schedule-cards" id="schedule-cards"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Record a clock-time change</h2>
+          <p class="lead">
+            Submit the new clock-in or clock-out and the date it took effect.
+            Exact minutes are used — nothing is rounded until contracted hours
+            lock in.
+          </p>
+          <form id="change-form" novalidate>
+            <div class="grid">
+              <div class="field">
+                <label for="change_segment">Run</label>
+                <select id="change_segment" name="segment" required>
+                  <option value="AM">AM</option>
+                  <option value="MIDDAY">Midday</option>
+                  <option value="PM">PM</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="change_date">Date the change took place</label>
+                <input id="change_date" name="change_date" type="date" required />
+              </div>
+              <div class="field">
+                <label for="clock_in">New clock-in</label>
+                <input id="clock_in" name="clock_in" type="time" step="60" required />
+              </div>
+              <div class="field">
+                <label for="clock_out">New clock-out</label>
+                <input id="clock_out" name="clock_out" type="time" step="60" required />
+              </div>
+              <div class="field full">
+                <label for="change_note">Note</label>
+                <textarea id="change_note" name="note" placeholder="Optional"></textarea>
+              </div>
+            </div>
+            <div id="preview-box" class="preview-box" hidden></div>
+            <div class="actions">
+              <button type="submit" id="change-submit">Submit change</button>
+              <button type="button" class="secondary" id="change-reset">Clear</button>
+            </div>
+            <div id="change-status" class="status" role="status"></div>
+          </form>
+        </section>
+
+        <section class="panel">
+          <h2>Change history</h2>
+          <ul id="history-list" class="history-list"></ul>
+        </section>
+
+        <section class="panel">
+          <h2>When windows closed</h2>
+          <p class="lead">
+            Each closed 15-school-day window is when clock-time changes become
+            contracted — or are flagged for bid or bump.
+          </p>
+          <ul id="report-list" class="history-list"></ul>
+        </section>
+
+        <section class="panel">
+          <h2>BPS 2026–2027 school calendar</h2>
+          <p class="lead">
+            Only student school days count toward the 15-day window. Weekends,
+            holidays, and recesses do not.
+          </p>
+          <div id="calendar-months" class="calendar-months"></div>
+        </section>
+
+        <section class="panel rules">
+          <h2>How the contract math works</h2>
+          <ol>
+            <li>
+              A qualifying clock-time change opens a
+              <strong>15-school-day window</strong>. Another change on the same
+              assignment resets that window and adds the exact minute difference.
+            </li>
+            <li>
+              Deltas stay <strong>exact and unrounded</strong> while the window
+              is open.
+            </li>
+            <li>
+              When the window closes, the accumulated difference is checked
+              against <strong>30 minutes</strong>:
+              <ul>
+                <li>Under 30 minutes → the new times <strong>lock in</strong> as contracted hours.</li>
+                <li>Increase of 30+ minutes → <strong>bid pending</strong>.</li>
+                <li>Decrease of 30+ minutes → <strong>bump eligible</strong>.</li>
+              </ul>
+            </li>
+            <li>
+              Contracted hours are the daily AM + Midday + PM total, rounded
+              <strong>once</strong> to the nearest 15 minutes at lock-in. A
+              schedule can change without contracted hours changing if both
+              totals round to the same quarter hour.
+            </li>
+          </ol>
+        </section>
+
+        <div class="footer-actions">
+          <button type="button" class="danger-link" id="reset-btn">
+            Start over (erase my local data)
+          </button>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

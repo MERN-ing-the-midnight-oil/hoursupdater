@@ -1,0 +1,413 @@
+:root {
+  --bg: #f3f0e8;
+  --ink: #1c2430;
+  --muted: #5c6673;
+  --line: #c9c1b0;
+  --card: #fffcf6;
+  --accent: #1f5c4a;
+  --accent-hover: #174739;
+  --warn: #8a4b12;
+  --danger: #8b2e2e;
+  --ok: #1f5c4a;
+  --shadow: 0 10px 30px rgba(28, 36, 48, 0.08);
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-body: "Avenir Next", "Segoe UI", Candara, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  font-family: var(--font-body);
+  background:
+    radial-gradient(circle at top left, rgba(31, 92, 74, 0.08), transparent 40%),
+    linear-gradient(160deg, #f7f4ec 0%, #ebe4d6 100%);
+}
+
+.shell {
+  width: min(880px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 1.5rem 0 3rem;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.brand {
+  font-family: var(--font-display);
+  font-size: 1.85rem;
+  font-weight: 600;
+}
+
+.brand-sub {
+  margin: 0.15rem 0 0;
+  color: var(--muted);
+}
+
+.calendar-pill {
+  margin: 0;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--line);
+  background: var(--card);
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.disclaimer {
+  margin: 0 0 1.25rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.people-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: end;
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.people-select {
+  min-width: min(16rem, 100%);
+  flex: 1 1 12rem;
+}
+
+.people-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  padding: 1.25rem 1.35rem 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.panel h1,
+.panel h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  margin: 0 0 0.35rem;
+}
+
+.lead,
+.field-hint {
+  margin: 0 0 1rem;
+  color: var(--muted);
+}
+
+.field-hint {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem 1rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.field.full {
+  grid-column: 1 / -1;
+}
+
+label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  padding: 0.55rem 0.65rem;
+}
+
+textarea {
+  min-height: 4.5rem;
+  resize: vertical;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+button {
+  appearance: none;
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+button:hover {
+  background: var(--accent-hover);
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+button.secondary:hover {
+  background: #f3eee3;
+}
+
+.danger-link {
+  background: transparent;
+  color: var(--danger);
+  border: 0;
+  padding: 0;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.footer-actions {
+  padding: 0.5rem 0 2rem;
+}
+
+.run-grid {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.run-card,
+.schedule-card {
+  border: 1px solid var(--line);
+  padding: 0.85rem;
+  background: #fffdf8;
+}
+
+.run-card h3,
+.schedule-card h3 {
+  margin: 0 0 0.6rem;
+  font-size: 1rem;
+}
+
+.run-card .pair,
+.schedule-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.schedule-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.schedule-card .times {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+}
+
+.schedule-card .muted {
+  color: var(--muted);
+  margin: 0.25rem 0 0;
+}
+
+.hero {
+  border-left: 6px solid var(--accent);
+}
+
+.hero.outcome-bid {
+  border-left-color: var(--warn);
+}
+
+.hero.outcome-bump {
+  border-left-color: var(--danger);
+}
+
+.hero-kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 0 0 0.35rem;
+}
+
+.hero-title {
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  margin: 0 0 0.5rem;
+}
+
+.hero-detail,
+.stat-row {
+  color: var(--muted);
+}
+
+.stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin: 0.9rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stat-row strong {
+  color: var(--ink);
+  display: block;
+}
+
+.preview-box,
+.status {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line);
+  background: #f7f3ea;
+}
+
+.status.is-error {
+  border-color: #e3c0c0;
+  background: #f8ecec;
+  color: var(--danger);
+}
+
+.status.is-ok {
+  border-color: #c6ddd4;
+  background: #eef6f2;
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.history-list li {
+  border: 1px solid var(--line);
+  padding: 0.75rem 0.85rem;
+  background: #fffdf8;
+}
+
+.history-list .meta {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.empty {
+  color: var(--muted);
+}
+
+.calendar-months {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.month-block h3 {
+  margin: 0 0 0.5rem;
+  font-family: var(--font-display);
+}
+
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.dow,
+.cal-day {
+  font-size: 0.72rem;
+  text-align: center;
+  padding: 0.35rem 0.15rem;
+}
+
+.dow {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.cal-day {
+  border: 1px solid transparent;
+  min-height: 2.4rem;
+}
+
+.cal-day.is-school {
+  background: #e4efe9;
+  border-color: #c5d9cf;
+}
+
+.cal-day.is-off {
+  background: #f3eee6;
+  color: var(--muted);
+}
+
+.cal-day .num {
+  display: block;
+  font-weight: 700;
+}
+
+.cal-day .why {
+  display: block;
+  font-size: 0.58rem;
+  line-height: 1.2;
+}
+
+.rules ol {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.rules li {
+  margin: 0.45rem 0;
+}
+
+@media (max-width: 720px) {
+  .grid,
+  .schedule-cards,
+  .run-card .pair {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    flex-direction: column;
+  }
+
+  .month-grid {
+    gap: 2px;
+  }
+}

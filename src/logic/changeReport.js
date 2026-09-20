@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createId } from './createId.js';
 import { buildPayrollRoundingBreakdown } from './timeUtils.js';
 
 /**
@@ -91,7 +91,7 @@ export function buildChangeReport(input) {
   }));
 
   return {
-    id: randomUUID(),
+    id: createId(),
     route_id: input.route_id,
     driver_name: input.driver_name?.trim() || null,
     driver_id: input.driver_id ?? null,

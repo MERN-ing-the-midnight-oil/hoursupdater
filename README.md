@@ -26,6 +26,14 @@ npm start             # http://localhost:3847
 
 Open **http://localhost:3847/routing** for the Routing desk.
 
+A separate employee app, **My Hours Tracker**, uses the same contract math with the built-in BPS 2026–2027 calendar. Each person is stored independently in their own browser.
+
+```bash
+npm run start:employee   # http://localhost:3848
+```
+
+See **[employee-tracker/README.md](./employee-tracker/README.md)**. The published GitHub Pages site is built into `docs/`.
+
 Point `DATA_DIR` in `.env` at your OneDrive-synced **shared folder root** when you go live:
 
 ```env
