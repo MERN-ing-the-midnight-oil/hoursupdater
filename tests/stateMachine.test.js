@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { addSchoolDays } from '../src/logic/calendar.js';
+import { addSchoolDays, nextCalendarDate } from '../src/logic/calendar.js';
 import {
   applyAllWindowExpirations,
   applyBidAwardResolutions,
@@ -108,7 +108,8 @@ describe('stateMachine', () => {
     assert.equal(result.cumulative_drift_minutes, 5);
     assert.equal(result.payroll_rounded_total_minutes, null);
     assert.deepEqual(result.contributing_change_ids, [change.id]);
-    assert.equal(result.window_expires_date, addSchoolDays(calendar, '2025-09-02', 15));
+    assert.equal(result.window_expires_date, '2025-09-30');
+    assert.equal(result.window_rule, 'pre_october_1_lock');
     assert.equal(result.segments.AM, '6:30-8:55');
   });
 
@@ -139,7 +140,8 @@ describe('stateMachine', () => {
     assert.equal(state.cumulative_drift_minutes, 22);
     assert.equal(state.payroll_rounded_total_minutes, null);
     assert.deepEqual(state.contributing_change_ids, ['c1', 'c2', 'c3']);
-    assert.equal(state.window_expires_date, addSchoolDays(calendar, '2025-09-10', 15));
+    assert.equal(state.window_expires_date, '2025-09-30');
+    assert.equal(state.window_rule, 'pre_october_1_lock');
   });
 
   it('locks in under 30 using exact drift; rounds only at finalization (Rule 4a)', () => {
@@ -168,8 +170,8 @@ describe('stateMachine', () => {
     );
     assert.equal(state.cumulative_drift_minutes, 22);
 
-    // Third change on 9/10 reset the window to expire 15 school days later (10/1).
-    state = applyWindowExpiration(state, '2025-10-02');
+    // Under 30 before Oct 1: Art. 3.08(a)(8)(c) locks in on October 1.
+    state = applyWindowExpiration(state, '2025-10-01');
 
     assert.equal(state.status, 'STABLE');
     assert.equal(state.cumulative_drift_minutes, 0);
@@ -187,7 +189,7 @@ describe('stateMachine', () => {
     let state = applyChangeToRoute(null, change, calendar);
     assert.equal(state.cumulative_drift_minutes, 29);
 
-    state = applyWindowExpiration(state, '2025-09-24');
+    state = applyWindowExpiration(state, '2025-10-01');
 
     assert.equal(state.status, 'STABLE');
     // 6:30-8:55 = 145 → round to 150 (not round(29)=30)
@@ -210,7 +212,7 @@ describe('stateMachine', () => {
     assert.equal(parseTimeRange(state.segments.AM).durationMinutes, 147);
     assert.equal(roundToQuarterHourForPayroll(7), 0);
 
-    state = applyWindowExpiration(state, '2025-09-24');
+    state = applyWindowExpiration(state, '2025-10-01');
 
     assert.equal(state.status, 'STABLE');
     assert.equal(state.payroll_rounded_total_minutes, 150);
@@ -227,7 +229,7 @@ describe('stateMachine', () => {
     let state = applyChangeToRoute(null, change, calendar);
     state.segments.PM = '2:10-4:45'; // 155 exact
     // AM 145 + PM 155 = 300 → already on a quarter hour
-    state = applyWindowExpiration(state, '2025-09-24');
+    state = applyWindowExpiration(state, '2025-10-01');
     assert.equal(state.payroll_rounded_total_minutes, 300);
   });
 
@@ -272,13 +274,14 @@ describe('stateMachine', () => {
       submitted_at: '2025-09-05T08:00:00.000Z',
     });
     state = applyChangeToRoute(state, second, calendar);
+    const closedOn = nextCalendarDate(state.window_expires_date);
     state = applyWindowExpiration(state, '2025-10-01', {
       schoolCalendar: calendar,
     });
     assert.equal(state.status, 'BID_PENDING');
     assert.equal(
       state.bid_response_due_date,
-      addSchoolDays(calendar, '2025-10-01', 2)
+      addSchoolDays(calendar, closedOn, 2)
     );
   });
 
@@ -301,17 +304,11 @@ describe('stateMachine', () => {
     });
     state = applyChangeToRoute(state, second, calendar);
     assert.equal(state.cumulative_drift_minutes, -35);
-
-    state = applyWindowExpiration(state, '2025-10-01', {
-      schoolCalendar: calendar,
-    });
-
     assert.equal(state.status, 'BUMP_ELIGIBLE');
-    assert.equal(state.cumulative_drift_minutes, -35);
     assert.equal(state.window_expires_date, null);
     assert.equal(
       state.bump_decision_due_date,
-      addSchoolDays(calendar, '2025-10-01', 2)
+      addSchoolDays(calendar, '2025-09-05', 2)
     );
   });
 
@@ -343,7 +340,7 @@ describe('stateMachine', () => {
   it('starts a fresh window after a fully expired prior window (Rule 6)', () => {
     const first = makeChange({ id: 'c1', delta_minutes: 35 });
     let state = applyChangeToRoute(null, first, calendar);
-    state = applyWindowExpiration(state, '2025-09-24');
+    state = applyWindowExpiration(state, '2025-10-01');
     assert.equal(state.status, 'BID_PENDING');
     assert.equal(state.payroll_rounded_total_minutes, 150);
 
@@ -393,7 +390,7 @@ describe('stateMachine', () => {
       'S 20': applyChangeToRoute(null, change, calendar),
     };
 
-    const expired = applyAllWindowExpirations(routeState, '2025-09-24');
+    const expired = applyAllWindowExpirations(routeState, '2025-10-01');
     assert.equal(expired['S 20'].status, 'STABLE');
     assert.equal(expired['S 20'].payroll_rounded_total_minutes, 150);
   });
@@ -412,7 +409,7 @@ describe('stateMachine', () => {
       changes,
       {},
       calendar,
-      '2025-09-24'
+      '2025-10-01'
     );
     const route = state['S 20'];
     assert.equal(route.status, 'STABLE');
@@ -529,7 +526,7 @@ describe('stateMachine', () => {
       [original, adjustment],
       {},
       calendar,
-      '2025-09-24'
+      '2025-10-01'
     );
     assert.equal(state['S 20'].status, 'STABLE');
     assert.equal(state['S 20'].payroll_rounded_total_minutes, 150);
@@ -585,7 +582,7 @@ describe('stateMachine', () => {
       [original],
       {},
       calendar,
-      '2025-09-24'
+      '2025-10-01'
     );
     assert.equal(priorFinalized['S 20'].status, 'BID_PENDING');
     assert.equal(priorFinalized['S 20'].cumulative_drift_minutes, 35);
@@ -594,7 +591,7 @@ describe('stateMachine', () => {
       [original, adjustment],
       {},
       calendar,
-      '2025-09-24',
+      '2025-10-01',
       {
         priorRouteState: priorFinalized,
         lettersByRouteId: { 'S 20': true },
@@ -631,13 +628,13 @@ describe('stateMachine', () => {
       [original],
       {},
       calendar,
-      '2025-09-24'
+      '2025-10-01'
     );
     const needsReview = rebuildRouteStateFromChangeLog(
       [original, adjustment],
       {},
       calendar,
-      '2025-09-24',
+      '2025-10-01',
       {
         priorRouteState: priorFinalized,
         lettersByRouteId: { 'S 20': true },
@@ -662,7 +659,7 @@ describe('stateMachine', () => {
       [original, adjustment, resolution],
       {},
       calendar,
-      '2025-09-24',
+      '2025-10-01',
       {
         priorRouteState: needsReview,
         lettersByRouteId: { 'S 20': true },
@@ -683,7 +680,7 @@ describe('stateMachine', () => {
       [original, adjustment, resolution],
       {},
       calendar,
-      '2025-09-24',
+      '2025-10-01',
       {
         priorRouteState: kept,
         lettersByRouteId: { 'S 20': true },
@@ -730,20 +727,20 @@ describe('stateMachine', () => {
       [original],
       {},
       calendar,
-      '2025-09-24'
+      '2025-10-01'
     );
     const needsReview = rebuildRouteStateFromChangeLog(
       [original, adjustment],
       {},
       calendar,
-      '2025-09-24',
+      '2025-10-01',
       { priorRouteState: priorFinalized, lettersByRouteId: { 'S 20': true } }
     );
     const kept = rebuildRouteStateFromChangeLog(
       [original, adjustment, resolution],
       {},
       calendar,
-      '2025-09-24',
+      '2025-10-01',
       { priorRouteState: needsReview, lettersByRouteId: { 'S 20': true } }
     );
     assert.equal(kept['S 20'].status, 'BID_PENDING');
@@ -765,7 +762,7 @@ describe('stateMachine', () => {
       [original, adjustment, resolution, adjustment2],
       {},
       calendar,
-      '2025-09-24',
+      '2025-10-01',
       { priorRouteState: kept, lettersByRouteId: { 'S 20': true } }
     );
     assert.equal(freshConflict['S 20'].status, 'NEEDS_REVIEW');
@@ -810,20 +807,20 @@ describe('stateMachine', () => {
       [original],
       {},
       calendar,
-      '2025-09-24'
+      '2025-10-01'
     );
     const needsReview = rebuildRouteStateFromChangeLog(
       [original, adjustment],
       {},
       calendar,
-      '2025-09-24',
+      '2025-10-01',
       { priorRouteState: priorFinalized, lettersByRouteId: { 'S 20': true } }
     );
     const accepted = rebuildRouteStateFromChangeLog(
       [original, adjustment, resolution],
       {},
       calendar,
-      '2025-09-24',
+      '2025-10-01',
       { priorRouteState: needsReview, lettersByRouteId: { 'S 20': true } }
     );
 
@@ -853,7 +850,7 @@ describe('stateMachine', () => {
       [original],
       {},
       calendar,
-      '2025-09-24'
+      '2025-10-01'
     );
     assert.equal(priorFinalized['S 20'].status, 'STABLE');
 
@@ -861,7 +858,7 @@ describe('stateMachine', () => {
       [original, adjustment],
       {},
       calendar,
-      '2025-09-24',
+      '2025-10-01',
       {
         priorRouteState: priorFinalized,
         lettersByRouteId: { 'S 20': false },
@@ -906,13 +903,13 @@ describe('stateMachine', () => {
       [original],
       {},
       calendar,
-      '2025-09-24'
+      '2025-10-01'
     );
     const needsReview = rebuildRouteStateFromChangeLog(
       [original, adjDown],
       {},
       calendar,
-      '2025-09-24',
+      '2025-10-01',
       { priorRouteState: priorFinalized }
     );
     assert.equal(needsReview['S 20'].status, 'NEEDS_REVIEW');
@@ -922,7 +919,7 @@ describe('stateMachine', () => {
       [original, adjDown, adjRestore],
       {},
       calendar,
-      '2025-09-24',
+      '2025-10-01',
       { priorRouteState: needsReview }
     );
     assert.equal(restored['S 20'].status, 'BID_PENDING');
@@ -932,7 +929,7 @@ describe('stateMachine', () => {
       {
         event: 'NEEDS_REVIEW_SELF_RESOLVED',
         previous_flag_raised_at: '2025-09-25T10:00:00.000Z',
-        resolved_at: '2025-09-24T00:00:00.000Z',
+        resolved_at: '2025-10-01T00:00:00.000Z',
         causing_adjustment_id: 'adj-2',
       },
     ]);
@@ -963,13 +960,13 @@ describe('stateMachine', () => {
       [original],
       {},
       calendar,
-      '2025-09-24'
+      '2025-10-01'
     );
     const needsReview = rebuildRouteStateFromChangeLog(
       [original, adjustment],
       {},
       calendar,
-      '2025-09-24',
+      '2025-10-01',
       { priorRouteState: priorFinalized }
     );
     assert.equal(needsReview['S 20'].status, 'NEEDS_REVIEW');
@@ -1010,12 +1007,12 @@ describe('stateMachine', () => {
       submitted_at: '2025-09-26T09:00:00.000Z',
     });
 
-    const priorA = rebuildRouteStateFromChangeLog([routeA], {}, calendar, '2025-09-24');
+    const priorA = rebuildRouteStateFromChangeLog([routeA], {}, calendar, '2025-10-01');
     const needsReview = rebuildRouteStateFromChangeLog(
       [routeA, adjA],
       {},
       calendar,
-      '2025-09-24',
+      '2025-10-01',
       { priorRouteState: priorA }
     );
 
@@ -1067,13 +1064,13 @@ describe('stateMachine', () => {
       [original],
       {},
       calendar,
-      '2025-09-24'
+      '2025-10-01'
     );
     const needsReview = rebuildRouteStateFromChangeLog(
       [original, adjDown],
       {},
       calendar,
-      '2025-09-24',
+      '2025-10-01',
       { priorRouteState: priorFinalized }
     );
     const withQueued = rebuildRouteStateFromChangeLog(
@@ -1227,7 +1224,7 @@ describe('stateMachine', () => {
       [change, reassignment],
       {},
       calendar,
-      '2025-09-24'
+      '2025-10-01'
     );
     const route = state['S 20'];
     assert.equal(route.status, 'STABLE');
@@ -1263,7 +1260,7 @@ describe('stateMachine', () => {
       [change, reassignment],
       {},
       calendar,
-      '2025-09-24'
+      '2025-10-01'
     );
     const route = state['S 20'];
     assert.equal(route.status, 'STABLE');
@@ -1274,5 +1271,212 @@ describe('stateMachine', () => {
     assert.equal(route.driver_name, null);
     // Historical change attribution is untouched.
     assert.equal(change.driver_name, 'Jane Driver');
+  });
+
+  it('does not keep the old PM clock-out for 15 days when +15 AM is followed by −30 PM before Oct 1', () => {
+    let state = applyChangeToRoute(
+      null,
+      makeChange({
+        id: 'am',
+        segment: 'AM',
+        delta_minutes: 15,
+        effective_date: '2025-09-02',
+      }),
+      calendar
+    );
+    assert.equal(state.status, 'ACCUMULATING');
+    assert.equal(state.window_rule, 'pre_october_1_lock');
+
+    state = applyChangeToRoute(
+      state,
+      makeChange({
+        id: 'pm',
+        segment: 'PM',
+        delta_minutes: -30,
+        effective_date: '2025-09-10',
+        submitted_at: '2025-09-10T08:00:00.000Z',
+        previous_time: '14:00-17:00',
+        new_time: '14:00-16:30',
+      }),
+      calendar
+    );
+    assert.equal(state.cumulative_drift_minutes, -15);
+    assert.equal(state.status, 'ACCUMULATING');
+    assert.equal(state.window_rule, 'pre_october_1_lock');
+    assert.equal(state.window_expires_date, '2025-09-30');
+    assert.equal(state.segments.PM, '14:00-16:30');
+
+    state = applyWindowExpiration(state, '2025-10-01', { schoolCalendar: calendar });
+    assert.equal(state.status, 'STABLE');
+  });
+
+  it('keeps a post-Oct 1 net −15 open for 15 school days from the latest change', () => {
+    let state = applyChangeToRoute(
+      null,
+      makeChange({
+        id: 'am',
+        segment: 'AM',
+        delta_minutes: 15,
+        effective_date: '2025-10-01',
+        submitted_at: '2025-10-01T08:00:00.000Z',
+      }),
+      calendar,
+      '2025-10-01'
+    );
+    assert.equal(state.window_rule, 'post_october_1_increase_lock');
+
+    state = applyChangeToRoute(
+      state,
+      makeChange({
+        id: 'pm',
+        segment: 'PM',
+        delta_minutes: -30,
+        effective_date: '2025-10-06',
+        submitted_at: '2025-10-06T08:00:00.000Z',
+        previous_time: '14:00-17:00',
+        new_time: '14:00-16:30',
+      }),
+      calendar,
+      '2025-10-06'
+    );
+    assert.equal(state.cumulative_drift_minutes, -15);
+    assert.equal(state.status, 'ACCUMULATING');
+    assert.equal(state.window_rule, 'post_october_1_decrease_lock');
+    const fifteenth = addSchoolDays(calendar, '2025-10-06', 15);
+    assert.ok(state.window_expires_date >= fifteenth);
+    assert.equal(state.segments.PM, '14:00-16:30');
+
+    state = applyWindowExpiration(state, '2025-10-07', { schoolCalendar: calendar });
+    assert.equal(state.status, 'ACCUMULATING');
+  });
+
+  it('adds a later cut inside 15 school days and treats 20 + 15 as a 30-minute decrease', () => {
+    let state = applyChangeToRoute(
+      null,
+      makeChange({
+        id: 'cut1',
+        segment: 'PM',
+        delta_minutes: -20,
+        effective_date: '2025-10-01',
+        submitted_at: '2025-10-01T08:00:00.000Z',
+        previous_time: '14:00-17:00',
+        new_time: '14:00-16:40',
+      }),
+      calendar,
+      '2025-10-01'
+    );
+    assert.equal(state.window_rule, 'post_october_1_decrease_lock');
+
+    const later = addSchoolDays(calendar, '2025-10-01', 3);
+    state = applyChangeToRoute(
+      state,
+      makeChange({
+        id: 'cut2',
+        segment: 'PM',
+        delta_minutes: -15,
+        effective_date: later,
+        submitted_at: `${later}T08:00:00.000Z`,
+        previous_time: '14:00-16:40',
+        new_time: '14:00-16:25',
+      }),
+      calendar,
+      later
+    );
+    assert.equal(state.cumulative_drift_minutes, -35);
+    assert.equal(state.status, 'ACCUMULATING');
+    assert.equal(state.window_rule, 'post_october_1_bump');
+    assert.equal(state.window_opened_date, '2025-10-01');
+    assert.equal(
+      state.window_expires_date,
+      addSchoolDays(calendar, later, 15)
+    );
+
+    const stillOpen = applyWindowExpiration(state, state.window_expires_date, {
+      schoolCalendar: calendar,
+    });
+    assert.equal(stillOpen.status, 'ACCUMULATING');
+
+    const bumped = applyWindowExpiration(
+      state,
+      nextCalendarDate(state.window_expires_date),
+      { schoolCalendar: calendar }
+    );
+    assert.equal(bumped.status, 'BUMP_ELIGIBLE');
+  });
+
+  it('restarts the countdown when a later add turns an under-30 increase into a 30-minute bid', () => {
+    let state = applyChangeToRoute(
+      null,
+      makeChange({
+        id: 'add1',
+        segment: 'AM',
+        delta_minutes: 20,
+        effective_date: '2025-10-01',
+        submitted_at: '2025-10-01T08:00:00.000Z',
+        previous_time: '6:30-8:30',
+        new_time: '6:30-8:50',
+      }),
+      calendar,
+      '2025-10-01'
+    );
+    assert.equal(state.window_rule, 'post_october_1_increase_lock');
+
+    const later = addSchoolDays(calendar, '2025-10-01', 3);
+    state = applyChangeToRoute(
+      state,
+      makeChange({
+        id: 'add2',
+        segment: 'AM',
+        delta_minutes: 15,
+        effective_date: later,
+        submitted_at: `${later}T08:00:00.000Z`,
+        previous_time: '6:30-8:50',
+        new_time: '6:30-9:05',
+      }),
+      calendar,
+      later
+    );
+    assert.equal(state.cumulative_drift_minutes, 35);
+    assert.equal(state.status, 'ACCUMULATING');
+    assert.equal(state.window_rule, 'post_october_1_bid');
+    assert.equal(state.window_opened_date, '2025-10-01');
+    const fifteenth = addSchoolDays(calendar, later, 15);
+    assert.ok(state.window_expires_date >= fifteenth);
+
+    const stillOpen = applyWindowExpiration(state, fifteenth, {
+      schoolCalendar: calendar,
+    });
+    assert.equal(stillOpen.status, 'ACCUMULATING');
+
+    const posted = applyWindowExpiration(
+      state,
+      nextCalendarDate(state.window_expires_date),
+      { schoolCalendar: calendar }
+    );
+    assert.equal(posted.status, 'BID_PENDING');
+  });
+
+  it('holds a post-Oct 1 +30 bid until the last five school days of the month', () => {
+    const state = applyChangeToRoute(
+      null,
+      makeChange({
+        id: 'c1',
+        delta_minutes: 30,
+        effective_date: '2025-10-02',
+        submitted_at: '2025-10-02T08:00:00.000Z',
+      }),
+      calendar,
+      '2025-10-02'
+    );
+    assert.equal(state.window_rule, 'post_october_1_bid');
+    const stillOpen = applyWindowExpiration(state, '2025-10-24', {
+      schoolCalendar: calendar,
+    });
+    assert.equal(stillOpen.status, 'ACCUMULATING');
+
+    const posted = applyWindowExpiration(state, '2025-10-27', {
+      schoolCalendar: calendar,
+    });
+    assert.equal(posted.status, 'BID_PENDING');
   });
 });

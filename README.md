@@ -26,7 +26,7 @@ npm start             # http://localhost:3847
 
 Open **http://localhost:3847/routing** for the Routing desk.
 
-A separate employee app, **My Teamster Contract Hours Tracker**, uses the same contract math with the built-in BPS 2026–2027 calendar. Each person is stored independently in their own browser.
+A separate employee app, **My Teamster Contract Date Calculator**, uses the same contract math with the built-in BPS 2026–2027 calendar. Each person is stored independently in their own browser.
 
 ```bash
 npm run start:employee   # http://localhost:3848
@@ -96,6 +96,7 @@ npm test
 ## Business logic (summary)
 
 - Deltas and cumulative drift stay **exact / unrounded**; the 30-minute threshold uses exact drift.
+- Window close dates follow Art. 3.08: before October 1, under-30 changes lock in on October 1; after October 1, increases and decreases are cumulative over 15 school days. A total under 30 minutes becomes official the next school day. A total of 30 minutes or more goes to bid (increase) or bump (decrease). 30-minute increases post for bid in the last five school days of October–April.
 - Payroll contracted hours: at window finalization only, sum **this route’s** exact AM+MIDDAY+PM durations and round that total via `roundToQuarterHourForPayroll()` (stored as `payroll_rounded_total_minutes`). Never round a delta, never round per-segment.
 - Single bid threshold: `abs(exact cumulative) < 30` → lock in; `>= 30` → `BID_PENDING`.
 - Admin ADJUSTMENTs are append-only; finalized status flips become `NEEDS_REVIEW` (see open questions #1 and #3).

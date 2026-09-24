@@ -20,8 +20,22 @@ await build({
   legalComments: 'none',
 });
 
-await fs.copyFile(path.join(webDir, 'index.html'), path.join(docsDir, 'index.html'));
-await fs.copyFile(path.join(webDir, 'styles.css'), path.join(docsDir, 'styles.css'));
+const staticAssets = [
+  'index.html',
+  'styles.css',
+  'clock-hours-guide.html',
+  'favicon.ico',
+  'favicon.svg',
+  'apple-touch-icon.png',
+  'icon-192.png',
+  'icon-512.png',
+  'site.webmanifest',
+];
+
+for (const name of staticAssets) {
+  await fs.copyFile(path.join(webDir, name), path.join(docsDir, name));
+}
+
 await fs.writeFile(path.join(docsDir, '.nojekyll'), '');
 
 console.log(`Wrote GitHub Pages site to ${docsDir}`);

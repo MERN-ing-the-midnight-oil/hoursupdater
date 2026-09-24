@@ -1,9 +1,7 @@
 import { BID_THRESHOLD_MINUTES, SEGMENTS } from '../../src/logic/constants.js';
-import {
-  addSchoolDays,
-  daysRemainingInWindow,
-} from '../../src/logic/calendar.js';
+import { daysRemainingInWindow } from '../../src/logic/calendar.js';
 import { buildSeeTheMathFromSegments } from '../../src/logic/changeReport.js';
+import { contractWindowPlan } from '../../src/logic/contractWindows.js';
 import {
   applyChangeToRoute,
   rebuildRouteStateFromChangeLog,
@@ -31,7 +29,7 @@ const STATUS_COPY = {
   ACCUMULATING: {
     label: 'Accumulating',
     summary:
-      'A 15-school-day window is open. Further changes reset the window. When it closes, these times become contracted — or go to bid/bump if the difference is 30 minutes or more.',
+      'A review window is open. Further changes reset it and add the exact minute difference. When it closes, these times become contracted — or go to bid/bump if the difference is 30 minutes or more.',
   },
   BID_PENDING: {
     label: 'Bid pending',
@@ -51,6 +49,23 @@ const STATUS_COPY = {
     label: 'Locked pending',
     summary: 'Window closed; waiting on a lock-in outcome.',
   },
+};
+
+const WINDOW_RULE_HEADLINE = {
+  pre_october_1_lock:
+    'Before October 1 a change under 30 minutes becomes contracted on October 1 (Art. 3.08(a)(8)(c)).',
+  pre_october_1_bid:
+    'Before October 1 a 30-minute increase that has lasted 15 school days is posted for bid (Art. 3.08(a)(8)(a)).',
+  pre_october_1_bump:
+    'Before October 1 a 30-minute decrease is bump-eligible on the written determination date (Art. 3.08(a)(8)(b)).',
+  post_october_1_increase_lock:
+    'After October 1 a 15-minute increase becomes contracted the workday after it has lasted 15 school days (Art. 3.08(b)(3)).',
+  post_october_1_decrease_lock:
+    'After October 1 a decrease under 30 minutes is counted with any other change in the same 15 school days, then becomes contracted the next school day (Art. 3.08(b)(4)).',
+  post_october_1_bid:
+    'After October 1 a 30-minute increase is posted for bid during the last five school days of the month, October through April (Art. 3.08(b)(1)).',
+  post_october_1_bump:
+    'After October 1 a 30-minute decrease is bump-eligible after it has lasted 15 school days (Art. 3.08(b)(2)).',
 };
 
 const OUTCOME_COPY = {
@@ -103,6 +118,263 @@ export function describeSchedule(segments) {
     out[segment] = splitSegmentRange(segments?.[segment] ?? null);
   }
   return out;
+}
+
+function isSeedChange(change) {
+  return (
+    change &&
+    change.delta_minutes === 0 &&
+    change.previous_time === change.new_time
+  );
+}
+
+function chronologicalChangeCompare(a, b) {
+  const dateCompare = String(a.effective_date).localeCompare(
+    String(b.effective_date)
+  );
+  if (dateCompare !== 0) {
+    return dateCompare;
+  }
+  return String(a.submitted_at).localeCompare(String(b.submitted_at));
+}
+
+function reportChangeIds(report) {
+  return (report?.contributing_changes ?? []).map((item) => item.id);
+}
+
+/**
+ * One row per established starting schedule, then one row per later change.
+ * Oldest first so the most recent change is last.
+ *
+ * @param {import('../../src/logic/stateMachine.js').LogEntry[]} changeLog
+ * @param {import('../../src/logic/stateMachine.js').RouteStateEntry | null} entry
+ * @param {ReturnType<typeof buildWindowView> | null} window
+ * @param {string | null} startDate
+ */
+export function buildScheduleHistory(changeLog, entry, window, startDate) {
+  const events = (changeLog ?? [])
+    .filter((item) => !item.type || item.type === 'CHANGE')
+    .slice()
+    .sort(chronologicalChangeCompare);
+  const seeds = events.filter(isSeedChange);
+  const later = events.filter((item) => !isSeedChange(item));
+  if (!seeds.length && !later.length) {
+    return [];
+  }
+
+  /** @type {Record<string, string | null>} */
+  const running = { AM: null, MIDDAY: null, PM: null };
+  for (const seed of seeds) {
+    running[seed.segment] = seed.new_time;
+  }
+
+  const reports = entry?.change_reports ?? [];
+  const openIds = entry?.contributing_change_ids ?? [];
+  const lastOpenId = openIds.at(-1) ?? null;
+
+  /** @type {object[]} */
+  const rows = [
+    {
+      id: 'initial',
+      kind: 'initial',
+      date: startDate || seeds[0]?.effective_date || null,
+      change_id: null,
+      segment: null,
+      previous_time: null,
+      new_time: null,
+      previous: null,
+      next: null,
+      delta_minutes: null,
+      delta_label: null,
+      cumulative_drift_minutes: null,
+      cumulative_drift_label: null,
+      note: '',
+      schedule: describeSchedule(running),
+      contracted: {
+        status: 'established',
+        becomes_on: null,
+        projected_outcome: null,
+        projected_outcome_label: null,
+        label: 'Established starting schedule',
+        detail: null,
+      },
+    },
+  ];
+
+  for (const change of later) {
+    running[change.segment] = change.new_time;
+    rows.push({
+      id: change.id,
+      kind: 'change',
+      date: change.effective_date,
+      change_id: change.id,
+      segment: change.segment,
+      previous_time: change.previous_time,
+      new_time: change.new_time,
+      previous: splitSegmentRange(change.previous_time),
+      next: splitSegmentRange(change.new_time),
+      delta_minutes: change.delta_minutes,
+      delta_label: formatSignedMinutes(change.delta_minutes),
+      cumulative_drift_minutes: null,
+      cumulative_drift_label: null,
+      note: change.note || '',
+      schedule: describeSchedule(running),
+      contracted: contractedStatusForChange(change, {
+        reports,
+        openIds,
+        lastOpenId,
+        entry,
+        window,
+      }),
+    });
+  }
+
+  annotateCumulativeDrift(rows, entry);
+  return rows;
+}
+
+/**
+ * Running exact-minute total inside each review window, as of that change.
+ * A later change in the same window keeps the earlier changes in the sum.
+ *
+ * @param {object[]} rows
+ * @param {import('../../src/logic/stateMachine.js').RouteStateEntry | null} entry
+ */
+function annotateCumulativeDrift(rows, entry) {
+  /** @type {Map<string, object>} */
+  const byId = new Map();
+  for (const row of rows) {
+    if (row.kind === 'change' && row.change_id) {
+      byId.set(row.change_id, row);
+    }
+  }
+  if (!byId.size) return;
+
+  /** @type {string[][]} */
+  const groups = [];
+  const covered = new Set();
+  for (const report of entry?.change_reports ?? []) {
+    const ids = (report.contributing_changes ?? [])
+      .map((item) => item.id)
+      .filter((id) => byId.has(id) && !covered.has(id));
+    if (!ids.length) continue;
+    groups.push(ids);
+    for (const id of ids) covered.add(id);
+  }
+
+  const openIds = (entry?.contributing_change_ids ?? []).filter(
+    (id) => byId.has(id) && !covered.has(id)
+  );
+  if (openIds.length) groups.push(openIds);
+
+  for (const ids of groups) {
+    let sum = 0;
+    for (const id of ids) {
+      const row = byId.get(id);
+      sum += row.delta_minutes ?? 0;
+      row.cumulative_drift_minutes = sum;
+      row.cumulative_drift_label = formatSignedMinutes(sum);
+    }
+  }
+}
+
+function contractedStatusForChange(change, { reports, openIds, lastOpenId, entry, window }) {
+  for (const report of reports) {
+    const ids = reportChangeIds(report);
+    if (!ids.includes(change.id)) {
+      continue;
+    }
+    if (ids.at(-1) === change.id) {
+      const becomesOn = String(report.finalized_at || '').slice(0, 10) || null;
+      const outcomeCopy = OUTCOME_COPY[report.outcome];
+      if (report.outcome === 'STABLE') {
+        return {
+          status: 'became_contracted',
+          becomes_on: becomesOn,
+          projected_outcome: report.outcome,
+          projected_outcome_label: outcomeCopy?.label ?? null,
+          label: becomesOn
+            ? `Became contracted on ${prettyDate(becomesOn)}`
+            : 'Became contracted',
+          detail: outcomeCopy?.detail ?? report.contracted_hours_statement ?? null,
+        };
+      }
+      return {
+        status:
+          report.outcome === 'BID_PENDING'
+            ? 'bid_pending'
+            : report.outcome === 'BUMP_ELIGIBLE'
+              ? 'bump_eligible'
+              : String(report.outcome).toLowerCase(),
+        becomes_on: becomesOn,
+        projected_outcome: report.outcome,
+        projected_outcome_label: outcomeCopy?.label ?? null,
+        label: becomesOn
+          ? `Window closed ${prettyDate(becomesOn)} · ${
+              outcomeCopy?.label?.toLowerCase() ?? report.outcome
+            }`
+          : outcomeCopy?.label ?? report.outcome,
+        detail: outcomeCopy?.detail ?? report.contracted_hours_statement ?? null,
+      };
+    }
+    return {
+      status: 'superseded',
+      becomes_on: null,
+      projected_outcome: null,
+      projected_outcome_label: null,
+      label: 'Replaced by a later change in that window',
+      detail: null,
+    };
+  }
+
+  if (entry?.status === 'ACCUMULATING' && openIds.includes(change.id)) {
+    if (change.id === lastOpenId) {
+      const becomesOn = window?.becomes_contracted_on ?? null;
+      return {
+        status: 'predicted',
+        becomes_on: becomesOn,
+        projected_outcome: window?.projected_outcome ?? null,
+        projected_outcome_label: window?.projected_outcome_label ?? null,
+        label: becomesOn
+          ? `Predicted to become contracted on ${prettyDate(becomesOn)}`
+          : 'Predicted to become contracted',
+        detail: window?.projected_outcome_detail ?? null,
+      };
+    }
+    return {
+      status: 'superseded',
+      becomes_on: null,
+      projected_outcome: null,
+      projected_outcome_label: null,
+      label: 'Later change reset this window',
+      detail: null,
+    };
+  }
+
+  if (
+    (entry?.status === 'BID_PENDING' || entry?.status === 'BUMP_ELIGIBLE') &&
+    change.id === lastOpenId
+  ) {
+    const outcomeCopy = OUTCOME_COPY[entry.status];
+    return {
+      status:
+        entry.status === 'BID_PENDING' ? 'bid_pending' : 'bump_eligible',
+      becomes_on: null,
+      projected_outcome: entry.status,
+      projected_outcome_label: outcomeCopy?.label ?? null,
+      label: outcomeCopy?.label ?? entry.status,
+      detail: outcomeCopy?.detail ?? null,
+    };
+  }
+
+  return {
+    status: 'superseded',
+    becomes_on: null,
+    projected_outcome: null,
+    projected_outcome_label: null,
+    label: 'Replaced by a later change',
+    detail: null,
+  };
 }
 
 /**
@@ -171,6 +443,12 @@ export function buildEmployeeSnapshot({
     : null;
   const contractedMinutes = officialContractedMinutes(entry);
   const window = entry ? buildWindowView(entry, calendar, asOf) : null;
+  const schedule_history = buildScheduleHistory(
+    changeLog,
+    entry,
+    window,
+    profile?.start_date ?? null
+  );
 
   return {
     setup_complete,
@@ -210,6 +488,7 @@ export function buildEmployeeSnapshot({
                 : 'starting_schedule',
           },
     window,
+    schedule_history,
     changes,
     reports: (entry?.change_reports ?? []).map(shapeReport).reverse(),
     bid_threshold_minutes: BID_THRESHOLD_MINUTES,
@@ -242,16 +521,18 @@ function buildWindowView(entry, calendar, asOf) {
 
   let headline = copy.summary;
   if (open && becomesOn && outcomeCopy) {
+    const ruleNote =
+      WINDOW_RULE_HEADLINE[entry.window_rule] ??
+      'If you do not log another change, these times become contracted on the date below.';
     headline =
-      `If you do not log another change, these times become contracted on ${prettyDate(becomesOn)} ` +
-      `(the day after the 15-school-day window ends on ${prettyDate(entry.window_expires_date)}). ` +
+      `${ruleNote} If you do not log another change, that date is ${prettyDate(becomesOn)}. ` +
       `Projected result: ${outcomeCopy.label.toLowerCase()}.`;
   } else if (status === 'STABLE' && entry.payroll_rounded_total_minutes != null) {
     headline =
       'Your latest window has locked in. The contracted hours below are official under the contract rules.';
   } else if (status === 'STABLE') {
     headline =
-      'These are your starting clock times. Log a change to open a 15-school-day window.';
+      'These are your starting clock times. Log a change to open a review window.';
   }
 
   return {
@@ -261,6 +542,7 @@ function buildWindowView(entry, calendar, asOf) {
     summary: copy.summary,
     opened_date: entry.window_opened_date ?? null,
     expires_date: entry.window_expires_date ?? null,
+    window_rule: entry.window_rule ?? null,
     becomes_contracted_on: becomesOn,
     days_remaining: daysRemaining,
     cumulative_drift_minutes: drift,
@@ -289,6 +571,8 @@ function shapeReport(report) {
     contracted_hours_delta_minutes: report.contracted_hours_delta_minutes,
     contracted_hours_statement: report.contracted_hours_statement,
     see_the_math: report.see_the_math,
+    before_segments: report.before?.segments ?? null,
+    after_segments: report.after?.segments ?? null,
     contributing_changes: report.contributing_changes ?? [],
   };
 }
@@ -360,10 +644,8 @@ export function previewEmployeeChange({
     entered_by: 'Self',
   };
   const next = applyChangeToRoute(entry, hypothetical, calendar, changeDate, delta);
-  const expires =
-    next.window_expires_date ?? addSchoolDays(calendar, changeDate, 15);
-  const becomesOn = dayAfter(expires);
   const nextDrift = next.cumulative_drift_minutes ?? delta;
+  const plan = contractWindowPlan(calendar, changeDate, nextDrift);
   const outcome = windowFinalizationOutcome(nextDrift);
   const math = buildSeeTheMathFromSegments(next.baseline_segments, next.segments);
 
@@ -374,8 +656,8 @@ export function previewEmployeeChange({
     next: splitSegmentRange(newTime),
     delta_minutes: delta,
     delta_label: formatSignedMinutes(delta),
-    window_expires_date: expires,
-    becomes_contracted_on: becomesOn,
+    window_expires_date: plan.window_expires_date,
+    becomes_contracted_on: plan.becomes_effective_on,
     cumulative_drift_minutes: nextDrift,
     cumulative_drift_label: formatSignedMinutes(nextDrift),
     projected_outcome: outcome,

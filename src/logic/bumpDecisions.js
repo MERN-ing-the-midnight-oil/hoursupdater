@@ -182,6 +182,7 @@ function lockInStable(entry, at) {
   next.contributing_change_ids = [];
   next.window_opened_date = null;
   next.window_expires_date = null;
+  next.window_rule = null;
   next.reconciliation = null;
   next.pending_change_ids = [];
   next.last_updated = at;

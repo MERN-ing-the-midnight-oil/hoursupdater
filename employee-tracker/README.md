@@ -1,4 +1,4 @@
-# My Teamster Contract Hours Tracker
+# My Teamster Contract Date Calculator
 
 A static app for employees to record their own clock-in / clock-out changes and see when those times become contracted under the same Teamster rules as Teamster Tracker.
 
@@ -26,7 +26,7 @@ This writes the site to `docs/`. GitHub Pages serves that folder from `main`.
 
 1. You save your current AM / Midday / PM clock times.
 2. You record a new clock-in or clock-out and the date it took effect.
-3. The app opens a 15-school-day window (BPS 2026–2027 student calendar, 180 days). Further changes reset the window and add exact minutes.
+3. The app opens a review window using Art. 3.08 (BPS 2026–2027 student calendar, 180 days). Before October 1, under-30-minute changes become contracted on October 1. After October 1, increases and decreases in the same 15 school days are added together. A total under 30 minutes becomes contracted the next school day. A total of 30 minutes or more goes to bid or bump. A further change inside the window resets the countdown and adds the exact minutes.
 4. After the window closes:
    - under 30 minutes → new times lock in as contracted hours (daily total rounded once to the nearest 15 minutes)
    - +30 minutes or more → bid pending

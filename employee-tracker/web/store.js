@@ -1,4 +1,5 @@
 export const STORAGE_KEY = 'my-hours-tracker.v1';
+export const DISMISSED_NOTIFICATIONS_KEY = 'my-hours-tracker.notify-dismissed.v1';
 
 /**
  * @param {Storage} [storage]
@@ -119,6 +120,69 @@ export function exportState(storage = globalThis.localStorage) {
 }
 
 /**
+ * @param {unknown} raw
+ * @returns {Record<string, string[]>}
+ */
+function parseDismissedMap(raw) {
+  try {
+    const parsed = raw ? JSON.parse(String(raw)) : {};
+    if (!parsed || typeof parsed !== 'object') {
+      return {};
+    }
+    /** @type {Record<string, string[]>} */
+    const map = {};
+    for (const [profileId, ids] of Object.entries(parsed)) {
+      if (!Array.isArray(ids)) continue;
+      map[profileId] = ids.filter((id) => typeof id === 'string' && id);
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * @param {string | null | undefined} profileId
+ * @param {Storage} [storage]
+ * @returns {string[]}
+ */
+export function listDismissedNotificationIds(
+  profileId,
+  storage = globalThis.localStorage
+) {
+  if (!profileId) {
+    return [];
+  }
+  const map = parseDismissedMap(storage?.getItem(DISMISSED_NOTIFICATIONS_KEY));
+  return map[profileId] ?? [];
+}
+
+/**
+ * @param {string} profileId
+ * @param {string} notificationId
+ * @param {Storage} [storage]
+ * @returns {string[]}
+ */
+export function dismissNotificationId(
+  profileId,
+  notificationId,
+  storage = globalThis.localStorage
+) {
+  if (!profileId || !notificationId) {
+    return listDismissedNotificationIds(profileId, storage);
+  }
+  const map = parseDismissedMap(storage?.getItem(DISMISSED_NOTIFICATIONS_KEY));
+  const current = map[profileId] ?? [];
+  if (current.includes(notificationId)) {
+    return current;
+  }
+  const next = [...current, notificationId];
+  map[profileId] = next;
+  storage.setItem(DISMISSED_NOTIFICATIONS_KEY, JSON.stringify(map));
+  return next;
+}
+
+/**
  * @param {string} json
  * @param {Storage} [storage]
  */
@@ -130,7 +194,7 @@ export function importState(json, storage = globalThis.localStorage) {
     throw new Error('That file is not valid JSON.');
   }
   if (!parsed || typeof parsed !== 'object' || !parsed.profiles) {
-    throw new Error('That file is not a My Teamster Contract Hours Tracker backup.');
+    throw new Error('That file is not a My Teamster Contract Date Calculator backup.');
   }
   const next = {
     version: 1,

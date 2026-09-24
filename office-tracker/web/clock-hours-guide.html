@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A Bus Driver’s Guide to Clock Hours</title>
+    <meta name="theme-color" content="#1a4f86" />
+    <link rel="icon" href="./favicon.ico" sizes="48x48" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        --bg: #e7eef6;
+        --ink: #172433;
+        --muted: #5c6b7c;
+        --line: #c3d0de;
+        --card: #f5f8fc;
+        --accent: #1a4f86;
+        --accent-soft: #e3eef8;
+        --warn: #8a4b12;
+        --warn-soft: #f8efe4;
+        --shadow: 0 10px 30px rgba(23, 36, 51, 0.08);
+        --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+        --font-body: "Avenir Next", "Segoe UI", Candara, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        font-family: var(--font-body);
+        line-height: 1.55;
+        background:
+          radial-gradient(circle at top left, rgba(26, 79, 134, 0.12), transparent 36%),
+          linear-gradient(165deg, #f4f8fc 0%, #d5e2ef 100%);
+      }
+
+      .page {
+        width: min(820px, calc(100% - 2rem));
+        margin: 0 auto;
+        padding: 2.25rem 0 4rem;
+      }
+
+      header {
+        margin-bottom: 1.5rem;
+      }
+
+      .eyebrow {
+        margin: 0 0 0.45rem;
+        color: var(--accent);
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: clamp(2.1rem, 5vw, 3.15rem);
+        font-weight: 600;
+        line-height: 1.12;
+        letter-spacing: -0.02em;
+      }
+
+      .lede {
+        margin: 0.85rem 0 0;
+        max-width: 40rem;
+        color: var(--muted);
+        font-size: 1.12rem;
+      }
+
+      section {
+        margin-top: 1.15rem;
+      }
+
+      .panel {
+        background: var(--card);
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow);
+        padding: 1.25rem 1.35rem 1.4rem;
+      }
+
+      h2 {
+        margin: 0 0 0.55rem;
+        font-family: var(--font-display);
+        font-size: 1.7rem;
+        font-weight: 600;
+      }
+
+      h3 {
+        margin: 0 0 0.35rem;
+        font-size: 1.02rem;
+      }
+
+      p {
+        margin: 0.7rem 0 0;
+      }
+
+      p:first-of-type {
+        margin-top: 0;
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.85rem;
+      }
+
+      .card {
+        background: #fff;
+        border: 1px solid var(--line);
+        padding: 1rem 1.05rem 1.1rem;
+      }
+
+      .card p:last-child {
+        margin-bottom: 0;
+      }
+
+      .tag {
+        display: inline-block;
+        margin-bottom: 0.45rem;
+        padding: 0.12rem 0.45rem;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .tag-small {
+        color: var(--muted);
+        background: #e7eef6;
+      }
+
+      .tag-cut {
+        color: var(--warn);
+        background: var(--warn-soft);
+      }
+
+      .tag-add {
+        color: var(--accent);
+        background: var(--accent-soft);
+      }
+
+      .example {
+        margin-top: 0.95rem;
+        padding: 0.9rem 1rem;
+        background: var(--accent-soft);
+        border-left: 4px solid var(--accent);
+      }
+
+      .example strong {
+        display: block;
+        margin-bottom: 0.2rem;
+      }
+
+      .example p {
+        margin: 0.35rem 0 0;
+      }
+
+      .stack {
+        display: grid;
+        gap: 0.75rem;
+        margin-top: 0.95rem;
+      }
+
+      .one-page {
+        display: grid;
+        gap: 0;
+        margin-top: 0.4rem;
+        border-top: 1px solid var(--line);
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 11.5rem 1fr;
+        gap: 0.85rem;
+        padding: 0.8rem 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .row span {
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      .contract-cite-link {
+        color: var(--accent);
+        font-weight: 600;
+        text-decoration: underline;
+        text-underline-offset: 0.12em;
+      }
+
+      .cite-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem 0.85rem;
+        margin-top: 0.65rem;
+      }
+
+      .citation {
+        width: min(40rem, calc(100% - 2rem));
+        max-height: min(90vh, 36rem);
+        overflow: auto;
+        padding: 1.35rem 1.45rem 1.3rem;
+        border: 1px solid var(--line);
+        background: var(--card);
+        color: var(--ink);
+        box-shadow: 0 18px 50px rgba(23, 36, 51, 0.22);
+      }
+
+      .citation::backdrop {
+        background: rgba(23, 36, 51, 0.5);
+      }
+
+      .citation h2 {
+        font-family: var(--font-display);
+        font-size: 1.45rem;
+        margin: 0 0 0.7rem;
+      }
+
+      .citation-kicker {
+        margin: 0 0 0.35rem;
+        color: var(--accent);
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .citation-text {
+        margin: 0 0 1rem;
+        padding: 0.85rem 1rem;
+        border-left: 3px solid var(--accent);
+        background: #fff;
+        line-height: 1.5;
+      }
+
+      .citation-links {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        margin: 0 0 1rem;
+      }
+
+      .citation-links a {
+        color: var(--accent);
+        font-weight: 600;
+      }
+
+      .citation-close {
+        font: inherit;
+        color: var(--ink);
+        background: #fff;
+        border: 1px solid var(--line);
+        padding: 0.45rem 0.8rem;
+        cursor: pointer;
+      }
+
+      @media (max-width: 680px) {
+        .page {
+          padding-top: 1.35rem;
+        }
+
+        .split,
+        .row {
+          grid-template-columns: 1fr;
+          gap: 0.25rem;
+        }
+
+        .panel {
+          padding: 1.05rem 1rem 1.15rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        <p class="eyebrow">Bellingham Public Schools · Teamsters</p>
+        <h1>A Bus Driver’s Guide to Clock Hours</h1>
+        <p class="lede">
+          What happens when time is added to your route, or taken off it.
+        </p>
+      </header>
+
+      <section class="panel" aria-labelledby="start">
+        <h2 id="start">Your contracted clock hours</h2>
+        <p>
+          Your contracted clock hours are the time that counts for your pay group
+          and for these rules. They are your full day — morning, midday, and
+          afternoon added together — rounded to the nearest 15 minutes.
+        </p>
+        <p>
+          You may already be driving the new times as soon as the office
+          changes the route. These rules say when that new time becomes
+          contracted, when you may take another driver’s route, and when your
+          route goes up for bid.
+        </p>
+      </section>
+
+      <section class="panel" id="usual">
+        <h2>What usually happens</h2>
+        <p>
+          Most months during the school year have an end of month bid. It is
+          the last five school days of the month, and routes with bigger adds
+          that have already lasted 15 school days then go up for bid. Those
+          months are October, November, December, January, February, March,
+          and April. A bigger cut uses the seniority choice once that cut has
+          lasted 15 school days. Only days when students are in school count.
+        </p>
+        <p>
+          Morning, midday, and afternoon count as one route. While a 15 day
+          wait window is still open, any new changes during that window are
+          added to the total and a new 15 day wait window begins.
+        </p>
+        <div class="stack">
+          <article class="card">
+            <span class="tag tag-add">Smaller add</span>
+            <h3>Under 30 minutes added</h3>
+            <p>
+              The extra time becomes contracted on the school day after it has
+              lasted 15 school days without additional changes made. If
+              additional changes are made to the route during those 15 school
+              days, they are taken into account (combined with the previous
+              changes) and the 15 school day count-down restarts. If that new
+              total is still under 30 minutes, it becomes contracted on the
+              school day after the new 15 school days. If it reaches 30
+              minutes, it is no longer a smaller add. Smaller adds at the
+              beginning of the year (September) all wait until October 1 to
+              be contracted (instead of waiting 15 school days).
+            </p>
+            <p class="cite-links">
+              <a class="contract-cite-link" data-citation="3.08(b)(3)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=7">Art. 3.08(b)(3)</a>
+              <a class="contract-cite-link" data-citation="3.08(a)(8)(c)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=6">Art. 3.08(a)(8)(c)</a>
+            </p>
+          </article>
+          <article class="card">
+            <span class="tag tag-add">Bigger add</span>
+            <h3>30 minutes or more added</h3>
+            <p>
+              The extra time must last 15 school days. Routes with bigger adds
+              that have already lasted 15 school days then go up for bid during
+              the last five school days of the month.
+            </p>
+            <p class="cite-links">
+              <a class="contract-cite-link" data-citation="3.08(b)(1)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=7">Art. 3.08(b)(1)</a>
+            </p>
+          </article>
+          <article class="card">
+            <span class="tag tag-cut">Smaller cut</span>
+            <h3>Under 30 minutes taken off</h3>
+            <p>
+              A smaller cut stays open for 15 school days, the same as a
+              smaller add. Any other change in those 15 school days is added
+              to it. If the total stays under 30 minutes, the shorter time
+              becomes contracted on the school day after those 15 school days.
+              If the total reaches 30 minutes, it is a bigger cut.
+            </p>
+            <p class="cite-links">
+              <a class="contract-cite-link" data-citation="3.08(b)(4)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=7">Art. 3.08(b)(4)</a>
+            </p>
+          </article>
+          <article class="card">
+            <span class="tag tag-cut">Bigger cut</span>
+            <h3>30 minutes or more taken off</h3>
+            <p>
+              Similar to a bigger add, the 30 or more minutes cut to your
+              hours must last 15 school days, at which point you will get
+              written notice. You then have two school days to take a route
+              held by a driver with less seniority, or to keep your route.
+              Before October 1, the cut does not have to last 15 school days.
+              You get written notice right away, and those two school days
+              start then.
+            </p>
+            <p class="cite-links">
+              <a class="contract-cite-link" data-citation="3.08(b)(2)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=7">Art. 3.08(b)(2)</a>
+              <a class="contract-cite-link" data-citation="3.08(a)(8)(b)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=6">Art. 3.08(a)(8)(b)</a>
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel" id="year-start">
+        <h2>Beginning of the school year</h2>
+        <p>
+          The first month of the school year (September) and the last two
+          months of the school year (May and June) don’t have an end of month
+          bid. Instead, a bigger add in September goes up for bid once it has
+          lasted 15 school days. If those 15 school days are still unfinished
+          on October 1, drivers sign during October’s end of month bid.
+        </p>
+        <p>
+          Your route is compared with the route you bid at the start of the year.
+        </p>
+        <div class="stack">
+          <article class="card">
+            <span class="tag tag-small">Smaller change</span>
+            <h3>Under 30 minutes, added or taken off</h3>
+            <p>
+              Normally, a smaller add or a smaller cut becomes contracted on
+              the school day after it has lasted 15 school days. At the
+              beginning of the school year, that count-down does not apply. A
+              smaller change becomes contracted on October 1, whether time was
+              added or taken off, as long as the total stays under 30 minutes.
+              September changes under 30 minutes add together until that day,
+              because the wait stays open.
+            </p>
+            <p class="cite-links">
+              <a class="contract-cite-link" data-citation="3.08(a)(8)(c)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=6">Art. 3.08(a)(8)(c)</a>
+            </p>
+          </article>
+          <article class="card">
+            <span class="tag tag-add">Bigger add</span>
+            <h3>30 minutes or more added</h3>
+            <p>
+              Normally, a bigger add must last 15 school days, and then it goes
+              up for bid during the last five school days of the month. At the
+              beginning of the school year, there is no end of month bid. A
+              bigger add goes up for bid once it has lasted 15 school days. If
+              those 15 school days are still unfinished on October 1, drivers
+              sign during October’s end of month bid.
+            </p>
+            <p class="cite-links">
+              <a class="contract-cite-link" data-citation="3.08(a)(8)(a)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=6">Art. 3.08(a)(8)(a)</a>
+            </p>
+          </article>
+          <article class="card">
+            <span class="tag tag-cut">Bigger cut</span>
+            <h3>30 minutes or more taken off</h3>
+            <p>
+              Normally, a cut of 30 minutes or more must last 15 school days,
+              at which point you will get written notice. You then have two
+              school days to take a route held by a driver with less seniority,
+              or to keep your route. At the beginning of the school year, the
+              cut does not have to last 15 school days. You get written notice
+              right away, and those two school days               start then.
+            </p>
+            <p class="cite-links">
+              <a class="contract-cite-link" data-citation="3.08(a)(8)(b)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=6">Art. 3.08(a)(8)(b)</a>
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel" id="year-end">
+        <h2>End of the school year</h2>
+        <p>
+          The last two months of the school year (May and June) don’t have an
+          end of month bid.
+        </p>
+        <p>
+          Smaller adds, smaller cuts, and bigger cuts still follow the usual
+          15-school-day rules.
+        </p>
+        <p class="cite-links">
+          <a class="contract-cite-link" data-citation="3.08(b)(1)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=7">Art. 3.08(b)(1)</a>
+        </p>
+      </section>
+
+      <section class="panel" id="bid">
+        <h2>What “up for bid” means</h2>
+        <p>
+          Drivers can use their seniority to ask for the route. You have two
+          school days to sign up. If you do not sign in those two school days,
+          that counts as saying no.
+        </p>
+        <p>
+          Only a bigger add goes up for bid. A bigger cut is the seniority
+          choice. It is not posted for other drivers to bid.
+        </p>
+        <p>
+          If you win a bid onto a different route, you cannot bid back onto the
+          route you just left when that route is posted because you left it.
+          The new route, and the other route changes that come from that bid,
+          all start on the same day.
+        </p>
+      </section>
+    </main>
+
+    <dialog id="citation" class="citation" aria-labelledby="citation-title">
+      <p class="citation-kicker" id="citation-page">Teamsters CBA 2024–2027</p>
+      <h2 id="citation-title">Contract text</h2>
+      <blockquote id="citation-text" class="citation-text"></blockquote>
+      <p class="citation-links">
+        <a id="citation-pdf" href="#" target="_blank" rel="noopener noreferrer">
+          Open this page in the published 2024–2027 contract (PDF)
+        </a>
+      </p>
+      <button type="button" class="citation-close" id="citation-close">Close</button>
+    </dialog>
+
+    <script>
+      const contractCitations = {
+        "3.08(a)(8)(a)": {
+          label: "Art. 3.08(a)(8)(a)",
+          page: 4,
+          text: "a. If an individual route has increased by thirty (30) minutes or more for fifteen (15) school days from the time of the initial bid, the route will go up for bid. Drivers will receive a written determination of an increase in their route and the notification that it will go up for bid."
+        },
+        "3.08(a)(8)(b)": {
+          label: "Art. 3.08(a)(8)(b)",
+          page: 4,
+          text: "b. If the route is decreased by thirty (30) minutes or more, that driver has the option of using their seniority to \"bump\" a driver with less seniority. Drivers will receive a written determination of a decrease in their route. Upon receipt of this written determination, the driver has two (2) school days to exercise their option to bump or confirm that they choose to retain their current assignment."
+        },
+        "3.08(b)(1)": {
+          label: "Art. 3.08(b)(1)",
+          page: 5,
+          text: "1. During the last five (5) school days in each month from October through April, reposting will occur if a bus route is increased thirty (30) minutes or more for fifteen (15) school days or more. Drivers will receive a written determination of an increase in their route and the notification that it will go up for bid."
+        },
+        "3.08(a)(8)(c)": {
+          label: "Art. 3.08(a)(8)(c)",
+          page: 4,
+          text: "c. If a route increases or decreases by fifteen (15) minutes from the time of the initial bid, the time change will be made effective October 1."
+        },
+        "3.08(b)(2)": {
+          label: "Art. 3.08(b)(2)",
+          page: 5,
+          text: "2. Upon determination that a route decreased thirty (30) minutes or more for fifteen (15) school days, that driver has the option of using their seniority to \"bump\" a driver with less seniority. Drivers will receive a written determination of a decrease in their route. Upon receipt of this written determination, the driver has two (2) school days to exercise their option to bump or confirm that they choose to retain their current assignment."
+        },
+        "3.08(b)(3)": {
+          label: "Art. 3.08(b)(3)",
+          page: 5,
+          text: "3. If a route increases by fifteen (15) minutes for fifteen (15) school days, the time change will be made effective on the workday following the 15th day."
+        },
+        "3.08(b)(4)": {
+          label: "Art. 3.08(b)(4)",
+          page: 5,
+          text: "4. Upon determination that a route decreased by fifteen (15) minutes, the driver will receive a written determination of a decrease in their route. The time change will be made effective the workday following the written notice of determination."
+        }
+      };
+
+      const dialog = document.querySelector("#citation");
+      const titleEl = document.querySelector("#citation-title");
+      const pageEl = document.querySelector("#citation-page");
+      const textEl = document.querySelector("#citation-text");
+      const pdfLink = document.querySelector("#citation-pdf");
+
+      function openCitation(citationId) {
+        const entry = contractCitations[citationId];
+        if (!entry || !dialog) return;
+        titleEl.textContent = entry.label;
+        pageEl.textContent = "Teamsters CBA 2024–2027 · p. " + entry.page;
+        textEl.textContent = entry.text;
+        pdfLink.href = "https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=" + (entry.page + 2);
+        if (!dialog.open) dialog.showModal();
+      }
+
+      document.querySelector("#citation-close").addEventListener("click", () => {
+        if (dialog.open) dialog.close();
+      });
+      dialog.addEventListener("click", (event) => {
+        if (event.target === dialog && dialog.open) dialog.close();
+      });
+      document.addEventListener("click", (event) => {
+        const link = event.target.closest("[data-citation]");
+        if (!link) return;
+        const id = link.getAttribute("data-citation");
+        if (!contractCitations[id]) return;
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        openCitation(id);
+      });
+    </script>
+  </body>
+</html>

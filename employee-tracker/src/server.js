@@ -14,7 +14,7 @@ app.get('/', (_req, res) => {
 });
 
 app.listen(EMPLOYEE_PORT, () => {
-  console.log(`My Teamster Contract Hours Tracker listening on http://localhost:${EMPLOYEE_PORT}`);
+  console.log(`My Teamster Contract Date Calculator listening on http://localhost:${EMPLOYEE_PORT}`);
   console.log('Static multi-user app (each person is stored in this browser).');
   console.log('Leave this window open while you use the app.');
 });

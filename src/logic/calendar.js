@@ -172,3 +172,35 @@ export function isWindowExpired(asOfDate, windowExpiresDate) {
   }
   return toDateString(asOfDate) > toDateString(windowExpiresDate);
 }
+
+/**
+ * Shift a YYYY-MM-DD civil date by `days` (can be negative).
+ * @param {string | Date} date
+ * @param {number} days
+ * @returns {string}
+ */
+export function shiftCalendarDate(date, days) {
+  const iso = toDateString(date);
+  const utc = new Date(`${iso}T00:00:00.000Z`);
+  if (Number.isNaN(utc.getTime())) {
+    throw new Error(`Invalid date: ${iso}`);
+  }
+  utc.setUTCDate(utc.getUTCDate() + days);
+  return utc.toISOString().slice(0, 10);
+}
+
+/**
+ * @param {string | Date} date
+ * @returns {string}
+ */
+export function previousCalendarDate(date) {
+  return shiftCalendarDate(date, -1);
+}
+
+/**
+ * @param {string | Date} date
+ * @returns {string}
+ */
+export function nextCalendarDate(date) {
+  return shiftCalendarDate(date, 1);
+}

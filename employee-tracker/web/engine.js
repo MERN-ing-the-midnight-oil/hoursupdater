@@ -19,18 +19,27 @@ import {
   previewEmployeeChange,
   rebuildEmployeeRouteState,
 } from '../src/snapshot.js';
-import {
-  deleteProfile,
-  getCurrentProfile,
-  importState,
-  listProfiles,
-  saveProfile,
-  setCurrentProfile,
-} from './store.js';
+import * as employeeStore from './store.js';
+
+/** Swappable so the office calculator can keep routes in its own store. */
+let store = employeeStore;
+
+export function bindCalculatorStore(next) {
+  store = next;
+}
 
 let cachedCalendar = null;
 
-export function getAsOfDate() {
+export function getAsOfDate(profile) {
+  if (typeof globalThis.location?.search === 'string') {
+    const value = new URLSearchParams(globalThis.location.search).get('as_of');
+    if (value && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return value;
+    }
+  }
+  if (profile?.view_as_of && /^\d{4}-\d{2}-\d{2}$/.test(profile.view_as_of)) {
+    return profile.view_as_of;
+  }
   return localDateString();
 }
 
@@ -131,7 +140,7 @@ export function relinkChangeLog(changeLog, name = '') {
 
 function persistRelinked(profile, storage) {
   profile.changeLog = relinkChangeLog(profile.changeLog, profile.name?.trim() || '');
-  saveProfile(profile, storage);
+  store.saveProfile(profile, storage);
   return currentSnapshot(storage);
 }
 
@@ -190,8 +199,9 @@ export function buildSnapshot(profile, asOfDate = getAsOfDate()) {
   });
 }
 
-export function currentSnapshot(storage, asOfDate = getAsOfDate()) {
-  return buildSnapshot(getCurrentProfile(storage), asOfDate);
+export function currentSnapshot(storage, asOfDate) {
+  const profile = store.getCurrentProfile(storage);
+  return buildSnapshot(profile, asOfDate || getAsOfDate(profile));
 }
 
 /**
@@ -240,7 +250,7 @@ export function setupProfile(body, storage) {
     created_at: submittedAt,
     changeLog: seeds,
   };
-  saveProfile(profile, storage);
+  store.saveProfile(profile, storage);
   return currentSnapshot(storage);
 }
 
@@ -249,7 +259,7 @@ export function setupProfile(body, storage) {
  * @param {Storage} [storage]
  */
 export function previewChange(body, storage) {
-  const profile = getCurrentProfile(storage);
+  const profile = store.getCurrentProfile(storage);
   const pack = getCalendarPack();
   const asOf = toDateString(body.change_date || getAsOfDate());
   const entry = rebuildEmployeeRouteState(
@@ -272,7 +282,7 @@ export function previewChange(body, storage) {
  * @param {Storage} [storage]
  */
 export function recordChange(body, storage) {
-  const profile = getCurrentProfile(storage);
+  const profile = store.getCurrentProfile(storage);
   if (!profile) {
     throw new Error('Set up a person first.');
   }
@@ -329,7 +339,7 @@ export function recordChange(body, storage) {
       entered_by: name,
     },
   ];
-  saveProfile(profile, storage);
+  store.saveProfile(profile, storage);
   return currentSnapshot(storage);
 }
 
@@ -339,7 +349,7 @@ export function recordChange(body, storage) {
  * @param {Storage} [storage]
  */
 export function updateChange(changeId, body, storage) {
-  const profile = getCurrentProfile(storage);
+  const profile = store.getCurrentProfile(storage);
   if (!profile) {
     throw new Error('Set up a person first.');
   }
@@ -349,7 +359,9 @@ export function updateChange(changeId, body, storage) {
   }
   const existing = profile.changeLog[index];
   if (isSeedEvent(existing)) {
-    throw new Error('Correct starting times from Your clock times, not from history.');
+    throw new Error(
+      'Correct starting times from the established schedule row, not by editing a later change.'
+    );
   }
 
   const newTime = formatSegmentRange(body.clock_in, body.clock_out);
@@ -365,7 +377,7 @@ export function updateChange(changeId, body, storage) {
   if (updated && updated.previous_time === updated.new_time) {
     throw new Error('Those times match the previous times. Remove this change instead.');
   }
-  saveProfile(profile, storage);
+  store.saveProfile(profile, storage);
   return currentSnapshot(storage);
 }
 
@@ -374,7 +386,7 @@ export function updateChange(changeId, body, storage) {
  * @param {Storage} [storage]
  */
 export function deleteChange(changeId, storage) {
-  const profile = getCurrentProfile(storage);
+  const profile = store.getCurrentProfile(storage);
   if (!profile) {
     throw new Error('Set up a person first.');
   }
@@ -395,7 +407,7 @@ export function deleteChange(changeId, storage) {
  * @param {Storage} [storage]
  */
 export function correctCurrentTimes(body, storage) {
-  const profile = getCurrentProfile(storage);
+  const profile = store.getCurrentProfile(storage);
   if (!profile) {
     throw new Error('Set up a person first.');
   }
@@ -431,7 +443,7 @@ export function correctCurrentTimes(body, storage) {
  * @param {Storage} [storage]
  */
 export function updateStartingSchedule(body, storage) {
-  const profile = getCurrentProfile(storage);
+  const profile = store.getCurrentProfile(storage);
   if (!profile) {
     throw new Error('Set up a person first.');
   }
@@ -500,7 +512,7 @@ export function updateStartingSchedule(body, storage) {
  * @param {Storage} [storage]
  */
 export function startingScheduleFields(storage) {
-  const profile = getCurrentProfile(storage);
+  const profile = store.getCurrentProfile(storage);
   if (!profile) {
     return { name: '', start_date: getAsOfDate(), segments: {} };
   }
@@ -517,21 +529,21 @@ export function startingScheduleFields(storage) {
 }
 
 export function switchPerson(id, storage) {
-  setCurrentProfile(id, storage);
+  store.setCurrentProfile(id, storage);
   return currentSnapshot(storage);
 }
 
 export function removeCurrentPerson(storage) {
-  const profile = getCurrentProfile(storage);
+  const profile = store.getCurrentProfile(storage);
   if (!profile) {
     return currentSnapshot(storage);
   }
-  deleteProfile(profile.id, storage);
+  store.deleteProfile(profile.id, storage);
   return currentSnapshot(storage);
 }
 
 export function peopleList(storage) {
-  return listProfiles(storage).map((profile) => ({
+  return store.listProfiles(storage).map((profile) => ({
     id: profile.id,
     name: profile.name || 'Unnamed',
     start_date: profile.start_date,
@@ -550,6 +562,6 @@ export function calendarPayload() {
 }
 
 export function importBackup(json, storage) {
-  importState(json, storage);
+  store.importState(json, storage);
   return currentSnapshot(storage);
 }

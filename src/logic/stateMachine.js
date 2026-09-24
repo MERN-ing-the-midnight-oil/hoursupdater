@@ -7,7 +7,9 @@ import {
 import {
   addSchoolDays,
   isWindowExpired,
+  nextCalendarDate,
 } from './calendar.js';
+import { contractWindowPlan } from './contractWindows.js';
 import {
   buildPayrollRoundingBreakdown,
   toDateString,
@@ -184,6 +186,7 @@ import { buildChangeReport } from './changeReport.js';
  * @property {RouteStatus} status
  * @property {string | null} window_opened_date
  * @property {string | null} window_expires_date
+ * @property {import('./contractWindows.js').ContractWindowRule | null} [window_rule]
  * @property {number} cumulative_drift_minutes - running sum of unrounded deltas; never round before summing
  * @property {string[]} contributing_change_ids
  * @property {number | null} payroll_rounded_total_minutes - rounded AM+MD+PM total at last finalization
@@ -468,6 +471,7 @@ export function applyBidAwardResolutions(routeStateMap, changeLog) {
     next.contributing_change_ids = [];
     next.window_opened_date = null;
     next.window_expires_date = null;
+    next.window_rule = null;
     next.bump_decision_due_date = null;
     next.bump_chain_id = null;
     next.bump_chain_link = null;
@@ -525,6 +529,7 @@ export function createInitialRouteState(changeEvent) {
     status: 'STABLE',
     window_opened_date: null,
     window_expires_date: null,
+    window_rule: null,
     cumulative_drift_minutes: 0,
     contributing_change_ids: [],
     payroll_rounded_total_minutes: null,
@@ -597,6 +602,9 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
   const payrollBreakdown = buildPayrollRoundingBreakdown(state.segments);
   const payrollRoundedTotal = payrollBreakdown.payroll_rounded_total_minutes;
   const outcome = windowFinalizationOutcome(exactDrift);
+  // The window closed the day after it expired. A later viewing date
+  // must not move that close onto the day the calendar is opened.
+  const closedOn = nextCalendarDate(state.window_expires_date);
 
   if (options.changeLog && options.routeId) {
     const effectiveDeltas =
@@ -621,10 +629,7 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
       })
       .filter(Boolean);
 
-    const finalized_at =
-      asOfDate instanceof Date
-        ? asOfDate.toISOString()
-        : `${toDateString(asOfDate)}T00:00:00.000Z`;
+    const finalized_at = `${closedOn}T00:00:00.000Z`;
 
     // Fresh lookup at finalization — not whoever was assigned when the window opened.
     const resolved = resolveDriverAssignment(
@@ -667,6 +672,7 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
     state.cumulative_drift_minutes = 0;
     state.window_opened_date = null;
     state.window_expires_date = null;
+    state.window_rule = null;
     state.contributing_change_ids = [];
     state.bump_decision_due_date = null;
     state.bump_chain_id = null;
@@ -683,6 +689,7 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
     state.payroll_rounded_total_minutes = payrollRoundedTotal;
     state.window_opened_date = null;
     state.window_expires_date = null;
+    state.window_rule = null;
     state.bump_decision_due_date = null;
     state.bump_chain_id = null;
     state.bump_chain_link = null;
@@ -690,7 +697,7 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
     if (options.schoolCalendar) {
       state.bid_response_due_date = addSchoolDays(
         options.schoolCalendar,
-        asOfDate,
+        closedOn,
         BID_RESPONSE_SCHOOL_DAYS
       );
     } else {
@@ -704,10 +711,11 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
     state.payroll_rounded_total_minutes = payrollRoundedTotal;
     state.window_opened_date = null;
     state.window_expires_date = null;
+    state.window_rule = null;
     if (options.schoolCalendar) {
       state.bump_decision_due_date = addSchoolDays(
         options.schoolCalendar,
-        asOfDate,
+        closedOn,
         BUMP_DECISION_SCHOOL_DAYS
       );
     } else {
@@ -828,13 +836,10 @@ export function applyChangeToRoute(
     return state;
   }
 
-  const expiresDate = addSchoolDays(schoolCalendar, changeDate, 15);
-
   if (hasOpenAccumulationWindow(state, changeDate)) {
     // Rule 3: extend existing window (sum exact deltas; round later if at all)
     state.cumulative_drift_minutes += delta;
     state.contributing_change_ids.push(changeEvent.id);
-    state.window_expires_date = expiresDate;
 
     // Rule 5: reversal from bid/bump flag back to ACCUMULATING
     // Threshold uses exact unrounded cumulative — no rounding artifact.
@@ -856,7 +861,6 @@ export function applyChangeToRoute(
     state.window_opened_date = changeDate;
     state.cumulative_drift_minutes = delta;
     state.contributing_change_ids = [changeEvent.id];
-    state.window_expires_date = expiresDate;
     state.bump_decision_due_date = null;
     state.bump_chain_id = null;
     state.bump_chain_link = null;
@@ -865,7 +869,22 @@ export function applyChangeToRoute(
     state.bid_signup = null;
   }
 
-  return state;
+  const plan = contractWindowPlan(
+    schoolCalendar,
+    changeDate,
+    state.cumulative_drift_minutes
+  );
+  state.window_expires_date = plan.window_expires_date;
+  state.window_rule = plan.rule;
+
+  // Art. 3.08(a)(8)(b): a 30+ minute decrease before October 1 is bump-eligible
+  // on the determination date — expire immediately when the new window already ended.
+  return applyWindowExpiration(state, changeDate, {
+    routeId: changeEvent.route_id,
+    changeLog: options.changeLog,
+    effectiveDeltas: options.effectiveDeltas,
+    schoolCalendar,
+  });
 }
 
 /**

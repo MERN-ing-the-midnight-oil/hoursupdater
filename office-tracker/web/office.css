@@ -1,0 +1,36 @@
+.route-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0 0 1rem;
+}
+
+.route-tab {
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  padding: 0.45rem 0.8rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.route-tab:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.route-tab.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.route-tab.is-add {
+  background: transparent;
+  color: var(--accent);
+  border-style: dashed;
+}
+
+.topbar-side .secondary {
+  white-space: nowrap;
+}

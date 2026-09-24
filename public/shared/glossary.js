@@ -30,14 +30,16 @@ export const GLOSSARY = {
     aliases: ['contracted hour', 'Rounded contracted hours'],
   },
   window: {
-    term: 'The 15-school-day window',
+    term: 'The review window',
     definition:
-      'A 15-school-day review period that starts when a route’s schedule changes and resets on any further change to that route.',
+      'The period after a route’s schedule changes before those times become contracted, go to bid, or become bump-eligible. Before October 1, under-30-minute changes wait until October 1. After October 1, increases and decreases are added together for 15 school days. If that total stays under 30 minutes, it becomes official the next school day. If it reaches 30 minutes, an increase goes to bid and a decrease becomes bump-eligible. A later change inside the 15 school days restarts the countdown and adds the exact minutes.',
     aliases: [
       '15-school-day window',
       '15 school-day window',
       '15-school-day review period',
+      'review window',
     ],
+    citation: ['3.08(a)(8)(c)', '3.08(b)(3)', '3.08(b)(4)'],
   },
   bid_threshold: {
     term: 'The 30-minute threshold',

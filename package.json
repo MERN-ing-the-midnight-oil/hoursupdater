@@ -8,6 +8,8 @@
     "start": "node src/server.js",
     "start:employee": "npm run build:employee-pages && node employee-tracker/src/server.js",
     "build:employee-pages": "node scripts/build-employee-pages.js",
+    "start:office": "npm run build:office-pages && node office-tracker/src/server.js",
+    "build:office-pages": "node scripts/build-office-pages.js",
     "seed": "node scripts/seed-sample-data.js",
     "seed:queue-scenarios": "node scripts/seed-admin-queue-scenarios.js",
     "build:portable-win": "node scripts/build-portable-win.js"

@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Transportation Timechange Calculator</title>
+    <meta name="theme-color" content="#1a4f86" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Timechange" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="icon" href="./favicon.ico" sizes="48x48" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" sizes="180x180" />
+    <link rel="manifest" href="./site.webmanifest" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./office.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand">Transportation Timechange Calculator</div>
+        </div>
+        <div class="topbar-side">
+          <p class="calendar-pill" id="calendar-pill">BPS 2026–2027 calendar</p>
+          <button type="button" id="guide-open">Read this to get started!</button>
+          <button type="button" class="secondary" id="export-btn">Download CSV</button>
+          <button type="button" class="secondary" id="import-btn">Upload CSV</button>
+          <input id="import-file" type="file" accept="text/csv,.csv" hidden />
+        </div>
+        <p class="brand-sub">This app was made by Rhys Smoker on his own time and not as part of his duties as a bus driver or in affiliation with BPS , Transportation, or the Teamsters. Please contact <a href="mailto:r.smoker@gmail.com">r.smoker@gmail.com</a> with comments or suggestions. Routes stay in this browser. Download the CSV to move them, then upload that same file to bring them back.</p>
+      </header>
+
+      <div class="route-tabs" id="route-tabs" role="tablist" aria-label="Routes"></div>
+
+      <section id="setup-view" class="panel" hidden>
+        <h1>Set contracted clock times</h1>
+        <p class="lead">
+          Add a route number, then enter the clock times that route was
+          contracted for before any changes. New contract dates follow the
+          Teamster October 1 rules: before October 1, under-30-minute changes
+          become contracted on October 1; after October 1, increases and
+          decreases in the same 15 school days are added together under Art.
+          3.08(b).
+        </p>
+        <form id="setup-form" novalidate>
+          <div class="grid">
+            <div class="field">
+              <label for="setup_name">Route number</label>
+              <input id="setup_name" name="name" autocomplete="off" placeholder="104 or P32" required />
+            </div>
+            <div class="field">
+              <label for="setup_driver">Driver</label>
+              <input id="setup_driver" name="driver" autocomplete="name" placeholder="Optional" />
+            </div>
+            <div class="field">
+              <label for="setup_start_date">These times started on</label>
+              <input id="setup_start_date" name="start_date" type="date" required />
+            </div>
+          </div>
+
+          <div class="run-grid" id="setup-runs"></div>
+          <p class="field-hint">Fill in at least one run. Leave unused runs blank.</p>
+
+          <div class="actions">
+            <button type="submit" id="setup-submit">Save starting times</button>
+          </div>
+          <div id="setup-status" class="status" role="status"></div>
+        </form>
+      </section>
+
+      <div id="app-view" hidden>
+        <div id="notification-toasts" class="notification-toasts" aria-live="polite"></div>
+        <section class="hero panel" id="hero"></section>
+
+        <section class="panel">
+          <h2>Route clock times</h2>
+          <p class="lead" id="schedule-lead">
+            Each row is a full schedule. The first row is the established starting
+            times. Later rows are changes, oldest to newest.
+          </p>
+          <div class="table-wrap">
+            <table class="schedule-history" id="schedule-history">
+              <thead>
+                <tr>
+                  <th scope="col">Effective</th>
+                  <th scope="col">AM</th>
+                  <th scope="col">Midday</th>
+                  <th scope="col">PM</th>
+                  <th scope="col">Contracted</th>
+                  <th scope="col"><span class="visually-hidden">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="actions">
+            <button type="button" class="secondary" id="edit-start-btn">
+              Edit clock time changes
+            </button>
+            <button type="button" id="record-change-btn">
+              Record a clock-time change
+            </button>
+          </div>
+          <div id="schedule-status" class="status" role="status" hidden></div>
+          <form id="start-edit-form" class="edit-form" hidden>
+            <p class="lead">
+              Fix a typo in the times you started with. Later logged changes stay
+              in place and are recalculated from these times.
+            </p>
+            <div class="grid">
+              <div class="field">
+                <label for="start_edit_name">Route number</label>
+                <input id="start_edit_name" name="name" autocomplete="off" required />
+              </div>
+              <div class="field">
+                <label for="start_edit_driver">Driver</label>
+                <input id="start_edit_driver" name="driver" autocomplete="name" />
+              </div>
+              <div class="field">
+                <label for="start_edit_date">These times started on</label>
+                <input id="start_edit_date" name="start_date" type="date" required />
+              </div>
+            </div>
+            <div class="run-grid" id="start-edit-runs"></div>
+            <div class="actions">
+              <button type="submit">Save corrections</button>
+              <button type="button" class="secondary" id="start-edit-cancel">Cancel</button>
+            </div>
+            <div id="start-edit-status" class="status" role="status"></div>
+          </form>
+          <form id="change-edit-form" class="edit-form" hidden>
+            <h3 id="change-edit-title">Correct a recorded change</h3>
+            <input type="hidden" id="change_edit_id" />
+            <div class="grid">
+              <div class="field">
+                <label for="change_edit_date">Date the change took place</label>
+                <input id="change_edit_date" type="date" required />
+              </div>
+              <div class="field">
+                <span class="field-static-label">Run</span>
+                <p id="change_edit_segment" class="field-static"></p>
+              </div>
+              <div class="field">
+                <label for="change_edit_in">Clock-in</label>
+                <input id="change_edit_in" type="time" step="60" required />
+              </div>
+              <div class="field">
+                <label for="change_edit_out">Clock-out</label>
+                <input id="change_edit_out" type="time" step="60" required />
+              </div>
+              <div class="field full">
+                <label for="change_edit_note">Note</label>
+                <textarea id="change_edit_note" placeholder="Optional"></textarea>
+              </div>
+            </div>
+            <div class="actions">
+              <button type="submit">Save correction</button>
+              <button type="button" class="secondary" id="change-edit-cancel">Cancel</button>
+            </div>
+            <div id="change-edit-status" class="status" role="status"></div>
+          </form>
+        </section>
+
+        <section class="panel">
+          <h2>Route clock-time history</h2>
+          <p class="lead">
+            Each color matches a row in your clock times. A square marks the
+            day those times were established. When a change counts 15 school
+            days, those days are filled and numbered. The day of the change
+            does not count: the next school day is 1. An arrow covers the days
+            still left before those times become contracted, and points at a
+            box around that day. A box marks each end-of-month bid period.
+          </p>
+          <ul id="history-legend" class="history-legend"></ul>
+          <div id="calendar-months" class="calendar-months"></div>
+        </section>
+
+        <section class="panel rules">
+          <h2>How the contract math works</h2>
+          <ol>
+            <li>
+              A qualifying clock-time change opens a review window. The close
+              date depends on whether the change is before or after
+              <strong>October 1</strong>, and on whether it is an increase or a
+              decrease. Art. 3.08 does not say what happens if the route
+              changes again before that window closes. This app’s assumption
+              is that another change resets the countdown and adds the exact
+              minute difference. After October 1 that window is 15 school days
+              for both added time and time taken off. If, before that countdown
+              finishes, another addition or subtraction turns a small change
+              (under 30 minutes) into a large one (30 minutes or more), the
+              countdown starts over at that point. If nothing else changes
+              during the new 15 school days, the route is then eligible for bid
+              or for the seniority choice. A 20-minute change and a 15-minute
+              change inside those 15 school days are one 35-minute change.
+            </li>
+            <li>
+              Deltas stay <strong>exact and unrounded</strong> while the window
+              is open.
+            </li>
+            <li>
+              When the window closes, the accumulated difference is checked
+              against <strong>30 minutes</strong>:
+              <ul>
+                <li>Under 30 minutes → the new times <strong>lock in</strong> as contracted hours.</li>
+                <li>
+                  Increase of 30+ minutes → <strong>bid pending</strong>:
+                  <a class="contract-cite-link" data-citation="3.08(a)(8)(a)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=6">from the initial bid, after 15 school days</a>,
+                  or
+                  <a class="contract-cite-link" data-citation="3.08(b)(1)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=7">in the last five school days of the month, October through April</a>.
+                </li>
+                <li>
+                  Decrease of 30+ minutes → <strong>bump eligible</strong>:
+                  <a class="contract-cite-link" data-citation="3.08(a)(8)(b)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=6">when the decrease is written, before October 1</a>,
+                  or
+                  <a class="contract-cite-link" data-citation="3.08(b)(2)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=7">after it has lasted 15 school days</a>.
+                </li>
+              </ul>
+            </li>
+            <li>
+              Art. 3.08 does not say how contracted hours are rounded. This
+              app’s assumption is that the daily AM + Midday + PM total is
+              rounded <strong>once</strong> to the nearest 15 minutes at
+              lock-in. A schedule can change without contracted hours changing
+              if both totals round to the same quarter hour.
+            </li>
+          </ol>
+        </section>
+
+        <div class="footer-actions">
+          <button type="button" class="danger-link" id="reset-btn">
+            Remove this route
+          </button>
+        </div>
+      </div>
+    </main>
+
+    <dialog id="change-dialog" class="change-dialog" aria-labelledby="change-dialog-title">
+      <div class="change-dialog-header">
+        <h2 id="change-dialog-title">Record a clock-time change</h2>
+        <button type="button" class="secondary" id="change-dialog-close">Close</button>
+      </div>
+      <p class="lead">
+        Submit the new clock-in or clock-out and the date it took effect.
+        Exact minutes are used — nothing is rounded until contracted hours
+        lock in.
+      </p>
+      <form id="change-form" novalidate>
+        <div class="grid">
+          <div class="field">
+            <label for="change_segment">Run</label>
+            <select id="change_segment" name="segment" required>
+              <option value="AM">AM</option>
+              <option value="MIDDAY">Midday</option>
+              <option value="PM">PM</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="change_date">Date the change took place</label>
+            <input id="change_date" name="change_date" type="date" required />
+          </div>
+          <div class="field">
+            <label for="clock_in">New clock-in</label>
+            <input id="clock_in" name="clock_in" type="time" step="60" required />
+          </div>
+          <div class="field">
+            <label for="clock_out">New clock-out</label>
+            <input id="clock_out" name="clock_out" type="time" step="60" required />
+          </div>
+          <div class="field full">
+            <label for="change_note">Note</label>
+            <textarea id="change_note" name="note" placeholder="Optional"></textarea>
+          </div>
+        </div>
+        <div id="preview-box" class="preview-box" hidden></div>
+        <div class="actions">
+          <button type="submit" id="change-submit">Submit change</button>
+          <button type="button" class="secondary" id="change-reset">Clear</button>
+        </div>
+        <div id="change-status" class="status" role="status" hidden></div>
+      </form>
+    </dialog>
+
+    <dialog id="citation" class="citation" aria-labelledby="citation-title">
+      <p class="tour-kicker" id="citation-page">Teamsters CBA 2024–2027</p>
+      <h2 id="citation-title">Contract text</h2>
+      <blockquote id="citation-text" class="citation-text"></blockquote>
+      <p class="citation-links">
+        <a id="citation-pdf" href="#" target="_blank" rel="noopener noreferrer">
+          Open this page in the published 2024–2027 contract (PDF)
+        </a>
+        <a
+          id="citation-index"
+          href="https://www.bellinghamschools.org/about/departments/human-resources/collective-bargaining-agreements-and-salary-schedules"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          District contract list
+        </a>
+      </p>
+      <div class="tour-actions">
+        <button type="button" class="secondary" id="citation-close">Close</button>
+      </div>
+    </dialog>
+
+    <dialog id="day-dialog" class="day-dialog" aria-labelledby="day-dialog-title">
+      <div class="change-dialog-header">
+        <h2 id="day-dialog-title"></h2>
+        <button type="button" class="secondary" id="day-dialog-close">Close</button>
+      </div>
+      <ul id="day-dialog-list" class="day-dialog-list"></ul>
+    </dialog>
+
+    <dialog id="guide-dialog" class="guide-dialog" aria-label="Read this to get started!">
+      <div class="guide-dialog-bar">
+        <button type="button" class="secondary" id="guide-dialog-close">Close</button>
+      </div>
+      <iframe id="guide-frame" title="Read this to get started!"></iframe>
+    </dialog>
+
+    <script type="module" src="./app.js"></script>
+    <script>
+      const guideDialog = document.getElementById('guide-dialog');
+      const guideFrame = document.getElementById('guide-frame');
+      document.getElementById('guide-open')?.addEventListener('click', () => {
+        if (guideFrame && guideFrame.dataset.loaded !== '1') {
+          guideFrame.src = './clock-hours-guide.html';
+          guideFrame.dataset.loaded = '1';
+        }
+        guideDialog?.showModal();
+      });
+      document.getElementById('guide-dialog-close')?.addEventListener('click', () => {
+        guideDialog?.close();
+      });
+    </script>
+  </body>
+</html>

@@ -694,6 +694,7 @@ export function buildSeededRouteState(input) {
     status: /** @type {const} */ ('STABLE'),
     window_opened_date: null,
     window_expires_date: null,
+    window_rule: null,
     cumulative_drift_minutes: 0,
     contributing_change_ids: [],
     payroll_rounded_total_minutes: null,
