@@ -9,7 +9,7 @@ import {
   isWindowExpired,
   nextCalendarDate,
 } from './calendar.js';
-import { contractWindowPlan } from './contractWindows.js';
+import { contractWindowPlan, forcedOctober1ContractPlan, isForcedOctober1Contract } from './contractWindows.js';
 import {
   buildPayrollRoundingBreakdown,
   toDateString,
@@ -48,6 +48,7 @@ import { buildChangeReport } from './changeReport.js';
  * @property {ReasonCategory} reason_category
  * @property {string} note - optional free-text explanation
  * @property {string} entered_by - from staff-names.json
+ * @property {boolean} [force_oct1_contract] - office override: contract on October 1
  */
 
 /**
@@ -601,7 +602,8 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
   const exactDrift = state.cumulative_drift_minutes;
   const payrollBreakdown = buildPayrollRoundingBreakdown(state.segments);
   const payrollRoundedTotal = payrollBreakdown.payroll_rounded_total_minutes;
-  const outcome = windowFinalizationOutcome(exactDrift);
+  const forcedOctober1 = state.window_rule === 'forced_october_1_contract';
+  const outcome = forcedOctober1 ? 'STABLE' : windowFinalizationOutcome(exactDrift);
   // The window closed the day after it expired. A later viewing date
   // must not move that close onto the day the calendar is opened.
   const closedOn = nextCalendarDate(state.window_expires_date);
@@ -654,6 +656,7 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
       before_segments: { ...state.baseline_segments },
       after_segments: { ...state.segments },
       contributing_changes,
+      forced_october_1: forcedOctober1,
     });
     state.change_reports = [...(state.change_reports ?? []), report];
 
@@ -779,6 +782,17 @@ export function resolveEffectiveDeltas(changeLog) {
 }
 
 /**
+ * Office override on the change being applied. Skips size and countdown rules
+ * for this schedule. A later change uses its own mark.
+ *
+ * @param {ChangeEvent} changeEvent
+ * @returns {boolean}
+ */
+function forcesOctober1Contract(changeEvent) {
+  return isForcedOctober1Contract(changeEvent?.force_oct1_contract);
+}
+
+/**
  * Apply a single change event to one route's state (pure function).
  *
  * @param {RouteStateEntry | null | undefined} routeState
@@ -869,11 +883,13 @@ export function applyChangeToRoute(
     state.bid_signup = null;
   }
 
-  const plan = contractWindowPlan(
-    schoolCalendar,
-    changeDate,
-    state.cumulative_drift_minutes
-  );
+  const plan = forcesOctober1Contract(changeEvent)
+    ? forcedOctober1ContractPlan(changeDate)
+    : contractWindowPlan(
+        schoolCalendar,
+        changeDate,
+        state.cumulative_drift_minutes
+      );
   state.window_expires_date = plan.window_expires_date;
   state.window_rule = plan.rule;
 

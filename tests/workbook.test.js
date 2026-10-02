@@ -17,7 +17,6 @@ import {
   renderWorkbookBuffer,
 } from '../src/services/workbook.js';
 import {
-  discardWorkbookEdits,
   syncWorkbook,
 } from '../src/services/workbookSync.js';
 
@@ -96,7 +95,7 @@ describe('workbook sync', () => {
     await fs.rm(sharedRoot, { recursive: true, force: true });
   });
 
-  it('blocks overwrite when the workbook was edited externally', async () => {
+  it('replaces a hand-edited workbook from the JSON log', async () => {
     const sharedRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'rct-wb-edit-'));
     const appDataDir = path.join(sharedRoot, '_app_data');
     await seedMiniAppData(appDataDir);
@@ -106,34 +105,20 @@ describe('workbook sync', () => {
 
     const bytes = await fs.readFile(first.path);
     const logical = await parseWorkbookBuffer(bytes);
-    logical.change_log[0].exact_delta_minutes = '99';
+    logical.clock_times[0].note = 'HAND EDIT';
     const edited = await renderWorkbookBuffer(logical);
     await fs.writeFile(first.path, edited);
 
-    const blocked = await syncWorkbook({ sharedRoot, appDataDir });
-    assert.equal(blocked.status, 'blocked');
-    assert.equal(blocked.reason, 'external_edit');
+    const replaced = await syncWorkbook({ sharedRoot, appDataDir });
+    assert.equal(replaced.status, 'wrote');
+    assert.equal(replaced.reason, 'regenerated');
+    assert.equal(await readWorkbookReconciliation(appDataDir), null);
 
-    const pending = await readWorkbookReconciliation(appDataDir);
-    assert.equal(pending.status, 'PENDING');
-    assert.ok(
-      pending.diff.change_log.changes.some(
-        (c) => c.key === logical.change_log[0].change_id && c.kind === 'modified'
-      )
-    );
-
-    // File must still contain the edited value (not silently overwritten).
-    const still = await parseWorkbookBuffer(await fs.readFile(first.path));
-    assert.equal(still.change_log[0].exact_delta_minutes, '99');
-
-    await discardWorkbookEdits({
-      sharedRoot,
-      appDataDir,
-      resolved_by: 'Admin Assistant',
-      note: 'Discarding accidental Excel edit',
-    });
     const restored = await parseWorkbookBuffer(await fs.readFile(first.path));
-    assert.equal(restored.change_log[0].exact_delta_minutes, '5');
+    assert.equal(restored.clock_times[0].note, 'Student added');
+    assert.equal(restored.clock_times[0].clock_in, '6:30');
+    assert.equal(restored.drivers[0].email, '');
+    assert.equal(restored.drivers[0].name, 'Jane Driver');
 
     await fs.rm(sharedRoot, { recursive: true, force: true });
   });

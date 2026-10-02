@@ -118,6 +118,9 @@ describe('employee hours snapshot', () => {
     assert.equal(snap.schedule_history.length, 1);
     assert.equal(snap.schedule_history[0].kind, 'initial');
     assert.equal(snap.schedule_history[0].schedule.AM.clock_in, '6:35');
+    assert.equal(snap.schedule_history[0].time_sources.AM, 'initial');
+    assert.equal(snap.schedule_history[0].time_sources.PM, 'initial');
+    assert.equal(snap.schedule_history[0].time_sources.MIDDAY, null);
     assert.equal(snap.schedule_history[0].contracted.status, 'established');
   });
 
@@ -148,6 +151,8 @@ describe('employee hours snapshot', () => {
     assert.equal(snap.schedule_history[0].kind, 'initial');
     assert.equal(snap.schedule_history[1].kind, 'change');
     assert.equal(snap.schedule_history[1].schedule.AM.clock_in, '6:28');
+    assert.equal(snap.schedule_history[1].time_sources.AM, snap.schedule_history[1].change_id);
+    assert.equal(snap.schedule_history[0].time_sources.AM, 'initial');
     assert.equal(snap.schedule_history[1].contracted.status, 'predicted');
     assert.equal(snap.schedule_history[1].contracted.becomes_on, '2026-10-01');
     assert.match(snap.schedule_history[1].contracted.label, /predicted to become contracted/i);

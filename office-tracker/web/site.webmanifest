@@ -1,12 +1,12 @@
 {
-  "name": "Transportation Timechange Calculator",
-  "short_name": "Timechange",
-  "description": "Office calculator for route time changes",
+  "name": "Teamster Time Changes Dashboard",
+  "short_name": "Teamster Time",
+  "description": "Dashboard for route time changes",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#1a4f86",
-  "theme_color": "#1a4f86",
+  "background_color": "#12161b",
+  "theme_color": "#12161b",
   "icons": [
     {
       "src": "./icon-192.png",

@@ -196,10 +196,10 @@ describe('stateMachine', () => {
     assert.equal(state.payroll_rounded_total_minutes, 150);
   });
 
-  it('rounds exact route daily total at finalization, not the drift (non-aligned baseline)', () => {
+  it('rounds each run at finalization, not the drift (non-aligned baseline)', () => {
     // Baseline 6:35-8:55 = 140 — not quarter-hour aligned.
     // +7 → 6:28-8:55 = 147.
-    // Old (wrong): round(7) = 0. New (correct): round(147) = 150.
+    // Rounding the +7 drift would store 0. Payroll rounds the run: 147 → 150.
     const change = makeChange({
       id: 'c1',
       previous_time: '6:35-8:55',
@@ -227,8 +227,8 @@ describe('stateMachine', () => {
       new_time: '6:30-8:55',
     });
     let state = applyChangeToRoute(null, change, calendar);
-    state.segments.PM = '2:10-4:45'; // 155 exact
-    // AM 145 + PM 155 = 300 → already on a quarter hour
+    state.segments.PM = '2:10-4:45'; // 155 exact → 150
+    // AM 145 → 150. Rounded runs sum to 300, and that sum is already a quarter hour.
     state = applyWindowExpiration(state, '2025-10-01');
     assert.equal(state.payroll_rounded_total_minutes, 300);
   });

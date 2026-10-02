@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Route sheet · Teamster Tracker</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/sheet.css" />
+  </head>
+  <body>
+    <main class="shell shell-wide">
+      <div class="topbar">
+        <div class="brand-block">
+          <a href="/" class="brand-home" aria-label="Home" data-icon="home"></a>
+          <div class="brand">Teamster Tracker</div>
+        </div>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="/routing" data-icon="route">Routing</a>
+          <a href="/routing/sheet" aria-current="page" data-icon="calendar">Route sheet</a>
+          <a href="/admin" data-icon="clipboard-list">Admin</a>
+          <a href="/admin/drivers" data-icon="users">Drivers/Routes</a>
+          <a href="/help" data-icon="book-open">Definitions</a>
+        </nav>
+      </div>
+
+      <section class="panel">
+        <h1 data-icon="calendar">Route sheet</h1>
+        <p class="lead">
+          The established schedule is the first row. Later rows are changes.
+          Saving appends a new log entry. It does not rewrite an earlier one.
+        </p>
+        <div class="field">
+          <label for="route_id">Route</label>
+          <select id="route_id"></select>
+        </div>
+        <p id="sheet-status" class="status" role="status"></p>
+        <div id="sheet-summary" class="meta"></div>
+        <div id="sheet-history" class="table-wrap"></div>
+        <h2>Calendar</h2>
+        <ul id="sheet-legend" class="history-legend"></ul>
+        <div id="sheet-calendar" class="calendar-months"></div>
+      </section>
+
+      <section class="panel">
+        <h2>New time change</h2>
+        <form id="change-form" class="sheet-form">
+          <div class="grid">
+            <div class="field">
+              <label for="segment">Run</label>
+              <select id="segment" required>
+                <option value="AM">AM</option>
+                <option value="MIDDAY">Midday</option>
+                <option value="PM">PM</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="effective_date">Date</label>
+              <input id="effective_date" type="date" required />
+            </div>
+            <div class="field">
+              <label for="previous_in">Current clock in</label>
+              <input id="previous_in" required placeholder="6:30" />
+            </div>
+            <div class="field">
+              <label for="previous_out">Current clock out</label>
+              <input id="previous_out" required placeholder="8:55" />
+            </div>
+            <div class="field">
+              <label for="next_in">New clock in</label>
+              <input id="next_in" required placeholder="6:30" />
+            </div>
+            <div class="field">
+              <label for="next_out">New clock out</label>
+              <input id="next_out" required placeholder="9:10" />
+            </div>
+            <div class="field">
+              <label for="entered_by">Entered by</label>
+              <select id="entered_by" required></select>
+            </div>
+            <div class="field">
+              <label for="reason_category">Reason category</label>
+              <select id="reason_category" required></select>
+            </div>
+            <div class="field full">
+              <label for="note" title="Write your name and the reason for this change.">
+                Editor/Comment
+              </label>
+              <input
+                id="note"
+                title="Write your name and the reason for this change."
+                placeholder="Your name and the reason"
+              />
+            </div>
+          </div>
+          <p><button type="submit" id="save-change">Save time change</button></p>
+        </form>
+      </section>
+    </main>
+    <script type="module" src="/routing/sheet.js"></script>
+  </body>
+</html>

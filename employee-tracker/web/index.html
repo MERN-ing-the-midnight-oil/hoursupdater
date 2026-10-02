@@ -2,9 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>My Teamster Contract Date Calculator</title>
-    <meta name="theme-color" content="#1f5c4a" />
+    <meta name="theme-color" content="#f6f1e3" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap" rel="stylesheet" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Date Calculator" />
@@ -160,7 +163,6 @@
             <div id="start-edit-status" class="status" role="status"></div>
           </form>
           <form id="change-edit-form" class="edit-form" hidden>
-            <h3 id="change-edit-title">Correct a recorded change</h3>
             <input type="hidden" id="change_edit_id" />
             <div class="grid">
               <div class="field">
@@ -233,7 +235,7 @@
               When the window closes, the accumulated difference is checked
               against <strong>30 minutes</strong>:
               <ul>
-                <li>Under 30 minutes → the new times <strong>lock in</strong> as contracted hours.</li>
+                <li>Under 30 minutes → the new times are <strong>automatically contracted</strong>.</li>
                 <li>
                   Increase of 30+ minutes → <strong>bid pending</strong>:
                   <a class="contract-cite-link" data-citation="3.08(a)(8)(a)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=6">from the initial bid, after 15 school days</a>,
@@ -250,9 +252,9 @@
             </li>
             <li>
               Art. 3.08 does not say how contracted hours are rounded. This
-              app’s assumption is that the daily AM + Midday + PM total is
-              rounded <strong>once</strong> to the nearest 15 minutes at
-              lock-in. A schedule can change without contracted hours changing
+              app rounds AM, midday, and PM separately to the nearest 15 minutes,
+              adds those rounded amounts, and rounds that sum to the nearest 15
+              minutes for the contracted daily total. A schedule can change without contracted hours changing
               if both totals round to the same quarter hour.
             </li>
           </ol>
@@ -264,6 +266,23 @@
           </button>
         </div>
       </div>
+
+      <section class="panel share-panel" aria-labelledby="share-heading">
+        <h2 id="share-heading">Share this app</h2>
+        <p class="lead">Scan the code with a phone, or send the link by email or text.</p>
+        <div class="share-layout">
+          <canvas id="share-qr" width="168" height="168" role="img" aria-label="QR code for this app"></canvas>
+          <div class="share-actions">
+            <button type="button" id="share-btn">Share</button>
+            <div id="share-fallback" class="share-fallback" hidden>
+              <a class="share-choice" id="share-email" href="#">Email</a>
+              <a class="share-choice" id="share-text" href="#">Text</a>
+            </div>
+            <p class="share-url" id="share-url"></p>
+            <p id="share-status" class="status" role="status" hidden></p>
+          </div>
+        </div>
+      </section>
     </main>
 
     <dialog id="change-dialog" class="change-dialog" aria-labelledby="change-dialog-title">
@@ -273,8 +292,8 @@
       </div>
       <p class="lead">
         Submit the new clock-in or clock-out and the date it took effect.
-        Exact minutes are used — nothing is rounded until contracted hours
-        lock in.
+        Exact minutes are used — nothing is rounded until the hours are
+        automatically contracted.
       </p>
       <form id="change-form" novalidate>
         <div class="grid">

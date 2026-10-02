@@ -84,7 +84,7 @@ function mathStat(label, value, glossaryId) {
 export function formatReportOutcome(report) {
   if (report.outcome === 'BID_PENDING') return 'Bid pending';
   if (report.outcome === 'BUMP_ELIGIBLE') return 'Bump eligible';
-  if (report.outcome === 'STABLE') return 'Locked in';
+  if (report.outcome === 'STABLE') return 'Automatically contracted';
   return String(report.outcome || '—');
 }
 

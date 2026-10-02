@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import ExcelJS from 'exceljs';
 import { getAsOfDate } from '../config.js';
 import { daysRemainingInWindow } from '../logic/calendar.js';
+import { clockTimeRows } from '../logic/clockSheet.js';
 import { getSeniorityOrder } from '../logic/seniority.js';
-import { isChangeEvent } from '../logic/stateMachine.js';
 
 /**
  * @typedef {import('../logic/stateMachine.js').LogEntry} LogEntry
@@ -16,10 +16,9 @@ import { isChangeEvent } from '../logic/stateMachine.js';
  * Canonical logical workbook (sheet → rows of plain objects).
  * Used for hashing/diffing so OneDrive byte churn does not false-trigger.
  * @typedef {Object} LogicalWorkbook
- * @property {Record<string, string>[]} change_log
+ * @property {Record<string, string>[]} clock_times
  * @property {Record<string, string|number|null>[]} routes
  * @property {Record<string, string|null>[]} drivers
- * @property {Record<string, string|number|null>[]} change_reports
  */
 
 /**
@@ -54,39 +53,17 @@ export function buildLogicalWorkbook({
   schoolCalendar,
   asOfDate = getAsOfDate(),
 }) {
-  /** @type {Map<string, number>} */
-  const effectiveDeltas = new Map();
-  // Resolve ADJUSTMENT overlays for display of "exact delta used"
-  for (const entry of changeLog) {
-    if (entry?.type === 'ADJUSTMENT') {
-      effectiveDeltas.set(entry.target_change_id, entry.new_delta);
-    }
-  }
-
-  const change_log = changeLog
-    .filter(isChangeEvent)
-    .map((entry) => {
-      const change = /** @type {import('../logic/stateMachine.js').ChangeEvent} */ (
-        entry
-      );
-      const delta = effectiveDeltas.has(change.id)
-        ? effectiveDeltas.get(change.id)
-        : change.delta_minutes;
-      return {
-        change_id: change.id,
-        driver: change.driver_name,
-        route: change.route_id,
-        segment: change.segment,
-        previous_time: change.previous_time,
-        new_time: change.new_time,
-        exact_delta_minutes: String(delta ?? ''),
-        entered_by: change.entered_by,
-        reason_category: change.reason_category,
-        note: change.note,
-        start_date: change.effective_date,
-        submitted_at: change.submitted_at,
-      };
-    });
+  const clock_times = clockTimeRows(changeLog).map((row) => ({
+    route: row.route,
+    driver: row.driver,
+    kind: row.kind,
+    date: row.date,
+    run: row.run,
+    clock_in: row.clock_in,
+    clock_out: row.clock_out,
+    note: row.note,
+    change_id: row.change_id,
+  }));
 
   const routes = Object.entries(routeState)
     .map(([route_id, entry]) => {
@@ -99,24 +76,16 @@ export function buildLogicalWorkbook({
             )
           : null;
       return {
-        route_id,
+        route: route_id,
         driver: entry.driver_name,
         status: entry.status,
         cumulative_drift_minutes: String(entry.cumulative_drift_minutes ?? ''),
         window_expires_date: entry.window_expires_date ?? '',
         days_remaining:
           entry.status === 'ACCUMULATING' ? String(daysRemaining ?? '') : '',
-        payroll_rounded_total_minutes:
-          entry.payroll_rounded_total_minutes == null
-            ? ''
-            : String(entry.payroll_rounded_total_minutes),
-        am: entry.segments?.AM ?? '',
-        midday: entry.segments?.MIDDAY ?? '',
-        pm: entry.segments?.PM ?? '',
-        last_updated: entry.last_updated ?? '',
       };
     })
-    .sort((a, b) => String(a.route_id).localeCompare(String(b.route_id)));
+    .sort((a, b) => String(a.route).localeCompare(String(b.route)));
 
   /** @type {Map<string, string[]>} */
   const assignmentsByDriver = new Map();
@@ -138,9 +107,8 @@ export function buildLogicalWorkbook({
       const routesAssigned = [...new Set([...byId, ...byName])].sort();
       const ranked = seniorityById.get(driver.driver_id);
       return {
-        driver_id: driver.driver_id,
-        name: driver.name,
         email: driver.email ?? '',
+        name: driver.name,
         hire_date: driver.hire_date ?? '',
         tie_break:
           driver.tie_break == null ? '' : String(driver.tie_break),
@@ -151,40 +119,12 @@ export function buildLogicalWorkbook({
         current_assignments: routesAssigned.join(', '),
       };
     })
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  /** @type {LogicalWorkbook['change_reports']} */
-  const change_reports = [];
-  for (const [route_id, entry] of Object.entries(routeState)) {
-    for (const report of entry.change_reports ?? []) {
-      change_reports.push({
-        report_id: report.id,
-        route_id,
-        driver: report.driver_name,
-        outcome: report.outcome,
-        finalized_at: report.finalized_at,
-        window_opened_date: report.window_opened_date ?? '',
-        before_exact_total: String(report.before?.math?.exact_total_minutes ?? ''),
-        after_exact_total: String(report.after?.math?.exact_total_minutes ?? ''),
-        before_rounded_contracted: String(
-          report.before?.math?.payroll_rounded_total_minutes ?? ''
-        ),
-        after_rounded_contracted: String(
-          report.after?.math?.payroll_rounded_total_minutes ?? ''
-        ),
-        contracted_hours_statement: report.contracted_hours_statement ?? '',
-      });
-    }
-  }
-  change_reports.sort((a, b) =>
-    String(b.finalized_at).localeCompare(String(a.finalized_at))
-  );
+    .sort((a, b) => String(a.email || a.name).localeCompare(String(b.email || b.name)));
 
   return {
-    change_log,
+    clock_times,
     routes,
     drivers: driversSheet,
-    change_reports,
   };
 }
 
@@ -206,57 +146,34 @@ export function hashBytes(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-const CHANGE_LOG_HEADERS = [
-  'change_id',
-  'driver',
+const CLOCK_HEADERS = [
   'route',
-  'segment',
-  'previous_time',
-  'new_time',
-  'exact_delta_minutes',
-  'entered_by',
-  'reason_category',
+  'driver',
+  'kind',
+  'date',
+  'run',
+  'clock_in',
+  'clock_out',
   'note',
-  'start_date',
-  'submitted_at',
+  'change_id',
 ];
 
-const ROUTES_HEADERS = [
-  'route_id',
+const STATUS_HEADERS = [
+  'route',
   'driver',
   'status',
   'cumulative_drift_minutes',
   'window_expires_date',
   'days_remaining',
-  'payroll_rounded_total_minutes',
-  'am',
-  'midday',
-  'pm',
-  'last_updated',
 ];
 
 const DRIVERS_HEADERS = [
-  'driver_id',
-  'name',
   'email',
+  'name',
   'hire_date',
   'tie_break',
   'seniority_rank',
   'current_assignments',
-];
-
-const REPORTS_HEADERS = [
-  'report_id',
-  'route_id',
-  'driver',
-  'outcome',
-  'finalized_at',
-  'window_opened_date',
-  'before_exact_total',
-  'after_exact_total',
-  'before_rounded_contracted',
-  'after_rounded_contracted',
-  'contracted_hours_statement',
 ];
 
 /**
@@ -290,15 +207,11 @@ export async function renderWorkbookBuffer(logical) {
   const readMe = workbook.addWorksheet('Read Me');
   readMe.getColumn(1).width = 100;
   const banner = [
-    'AUTO-GENERATED — DO NOT HAND-EDIT (unless intentionally testing reconciliation)',
+    'AUTO-GENERATED — regenerated from the OneDrive log. Hand-edits are replaced the next time the app saves.',
     '',
-    'This workbook is regenerated from _app_data/ whenever the app updates its JSON source of truth.',
-    'change-log.json and route-state.json remain authoritative. This file is a read-facing view.',
-    '',
-    'If you edit this file in Excel/OneDrive, the app will detect the external change and will NOT',
-    'silently overwrite it. Instead it raises a workbook reconciliation item in the Admin view so a',
-    'human can compare app data vs. the edited file and either discard the edits or pull a correction',
-    'back into _app_data/ as a proper attributed ADJUSTMENT (name + note required).',
+    'change-log.json is the source of truth. This workbook is the clock-time view:',
+    'Clock Times has one row per run (route, driver, kind, date, run, clock in, clock out, note).',
+    'Status is the current window. Drivers are keyed by email.',
     '',
     `Generated at: ${new Date().toISOString()}`,
   ];
@@ -311,20 +224,15 @@ export async function renderWorkbookBuffer(logical) {
   });
 
   writeTable(
-    workbook.addWorksheet('Change Log'),
-    CHANGE_LOG_HEADERS,
-    logical.change_log
+    workbook.addWorksheet('Clock Times'),
+    CLOCK_HEADERS,
+    logical.clock_times
   );
-  writeTable(workbook.addWorksheet('Routes'), ROUTES_HEADERS, logical.routes);
+  writeTable(workbook.addWorksheet('Status'), STATUS_HEADERS, logical.routes);
   writeTable(
     workbook.addWorksheet('Drivers'),
     DRIVERS_HEADERS,
     logical.drivers
-  );
-  writeTable(
-    workbook.addWorksheet('Change Reports'),
-    REPORTS_HEADERS,
-    logical.change_reports
   );
 
   const arrayBuffer = await workbook.xlsx.writeBuffer();
@@ -377,10 +285,9 @@ export async function parseWorkbookBuffer(bytes) {
   }
 
   return {
-    change_log: readSheet('Change Log', CHANGE_LOG_HEADERS),
-    routes: readSheet('Routes', ROUTES_HEADERS),
+    clock_times: readSheet('Clock Times', CLOCK_HEADERS),
+    routes: readSheet('Status', STATUS_HEADERS),
     drivers: readSheet('Drivers', DRIVERS_HEADERS),
-    change_reports: readSheet('Change Reports', REPORTS_HEADERS),
   };
 }
 
@@ -441,24 +348,18 @@ export function diffLogicalWorkbooks(appLogical, fileLogical) {
   }
 
   return {
-    change_log: diffSheet(
-      'Change Log',
-      appLogical.change_log,
-      fileLogical.change_log,
+    clock_times: diffSheet(
+      'Clock Times',
+      appLogical.clock_times,
+      fileLogical.clock_times,
       'change_id'
     ),
-    routes: diffSheet('Routes', appLogical.routes, fileLogical.routes, 'route_id'),
+    routes: diffSheet('Status', appLogical.routes, fileLogical.routes, 'route'),
     drivers: diffSheet(
       'Drivers',
       appLogical.drivers,
       fileLogical.drivers,
-      'driver_id'
-    ),
-    change_reports: diffSheet(
-      'Change Reports',
-      appLogical.change_reports,
-      fileLogical.change_reports,
-      'report_id'
+      'email'
     ),
   };
 }

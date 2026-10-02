@@ -5,7 +5,7 @@
     "WINDOW_LOCKED_IN": {
       "recipient": "driver",
       "subject": "Route {{route_id}} — hours update",
-      "body": "Hi {{driver_name}},\n\n15 school days have passed since changes on route {{route_id}} so those changes have locked in as the official route times.\n\nPlease review and let the office know if you have questions.\n\nThank you,\nTransportation"
+      "body": "Hi {{driver_name}},\n\n15 school days have passed since changes on route {{route_id}} so those changes have been automatically contracted as the official route times.\n\nPlease review and let the office know if you have questions.\n\nThank you,\nTransportation"
     },
     "WINDOW_BID_PENDING": {
       "recipient": "driver",

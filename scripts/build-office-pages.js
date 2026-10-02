@@ -37,4 +37,20 @@ for (const name of staticAssets) {
   await fs.copyFile(path.join(webDir, name), path.join(distDir, name));
 }
 
-console.log(`Wrote Transportation Timechange Calculator to ${distDir}`);
+const envText = await fs.readFile(path.join(root, '.env'), 'utf8');
+const envValue = (name) => {
+  const match = envText.match(new RegExp(`^${name}=(.*)$`, 'm'));
+  return match?.[1]?.trim() ?? '';
+};
+const url = envValue('SUPABASE_URL');
+const anonKey = envValue('SUPABASE_ANON_KEY');
+if (!url || !anonKey) {
+  throw new Error('SUPABASE_URL and SUPABASE_ANON_KEY must be set in .env before this build.');
+}
+
+await fs.writeFile(
+  path.join(distDir, 'supabase-config.json'),
+  `${JSON.stringify({ url, anonKey })}\n`
+);
+
+console.log(`Wrote the Teamster Time Changes Dashboard to ${distDir}`);

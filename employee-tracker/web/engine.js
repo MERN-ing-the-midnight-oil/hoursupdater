@@ -1,5 +1,6 @@
 import { SEGMENTS } from '../../src/logic/constants.js';
 import { createId } from '../../src/logic/createId.js';
+import { isForcedOctober1Contract } from '../../src/logic/contractWindows.js';
 import { computeDeltaMinutes, toDateString } from '../../src/logic/timeUtils.js';
 import {
   BPS_2026_2027_INPUT,
@@ -110,7 +111,7 @@ export function relinkChangeLog(changeLog, name = '') {
     const next = {
       ...event,
       driver_name: name || event.driver_name,
-      entered_by: name || event.entered_by || 'Self',
+      entered_by: event.entered_by || name || 'Self',
     };
     if (isSeedEvent(event)) {
       current[event.segment] = event.new_time;
@@ -274,6 +275,8 @@ export function previewChange(body, storage) {
     clock_in: normalizeClockTime(body.clock_in),
     clock_out: normalizeClockTime(body.clock_out),
     change_date: asOf,
+    force_oct1_contract: body.force_oct1_contract,
+    changeLog: profile?.changeLog ?? [],
   });
 }
 
@@ -336,7 +339,9 @@ export function recordChange(body, storage) {
       routing_adjustment: null,
       reason_category: 'OTHER',
       note: String(body.note ?? '').trim(),
-      entered_by: name,
+      entered_by: String(body.entered_by ?? '').trim() || name,
+      entered_by_user_id: String(body.entered_by_user_id ?? '').trim() || null,
+      force_oct1_contract: isForcedOctober1Contract(body.force_oct1_contract),
     },
   ];
   store.saveProfile(profile, storage);
@@ -371,6 +376,9 @@ export function updateChange(changeId, body, storage) {
     effective_date: changeDate,
     new_time: newTime,
     note: body.note != null ? String(body.note).trim() : existing.note,
+    force_oct1_contract: Object.prototype.hasOwnProperty.call(body, 'force_oct1_contract')
+      ? isForcedOctober1Contract(body.force_oct1_contract)
+      : isForcedOctober1Contract(existing.force_oct1_contract),
   };
   profile.changeLog = relinkChangeLog(profile.changeLog, profile.name?.trim() || '');
   const updated = profile.changeLog.find((entry) => entry.id === changeId);

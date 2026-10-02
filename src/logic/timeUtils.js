@@ -77,9 +77,9 @@ export function computeExactRouteDailyTotalMinutes(segments) {
 /**
  * Round minutes to the nearest quarter hour for Payroll reporting only.
  *
- * Call this exactly once when a window is finalized, on the route's exact
- * daily total (AM+MD+PM), never on a delta/drift and never on a prior rounded
- * value. Never use for stored deltas, cumulative drift, or threshold checks.
+ * Payroll rounds each run (AM, midday, PM) on its own, adds those rounded
+ * minutes, then rounds that sum for the contracted daily total. Never use
+ * this for stored deltas, cumulative drift, or threshold checks.
  *
  * @param {number} minutes - exact unrounded minutes (may be negative)
  * @returns {number} nearest multiple of 15
@@ -94,11 +94,17 @@ export function roundToQuarterHourForPayroll(minutes) {
 
 /**
  * Full breakdown for Payroll contracted hours (and phase-4 "see the math" UI).
- * Rounds the exact route daily total fresh — not a delta applied to a baseline.
+ * Each run is rounded on its own. Those rounded minutes are added, and that
+ * sum is rounded again for the contracted daily total.
  *
  * @param {Record<'AM'|'MIDDAY'|'PM', string | null | undefined>} segments
  * @returns {{
- *   segments: Array<{ segment: string, time: string | null, duration_minutes: number | null }>,
+ *   segments: Array<{
+ *     segment: string,
+ *     time: string | null,
+ *     duration_minutes: number | null,
+ *     rounded_minutes: number | null,
+ *   }>,
  *   exact_total_minutes: number,
  *   payroll_rounded_total_minutes: number,
  * }}
@@ -107,20 +113,26 @@ export function buildPayrollRoundingBreakdown(segments) {
   const detail = /** @type {const} */ (['AM', 'MIDDAY', 'PM']).map((segment) => {
     const time = segments?.[segment] ?? null;
     if (!time) {
-      return { segment, time: null, duration_minutes: null };
+      return { segment, time: null, duration_minutes: null, rounded_minutes: null };
     }
+    const duration_minutes = parseTimeRange(time).durationMinutes;
     return {
       segment,
       time,
-      duration_minutes: parseTimeRange(time).durationMinutes,
+      duration_minutes,
+      rounded_minutes: roundToQuarterHourForPayroll(duration_minutes),
     };
   });
 
   const exact_total_minutes = computeExactRouteDailyTotalMinutes(segments);
+  const rounded_piece_total = detail.reduce(
+    (sum, segment) => sum + (segment.rounded_minutes ?? 0),
+    0
+  );
   return {
     segments: detail,
     exact_total_minutes,
-    payroll_rounded_total_minutes: roundToQuarterHourForPayroll(exact_total_minutes),
+    payroll_rounded_total_minutes: roundToQuarterHourForPayroll(rounded_piece_total),
   };
 }
 

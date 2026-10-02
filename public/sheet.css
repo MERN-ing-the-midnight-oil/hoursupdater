@@ -1,0 +1,423 @@
+/* Route sheet and history PDF. */
+.table-wrap {
+  overflow-x: auto;
+  margin: 0.85rem 0 0.35rem;
+  border: 1px solid var(--line);
+  background: #f7fbfe;
+}
+
+.schedule-history {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 40rem;
+}
+
+.schedule-history th,
+.schedule-history td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.7rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.schedule-history thead th {
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: #eef3f8;
+}
+
+.schedule-history tbody th {
+  font-weight: 650;
+  white-space: nowrap;
+  background: transparent;
+}
+
+.schedule-history tbody tr:last-child td,
+.schedule-history tbody tr:last-child th {
+  border-bottom: 0;
+}
+
+.schedule-history tr.is-history th,
+.schedule-history tr.is-history td {
+  background: color-mix(in srgb, var(--tone) 16%, #f7fbfe);
+}
+
+.schedule-history tr.is-history th {
+  box-shadow: inset 4px 0 0 var(--tone);
+}
+
+.schedule-history .times {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  white-space: nowrap;
+}
+
+.schedule-history td.is-changed .times {
+  font-weight: 700;
+}
+
+.schedule-history .change-note,
+.schedule-history .contracted-detail {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.schedule-history .row-kind {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.schedule-history .contracted-label {
+  font-weight: 650;
+  display: block;
+  min-width: 11rem;
+}
+
+.schedule-history .row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.schedule-history .row-actions button {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.85rem;
+
+.calendar-months {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.history-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 1rem;
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.history-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.history-legend li.is-key-note {
+  flex: 1 0 16rem;
+  align-items: flex-start;
+  line-height: 1.35;
+}
+
+.history-swatch {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: none;
+  background: var(--tone);
+}
+
+.history-swatch.is-bid {
+  width: 1.15rem;
+  height: 0.72rem;
+  background: transparent;
+  border: 2px solid #8a4b12;
+  border-radius: 2px;
+}
+
+.month-block h3 {
+  margin: 0 0 0.5rem;
+  font-family: var(--font-display);
+}
+
+.month-grid {
+  --cal-gap: 3px;
+  --arrow-top: calc(0.35rem + 0.72rem * 1.1 + 0.12rem + 0.21rem - 1.5px);
+  --arrow-top-window: calc(0.35rem + 0.72rem * 1.1 + 0.12rem + 0.775rem - 1.5px);
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--cal-gap);
+}
+
+.dow,
+.cal-day {
+  font-size: 0.72rem;
+  text-align: center;
+  padding: 0.35rem 0.15rem;
+}
+
+.dow {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.cal-day {
+  position: relative;
+  border: 1px solid transparent;
+  min-height: 2.4rem;
+}
+
+.cal-day.is-school {
+  background: #dce8f5;
+  border-color: #c3d4e6;
+}
+
+.cal-day.is-off {
+  background: #e8eef5;
+  color: var(--muted);
+}
+
+.cal-day.is-today {
+  z-index: 4;
+  border: 2px solid #c62828;
+  box-shadow: inset 0 0 0 1px #c62828;
+}
+
+.cal-day.is-hover-change:hover,
+.cal-day.is-hover-change:focus-visible {
+  z-index: 8;
+}
+
+.cal-hover {
+  display: none;
+  position: absolute;
+  z-index: 9;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 16rem;
+  margin: 0;
+  padding: 0.4rem 0.55rem;
+  list-style: none;
+  text-align: left;
+  background: #1a2c42;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.35;
+  border-radius: 6px;
+  box-shadow: 0 6px 16px rgba(26, 44, 66, 0.28);
+  pointer-events: none;
+}
+
+.cal-day.is-tip-start .cal-hover {
+  left: 0;
+  transform: none;
+}
+
+.cal-day.is-tip-end .cal-hover {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+.cal-hover li {
+  display: block;
+}
+
+.cal-hover li.is-change {
+  font-weight: 700;
+}
+
+.cal-day.is-hover-change:hover .cal-hover,
+.cal-day.is-hover-change:focus-visible .cal-hover {
+  display: block;
+}
+
+.cal-hover li.is-detail {
+  display: none;
+}
+
+.day-dialog {
+  width: min(22rem, calc(100% - 1.5rem));
+  max-height: min(80vh, 32rem);
+  overflow: auto;
+  padding: 1.1rem 1.15rem 1.2rem;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 18px 50px rgba(23, 36, 51, 0.22);
+}
+
+.day-dialog::backdrop {
+  background: rgba(23, 36, 51, 0.46);
+}
+
+.day-dialog-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.day-dialog-list li {
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--line);
+  line-height: 1.35;
+}
+
+.day-dialog-list li.is-change {
+  font-weight: 700;
+}
+
+@media (max-width: 720px), (hover: none) and (pointer: coarse) {
+  .cal-day.is-hover-change {
+    cursor: pointer;
+  }
+
+  .cal-day.is-hover-change:hover .cal-hover,
+  .cal-day.is-hover-change:focus-visible .cal-hover {
+    display: none;
+  }
+}
+
+.history-pip {
+  display: block;
+  width: 0.42rem;
+  height: 0.42rem;
+  margin: 0.12rem auto 0;
+  border: 1.5px solid var(--tone);
+  background: transparent;
+}
+
+.history-pip.is-window,
+.history-pip.is-established {
+  background: var(--tone);
+}
+
+.history-pip.is-window {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 1.55rem;
+  height: 1.55rem;
+  min-width: 1.55rem;
+  max-width: 1.55rem;
+  padding: 0;
+  color: #fff;
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.history-pip.is-established {
+  box-shadow: 0 0 0 1px #fff, 0 0 0 2px var(--tone);
+}
+
+.cal-day.is-contracted::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border: 2px solid var(--tone);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.cal-day.is-bid-arrow {
+  z-index: 3;
+}
+
+.bid-rect {
+  z-index: 2;
+  pointer-events: none;
+  border: 2px solid #8a4b12;
+  border-radius: 3px;
+}
+
+.bid-arrow,
+.cal-day.is-arrow-origin::after {
+  position: absolute;
+  z-index: 4;
+  top: var(--arrow-top);
+  height: 3px;
+  background: var(--tone);
+  pointer-events: none;
+}
+
+.cal-day.is-arrow-from-window .bid-arrow,
+.cal-day.is-arrow-origin.is-arrow-from-window::after {
+  top: var(--arrow-top-window);
+}
+
+.bid-arrow {
+  left: -1px;
+  right: -1px;
+}
+
+.cal-day.is-arrow-origin::after {
+  content: "";
+  left: 50%;
+  right: -1px;
+}
+
+.cal-day.is-arrow-origin-bridge::after {
+  right: calc(-1 * (var(--cal-gap) + 2px));
+}
+
+.cal-day.is-arrow-join .bid-arrow {
+  left: calc(-1 * (var(--cal-gap) + 1px));
+}
+
+.cal-day.is-arrow-bridge .bid-arrow {
+  right: calc(-1 * (var(--cal-gap) + 2px));
+}
+
+.bid-arrow.is-head {
+  right: 2px;
+}
+
+.bid-arrow.is-head::after {
+  content: "";
+  position: absolute;
+  right: -9px;
+  top: -3.5px;
+  border-left: 8px solid var(--tone);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+
+.cal-day .num {
+  display: block;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.cal-day .why {
+  display: block;
+  font-size: 0.58rem;
+  line-height: 1.2;
+}
+
+
+.change-stamp-wrap { display: inline-block; margin-top: 0.35rem; }
+.change-stamp-btn {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 999px;
+  width: 1.7rem;
+  height: 1.7rem;
+  cursor: pointer;
+  color: var(--accent);
+}
+.change-stamp-pop {
+  margin-top: 0.35rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--line);
+  background: #fff;
+  max-width: 18rem;
+  font-size: 0.85rem;
+}
+.sheet-form .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+@media (max-width: 720px) {
+  .month-grid { --cal-gap: 2px; }
+  .sheet-form .grid { grid-template-columns: 1fr; }
+}
+

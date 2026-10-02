@@ -17,6 +17,9 @@
  * - +30 that finishes its 15 school days after April waits for the next
  *   October–April last-five-school-day posting window (Art. 3.08(b)(1)
  *   posting months).
+ * - An office "Force Oct 1 Contract" mark skips those rules. The schedule
+ *   becomes contracted on October 1 of its school year, whatever the size
+ *   of the change and whether 15 school days would finish before that date.
  */
 
 import {
@@ -41,6 +44,7 @@ import { toDateString } from './timeUtils.js';
  *   | 'post_october_1_decrease_lock'
  *   | 'post_october_1_bid'
  *   | 'post_october_1_bump'
+ *   | 'forced_october_1_contract'
  * } ContractWindowRule
  *
  * @typedef {{
@@ -53,6 +57,37 @@ import { toDateString } from './timeUtils.js';
  */
 
 const BID_POSTING_MONTH_SET = new Set(MONTHLY_BID_POSTING_MONTHS);
+
+/**
+ * True when an office toggle, workbook cell, or stored flag asks to contract
+ * this schedule on October 1. Missing and "off" are the default.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isForcedOctober1Contract(value) {
+  if (value === true || value === 1) return true;
+  const text = String(value ?? '').trim().toLowerCase();
+  return text === 'on' || text === 'yes' || text === 'true' || text === '1';
+}
+
+/**
+ * October 1 contract, ignoring change size and the 15-school-day countdown.
+ * The window stays open through the day before that October 1.
+ *
+ * @param {string | Date} changeDate
+ * @returns {ContractWindowPlan}
+ */
+export function forcedOctober1ContractPlan(changeDate) {
+  const start = toDateString(changeDate);
+  const oct1 = october1ForDate(start);
+  return {
+    regime: start < oct1 ? 'pre_october_1' : 'post_october_1',
+    rule: 'forced_october_1_contract',
+    citation: 'office override',
+    ...openThroughDayBefore(oct1),
+  };
+}
 
 /**
  * October 1 of the school year containing `date`.

@@ -105,7 +105,7 @@ export const TEMPLATE_PLACEHOLDERS = {
  * @type {Record<NotificationEventType, string>}
  */
 export const EVENT_LABELS = {
-  WINDOW_LOCKED_IN: 'Window locked in (under 30 min)',
+  WINDOW_LOCKED_IN: 'Automatically contracted (under 30 min)',
   WINDOW_BID_PENDING: 'Window bid pending (increase ≥ 30) — unused',
   OPEN_BID_POSTING: 'Open bid posting (CC driver directory)',
   WINDOW_BUMP_ELIGIBLE: 'Window bump eligible (decrease ≥ 30)',
@@ -364,8 +364,8 @@ export function formatNotificationPrompt(notification) {
   switch (notification.event_type) {
     case 'WINDOW_LOCKED_IN':
       return email
-        ? `Route ${route} locked in — send the driver an update to ${email}?`
-        : `Route ${route} locked in — send the driver an update?`;
+        ? `Route ${route} is automatically contracted — send the driver an update to ${email}?`
+        : `Route ${route} is automatically contracted — send the driver an update?`;
     case 'WINDOW_BID_PENDING':
       // Legacy pending rows only — no longer enqueued.
       return `Route ${route} is bid pending — send an update?`;

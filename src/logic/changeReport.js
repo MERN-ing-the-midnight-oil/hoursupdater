@@ -68,6 +68,7 @@ export function buildSeeTheMathFromSegments(before_segments, after_segments) {
  *   before_segments: Record<string, string | null>,
  *   after_segments: Record<string, string | null>,
  *   contributing_changes: Array<ChangeEvent & { effective_delta_minutes?: number }>,
+ *   forced_october_1?: boolean,
  * }} input
  */
 export function buildChangeReport(input) {
@@ -110,6 +111,7 @@ export function buildChangeReport(input) {
     contracted_hours_changed: math.contracted_hours_changed,
     contracted_hours_delta_minutes: math.contracted_hours_delta_minutes,
     contracted_hours_statement: math.statement,
+    ...(input.forced_october_1 ? { forced_october_1: true } : {}),
     // Alias for the shared "see the math" UI (after-state is the finalized schedule).
     see_the_math: {
       before: math.before,
@@ -148,7 +150,7 @@ export function buildDriverEmailDraft(report, driver) {
       ? 'This route’s accumulated time change has reached the bid threshold and is flagged for bidding. (Pay handling while a bid is pending is still being confirmed with Transportation — this note does not state interim pay.)'
       : report.outcome === 'BUMP_ELIGIBLE'
         ? 'This route’s accumulated time change is a decrease of 30 minutes or more. Per the contract, you may use seniority to bump a less-senior driver, or confirm that you choose to keep this assignment. You have two school days from written determination to decide.'
-        : 'These changes have locked in as the official route times.';
+        : 'These changes have been automatically contracted as the official route times.';
 
   const assignedName =
     driver?.name?.trim() || report.driver_name?.trim() || null;

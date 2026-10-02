@@ -8,6 +8,7 @@ import {
   getWorkbookPath,
   getAsOfDate,
   getAsOfTimestamp,
+  PORT,
 } from '../config.js';
 import {
   appendAdjustmentEvent,
@@ -66,6 +67,16 @@ import {
   previewYearArchive,
 } from '../services/yearArchive.js';
 import { buildDriverEmailDraft } from '../logic/changeReport.js';
+import { buildRouteSheet } from '../services/routeSheet.js';
+import { packetForDriver } from '../services/logPacket.js';
+import {
+  openDrafts,
+  packetStylesheetHrefs,
+  renderGuidePdfFile,
+  renderHtmlPdf,
+} from '../services/draftDispatch.js';
+import { packetPdfBasename } from '../../office-tracker/src/driverPacket.js';
+import { isEmailAddress } from '../../office-tracker/src/guideMail.js';
 import {
   buildBidAwardPayrollSpec,
   buildNeedsReviewContradictionSpec,
@@ -726,6 +737,7 @@ router.put('/drivers/:driverId', async (req, res, next) => {
       return;
     }
     if (
+      message.includes('already exists') ||
       message.includes('required') ||
       message.includes('hire_date') ||
       message.includes('tie_break')
@@ -893,6 +905,122 @@ router.get('/routes/:routeId', async (req, res, next) => {
       return;
     }
     res.json({ route_id: req.params.routeId, ...entry });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/routes/:routeId/sheet', async (req, res, next) => {
+  try {
+    const routeId = req.params.routeId;
+    const [state, changeLog, calendar] = await Promise.all([
+      readRouteState(dataDir()),
+      readChangeLog(dataDir()),
+      readSchoolCalendar(dataDir()),
+    ]);
+    const entry = state[routeId];
+    if (!entry) {
+      res.status(404).json({ error: `Route not found: ${routeId}` });
+      return;
+    }
+    res.json(
+      buildRouteSheet({
+        routeId,
+        entry,
+        changeLog,
+        calendar,
+        asOf: getAsOfDate(),
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+const GUIDE_SUBJECT = "A Bus Driver's Guide to Clock Hours";
+
+async function loadPacketContext() {
+  const [drivers, routeState, changeLog, calendar] = await Promise.all([
+    readDrivers(dataDir()),
+    readRouteState(dataDir()),
+    readChangeLog(dataDir()),
+    readSchoolCalendar(dataDir()),
+  ]);
+  return { drivers, routeState, changeLog, calendar, asOf: getAsOfDate() };
+}
+
+router.post('/drivers/:driverId/history-draft', async (req, res, next) => {
+  try {
+    const driver = await findDriverById(req.params.driverId, dataDir());
+    if (!driver) {
+      res.status(404).json({ error: `Driver not found: ${req.params.driverId}` });
+      return;
+    }
+    if (!isEmailAddress(driver.email || '')) {
+      res.status(400).json({
+        error: `${driver.name} has no email. Add one before sending a history.`,
+      });
+      return;
+    }
+    const context = await loadPacketContext();
+    const packet = packetForDriver({
+      driver,
+      ...context,
+      stylesheets: packetStylesheetHrefs(PORT),
+    });
+    if (!packet) {
+      res.status(400).json({ error: `${driver.name} has no route history to send.` });
+      return;
+    }
+    const pdfPath = await renderHtmlPdf({
+      html: packet.html,
+      pdfBasename: packetPdfBasename(driver.name),
+    });
+    const opened = await openDrafts(
+      [
+        {
+          to: String(driver.email).trim(),
+          name: driver.name,
+          pdfPath,
+          subject: packet.mail.subject,
+          body: packet.mail.body,
+        },
+      ],
+      getSharedRoot()
+    );
+    res.json({ ok: true, routes: packet.routeNames, ...opened });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/drivers/:driverId/guide-draft', async (req, res, next) => {
+  try {
+    const driver = await findDriverById(req.params.driverId, dataDir());
+    if (!driver) {
+      res.status(404).json({ error: `Driver not found: ${req.params.driverId}` });
+      return;
+    }
+    if (!isEmailAddress(driver.email || '')) {
+      res.status(400).json({
+        error: `${driver.name} has no email. Add one before sending the guide.`,
+      });
+      return;
+    }
+    const pdfPath = await renderGuidePdfFile(PORT);
+    const opened = await openDrafts(
+      [
+        {
+          to: String(driver.email).trim(),
+          name: driver.name,
+          pdfPath,
+          subject: GUIDE_SUBJECT,
+          body: `Hi ${driver.name},\n\nAttached is the bus driver's guide to clock hours.\n`,
+        },
+      ],
+      getSharedRoot()
+    );
+    res.json({ ok: true, ...opened });
   } catch (error) {
     next(error);
   }

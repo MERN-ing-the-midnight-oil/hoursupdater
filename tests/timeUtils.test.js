@@ -77,21 +77,39 @@ describe('timeUtils', () => {
   });
 
   describe('buildPayrollRoundingBreakdown', () => {
-    it('rounds the exact daily total, not a delta', () => {
+    it('rounds a single run, not the delta that produced it', () => {
       const breakdown = buildPayrollRoundingBreakdown({
         AM: '6:28-8:55', // 147
         MIDDAY: null,
         PM: null,
       });
       assert.equal(breakdown.exact_total_minutes, 147);
-      assert.equal(breakdown.payroll_rounded_total_minutes, 150);
       assert.equal(breakdown.segments[0].duration_minutes, 147);
+      assert.equal(breakdown.segments[0].rounded_minutes, 150);
+      assert.equal(breakdown.segments[1].rounded_minutes, null);
+      assert.equal(breakdown.payroll_rounded_total_minutes, 150);
       // Old (wrong) approach would have rounded the +7 delta to 0.
       assert.equal(roundToQuarterHourForPayroll(7), 0);
       assert.notEqual(
         breakdown.payroll_rounded_total_minutes,
         roundToQuarterHourForPayroll(7)
       );
+    });
+
+    it('rounds each run, sums those minutes, then rounds the sum', () => {
+      const breakdown = buildPayrollRoundingBreakdown({
+        AM: '6:00-8:07', // 127 → 120
+        MIDDAY: '11:00-12:07', // 67 → 60
+        PM: '14:00-16:07', // 127 → 120
+      });
+      assert.equal(breakdown.exact_total_minutes, 321);
+      assert.deepEqual(
+        breakdown.segments.map((segment) => segment.rounded_minutes),
+        [120, 60, 120]
+      );
+      assert.equal(breakdown.payroll_rounded_total_minutes, 300);
+      assert.equal(roundToQuarterHourForPayroll(321), 315);
+      assert.notEqual(breakdown.payroll_rounded_total_minutes, 315);
     });
   });
 });

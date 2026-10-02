@@ -54,7 +54,7 @@ export const TOAST_EVENT_TYPES = [
 export const TOAST_EVENT_LABELS = {
   WINDOW_LOCKED_IN: {
     title:
-      'A small hours change is locked in without opening the route for bid',
+      'A small hours change is automatically contracted without opening the route for bid',
     detail: 'example: a route changed by 20 minutes',
   },
   WINDOW_BUMP_ELIGIBLE: {

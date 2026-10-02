@@ -242,3 +242,35 @@ setReassignRefreshHandler(() => {
     showStatus(statusEl, error.message, 'error');
   });
 });
+
+async function openDriverDraft(path) {
+  const driverId = driverIdFromPath();
+  if (!driverId) return;
+  try {
+    const opened = await fetchJson(`/api/drivers/${encodeURIComponent(driverId)}/${path}`, {
+      method: 'POST',
+    });
+    if (opened.mode === 'saved') {
+      const file = opened.files?.[0];
+      showStatus(
+        statusEl,
+        file
+          ? `PDF saved in the shared Mail Drafts folder (${file.file}). A mail program was not available to attach it.`
+          : 'PDF saved in the shared Mail Drafts folder.',
+        'warn'
+      );
+      if (file?.mailto) window.location.href = file.mailto;
+      return;
+    }
+    showStatus(statusEl, 'Draft opened.', 'ok');
+  } catch (error) {
+    showStatus(statusEl, error.message, 'error');
+  }
+}
+
+document.getElementById('email-history')?.addEventListener('click', () => {
+  openDriverDraft('history-draft');
+});
+document.getElementById('email-guide')?.addEventListener('click', () => {
+  openDriverDraft('guide-draft');
+});

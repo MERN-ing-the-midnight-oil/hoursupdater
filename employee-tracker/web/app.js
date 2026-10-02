@@ -39,6 +39,7 @@ import {
   clockHistoryLabel,
 } from '../src/clockHistory.js';
 import { buildChangesCsv, changesCsvFilename } from '../src/changesCsv.js';
+import QRCode from 'qrcode';
 
 const PAGE_TITLE = 'My Teamster Contract Date Calculator';
 
@@ -451,12 +452,9 @@ function renderScheduleHistory() {
       const actions =
         row.kind === 'change'
           ? `<div class="row-actions">
-              <button type="button" class="secondary js-edit-change">Edit</button>
               <button type="button" class="secondary js-delete-change">Remove</button>
             </div>`
-          : `<div class="row-actions">
-              <button type="button" class="secondary js-edit-start">Edit</button>
-            </div>`;
+          : '';
       return `<tr class="is-history${predicted ? ' is-predicted' : ''}" style="--tone:${toneForRow(index)}"${
         row.change_id ? ` data-change-id="${escapeHtml(row.change_id)}"` : ''
       }${row.kind === 'initial' ? ' data-row-kind="initial"' : ''}>
@@ -466,8 +464,22 @@ function renderScheduleHistory() {
         </th>
         ${RUNS.map((run) => {
           const changed = row.segment === run.id;
+          const item = row.schedule?.[run.id];
+          const source = row.time_sources?.[run.id];
+          const range = formatRange(item);
+          const edit =
+            item && source
+              ? `<button type="button" class="secondary time-edit js-edit-time" data-time-source="${escapeHtml(
+                  source
+                )}" data-segment="${run.id}" aria-label="${escapeHtml(
+                  `Edit ${run.label} ${range}`
+                )}">Edit</button>`
+              : '';
           return `<td${changed ? ' class="is-changed"' : ''}>
-            <span class="times">${formatRange(row.schedule?.[run.id])}</span>
+            <div class="time-line">
+              <span class="times">${range}</span>
+              ${edit}
+            </div>
             ${
               changed
                 ? `<span class="change-note">was ${escapeHtml(
@@ -989,12 +1001,16 @@ changeDialog.addEventListener('click', (event) => {
   }
 });
 
-function openStartEditor() {
+function openStartEditor(segment) {
   changeEditForm.hidden = true;
   fillStartEditForm();
   startEditForm.hidden = false;
   setStatus(startEditStatus, '');
   startEditForm.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const run = RUNS.find((item) => item.id === segment);
+  if (run) {
+    document.querySelector(`#start_edit_${run.inName}`)?.focus();
+  }
 }
 
 document.querySelector('#edit-start-btn').addEventListener('click', openStartEditor);
@@ -1033,6 +1049,13 @@ function openChangeEditor(changeId) {
 }
 
 scheduleHistory.addEventListener('click', (event) => {
+  const timeEdit = event.target.closest('.js-edit-time');
+  if (timeEdit) {
+    const source = timeEdit.dataset.timeSource;
+    if (source === 'initial') openStartEditor(timeEdit.dataset.segment);
+    else if (source) openChangeEditor(source);
+    return;
+  }
   if (event.target.closest('.js-edit-start')) {
     openStartEditor();
     return;
@@ -1040,10 +1063,6 @@ scheduleHistory.addEventListener('click', (event) => {
   const row = event.target.closest('[data-change-id]');
   if (!row) return;
   const changeId = row.dataset.changeId;
-  if (event.target.closest('.js-edit-change')) {
-    openChangeEditor(changeId);
-    return;
-  }
   if (event.target.closest('.js-delete-change')) {
     if (!confirm('Remove this recorded change? The hours math will be rebuilt without it.')) {
       return;
@@ -1158,3 +1177,74 @@ window.addEventListener('resize', () => {
 });
 
 initCitations();
+
+const PUBLISHED_SHARE_URL = 'https://mern-ing-the-midnight-oil.github.io/hoursupdater/';
+
+function appShareUrl() {
+  const host = location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') return PUBLISHED_SHARE_URL;
+  const url = new URL(location.href);
+  url.hash = '';
+  url.search = '';
+  return url.href;
+}
+
+function shareMessage(url) {
+  return `${PAGE_TITLE}\n${url}`;
+}
+
+const shareUrl = appShareUrl();
+const shareQr = document.querySelector('#share-qr');
+const shareUrlText = document.querySelector('#share-url');
+const shareStatus = document.querySelector('#share-status');
+const shareFallback = document.querySelector('#share-fallback');
+const shareEmail = document.querySelector('#share-email');
+const shareText = document.querySelector('#share-text');
+
+if (shareUrlText) shareUrlText.textContent = shareUrl;
+
+if (shareEmail) {
+  const subject = encodeURIComponent(PAGE_TITLE);
+  const body = encodeURIComponent(shareMessage(shareUrl));
+  shareEmail.href = `mailto:?subject=${subject}&body=${body}`;
+}
+
+if (shareText) {
+  const body = encodeURIComponent(shareMessage(shareUrl));
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  shareText.href = ios ? `sms:&body=${body}` : `sms:?body=${body}`;
+}
+
+if (shareQr) {
+  QRCode.toCanvas(shareQr, shareUrl, {
+    width: 168,
+    margin: 1,
+    color: { dark: '#1c2430', light: '#ffffff' },
+  }).catch(() => {
+    shareQr.replaceWith(Object.assign(document.createElement('p'), {
+      className: 'share-url',
+      textContent: shareUrl,
+    }));
+  });
+}
+
+document.querySelector('#share-btn')?.addEventListener('click', async () => {
+  const payload = {
+    title: PAGE_TITLE,
+    text: 'Track when clock-time changes become contracted hours.',
+    url: shareUrl,
+  };
+  if (navigator.share) {
+    try {
+      await navigator.share(payload);
+      return;
+    } catch (error) {
+      if (error?.name === 'AbortError') return;
+    }
+  }
+  if (shareFallback) shareFallback.hidden = false;
+  if (shareStatus) {
+    shareStatus.hidden = false;
+    shareStatus.textContent = 'Choose email or text to send the link.';
+  }
+});

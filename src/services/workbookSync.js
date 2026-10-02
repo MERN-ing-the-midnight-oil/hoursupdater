@@ -23,8 +23,6 @@ import {
 } from '../data/storage.js';
 import {
   buildLogicalWorkbook,
-  diffHasChanges,
-  diffLogicalWorkbooks,
   hashBytes,
   hashLogicalWorkbook,
   parseWorkbookBuffer,
@@ -318,34 +316,12 @@ export async function syncWorkbook(options = {}) {
     return written;
   }
 
-  // External edit detected — do not overwrite.
-  const diff = diffLogicalWorkbooks(expected.logical, fileLogical);
-  const record = {
-    status: /** @type {const} */ ('PENDING'),
-    detected_at:
-      pending?.status === 'PENDING'
-        ? pending.detected_at
-        : new Date().toISOString(),
-    resolved_at: null,
-    file_logical_sha256: fileLogicalHash,
-    app_logical_sha256: expected.logical_sha256,
-    diff,
-    has_changes: diffHasChanges(diff),
-  };
-  await writeWorkbookReconciliation(record, appDataDir);
-  const sync_status = await recordSyncStatus(appDataDir, workbookPath, {
-    last_attempt_status: 'blocked',
-    last_error: null,
-    last_error_code: null,
-    out_of_date: false,
-  });
-  return {
-    status: 'blocked',
-    path: workbookPath,
-    reason: 'external_edit',
-    reconciliation: record,
-    sync_status,
-  };
+  // The JSON log is the source of truth. A hand-edit of the workbook is replaced.
+  const written = await tryWrite(false, 'regenerated');
+  if (written.status === 'wrote' && pending?.status === 'PENDING') {
+    await writeWorkbookReconciliation(null, appDataDir);
+  }
+  return written;
 }
 
 /**

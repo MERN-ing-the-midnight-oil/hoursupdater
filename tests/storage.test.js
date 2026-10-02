@@ -300,6 +300,19 @@ describe('storage', () => {
     assert.equal((await readDrivers(dataDir)).length, 3);
 
     await assert.rejects(
+      () =>
+        createDriver(
+          {
+            name: 'Other Person',
+            email: 'new@example.com',
+            hire_date: '2024-09-02',
+          },
+          dataDir
+        ),
+      /already exists/
+    );
+
+    await assert.rejects(
       () => createDriver({ name: 'No Date', email: null }, dataDir),
       /hire_date is required/
     );

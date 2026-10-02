@@ -38,10 +38,31 @@ describe('transportation timechange CSV', () => {
     assert.equal(again[1].changeLog.find((row) => row.delta_minutes).delta_minutes, 10);
   });
 
+  it('keeps each driver on the rows from when they held the route', () => {
+    const moved = [
+      sample,
+      '12,Marcus Ellison,change,2026-10-20,PM,14:10,16:55,Marcus took the PM run',
+    ].join('\r\n');
+    const state = stateFromRoutesCsv(moved);
+    const route12 = Object.values(state.profiles).find((profile) => profile.name === '12');
+    assert.equal(route12.driver_name, 'Marcus Ellison');
+    assert.equal(route12.assignments.at(-1).driver_name, 'Marcus Ellison');
+    assert.equal(route12.assignments[0].until, '2026-10-20');
+
+    const csv = buildRoutesCsv(state);
+    assert.match(csv, /12,Alex Driver,change,2026-10-06/);
+    assert.match(csv, /12,Marcus Ellison,change,2026-10-20/);
+    const restored = stateFromRoutesCsv(csv);
+    const again = Object.values(restored.profiles).find((profile) => profile.name === '12');
+    assert.equal(again.driver_name, 'Marcus Ellison');
+    assert.equal(again.assignments[0].driver_name, 'Alex Driver');
+    assert.equal(again.assignments[0].until, '2026-10-20');
+  });
+
   it('rejects a file that is not this calculator’s CSV', () => {
     assert.throws(
       () => stateFromRoutesCsv('Name,Date\nAlex,2026-09-08\n'),
-      /Transportation Timechange Calculator/
+      /Teamster Time Changes Dashboard/
     );
   });
 });

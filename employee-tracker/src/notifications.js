@@ -60,7 +60,7 @@ export function buildEmployeeNotifications(snapshot) {
       event_type: 'TIMES_CONTRACTED',
       title: 'Your clock times are now contracted',
       detail:
-        'The review window closed. These clock-in and clock-out times have locked in as your contracted schedule.',
+        'The review window closed. These clock-in and clock-out times have been automatically contracted.',
       finalized_on: report.finalized_at
         ? String(report.finalized_at).slice(0, 10)
         : null,

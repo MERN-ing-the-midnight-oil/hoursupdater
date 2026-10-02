@@ -62,6 +62,7 @@ function fifteenSchoolDaysAfter(schoolDays, from) {
  * @returns {boolean}
  */
 function usesFifteenDayWindow(row, fifteen) {
+  if (row?.force_oct1_contract) return false;
   if (row?.kind !== 'change' || !row.date || !fifteen.length) return false;
   const fifteenth = fifteen[fifteen.length - 1];
   const october1 = october1ForDate(row.date);

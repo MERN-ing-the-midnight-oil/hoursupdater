@@ -58,12 +58,50 @@ describe('changeReport', () => {
     assert.equal(report.contributing_changes[0].entered_by, 'Routing Desk');
     assert.equal(report.before.math.exact_total_minutes, 295);
     assert.equal(report.after.math.exact_total_minutes, 300);
-    assert.equal(report.before.math.payroll_rounded_total_minutes, 300);
+    // 140 → 135 and 155 → 150, then 145 → 150 and 155 → 150.
+    // Rounding the exact daily totals would have left both at 300.
+    assert.equal(report.before.math.payroll_rounded_total_minutes, 285);
     assert.equal(report.after.math.payroll_rounded_total_minutes, 300);
+    assert.equal(report.contracted_hours_changed, true);
+    assert.equal(report.contracted_hours_delta_minutes, 15);
+    assert.match(report.contracted_hours_statement, /Contracted hours changed/);
+    assert.equal(report.see_the_math.statement, report.contracted_hours_statement);
+  });
+
+  it('keeps contracted hours when each run still rounds to the same quarter hour', () => {
+    const report = buildChangeReport({
+      route_id: 'S 20',
+      driver_name: 'Jane Driver',
+      outcome: 'STABLE',
+      finalized_at: '2025-09-24T00:00:00.000Z',
+      window_opened_date: '2025-09-02',
+      before_segments: {
+        AM: '6:35-8:55', // 140 → 135
+        MIDDAY: null,
+        PM: '2:10-4:45', // 155 → 150
+      },
+      after_segments: {
+        AM: '6:38-8:55', // 137 → 135
+        MIDDAY: null,
+        PM: '2:10-4:45',
+      },
+      contributing_changes: [
+        makeChange({
+          previous_time: '6:35-8:55',
+          new_time: '6:38-8:55',
+          computed_delta_minutes: -3,
+          delta_minutes: -3,
+        }),
+      ],
+    });
+
+    assert.equal(report.before.math.exact_total_minutes, 295);
+    assert.equal(report.after.math.exact_total_minutes, 292);
+    assert.equal(report.before.math.payroll_rounded_total_minutes, 285);
+    assert.equal(report.after.math.payroll_rounded_total_minutes, 285);
     assert.equal(report.contracted_hours_changed, false);
     assert.match(report.contracted_hours_statement, /did not change/);
     assert.match(report.contracted_hours_statement, /same quarter-hour/);
-    assert.equal(report.see_the_math.statement, report.contracted_hours_statement);
   });
 
   it('states when contracted hours did change', () => {

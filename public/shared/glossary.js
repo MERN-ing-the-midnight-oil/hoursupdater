@@ -26,7 +26,7 @@ export const GLOSSARY = {
   contracted_hours: {
     term: 'Contracted hours',
     definition:
-      'The official rounded figure (nearest 15 minutes) used for pay classification, benefits, and other contract rights.',
+      'The official pay figure. AM, midday, and PM are each rounded to the nearest 15 minutes, those amounts are added, and that sum is rounded to the nearest 15 minutes.',
     aliases: ['contracted hour', 'Rounded contracted hours'],
   },
   window: {
@@ -54,7 +54,7 @@ export const GLOSSARY = {
     aliases: ['Time Differences To Accumulate'],
   },
   lock_in: {
-    term: 'Lock in',
+    term: 'Automatically contracted',
     definition:
       'When an open window closes with a change under 30 minutes, contracted hours update to the new official time without posting for bid.',
     aliases: ['Locked in', 'locks in', 'lock-in', 'locked-in'],
@@ -89,7 +89,7 @@ export const GLOSSARY = {
   payroll_rounding: {
     term: 'Payroll rounding',
     definition:
-      'Rounding exact minutes to the nearest 15 minutes. Applied only when a window closes.',
+      'Each run is rounded to the nearest 15 minutes. Those rounded amounts are added, and that sum is rounded to the nearest 15 minutes for the contracted daily total.',
   },
   accumulating: {
     term: 'Accumulating',

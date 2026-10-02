@@ -1,8 +1,10 @@
 import { createId } from '../../src/logic/createId.js';
+import { isForcedOctober1Contract } from '../../src/logic/contractWindows.js';
 import { computeDeltaMinutes, toDateString } from '../../src/logic/timeUtils.js';
 import { EMPLOYEE_ROUTE_ID } from '../../employee-tracker/src/snapshot.js';
 import { formatSegmentRange } from '../../employee-tracker/src/clockTimes.js';
 import { compareRouteNumbers } from '../web/store.js';
+import { assignmentsFromDatedDrivers, driverForDate } from './assignments.js';
 
 const HEADERS = ['Route', 'Driver', 'Kind', 'Date', 'Run', 'Clock in', 'Clock out', 'Note'];
 
@@ -92,11 +94,17 @@ function normalizeRun(run) {
 function normalizeKind(kind) {
   const value = String(kind ?? '')
     .trim()
-    .toLowerCase();
-  if (value === 'start' || value === 'change') {
-    return value;
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ');
+  if (value === 'start' || value === 'starting' || value === 'starting times') {
+    return 'start';
   }
-  throw new Error('Kind must be start or change.');
+  if (value === 'change' || value === 'clock time change') {
+    return 'change';
+  }
+  throw new Error(
+    'What this row is must be "Starting times" or "Clock-time change".'
+  );
 }
 
 /**
@@ -106,14 +114,20 @@ function normalizeKind(kind) {
  *   profiles: Record<string, object>,
  * }} state
  */
-export function buildRoutesCsv(state) {
+/**
+ * One row per run, in route order. Kind is "start" or "change".
+ * @param {{
+ *   profiles?: Record<string, object>,
+ * }} state
+ */
+export function clockRowsFromState(state) {
   const profiles = Object.values(state?.profiles ?? {}).sort((a, b) =>
     compareRouteNumbers(a.name, b.name)
   );
-  const lines = [HEADERS.map(csvCell).join(',')];
+  /** @type {Array<{ route: string, driver: string, kind: string, date: string, run: string, clockIn: string, clockOut: string, note: string }>} */
+  const rows = [];
   for (const profile of profiles) {
     const route = String(profile.name ?? '').trim();
-    const driver = String(profile.driver_name ?? '').trim();
     const events = [...(profile.changeLog ?? [])].sort((a, b) => {
       const dateCompare = String(a.effective_date).localeCompare(String(b.effective_date));
       if (dateCompare !== 0) return dateCompare;
@@ -123,21 +137,34 @@ export function buildRoutesCsv(state) {
       const seed =
         event.delta_minutes === 0 && event.previous_time === event.new_time;
       const [clockIn, clockOut] = String(event.new_time || '').split('-');
-      lines.push(
-        [
-          route,
-          driver,
-          seed ? 'start' : 'change',
-          event.effective_date || '',
-          event.segment === 'MIDDAY' ? 'Midday' : event.segment || '',
-          clockIn || '',
-          clockOut || '',
-          seed ? '' : event.note || '',
-        ]
-          .map(csvCell)
-          .join(',')
-      );
+      rows.push({
+        route,
+        driver: driverForDate(profile, event.effective_date),
+        kind: seed ? 'start' : 'change',
+        date: event.effective_date || '',
+        run: event.segment === 'MIDDAY' ? 'Midday' : event.segment || '',
+        clockIn: clockIn || '',
+        clockOut: clockOut || '',
+        note: seed ? '' : event.note || '',
+      });
     }
+  }
+  return rows;
+}
+
+/**
+ * @param {{
+ *   profiles?: Record<string, object>,
+ * }} state
+ */
+export function buildRoutesCsv(state) {
+  const lines = [HEADERS.map(csvCell).join(',')];
+  for (const row of clockRowsFromState(state)) {
+    lines.push(
+      [row.route, row.driver, row.kind, row.date, row.run, row.clockIn, row.clockOut, row.note]
+        .map(csvCell)
+        .join(',')
+    );
   }
   return `\uFEFF${lines.join('\r\n')}\r\n`;
 }
@@ -146,27 +173,84 @@ export function buildRoutesCsv(state) {
  * @param {string} csv
  * @param {{ currentRoute?: string | null }} [options]
  */
+/**
+ * @param {string[]} header
+ * @param {string[]} names
+ */
+function headerIndex(header, names) {
+  for (const name of names) {
+    const index = header.indexOf(name);
+    if (index >= 0) return index;
+  }
+  return -1;
+}
+
+/**
+ * @param {string} csv
+ * @param {{ currentRoute?: string | null, drivers?: object[] }} [options]
+ */
 export function stateFromRoutesCsv(csv, options = {}) {
   const table = parseCsv(csv);
   if (!table.length) {
     throw new Error('That CSV is empty.');
   }
   const header = table[0].map((cell) => cell.trim().toLowerCase());
-  const expected = HEADERS.map((cell) => cell.toLowerCase());
-  const missing = expected.filter((name) => !header.includes(name));
+  const columns = {
+    route: headerIndex(header, ['route', 'route number']),
+    driver: headerIndex(header, ['driver']),
+    kind: headerIndex(header, ['kind', 'what this row is']),
+    date: headerIndex(header, ['date']),
+    run: headerIndex(header, ['run']),
+    clockIn: headerIndex(header, ['clock in']),
+    clockOut: headerIndex(header, ['clock out']),
+    note: headerIndex(header, ['note']),
+  };
+  const missing = Object.entries(columns)
+    .filter(([name, index]) => name !== 'note' && index < 0)
+    .map(([name]) => name);
   if (missing.length) {
     throw new Error(
-      'That file is not a Transportation Timechange Calculator backup. It needs columns: Route, Driver, Kind, Date, Run, Clock in, Clock out, Note.'
+      'That file is not a Teamster Time Changes Dashboard backup. It needs columns: Route, Driver, Kind, Date, Run, Clock in, Clock out, Note.'
     );
   }
-  const index = Object.fromEntries(header.map((name, i) => [name, i]));
+  const cell = (cells, index) => (index < 0 ? '' : String(cells[index] ?? '').trim());
+  return stateFromClockRows(
+    table.slice(1).map((cells, rowOffset) => ({
+      line: rowOffset + 2,
+      route: cell(cells, columns.route),
+      driver: cell(cells, columns.driver),
+      kind: cell(cells, columns.kind),
+      date: cell(cells, columns.date),
+      run: cell(cells, columns.run),
+      clockIn: cell(cells, columns.clockIn),
+      clockOut: cell(cells, columns.clockOut),
+      note: cell(cells, columns.note),
+    })),
+    options
+  );
+}
+
+/**
+ * @param {Array<{
+ *   line?: number,
+ *   route?: string,
+ *   driver?: string,
+ *   kind?: string,
+ *   date?: string,
+ *   run?: string,
+ *   clockIn?: string,
+ *   clockOut?: string,
+ *   note?: string,
+ * }>} rawRows
+ * @param {{ currentRoute?: string | null, drivers?: object[] }} [options]
+ */
+export function stateFromClockRows(rawRows, options = {}) {
   /** @type {Map<string, { route: string, driver: string, rows: object[] }>} */
   const groups = new Map();
 
-  table.slice(1).forEach((cells, rowOffset) => {
-    const line = rowOffset + 2;
-    const cell = (name) => String(cells[index[name]] ?? '').trim();
-    const route = cell('route');
+  rawRows.forEach((raw, rowOffset) => {
+    const line = raw.line ?? rowOffset + 2;
+    const route = String(raw.route ?? '').trim();
     if (!route) {
       throw new Error(`Row ${line} is missing a route number.`);
     }
@@ -175,15 +259,15 @@ export function stateFromRoutesCsv(csv, options = {}) {
       groups.set(key, { route, driver: '', rows: [] });
     }
     const group = groups.get(key);
-    const driver = cell('driver');
+    const driver = String(raw.driver ?? '').trim();
     if (driver) group.driver = driver;
     let kind;
     let segment;
     let date;
     try {
-      kind = normalizeKind(cell('kind'));
-      segment = normalizeRun(cell('run'));
-      const rawDate = cell('date');
+      kind = normalizeKind(raw.kind);
+      segment = normalizeRun(raw.run);
+      const rawDate = String(raw.date ?? '').trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
         throw new Error(`Date must be YYYY-MM-DD (got "${rawDate}").`);
       }
@@ -191,8 +275,8 @@ export function stateFromRoutesCsv(csv, options = {}) {
     } catch (error) {
       throw new Error(`Row ${line}: ${error.message}`);
     }
-    const clockIn = cell('clock in');
-    const clockOut = cell('clock out');
+    const clockIn = String(raw.clockIn ?? '').trim();
+    const clockOut = String(raw.clockOut ?? '').trim();
     if (!clockIn || !clockOut) {
       throw new Error(`Row ${line} needs both a clock-in and a clock-out.`);
     }
@@ -207,13 +291,15 @@ export function stateFromRoutesCsv(csv, options = {}) {
       segment,
       date,
       range,
-      note: cell('note'),
+      note: String(raw.note ?? '').trim(),
+      forceOct1: isForcedOctober1Contract(raw.forceOct1),
+      driver,
       order: rowOffset,
     });
   });
 
   if (!groups.size) {
-    throw new Error('That CSV has no routes.');
+    throw new Error('That file has no routes.');
   }
 
   /** @type {Record<string, object>} */
@@ -224,13 +310,18 @@ export function stateFromRoutesCsv(csv, options = {}) {
       .filter((row) => row.kind === 'change')
       .sort((a, b) => a.date.localeCompare(b.date) || a.order - b.order);
     if (!starts.length) {
-      throw new Error(`Route ${group.route} needs at least one start row.`);
+      throw new Error(`Route ${group.route} needs at least one Starting times row.`);
     }
     /** @type {Record<string, { date: string, range: string, order: number }>} */
     const startBySegment = {};
     for (const row of starts) {
       startBySegment[row.segment] = row;
     }
+    const assignments = assignmentsFromDatedDrivers(group.rows);
+    const currentDriver =
+      [...assignments].reverse().find((item) => !item.until)?.driver_name ||
+      assignments.at(-1)?.driver_name ||
+      group.driver;
     const startDate = starts
       .map((row) => row.date)
       .sort()[0];
@@ -293,6 +384,7 @@ export function stateFromRoutesCsv(csv, options = {}) {
         reason_category: 'OTHER',
         note: row.note,
         entered_by: group.driver || group.route,
+        force_oct1_contract: Boolean(row.forceOct1),
       });
     });
 
@@ -300,11 +392,12 @@ export function stateFromRoutesCsv(csv, options = {}) {
     profiles[id] = {
       id,
       name: group.route,
-      driver_name: group.driver,
+      driver_name: currentDriver,
       start_date: startDate,
       setup_at: submittedBase,
       created_at: submittedBase,
       changeLog,
+      assignments,
     };
   }
 
@@ -315,9 +408,14 @@ export function stateFromRoutesCsv(csv, options = {}) {
   const current =
     ordered.find((profile) => String(profile.name).toLowerCase() === wanted) ??
     ordered[0];
-  return {
+  /** @type {{ version: number, currentProfileId: string | null, profiles: Record<string, object>, drivers?: object[] }} */
+  const state = {
     version: 1,
     currentProfileId: current?.id ?? null,
     profiles,
   };
+  if (Array.isArray(options.drivers)) {
+    state.drivers = options.drivers;
+  }
+  return state;
 }

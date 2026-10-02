@@ -37,6 +37,10 @@ app.get(['/routing', '/routing/'], (_req, res) => {
   res.sendFile(path.join(publicDir, 'routing', 'index.html'));
 });
 
+app.get(['/routing/sheet', '/routing/sheet/'], (_req, res) => {
+  res.sendFile(path.join(publicDir, 'routing', 'sheet.html'));
+});
+
 app.get(['/admin', '/admin/'], (_req, res) => {
   res.sendFile(path.join(publicDir, 'admin', 'index.html'));
 });

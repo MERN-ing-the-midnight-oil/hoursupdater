@@ -3,7 +3,7 @@ cp .env.example .env
 npm run seed          # optional: copies empty sample-data into ./data/_app_data
 npm start             # http://localhost:3847
 npm run start:employee  # My Teamster Contract Date Calculator — http://localhost:3848
-npm run start:office    # Transportation Timechange Calculator — http://localhost:3849
+npm run start:office    # Teamster Time Changes Dashboard — http://localhost:3849
 npm run build:employee-pages  # static site → docs/ (GitHub Pages)
 
 # Portable Windows package for Rachel (bundled Node + Start.bat):
