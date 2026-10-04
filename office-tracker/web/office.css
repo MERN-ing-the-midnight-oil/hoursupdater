@@ -12,15 +12,30 @@ body {
   contain: inline-size;
 }
 
+.sheet-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  margin: 0 0 0.85rem;
+}
+
 .office-sheets {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  margin: 0 0 0.85rem;
+  margin: 0;
   padding: 0;
   background: transparent;
   border: 0;
   box-shadow: none;
+}
+
+.sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .office-sheet {
@@ -70,6 +85,10 @@ body {
   margin: 0 0 1rem;
   padding-top: 0.85rem;
   border-top: 1px solid var(--line);
+}
+
+.route-tabs[hidden] {
+  display: none;
 }
 
 .route-tab {
@@ -150,8 +169,8 @@ body {
   border-top: 1px solid var(--line);
 }
 
-.topbar-side .secondary,
-.topbar-side .payroll-export {
+.sheet-actions .secondary,
+.sheet-actions .payroll-export {
   max-width: 100%;
   min-width: 0;
   gap: 0.6rem;
@@ -191,8 +210,7 @@ body {
   color: var(--purple);
 }
 
-.topbar-side .payroll-export {
-  margin-inline-start: 0.35rem;
+.sheet-actions .payroll-export {
   padding: 0.42rem 0.75rem;
   border-color: var(--orange-deep);
   background: var(--orange);
@@ -200,14 +218,14 @@ body {
   font-size: 0.84rem;
 }
 
-.topbar-side .payroll-export:hover {
+.sheet-actions .payroll-export:hover {
   border-color: var(--orange-deep);
   background: var(--orange-deep);
   color: #fff;
 }
 
 .file-status {
-  grid-column: 1 / -1;
+  flex-basis: 100%;
   margin: 0;
 }
 
@@ -419,6 +437,13 @@ body {
   gap: 0.4rem;
 }
 
+.schedule-history .contracted-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
 .schedule-history .contracted-date {
   font-weight: 650;
   white-space: nowrap;
@@ -623,6 +648,24 @@ body {
   color: #1c1e22;
 }
 
+.driver-sheet tr.is-just-added th,
+.driver-sheet tr.is-just-added td {
+  background: #e7f6ec;
+}
+
+.driver-sheet .sheet-remove {
+  width: 1%;
+  padding: 0.2rem 0.35rem;
+  background: #fff;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.driver-sheet .sheet-remove button {
+  padding: 0.2rem 0.55rem;
+  font-size: 12px;
+}
+
 .oct1-col {
   width: 7.5rem;
   white-space: normal;
@@ -724,7 +767,7 @@ body {
   }
 
   .topbar {
-    grid-template-columns: minmax(26rem, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
   }
 
@@ -818,8 +861,13 @@ body.needs-account .shell > :not(.topbar):not(#account-gate) {
 
 body.needs-account .topbar-side,
 body.needs-account .brand-sub,
+body.needs-account .app-launch-reader,
 body.needs-account #file-status,
 body.needs-account #recent-changes {
+  display: none;
+}
+
+body.is-reader-app .sheet-bar {
   display: none;
 }
 
@@ -838,6 +886,92 @@ body.needs-account #recent-changes {
 
 .account-chip button {
   font-weight: 600;
+}
+
+.yes-no {
+  margin: 0 0 1rem;
+  padding: 0;
+  border: 0;
+}
+
+.yes-no legend {
+  font-weight: 650;
+  margin-bottom: 0.45rem;
+}
+
+.yes-no label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-right: 1.1rem;
+  font-weight: 650;
+}
+
+.template-preview {
+  margin: 0.25rem 0 1rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #f6f7f9;
+  white-space: pre-wrap;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.template-preview h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.notification-section {
+  margin-top: 1.75rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+h2.notification-section:first-of-type {
+  margin-top: 0.35rem;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.invitee-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.invitee-add select {
+  flex: 1 1 16rem;
+}
+
+.invitee-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.invitee-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.5rem 0.35rem 0.7rem;
+}
+
+.invitee-list .invitee-empty {
+  border: 0;
+  padding: 0;
+  color: var(--muted);
 }
 
 .timesheet-form {

@@ -12,6 +12,7 @@ import {
 import { contractWindowPlan, forcedOctober1ContractPlan, isForcedOctober1Contract } from './contractWindows.js';
 import {
   buildPayrollRoundingBreakdown,
+  scheduleDateForMath,
   toDateString,
 } from './timeUtils.js';
 import { buildChangeReport } from './changeReport.js';
@@ -1364,26 +1365,29 @@ export function rebuildRouteStateFromChangeLog(
   const effectiveDeltas = resolveEffectiveDeltas(changeLog);
   const priorRouteState = options.priorRouteState ?? {};
 
-  const changes = changeLog
-    .filter(isChangeEvent)
-    .map((entry) => /** @type {ChangeEvent} */ (entry))
-    .sort((a, b) => {
-      const dateCompare = toDateString(a.effective_date).localeCompare(
-        toDateString(b.effective_date)
-      );
-      if (dateCompare !== 0) {
-        return dateCompare;
-      }
-      return a.submitted_at.localeCompare(b.submitted_at);
-    });
-
   /** @type {Record<string, ChangeEvent[]>} */
   const changesByRoute = {};
-  for (const change of changes) {
-    if (!changesByRoute[change.route_id]) {
-      changesByRoute[change.route_id] = [];
-    }
+  for (const entry of changeLog) {
+    if (!isChangeEvent(entry)) continue;
+    const change = /** @type {ChangeEvent} */ (entry);
+    if (!changesByRoute[change.route_id]) changesByRoute[change.route_id] = [];
     changesByRoute[change.route_id].push(change);
+  }
+  /** @type {Record<string, string>} */
+  const anchorByRoute = {};
+  for (const [routeId, routeChanges] of Object.entries(changesByRoute)) {
+    const anchor = routeChanges
+      .map((change) => String(change.effective_date ?? '').trim())
+      .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+      .sort()[0] || toDateString(asOfDate);
+    anchorByRoute[routeId] = anchor;
+    routeChanges.sort((a, b) => {
+      const dateCompare = scheduleDateForMath(a.effective_date, anchor).localeCompare(
+        scheduleDateForMath(b.effective_date, anchor)
+      );
+      if (dateCompare !== 0) return dateCompare;
+      return a.submitted_at.localeCompare(b.submitted_at);
+    });
   }
 
   /** @type {Record<string, ChangeEvent[]>} */
@@ -1405,7 +1409,7 @@ export function rebuildRouteStateFromChangeLog(
         state[routeId],
         change,
         schoolCalendar,
-        change.effective_date,
+        scheduleDateForMath(change.effective_date, anchorByRoute[routeId]),
         effectiveDelta,
         reportOptions
       );
@@ -1465,8 +1469,8 @@ export function validateChangeEvent(
   if (!event.segment || !SEGMENTS.includes(event.segment)) {
     errors.push(`segment must be one of: ${SEGMENTS.join(', ')}.`);
   }
-  if (!event.effective_date) {
-    errors.push('effective_date is required.');
+  if (event.effective_date != null && String(event.effective_date).trim() && !/^\d{4}-\d{2}-\d{2}$/.test(String(event.effective_date).trim())) {
+    errors.push('effective_date must be YYYY-MM-DD or null.');
   }
   if (!event.previous_time?.trim()) {
     errors.push('previous_time is required.');

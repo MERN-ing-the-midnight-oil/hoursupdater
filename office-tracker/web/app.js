@@ -16,16 +16,22 @@ import {
   updateStartingSchedule,
 } from '../../employee-tracker/web/engine.js';
 import {
+  deleteDriver,
   deleteProfile,
-  dismissNotificationId,
   getCurrentProfile,
   importState,
-  listDismissedNotificationIds,
   listDrivers,
   compareRouteNumbers,
   listProfiles,
+  loadContractReminder,
+  loadCreatedContractEvents,
+  loadDriverNotice,
+  loadReminderSignatures,
   loadState,
+  rememberPublishedReminders,
+  saveContractReminder,
   saveDriver,
+  saveDriverNotice,
   saveProfile,
   saveState,
   sessionModifiedRouteNames,
@@ -40,7 +46,7 @@ import {
 } from '../src/downloadName.js';
 import { buildPayrollWorkbook, rowsFromPayrollWorkbook } from '../src/payrollTimes.js';
 import { buildRouteWorkbook } from '../src/routeWorkbook.js';
-import { startAccounts, currentAccount } from './accounts.js';
+import { startAccounts, currentAccount, accountsEnabled, listOfficeUsers, whenSharedOfficeSaved } from './accounts.js';
 import { attributionForChange } from './attribution.js';
 import { recentRouteChanges } from '../src/recentChanges.js';
 import { ensureExampleRoutes, isSampleOffice } from './exampleRoutes.js';
@@ -54,14 +60,32 @@ bindCalculatorStore({
   saveProfile,
   setCurrentProfile,
 });
-import {
-  buildEmployeeNotifications,
-  visibleEmployeeNotifications,
-} from '../../employee-tracker/src/notifications.js';
 import { localDateString } from '../../employee-tracker/src/clockTimes.js';
 import { assignRouteDriver, dayBefore, driverForDate, driverOwnsRoute, routeAssignments, sameDriver } from '../src/assignments.js';
 import { sectionsForDriver } from '../src/driverPacket.js';
-import { changeNoticeMail, isChangeNoticeSent, loadSentChangeIds, noticeCalendarFilename, rememberChangeNoticeSent } from '../src/noticeMail.js';
+import {
+  DEFAULT_REMINDER_BODY,
+  DEFAULT_REMINDER_SUBJECT,
+  buildContractReminderCalendar,
+  combineRemindersByDay,
+  dateSchoolDaysBefore,
+  fillReminderTemplate,
+  isPredictedContract,
+  isReminderDue,
+  planReminderPublish,
+  prepareContractReminder,
+  reminderDayFilename,
+} from '../src/contractReminder.js';
+import {
+  DEFAULT_DRIVER_NOTICE_BODY,
+  DEFAULT_DRIVER_NOTICE_SUBJECT,
+  changeNoticeMail,
+  fillNoticeTemplate,
+  isChangeNoticeSent,
+  loadSentChangeIds,
+  noticeCalendarFilename,
+  rememberChangeNoticeSent,
+} from '../src/noticeMail.js';
 import { downloadCalendarPdf } from './noticeCalendarPdf.js';
 import { initCitations } from '../../employee-tracker/web/citations.js';
 import {
@@ -108,13 +132,17 @@ const previewBox = document.querySelector('#preview-box');
 const hero = document.querySelector('#hero');
 const scheduleLead = document.querySelector('#schedule-lead');
 const scheduleHistory = document.querySelector('#schedule-history');
-const notificationToasts = document.querySelector('#notification-toasts');
 const calendarMonths = document.querySelector('#calendar-months');
 const historyLegend = document.querySelector('#history-legend');
 const routeTabs = document.querySelector('#route-tabs');
 const driversTab = document.querySelector('#drivers-tab');
+const dashboardApp = document.querySelector('#dashboard-app');
 const timesheetTab = document.querySelector('#timesheet-tab');
 const timesheetView = document.querySelector('#timesheet-view');
+const adminReminderTab = document.querySelector('#admin-reminder-tab');
+const driverNoticeTab = document.querySelector('#driver-notice-tab');
+const adminReminderView = document.querySelector('#admin-reminder-view');
+const driverNoticeView = document.querySelector('#driver-notice-view');
 const allRoutesView = document.querySelector('#all-routes-view');
 const allRoutesSheet = document.querySelector('#all-routes-sheet');
 const driverHistoryView = document.querySelector('#driver-history-view');
@@ -131,6 +159,7 @@ let snapshot = null;
 let addingPerson = false;
 let activeSheet = 'drivers';
 let viewingDriver = '';
+let sheetBeforeTimesheet = 'drivers';
 
 function toTimeInput(clock) {
   if (!clock) return '';
@@ -167,12 +196,32 @@ function renderRouteTabs() {
   const onAll = activeSheet === 'all' && !addingPerson;
   const onDriverHistory = activeSheet === 'driver-history' && !addingPerson;
   const onTimesheet = activeSheet === 'timesheets' && !addingPerson;
-  const onRoute = !addingPerson && !onDrivers && !onAll && !onDriverHistory && !onTimesheet;
+  const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
+  const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
+  const onRoute =
+    !addingPerson &&
+    !onDrivers &&
+    !onAll &&
+    !onDriverHistory &&
+    !onTimesheet &&
+    !onAdminReminder &&
+    !onDriverNotice;
   const currentId = onRoute ? getCurrentProfile()?.id : null;
   driversTab.classList.toggle('is-active', onDrivers);
   driversTab.setAttribute('aria-selected', onDrivers ? 'true' : 'false');
+  dashboardApp?.classList.toggle('is-active', !onTimesheet);
   timesheetTab?.classList.toggle('is-active', onTimesheet);
-  timesheetTab?.setAttribute('aria-selected', onTimesheet ? 'true' : 'false');
+  if (onTimesheet) {
+    dashboardApp?.removeAttribute('aria-current');
+    timesheetTab?.setAttribute('aria-current', 'page');
+  } else {
+    dashboardApp?.setAttribute('aria-current', 'page');
+    timesheetTab?.removeAttribute('aria-current');
+  }
+  adminReminderTab?.classList.toggle('is-active', onAdminReminder);
+  adminReminderTab?.setAttribute('aria-selected', onAdminReminder ? 'true' : 'false');
+  driverNoticeTab?.classList.toggle('is-active', onDriverNotice);
+  driverNoticeTab?.setAttribute('aria-selected', onDriverNotice ? 'true' : 'false');
   const routes = [...peopleList()].sort((a, b) => compareRouteNumbers(a.name, b.name));
   routeTabs.innerHTML = '';
   const all = document.createElement('button');
@@ -212,6 +261,8 @@ function chooseRoute(id) {
     activeSheet !== 'all' &&
     activeSheet !== 'driver-history' &&
     activeSheet !== 'timesheets' &&
+    activeSheet !== 'admin-reminder' &&
+    activeSheet !== 'driver-notice' &&
     current?.id === id
   ) {
     return;
@@ -248,6 +299,9 @@ function showDrivers() {
 }
 
 function showTimesheets() {
+  if (activeSheet !== 'timesheets') {
+    sheetBeforeTimesheet = activeSheet === 'driver-history' ? 'drivers' : activeSheet;
+  }
   addingPerson = false;
   viewingDriver = '';
   activeSheet = 'timesheets';
@@ -255,8 +309,316 @@ function showTimesheets() {
   timesheetView?.scrollIntoView({ block: 'start' });
 }
 
+function showDashboardApp() {
+  if (activeSheet !== 'timesheets') return;
+  const back = sheetBeforeTimesheet;
+  if (back === 'all') {
+    showAllRoutes();
+    return;
+  }
+  if (back === 'admin-reminder' || back === 'reminders') {
+    showAdminReminder();
+    return;
+  }
+  if (back === 'driver-notice') {
+    showDriverNotice();
+    return;
+  }
+  if (
+    back &&
+    back !== 'drivers' &&
+    back !== 'timesheets' &&
+    peopleList().some((person) => person.id === back)
+  ) {
+    chooseRoute(back);
+    return;
+  }
+  showDrivers();
+}
+
+function showAdminReminder() {
+  addingPerson = false;
+  viewingDriver = '';
+  activeSheet = 'admin-reminder';
+  loadAll();
+  fillReminderSettings();
+}
+
+function showDriverNotice() {
+  addingPerson = false;
+  viewingDriver = '';
+  activeSheet = 'driver-notice';
+  loadAll();
+  fillDriverNoticeSettings();
+}
+
 driversTab.addEventListener('click', showDrivers);
+dashboardApp?.addEventListener('click', showDashboardApp);
 timesheetTab?.addEventListener('click', showTimesheets);
+adminReminderTab?.addEventListener('click', showAdminReminder);
+driverNoticeTab?.addEventListener('click', showDriverNotice);
+
+/** @type {Array<{ email: string, name: string }>} */
+let reminderInvitees = [];
+/** @type {Array<{ id: string, email: string, name: string }>} */
+let officeUsers = [];
+
+/**
+ * @param {{ email: string, name?: string }} user
+ */
+function userChoiceLabel(user) {
+  const email = user.email;
+  const name = String(user.name || '').trim();
+  if (!name || name.toLowerCase() === email.toLowerCase()) return email;
+  return `${name} · ${email}`;
+}
+
+function renderInviteeChoices() {
+  const select = document.querySelector('#reminder-user');
+  const list = document.querySelector('#reminder-invitees');
+  const add = document.querySelector('#reminder-add-invitee');
+  const hint = document.querySelector('#reminder-users-hint');
+  if (!select || !list) return;
+  const selected = new Set(reminderInvitees.map((item) => item.email.toLowerCase()));
+  const available = officeUsers.filter(
+    (user) => user.email && !selected.has(user.email.toLowerCase())
+  );
+  select.replaceChildren();
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = available.length ? 'Choose an account' : 'No accounts left to add';
+  select.append(placeholder);
+  for (const user of available) {
+    const option = document.createElement('option');
+    option.value = user.email;
+    option.textContent = userChoiceLabel(user);
+    select.append(option);
+  }
+  const signedIn = accountsEnabled();
+  select.disabled = !signedIn || !available.length;
+  if (add) add.disabled = !signedIn || !available.length;
+  if (hint) {
+    hint.textContent = signedIn
+      ? 'Add one or more accounts. The sign-in address is the Outlook address on the invite.'
+      : 'Sign-in is off on this copy, so there are no accounts to invite.';
+  }
+  list.replaceChildren();
+  if (!reminderInvitees.length) {
+    const empty = document.createElement('li');
+    empty.className = 'invitee-empty';
+    empty.textContent = 'No invitees yet.';
+    list.append(empty);
+    return;
+  }
+  for (const person of reminderInvitees) {
+    const item = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = userChoiceLabel(person);
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'secondary js-remove-invitee';
+    remove.dataset.email = person.email;
+    remove.textContent = 'Remove';
+    item.append(label, remove);
+    list.append(item);
+  }
+}
+
+function checkedChoice(name) {
+  return document.querySelector(`input[name="${name}"]:checked`)?.value === 'yes';
+}
+
+function setChoice(name, yes) {
+  const value = yes ? 'yes' : 'no';
+  const input = document.querySelector(`input[name="${name}"][value="${value}"]`);
+  if (input) input.checked = true;
+}
+
+function reminderPreviewText() {
+  const settings = loadContractReminder();
+  const draft = {
+    schoolDaysBefore: document.querySelector('#reminder-days')?.value ?? settings.schoolDaysBefore,
+    subject: document.querySelector('#reminder-subject')?.value,
+    body: document.querySelector('#reminder-body')?.value,
+  };
+  const normalized = {
+    schoolDaysBefore: Number.isFinite(Number(draft.schoolDaysBefore))
+      ? draft.schoolDaysBefore
+      : settings.schoolDaysBefore,
+    subject: String(draft.subject || '').trim() || DEFAULT_REMINDER_SUBJECT,
+    body: String(draft.body || '').trim() || DEFAULT_REMINDER_BODY,
+  };
+  const values = {
+    route: '50',
+    driver: 'Sample Driver',
+    contract_date: 'Thu, Oct 1, 2026',
+    reminder_date: 'Wed, Sep 30, 2026',
+    school_days_before: String(normalized.schoolDaysBefore),
+    change: 'PM changed from 2:00 PM-4:00 PM to 2:20 PM-4:20 PM.',
+    outcome: 'Automatically contracted',
+    note: 'Stop added',
+  };
+  const subject = fillReminderTemplate(normalized.subject, values);
+  const body = fillReminderTemplate(normalized.body, values);
+  return `Sample\n${subject}\n\n${body}`;
+}
+
+function driverNoticePreviewText() {
+  const values = {
+    driver_name: 'Sample Driver',
+    routes: 'route 50',
+    notices: 'Route 50: the PM change from Mon, Sep 14, 2026 will be up for bid on Thu, Oct 1, 2026.',
+    date: 'Mon, Sep 14, 2026',
+  };
+  const subject = fillNoticeTemplate(
+    document.querySelector('#driver-notice-subject')?.value || DEFAULT_DRIVER_NOTICE_SUBJECT,
+    values
+  );
+  const body = fillNoticeTemplate(
+    document.querySelector('#driver-notice-body')?.value || DEFAULT_DRIVER_NOTICE_BODY,
+    values
+  );
+  return `Sample\n${subject}\n\n${body}\n\nThe original clock times and every change to date are added after this.`;
+}
+
+function paintTemplatePreview(id, text) {
+  const box = document.querySelector(id);
+  if (!box) return;
+  box.replaceChildren();
+  const title = document.createElement('h3');
+  title.textContent = 'Preview';
+  box.append(title, document.createTextNode(text));
+}
+
+function fillDriverNoticeSettings() {
+  const settings = loadDriverNotice();
+  const days = document.querySelector('#driver-notice-days');
+  const subject = document.querySelector('#driver-notice-subject');
+  const body = document.querySelector('#driver-notice-body');
+  const status = document.querySelector('#driver-notice-status');
+  setChoice('notice_immediately', settings.noticeImmediately);
+  setChoice('notice_before', settings.noticeBeforeContract);
+  if (days) days.value = String(settings.schoolDaysBefore);
+  if (subject) subject.value = settings.subject;
+  if (body) body.value = settings.body;
+  paintTemplatePreview('#driver-notice-preview', driverNoticePreviewText());
+  if (status) setStatus(status, '');
+}
+
+async function fillReminderSettings() {
+  const settings = loadContractReminder();
+  reminderInvitees = settings.invitees.map((item) => ({ ...item }));
+  const days = document.querySelector('#reminder-days');
+  const subject = document.querySelector('#reminder-subject');
+  const body = document.querySelector('#reminder-body');
+  const status = document.querySelector('#reminder-status');
+  setChoice('reminder_auto', settings.autoCreate);
+  if (days) days.value = String(settings.schoolDaysBefore);
+  if (subject) subject.value = settings.subject;
+  if (body) body.value = settings.body;
+  paintTemplatePreview('#reminder-preview', reminderPreviewText());
+  if (status) setStatus(status, '');
+  try {
+    officeUsers = await listOfficeUsers();
+  } catch (error) {
+    officeUsers = [];
+    if (status) setStatus(status, error.message || 'Could not load accounts.', 'error');
+  }
+  renderInviteeChoices();
+}
+
+document.querySelector('#reminder-add-invitee')?.addEventListener('click', () => {
+  const email = document.querySelector('#reminder-user')?.value || '';
+  const user = officeUsers.find((item) => item.email === email);
+  if (!user) return;
+  if (reminderInvitees.some((item) => item.email.toLowerCase() === user.email.toLowerCase())) {
+    return;
+  }
+  reminderInvitees.push({ email: user.email, name: user.name });
+  renderInviteeChoices();
+});
+
+document.querySelector('#reminder-invitees')?.addEventListener('click', (event) => {
+  const button = event.target.closest('.js-remove-invitee');
+  if (!button) return;
+  reminderInvitees = reminderInvitees.filter((item) => item.email !== button.dataset.email);
+  renderInviteeChoices();
+});
+
+document.querySelector('#driver-notice-form')?.addEventListener('input', () => {
+  paintTemplatePreview('#driver-notice-preview', driverNoticePreviewText());
+});
+
+document.querySelector('#driver-notice-reset')?.addEventListener('click', () => {
+  const subject = document.querySelector('#driver-notice-subject');
+  const body = document.querySelector('#driver-notice-body');
+  if (subject) subject.value = DEFAULT_DRIVER_NOTICE_SUBJECT;
+  if (body) body.value = DEFAULT_DRIVER_NOTICE_BODY;
+  paintTemplatePreview('#driver-notice-preview', driverNoticePreviewText());
+});
+
+document.querySelector('#driver-notice-form')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const status = document.querySelector('#driver-notice-status');
+  try {
+    const saved = saveDriverNotice({
+      noticeImmediately: checkedChoice('notice_immediately'),
+      noticeBeforeContract: checkedChoice('notice_before'),
+      schoolDaysBefore: document.querySelector('#driver-notice-days')?.value,
+      subject: document.querySelector('#driver-notice-subject')?.value,
+      body: document.querySelector('#driver-notice-body')?.value,
+    });
+    fillDriverNoticeSettings();
+    if (status) setStatus(status, 'Driver time-change notice saved.', 'ok');
+    if (saved.noticeBeforeContract) {
+      const note = await deliverDueDriverNotices();
+      if (note?.message && status) {
+        setStatus(
+          status,
+          `Driver time-change notice saved. ${note.message}`,
+          note.ok ? 'ok' : 'error'
+        );
+      }
+    }
+  } catch (error) {
+    if (status) setStatus(status, error.message, 'error');
+  }
+});
+
+document.querySelector('#reminder-form')?.addEventListener('input', () => {
+  paintTemplatePreview('#reminder-preview', reminderPreviewText());
+});
+
+document.querySelector('#reminder-reset')?.addEventListener('click', () => {
+  const subject = document.querySelector('#reminder-subject');
+  const body = document.querySelector('#reminder-body');
+  if (subject) subject.value = DEFAULT_REMINDER_SUBJECT;
+  if (body) body.value = DEFAULT_REMINDER_BODY;
+  paintTemplatePreview('#reminder-preview', reminderPreviewText());
+});
+
+document.querySelector('#reminder-form')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const status = document.querySelector('#reminder-status');
+  try {
+    const saved = saveContractReminder({
+      autoCreate: checkedChoice('reminder_auto'),
+      schoolDaysBefore: document.querySelector('#reminder-days')?.value,
+      invitees: reminderInvitees,
+      subject: document.querySelector('#reminder-subject')?.value,
+      body: document.querySelector('#reminder-body')?.value,
+    });
+    reminderInvitees = saved.invitees.map((item) => ({ ...item }));
+    fillReminderSettings();
+    if (status) setStatus(status, 'Admin contract reminder saved.', 'ok');
+    if (saved.autoCreate) {
+      const note = downloadDueContractReminders();
+      if (note && status) setStatus(status, `${status.textContent} ${note.message}`, note.kind);
+    }
+  } catch (error) {
+    if (status) setStatus(status, error.message, 'error');
+  }
+});
 
 function beginAddRoute() {
   addingPerson = true;
@@ -266,6 +628,8 @@ function beginAddRoute() {
   allRoutesView.hidden = true;
   driverHistoryView.hidden = true;
   if (timesheetView) timesheetView.hidden = true;
+  if (adminReminderView) adminReminderView.hidden = true;
+  if (driverNoticeView) driverNoticeView.hidden = true;
   if (routeTabs) routeTabs.hidden = false;
   showSetup(true);
   renderRouteTabs();
@@ -381,92 +745,6 @@ function fillChangeFormFromSegment() {
     : '';
 }
 
-function renderNotifications() {
-  if (!notificationToasts) return;
-  notificationToasts.innerHTML = '';
-  const profile = getCurrentProfile();
-  if (!snapshot?.setup_complete || addingPerson || !profile) {
-    notificationToasts.hidden = true;
-    document.title = PAGE_TITLE;
-    return;
-  }
-
-  const pending = visibleEmployeeNotifications(
-    buildEmployeeNotifications(snapshot),
-    listDismissedNotificationIds(profile.id)
-  );
-  if (!pending.length) {
-    notificationToasts.hidden = true;
-    document.title = PAGE_TITLE;
-    return;
-  }
-
-  notificationToasts.hidden = false;
-  document.title = `(${pending.length}) ${PAGE_TITLE}`;
-
-  for (const note of pending) {
-    const toast = document.createElement('article');
-    toast.className = 'notification-toast is-flashing';
-    toast.dataset.id = note.id;
-    toast.addEventListener(
-      'animationend',
-      () => {
-        toast.classList.remove('is-flashing');
-      },
-      { once: true }
-    );
-
-    const kicker = document.createElement('p');
-    kicker.className = 'notification-toast-kicker';
-    kicker.textContent = note.finalized_on
-      ? `Locked in ${prettyDate(note.finalized_on)}`
-      : 'Locked in';
-
-    const title = document.createElement('h2');
-    title.className = 'notification-toast-title';
-    title.textContent = note.title;
-
-    const detail = document.createElement('p');
-    detail.className = 'notification-toast-text';
-    detail.textContent = note.detail;
-
-    toast.append(kicker, title, detail);
-
-    const timeLines = note.time_changes.length
-      ? note.time_changes
-      : note.contracted_times;
-    if (timeLines.length) {
-      const list = document.createElement('ul');
-      list.className = 'notification-toast-times';
-      for (const row of timeLines) {
-        const item = document.createElement('li');
-        item.textContent = row.label;
-        list.append(item);
-      }
-      toast.append(list);
-    }
-
-    if (note.contracted_hours_statement || note.contracted_hours_label) {
-      const hours = document.createElement('p');
-      hours.className = 'notification-toast-hours';
-      hours.textContent =
-        note.contracted_hours_statement ||
-        `Contracted hours: ${note.contracted_hours_label}`;
-      toast.append(hours);
-    }
-
-    const actions = document.createElement('div');
-    actions.className = 'notification-toast-actions';
-    const dismiss = document.createElement('button');
-    dismiss.type = 'button';
-    dismiss.className = 'secondary js-dismiss-notification';
-    dismiss.textContent = 'Dismiss';
-    actions.append(dismiss);
-    toast.append(actions);
-    notificationToasts.append(toast);
-  }
-}
-
 function renderHero() {
   const windowInfo = snapshot.window;
   const contracted = snapshot.contracted;
@@ -558,9 +836,11 @@ function renderScheduleHistory() {
         const kind =
           row.kind === 'initial'
             ? 'Established'
-            : `${row.segment === 'MIDDAY' ? 'Midday' : row.segment} change${
-                row.delta_label ? ` · ${row.delta_label}` : ''
-              }`;
+            : row.segments?.length > 1
+              ? 'Schedule change'
+              : `${row.segment === 'MIDDAY' ? 'Midday' : row.segment} change${
+                  row.delta_label ? ` · ${row.delta_label}` : ''
+                }`;
         const column = columns[index];
         const actions =
           row.kind === 'change'
@@ -569,16 +849,16 @@ function renderScheduleHistory() {
         return `<tr class="is-history${predicted ? ' is-predicted' : ''}" style="--tone:${toneForRow(index)}" data-row-index="${index}"${
           row.change_id ? ` data-change-id="${escapeHtml(row.change_id)}"` : ''
         }${row.kind === 'initial' ? ' data-row-kind="initial"' : ''}${
-          row.segment ? ` data-segment="${escapeHtml(row.segment)}"` : ''
-        }>
+          row.change_ids?.length ? ` data-change-ids="${escapeHtml(row.change_ids.join(','))}"` : ''
+        }${row.segment ? ` data-segment="${escapeHtml(row.segment)}"` : ''}>
         <td class="oct1-cell">${row.kind === 'change' ? forceOct1Toggle(row.force_oct1_contract) : ''}</td>
         <th scope="row">
-          <input class="entry-input js-history-date" type="date" aria-label="New schedule started" value="${escapeHtml(row.date || '')}" />
+          ${scheduleDateField(row.date, { allowNull: row.kind === 'change' })}
           <span class="row-kind">${escapeHtml(kind)}</span>
         </th>
         ${RUNS.map((run) => {
           const item = row.schedule?.[run.id];
-          const changed = row.segment === run.id;
+          const changed = row.segment === run.id || row.segments?.includes(run.id);
           const source = timeSource(rows, index, run.id);
           return ['in', 'out']
             .map((which) => {
@@ -594,7 +874,9 @@ function renderScheduleHistory() {
         <td class="hours-figure">${escapeHtml(column.hours)}</td>
         <td>
           <div class="contracted-cell">
-            <span class="contracted-date">${escapeHtml(column.contractedDate)}</span>
+            <span class="contracted-stack">
+              <span class="contracted-date">${escapeHtml(column.contractedDate)}</span>
+            </span>
             ${contractedInfoControl(row)}
           </div>
         </td>
@@ -604,6 +886,18 @@ function renderScheduleHistory() {
       </tr>`;
       })
       .join('') + entryRowMarkup(rows);
+}
+
+function scheduleDateField(value, { id = '', className = 'js-history-date', label = 'New schedule started', allowNull = true } = {}) {
+  const empty = !value;
+  const idAttr = id ? ` id="${id}"` : '';
+  const nullButton = allowNull
+    ? `<button type="button" class="schedule-date-null js-date-null" aria-pressed="${empty ? 'true' : 'false'}">N/A</button>`
+    : '';
+  return `<div class="schedule-date${empty && allowNull ? ' is-null' : ''}">
+    <input${idAttr} class="entry-input ${className}" type="date" aria-label="${label}" value="${escapeHtml(value || '')}" />
+    ${nullButton}
+  </div>`;
 }
 
 function forceOct1Toggle(on, id = '') {
@@ -616,8 +910,12 @@ function forceOct1Toggle(on, id = '') {
 
 function timeSource(rows, index, runId) {
   for (let i = index; i >= 0; i -= 1) {
-    if (rows[i].kind === 'initial') return { kind: 'initial' };
-    if (rows[i].segment === runId) return { kind: 'change', id: rows[i].change_id };
+    const source = rows[i].time_sources?.[runId];
+    if (source === 'initial' || rows[i].kind === 'initial') return { kind: 'initial' };
+    if (source) return { kind: 'change', id: source };
+    if (rows[i].segment === runId && rows[i].change_id) {
+      return { kind: 'change', id: rows[i].change_id };
+    }
   }
   return { kind: 'initial' };
 }
@@ -726,7 +1024,7 @@ function entryRowMarkup(rows) {
   return `<tr class="is-entry is-new-change">
     <td class="oct1-cell">${forceOct1Toggle(false, 'entry_force_oct1')}</td>
     <th scope="row">
-      <input id="entry_date" class="entry-input" type="date" aria-label="Date the change takes effect" value="${escapeHtml(lastDate)}" />
+      ${scheduleDateField(lastDate, { id: 'entry_date', className: '', label: 'Date the change takes effect' })}
       <span class="row-kind">New time change</span>
     </th>
     ${RUNS.map((run) => {
@@ -761,52 +1059,86 @@ function noticeSentCell(row) {
   </td>`;
 }
 
-async function sendChangeNotice(button) {
-  const changeId = button.closest('[data-change-id]')?.dataset.changeId;
-  const row = (snapshot?.schedule_history || []).find((item) => item.change_id === changeId);
-  const profile = getCurrentProfile();
-  if (!row || !profile || !changeId) return;
+function locateChange(changeId) {
+  if (!changeId) return null;
+  const currentRow = (snapshot?.schedule_history || []).find((item) => item.change_id === changeId);
+  const currentProfile = getCurrentProfile();
+  if (currentRow && currentProfile) {
+    return { profile: currentProfile, row: currentRow, history: snapshot.schedule_history || [] };
+  }
+  const asOf = getAsOfDate();
+  for (const profile of listProfiles()) {
+    let built;
+    try {
+      built = buildSnapshot(profile, asOf);
+    } catch {
+      continue;
+    }
+    const row = (built?.schedule_history || []).find((item) => item.change_id === changeId);
+    if (row) return { profile, row, history: built.schedule_history || [] };
+  }
+  return null;
+}
+
+/**
+ * @param {{ profile: object, row: object, history: object[] }} located
+ */
+async function deliverChangeNotice(located) {
+  const { profile, row, history } = located;
+  const changeId = row?.change_id;
+  if (!profile || !row || !changeId) {
+    return { ok: false, message: 'That clock-time change could not be found.' };
+  }
   const driverName = driverForDate(profile, row.date);
   if (!driverName) {
-    setStatus(scheduleStatus, 'Assign a driver to this route before sending a notice.', 'error');
-    return;
+    return { ok: false, message: 'Assign a driver to this route before sending a notice.' };
   }
   const driver = listDrivers().find((item) => sameDriver(item.name, driverName));
   const email = String(driver?.email || '').trim();
   if (!isEmailAddress(email)) {
-    setStatus(
-      scheduleStatus,
-      `Add an email for ${driverName} on the Driver Name List before sending a notice.`,
-      'error'
-    );
-    return;
+    return {
+      ok: false,
+      message: `Add an email for ${driverName} on the Driver Name List before sending a notice.`,
+    };
   }
   const routeName = String(profile.name || '').trim();
+  const noticeSettings = loadDriverNotice();
   const mail = changeNoticeMail({
     driverName,
     routeName,
     row,
     asOf: getAsOfDate(),
-    history: snapshot?.schedule_history || [],
+    history,
+    subject: noticeSettings.subject,
+    body: noticeSettings.body,
   });
   const filename = noticeCalendarFilename(driverName);
-  button.disabled = true;
-  setStatus(scheduleStatus, `Opening the email and downloading ${filename}…`);
   try {
     await downloadCalendarPdf(filename);
     openNoticeMail({ to: email, subject: mail.subject, body: mail.body });
     explainCalendarDownload(filename);
     rememberChangeNoticeSent(changeId);
-    setStatus(
-      scheduleStatus,
-      `Please look for ${filename} in your downloads folder and attach it. Notice sent is Yes for this change.`,
-      'ok'
-    );
-    renderScheduleHistory();
+    if ((snapshot?.schedule_history || []).some((item) => item.change_id === changeId)) {
+      renderScheduleHistory();
+    }
+    return {
+      ok: true,
+      message: `Please look for ${filename} in your downloads folder and attach it. Notice sent is Yes for this change.`,
+    };
   } catch (error) {
-    setStatus(scheduleStatus, error.message, 'error');
-    button.disabled = false;
+    return { ok: false, message: error.message || 'Could not create that notice.' };
   }
+}
+
+async function sendChangeNotice(button) {
+  const changeId = button.closest('[data-change-id]')?.dataset.changeId;
+  const located = locateChange(changeId);
+  if (!located) return;
+  button.disabled = true;
+  setStatus(scheduleStatus, 'Opening the email and downloading the calendar…');
+  const result = await deliverChangeNotice(located);
+  setStatus(scheduleStatus, result.message, result.ok ? 'ok' : 'error');
+  if (!result.ok) button.disabled = false;
 }
 
 /**
@@ -833,12 +1165,306 @@ function explainCalendarDownload(filename) {
   if (!dialog.open) dialog.showModal();
 }
 
-function commitEntryRow() {
-  const date = document.querySelector('#entry_date')?.value;
-  if (!date) {
-    setStatus(scheduleStatus, 'Enter the date this time change takes effect.', 'error');
+/**
+ * @param {object | null | undefined} source
+ */
+function changeIdsOn(source) {
+  return new Set(
+    (source?.schedule_history || []).map((row) => row.change_id).filter(Boolean)
+  );
+}
+
+/**
+ * @param {Set<string>} beforeIds
+ * @param {object | null | undefined} source
+ */
+function addedChangeIds(beforeIds, source) {
+  return (source?.schedule_history || [])
+    .map((row) => row.change_id)
+    .filter((id) => id && !beforeIds.has(id));
+}
+
+/**
+ * @param {string} changeId
+ * @param {object | null | undefined} [source]
+ */
+function predictedContractDate(changeId, source = snapshot) {
+  const row = (source?.schedule_history || []).find((item) => item.change_id === changeId);
+  return isPredictedContract(row) ? row.contracted.becomes_on : null;
+}
+
+/**
+ * @param {BlobPart} text
+ * @param {string} filename
+ */
+function downloadTextFile(text, filename) {
+  const blob = new Blob([text], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Predicted contract reminders for every route, one item per change.
+ */
+function officeContractReminders() {
+  const settings = loadContractReminder();
+  const calendar = calendarPayload();
+  /** @type {NonNullable<ReturnType<typeof prepareContractReminder>>[]} */
+  const items = [];
+  for (const profile of listProfiles()) {
+    const routeName = String(profile?.name || '').trim();
+    const snap = buildSnapshot(profile, getAsOfDate());
+    for (const row of snap?.schedule_history || []) {
+      try {
+        const item = prepareContractReminder({
+          routeName,
+          driverName: driverForDate(profile, row.date),
+          row,
+          settings,
+          calendar,
+        });
+        if (item?.changeId) items.push(item);
+      } catch {
+        // The school calendar does not reach this contract date yet.
+      }
+    }
+  }
+  return items;
+}
+
+/**
+ * @param {Array<{ reminderDate: string, routes?: string[], cancelled?: boolean, updated?: boolean }>} events
+ */
+function publishedReminderMessage(events) {
+  const active = events.filter((event) => !event.cancelled);
+  const cancelled = events.filter((event) => event.cancelled);
+  /** @type {string[]} */
+  const parts = [];
+  if (active.length) {
+    const action = active.every((event) => event.updated)
+      ? 'updated'
+      : active.some((event) => event.updated)
+        ? 'created or updated'
+        : 'downloaded';
+    const dayLabel = active.map((event) => prettyDate(event.reminderDate)).join(', ');
+    const routeLabel = active
+      .flatMap((event) => event.routes || [])
+      .filter((name, index, list) => list.indexOf(name) === index)
+      .join(', ');
+    parts.push(
+      `Outlook reminder ${action} for ${dayLabel}. It includes ${routeLabel}. Open it in Outlook and send the invite. The event is one minute and stays free.`
+    );
+  }
+  if (cancelled.length) {
+    const dayLabel = cancelled.map((event) => prettyDate(event.reminderDate)).join(', ');
+    parts.push(
+      `The reminder for ${dayLabel} was cancelled. Open that file in Outlook to take the old event off the calendar.`
+    );
+  }
+  return parts.join(' ');
+}
+
+/**
+ * @param {ReturnType<typeof planReminderPublish>} events
+ * @param {string} stamp
+ */
+function publishReminderItems(events, stamp) {
+  const settings = loadContractReminder();
+  const list = events || [];
+  if (!list.length) return null;
+  if (!settings.invitees.length) {
+    return {
+      kind: 'error',
+      message: 'Choose Outlook invitees in Admin contract reminder.',
+    };
+  }
+  const organizer = currentAccount();
+  if (!organizer?.email) {
+    return {
+      kind: 'error',
+      message: 'Sign in with the Outlook account that should send this reminder.',
+    };
+  }
+  const calendarInput = {
+    organizer: { email: organizer.email, name: organizer.name },
+    invitees: settings.invitees,
+  };
+  const active = list.filter((event) => !event.cancelled);
+  const cancelled = list.filter((event) => event.cancelled);
+  if (active.length) {
+    downloadTextFile(
+      buildContractReminderCalendar({ ...calendarInput, events: active }),
+      active.length === 1 ? reminderDayFilename(active[0].reminderDate) : 'contract-reminders.ics'
+    );
+  }
+  if (cancelled.length) {
+    const filename =
+      cancelled.length === 1
+        ? `contract-reminder-cancel-${String(cancelled[0].reminderDate).replaceAll('-', '')}.ics`
+        : 'contract-reminder-cancellations.ics';
+    downloadTextFile(
+      buildContractReminderCalendar({ ...calendarInput, events: cancelled, method: 'CANCEL' }),
+      filename
+    );
+  }
+  rememberPublishedReminders(list, stamp);
+  return { kind: 'ok', message: publishedReminderMessage(list) };
+}
+
+/**
+ * Download a calendar file for each reminder day that is new or different.
+ * The file is created when a contract date is predicted. It is not held until that day.
+ */
+function downloadDueContractReminders() {
+  const settings = loadContractReminder();
+  if (!settings.autoCreate) return null;
+  try {
+    const stamp = settings.invitees
+      .map((person) => person.email.toLowerCase())
+      .sort()
+      .join(',');
+    const events = planReminderPublish(
+      combineRemindersByDay(officeContractReminders()),
+      loadCreatedContractEvents(),
+      loadReminderSignatures(),
+      stamp
+    );
+    if (!events.length) return null;
+    return publishReminderItems(events, stamp);
+  } catch (error) {
+    return { kind: 'error', message: error.message };
+  }
+}
+
+function dueDriverNoticeTargets() {
+  const settings = loadDriverNotice();
+  if (!settings.noticeBeforeContract) return [];
+  const calendar = calendarPayload();
+  const asOf = getAsOfDate();
+  /** @type {Array<{ profile: object, row: object, history: object[] }>} */
+  const targets = [];
+  for (const profile of listProfiles()) {
+    let built;
+    try {
+      built = buildSnapshot(profile, asOf);
+    } catch {
+      continue;
+    }
+    for (const row of built?.schedule_history || []) {
+      if (!row?.change_id || isChangeNoticeSent(row.change_id) || !isPredictedContract(row)) continue;
+      try {
+        const when = dateSchoolDaysBefore(calendar, row.contracted.becomes_on, settings.schoolDaysBefore);
+        if (!isReminderDue(when, asOf)) continue;
+      } catch {
+        continue;
+      }
+      targets.push({ profile, row, history: built.schedule_history || [] });
+    }
+  }
+  return targets;
+}
+
+async function deliverDueDriverNotices() {
+  const targets = dueDriverNoticeTargets();
+  if (!targets.length) return null;
+  const result = await deliverChangeNotice(targets[0]);
+  const extra =
+    result.ok && targets.length > 1
+      ? ` ${targets.length - 1} more driver notices will be created the next time you open the dashboard.`
+      : '';
+  return { ok: result.ok, message: `${result.message}${extra}` };
+}
+
+async function maybeAutomaticDriverNotices(changeIds) {
+  const settings = loadDriverNotice();
+  if (!settings.noticeImmediately && !settings.noticeBeforeContract) return null;
+  const calendar = calendarPayload();
+  const asOf = getAsOfDate();
+  /** @type {string[]} */
+  const messages = [];
+  let ok = true;
+  for (const id of changeIds || []) {
+    if (!id || isChangeNoticeSent(id)) continue;
+    const located = locateChange(id);
+    if (!located) continue;
+    let send = settings.noticeImmediately;
+    if (!send && settings.noticeBeforeContract && isPredictedContract(located.row)) {
+      try {
+        const when = dateSchoolDaysBefore(
+          calendar,
+          located.row.contracted.becomes_on,
+          settings.schoolDaysBefore
+        );
+        send = isReminderDue(when, asOf);
+      } catch {
+        send = false;
+      }
+    }
+    if (!send) continue;
+    const result = await deliverChangeNotice(located);
+    messages.push(result.message);
+    if (!result.ok) ok = false;
+  }
+  return messages.length ? { ok, message: messages.join(' ') } : null;
+}
+
+function announcePredictedReminders(message, changeIds, previousDates = {}) {
+  const settings = loadContractReminder();
+  const predictionChanged = (changeIds || []).some((changeId) => {
+    const row = (snapshot?.schedule_history || []).find((item) => item.change_id === changeId);
+    const next = isPredictedContract(row) ? row.contracted.becomes_on : null;
+    const previous = Object.prototype.hasOwnProperty.call(previousDates, changeId)
+      ? previousDates[changeId]
+      : null;
+    return previous !== next;
+  });
+  void maybeAutomaticDriverNotices(changeIds).then((driverNote) => {
+    if (!driverNote) return;
+    const current = scheduleStatus?.textContent || message;
+    setStatus(
+      scheduleStatus,
+      `${current} ${driverNote.message}`.trim(),
+      driverNote.ok ? 'ok' : 'error'
+    );
+  });
+  if (!predictionChanged) {
+    setStatus(scheduleStatus, message, 'ok');
     return;
   }
+  if (!settings.autoCreate) {
+    setStatus(scheduleStatus, `${message} Automatic Outlook reminders are off.`, 'ok');
+    return;
+  }
+  const note = downloadDueContractReminders();
+  if (note) {
+    setStatus(scheduleStatus, `${message} ${note.message}`, note.kind === 'ok' ? 'ok' : 'error');
+    return;
+  }
+  setStatus(scheduleStatus, message, 'ok');
+}
+
+async function createAutomaticNotices() {
+  const notes = [];
+  let kind = 'ok';
+  const admin = downloadDueContractReminders();
+  if (admin?.message) {
+    notes.push(admin.message);
+    if (admin.kind === 'error') kind = 'error';
+  }
+  const driver = await deliverDueDriverNotices();
+  if (driver?.message) {
+    notes.push(driver.message);
+    if (!driver.ok) kind = 'error';
+  }
+  if (notes.length) setStatus(fileStatus, notes.join(' '), kind);
+}
+
+function commitEntryRow() {
+  const date = document.querySelector('#entry_date')?.value || null;
   const current = snapshot?.schedule || {};
   /** @type {Array<{ segment: string, clock_in: string, clock_out: string }>} */
   const changed = [];
@@ -875,16 +1501,22 @@ function commitEntryRow() {
     currentAccount(),
     document.querySelector('#entry_editor')?.value
   );
+  const beforeIds = changeIdsOn(snapshot);
+  const scheduleId = `schedule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   try {
     for (const item of changed) {
       snapshot = recordChange({
         ...item,
         change_date: date,
+        schedule_id: scheduleId,
         force_oct1_contract: document.querySelector('#entry_force_oct1')?.checked === true,
         ...fields,
       });
     }
-    setStatus(scheduleStatus, 'Time change added on this device.', 'ok');
+    announcePredictedReminders(
+      'Time change added on this device.',
+      addedChangeIds(beforeIds, snapshot)
+    );
     renderApp();
   } catch (error) {
     setStatus(scheduleStatus, error.message, 'error');
@@ -966,7 +1598,7 @@ function driverDraftFromRow(row) {
   };
 }
 
-function renderDrivers() {
+function renderDrivers(highlightName = '') {
   const drivers = listDrivers();
   const body = driverSheet.querySelector('tbody');
   const rows = drivers
@@ -976,12 +1608,14 @@ function renderDrivers() {
         .map((route) => (route.current ? route.name : `${route.name} (earlier)`))
         .join(', ');
       const who = driver.name;
-      return `<tr data-driver-id="${escapeHtml(driver.id)}">
+      const justAdded = highlightName && sameDriver(driver.name, highlightName) ? ' is-just-added' : '';
+      return `<tr class="${justAdded}" data-driver-id="${escapeHtml(driver.id)}">
         <th class="sheet-rowhead" scope="row">${index + 1}</th>
         <td><input class="entry-input js-driver-first" type="text" autocomplete="given-name" value="${escapeHtml(driver.firstName)}" aria-label="First name for ${escapeHtml(who)}" /></td>
         <td><input class="entry-input js-driver-last" type="text" autocomplete="family-name" value="${escapeHtml(driver.lastName)}" aria-label="Last name for ${escapeHtml(who)}" /></td>
         <td><input class="entry-input js-driver-email" type="email" autocomplete="email" value="${escapeHtml(driver.email)}" aria-label="Email for ${escapeHtml(who)}" placeholder="name@example.com" /></td>
         <td class="sheet-readonly">${routeLabel ? escapeHtml(routeLabel) : ''}</td>
+        <td class="sheet-remove"><button type="button" class="secondary js-delete-driver" aria-label="Remove ${escapeHtml(who)} from the driver list">Remove</button></td>
       </tr>`;
     })
     .join('');
@@ -991,7 +1625,28 @@ function renderDrivers() {
     <td><input class="entry-input js-driver-last" type="text" autocomplete="off" aria-label="New driver last name" placeholder="Last" /></td>
     <td><input class="entry-input js-driver-email" type="email" autocomplete="off" aria-label="New driver email" placeholder="name@example.com" /></td>
     <td class="sheet-readonly"></td>
+    <td class="sheet-remove"></td>
   </tr>`;
+  if (highlightName) body.querySelector('.is-just-added')?.scrollIntoView({ block: 'nearest' });
+}
+
+function confirmRemoveDriver(driver) {
+  const routes = routesForDriver(driver.name);
+  const current = routes.filter((route) => route.current).map((route) => route.name);
+  const earlier = routes.filter((route) => !route.current).map((route) => route.name);
+  const lines = [`Remove ${driver.name} from the driver list?`];
+  if (current.length) {
+    const listed = current.join(', ');
+    lines.push(
+      current.length === 1
+        ? `${driver.name} stays assigned to route ${listed} until you choose another driver.`
+        : `${driver.name} stays assigned to routes ${listed} until you choose another driver.`
+    );
+  }
+  if (earlier.length) {
+    lines.push(`Earlier route history on ${earlier.join(', ')} stays.`);
+  }
+  return confirm(lines.join(' '));
 }
 
 function renderHistoryLegend(rows) {
@@ -1073,8 +1728,13 @@ function renderApp() {
   const onAll = activeSheet === 'all' && !addingPerson;
   const onDriverHistory = activeSheet === 'driver-history' && !addingPerson;
   const onTimesheet = activeSheet === 'timesheets' && !addingPerson;
+  const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
+  const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
+  document.body.classList.toggle('is-reader-app', onTimesheet);
   if (routeTabs) routeTabs.hidden = onTimesheet;
   if (timesheetView) timesheetView.hidden = !onTimesheet;
+  if (adminReminderView) adminReminderView.hidden = !onAdminReminder;
+  if (driverNoticeView) driverNoticeView.hidden = !onDriverNotice;
   if (onTimesheet) {
     driversView.hidden = true;
     allRoutesView.hidden = true;
@@ -1083,6 +1743,15 @@ function renderApp() {
     appView.hidden = true;
     document.title = 'Timesheet reader';
     timesheetDesk.refresh();
+    return;
+  }
+  if (onAdminReminder || onDriverNotice) {
+    driversView.hidden = true;
+    allRoutesView.hidden = true;
+    driverHistoryView.hidden = true;
+    setupView.hidden = true;
+    appView.hidden = true;
+    document.title = onAdminReminder ? 'Admin contract reminder' : 'Driver time-change notice';
     return;
   }
   document.title = PAGE_TITLE;
@@ -1111,13 +1780,11 @@ function renderApp() {
   const ready = Boolean(snapshot?.setup_complete) && !addingPerson;
   if (!ready) {
     showSetup(false);
-    renderNotifications();
     return;
   }
   setupView.hidden = true;
   setupView.setAttribute('aria-hidden', 'true');
   appView.hidden = false;
-  renderNotifications();
   renderHero();
   renderScheduleHistory();
   renderCalendar();
@@ -1143,8 +1810,11 @@ function updatePreview() {
   const clockIn = document.querySelector('#clock_in').value;
   const clockOut = document.querySelector('#clock_out').value;
   const changeDate = document.querySelector('#change_date').value;
+  const changeDateWrap = document.querySelector('#change-date-wrap');
+  changeDateWrap?.classList.toggle('is-null', !changeDate);
+  changeDateWrap?.querySelector('.js-date-null')?.setAttribute('aria-pressed', changeDate ? 'false' : 'true');
   const segment = document.querySelector('#change_segment').value;
-  if (!clockIn || !clockOut || !changeDate) {
+  if (!clockIn || !clockOut) {
     previewBox.hidden = true;
     return;
   }
@@ -1200,9 +1870,10 @@ setupForm.addEventListener('submit', (event) => {
 changeForm.addEventListener('submit', (event) => {
   event.preventDefault();
   try {
+    const beforeIds = changeIdsOn(snapshot);
     snapshot = recordChange({
       segment: document.querySelector('#change_segment').value,
-      change_date: document.querySelector('#change_date').value,
+      change_date: document.querySelector('#change_date').value || null,
       clock_in: document.querySelector('#clock_in').value,
       clock_out: document.querySelector('#clock_out').value,
       force_oct1_contract: document.querySelector('#change_force_oct1')?.checked === true,
@@ -1213,7 +1884,10 @@ changeForm.addEventListener('submit', (event) => {
     if (forceOct1) forceOct1.checked = false;
     setStatus(changeStatus, '');
     closeChangeDialog();
-    setStatus(scheduleStatus, 'Change recorded on this device.', 'ok');
+    announcePredictedReminders(
+      'Change recorded on this device.',
+      addedChangeIds(beforeIds, snapshot)
+    );
     renderApp();
   } catch (error) {
     setStatus(changeStatus, error.message, 'error');
@@ -1562,7 +2236,9 @@ function openChangeEditor(changeId) {
   const change = (snapshot.changes || []).find((item) => item.id === changeId);
   if (!change) return;
   document.querySelector('#change_edit_id').value = change.id;
-  document.querySelector('#change_edit_date').value = change.change_date;
+  const editDate = document.querySelector('#change_edit_date');
+  editDate.value = change.change_date || '';
+  editDate.closest('.schedule-date')?.classList.toggle('is-null', !change.change_date);
   document.querySelector('#change_edit_segment').textContent = change.segment;
   document.querySelector('#change_edit_in').value = toTimeInput(change.next?.clock_in);
   document.querySelector('#change_edit_out').value = toTimeInput(change.next?.clock_out);
@@ -1579,14 +2255,21 @@ function rowTime(row, runId, which) {
   return row.querySelector(`.js-history-time[data-run="${runId}"][data-which="${which}"]`)?.value || '';
 }
 
+function rowChangeIds(row) {
+  return (row.dataset.changeIds || row.dataset.changeId || '').split(',').filter(Boolean);
+}
+
 function saveHistoryEdit(input) {
   const row = input.closest('tr');
   if (!row) return;
-  const date = row.querySelector('.js-history-date')?.value;
-  if (!date) {
+  const dateInput = row.querySelector('.js-history-date');
+  const date = dateInput?.value || '';
+  dateInput?.closest('.schedule-date')?.classList.toggle('is-null', !date);
+  if (row.dataset.rowKind === 'initial' && !date) {
     setStatus(scheduleStatus, 'Enter the date this schedule took effect.', 'error');
     return;
   }
+  const changeDate = date || null;
   try {
     if (row.dataset.rowKind === 'initial') {
       const profile = getCurrentProfile();
@@ -1620,16 +2303,37 @@ function saveHistoryEdit(input) {
           body[`${key}_out`] = run.id === runId ? rowTime(row, run.id, 'out') : item?.clock_out || '';
         }
         snapshot = updateStartingSchedule(body);
+      } else if (input.classList.contains('js-history-date') || input.classList.contains('js-force-oct1')) {
+        const forceInput = row.querySelector('.js-force-oct1');
+        const ids = rowChangeIds(row);
+        const previous = Object.fromEntries(ids.map((id) => [id, predictedContractDate(id)]));
+        for (const id of ids) {
+          const change = (snapshot.changes || []).find((item) => item.id === id);
+          snapshot = updateChange(id, {
+            change_date: changeDate,
+            ...(change?.next?.clock_in && change?.next?.clock_out
+              ? { clock_in: change.next.clock_in, clock_out: change.next.clock_out }
+              : {}),
+            ...(forceInput ? { force_oct1_contract: forceInput.checked } : {}),
+          });
+        }
+        announcePredictedReminders('Schedule corrected on this device.', ids, previous);
+        renderApp();
+        return;
       } else {
-        const sourceRow = scheduleHistory.querySelector(`[data-change-id="${sourceId}"]`);
-        const changeDate = sourceRow?.querySelector('.js-history-date')?.value || date;
-        const forceInput = (sourceRow || row).querySelector('.js-force-oct1');
+        const forceInput = row.querySelector('.js-force-oct1');
+        const previousOn = predictedContractDate(sourceId);
         snapshot = updateChange(sourceId, {
           change_date: changeDate,
-          clock_in: rowTime(sourceRow || row, runId, 'in'),
-          clock_out: rowTime(sourceRow || row, runId, 'out'),
+          clock_in: rowTime(row, runId, 'in'),
+          clock_out: rowTime(row, runId, 'out'),
           ...(forceInput ? { force_oct1_contract: forceInput.checked } : {}),
         });
+        announcePredictedReminders('Schedule corrected on this device.', [sourceId], {
+          [sourceId]: previousOn,
+        });
+        renderApp();
+        return;
       }
     }
     setStatus(scheduleStatus, 'Schedule corrected on this device.', 'ok');
@@ -1653,7 +2357,31 @@ scheduleHistory.addEventListener('change', (event) => {
   saveHistoryEdit(input);
 });
 
+document.addEventListener('input', (event) => {
+  const input = event.target.closest?.('.schedule-date input[type="date"]');
+  if (!input) return;
+  const wrap = input.closest('.schedule-date');
+  const empty = !input.value;
+  wrap?.classList.toggle('is-null', empty);
+  wrap?.querySelector('.js-date-null')?.setAttribute('aria-pressed', empty ? 'true' : 'false');
+});
+
+document.addEventListener('click', (event) => {
+  const nullButton = event.target.closest('.js-date-null');
+  if (!nullButton) return;
+  const wrap = nullButton.closest('.schedule-date');
+  const input = wrap?.querySelector('input[type="date"]');
+  if (!input) return;
+  event.preventDefault();
+  input.value = '';
+  wrap.classList.add('is-null');
+  nullButton.setAttribute('aria-pressed', 'true');
+  if (nullButton.closest('.is-new-change') || nullButton.closest('#change-edit-form')) return;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+});
+
 scheduleHistory.addEventListener('click', (event) => {
+  if (event.target.closest('.js-date-null')) return;
   const stamp = event.target.closest('.js-change-stamp');
   if (stamp) {
     const pop = stamp.parentElement?.querySelector('.change-stamp-pop');
@@ -1696,7 +2424,8 @@ scheduleHistory.addEventListener('click', (event) => {
       return;
     }
     try {
-      snapshot = deleteChange(changeId);
+      const ids = rowChangeIds(row);
+      for (const id of ids.length ? ids : [changeId]) snapshot = deleteChange(id);
       changeEditForm.hidden = true;
       setStatus(scheduleStatus, 'Change removed.', 'ok');
       renderApp();
@@ -1709,15 +2438,17 @@ scheduleHistory.addEventListener('click', (event) => {
 changeEditForm.addEventListener('submit', (event) => {
   event.preventDefault();
   try {
-    snapshot = updateChange(document.querySelector('#change_edit_id').value, {
-      change_date: document.querySelector('#change_edit_date').value,
+    const changeId = document.querySelector('#change_edit_id').value;
+    const previousOn = predictedContractDate(changeId);
+    snapshot = updateChange(changeId, {
+      change_date: document.querySelector('#change_edit_date').value || null,
       clock_in: document.querySelector('#change_edit_in').value,
       clock_out: document.querySelector('#change_edit_out').value,
       note: document.querySelector('#change_edit_note').value,
       force_oct1_contract: document.querySelector('#change_edit_force_oct1')?.checked === true,
     });
     changeEditForm.hidden = true;
-    setStatus(scheduleStatus, 'Change corrected.', 'ok');
+    announcePredictedReminders('Change corrected.', [changeId], { [changeId]: previousOn });
     renderApp();
   } catch (error) {
     setStatus(changeEditStatus, error.message, 'error');
@@ -1729,45 +2460,72 @@ document.querySelector('#change-edit-cancel').addEventListener('click', () => {
   setStatus(changeEditStatus, '');
 });
 
-document.querySelector('#add-driver-row').addEventListener('click', () => {
+document.querySelector('#add-driver-row').addEventListener('click', async () => {
   const row = driverSheet.querySelector('tr.is-entry');
   if (!row) return;
+  const button = document.querySelector('#add-driver-row');
+  button.disabled = true;
   try {
-    saveDriver(driverDraftFromRow(row));
-    setStatus(driverStatus, 'Driver added on this device.', 'ok');
-    renderDrivers();
+    setStatus(driverStatus, 'Saving driver…');
+    const saved = saveDriver(driverDraftFromRow(row));
+    if (accountsEnabled()) await whenSharedOfficeSaved();
+    setStatus(
+      driverStatus,
+      accountsEnabled() ? `${saved.name} added.` : `${saved.name} added on this device.`,
+      'ok'
+    );
+    renderDrivers(saved.name);
   } catch (error) {
     setStatus(driverStatus, error.message, 'error');
+    renderDrivers();
+  } finally {
+    button.disabled = false;
   }
 });
 
-driverSheet.addEventListener('change', (event) => {
+driverSheet.addEventListener('click', async (event) => {
+  const button = event.target.closest('.js-delete-driver');
+  if (!button) return;
+  const row = button.closest('tr[data-driver-id]');
+  const driver = listDrivers().find((item) => item.id === row?.dataset.driverId);
+  if (!driver) return;
+  if (!confirmRemoveDriver(driver)) return;
+  try {
+    setStatus(driverStatus, 'Removing driver…');
+    deleteDriver(driver.id);
+    if (accountsEnabled()) await whenSharedOfficeSaved();
+    setStatus(
+      driverStatus,
+      accountsEnabled() ? `${driver.name} removed.` : `${driver.name} removed on this device.`,
+      'ok'
+    );
+    renderDrivers();
+  } catch (error) {
+    setStatus(driverStatus, error.message, 'error');
+    renderDrivers();
+  }
+});
+
+driverSheet.addEventListener('change', async (event) => {
   const input = event.target.closest('.entry-input');
   const row = event.target.closest('tr[data-driver-id]');
   if (!input || !row?.dataset.driverId) return;
   const driver = listDrivers().find((item) => item.id === row.dataset.driverId);
   if (!driver) return;
   try {
+    setStatus(driverStatus, 'Saving driver…');
     saveDriver({
       id: driver.id,
       previousName: driver.name,
       ...driverDraftFromRow(row),
     });
-    setStatus(driverStatus, 'Driver sheet saved on this device.', 'ok');
+    if (accountsEnabled()) await whenSharedOfficeSaved();
+    setStatus(driverStatus, accountsEnabled() ? 'Driver saved.' : 'Driver sheet saved on this device.', 'ok');
     renderDrivers();
   } catch (error) {
     setStatus(driverStatus, error.message, 'error');
+    renderDrivers();
   }
-});
-
-notificationToasts?.addEventListener('click', (event) => {
-  const button = event.target.closest('.js-dismiss-notification');
-  const toast = event.target.closest('[data-id]');
-  if (!button || !toast) return;
-  const profile = getCurrentProfile();
-  if (!profile) return;
-  dismissNotificationId(profile.id, toast.dataset.id);
-  renderNotifications();
 });
 
 allRoutesSheet.addEventListener('click', (event) => {
@@ -1907,12 +2665,33 @@ async function adoptStarterOffice() {
   if (!response.ok) return;
   const next = await response.json();
   if (!next || next.version !== 1 || !next.profiles || !Object.keys(next.profiles).length) return;
+  const current = loadState();
   saveState({
     version: 1,
     currentProfileId: next.currentProfileId ?? null,
     profiles: next.profiles,
     drivers: Array.isArray(next.drivers) ? next.drivers : [],
     exampleVersion: 0,
+    ...(next.contractReminder
+      ? { contractReminder: next.contractReminder }
+      : current.contractReminder
+        ? { contractReminder: current.contractReminder }
+        : {}),
+    ...(next.driverNotice
+      ? { driverNotice: next.driverNotice }
+      : current.driverNotice
+        ? { driverNotice: current.driverNotice }
+        : {}),
+    ...(next.contractReminderCreated
+      ? { contractReminderCreated: next.contractReminderCreated }
+      : current.contractReminderCreated
+        ? { contractReminderCreated: current.contractReminderCreated }
+        : {}),
+    ...(next.contractReminderSignatures
+      ? { contractReminderSignatures: next.contractReminderSignatures }
+      : current.contractReminderSignatures
+        ? { contractReminderSignatures: current.contractReminderSignatures }
+        : {}),
   });
 }
 
@@ -1930,6 +2709,7 @@ startAccounts({
         await adoptStarterOffice();
         beginSessionRouteTracking();
         loadAll();
+        await createAutomaticNotices();
       } catch (error) {
         setStatus(setupStatus, error.message, 'error');
         setupView.hidden = false;
@@ -1939,6 +2719,8 @@ startAccounts({
   onRemoteReset() {
     loadAll();
     showRecentRouteChanges(loadState());
+    if (activeSheet === 'admin-reminder') fillReminderSettings();
+    if (activeSheet === 'driver-notice') fillDriverNoticeSettings();
   },
 }).catch((error) => {
   document.body.classList.remove('is-booting');

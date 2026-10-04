@@ -1,7 +1,7 @@
 import { SEGMENTS } from '../../src/logic/constants.js';
 import { createId } from '../../src/logic/createId.js';
 import { isForcedOctober1Contract } from '../../src/logic/contractWindows.js';
-import { computeDeltaMinutes, toDateString } from '../../src/logic/timeUtils.js';
+import { computeDeltaMinutes, parseTimeRange, scheduleDateForMath, toDateString } from '../../src/logic/timeUtils.js';
 import {
   BPS_2026_2027_INPUT,
   BPS_2026_2027_SOURCE,
@@ -94,9 +94,13 @@ function isSeedEvent(change) {
  * @param {string} [name]
  */
 export function relinkChangeLog(changeLog, name = '') {
+  const anchor = (changeLog ?? [])
+    .map((event) => String(event.effective_date ?? '').trim())
+    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+    .sort()[0] || '1970-01-01';
   const events = [...(changeLog ?? [])].sort((a, b) => {
-    const dateCompare = toDateString(a.effective_date).localeCompare(
-      toDateString(b.effective_date)
+    const dateCompare = scheduleDateForMath(a.effective_date, anchor).localeCompare(
+      scheduleDateForMath(b.effective_date, anchor)
     );
     if (dateCompare !== 0) {
       return dateCompare;
@@ -122,6 +126,17 @@ export function relinkChangeLog(changeLog, name = '') {
     }
 
     const previous = current[event.segment];
+    if (!String(event.new_time ?? '').trim()) {
+      if (previous) {
+        const delta = -parseTimeRange(previous).durationMinutes;
+        next.previous_time = previous;
+        next.new_time = '';
+        next.computed_delta_minutes = delta;
+        next.delta_minutes = delta;
+      }
+      current[event.segment] = null;
+      return next;
+    }
     if (!previous) {
       next.previous_time = event.new_time;
       next.computed_delta_minutes = 0;
@@ -262,7 +277,11 @@ export function setupProfile(body, storage) {
 export function previewChange(body, storage) {
   const profile = store.getCurrentProfile(storage);
   const pack = getCalendarPack();
-  const asOf = toDateString(body.change_date || getAsOfDate());
+  const rawDate = body.change_date;
+  const blankDate = rawDate == null || String(rawDate).trim() === '' || String(rawDate).trim().toLowerCase() === 'null';
+  const asOf = blankDate
+    ? toDateString(profile?.start_date || getAsOfDate())
+    : toDateString(rawDate);
   const entry = rebuildEmployeeRouteState(
     profile?.changeLog ?? [],
     pack.calendar,
@@ -295,14 +314,18 @@ export function recordChange(body, storage) {
     throw new Error(`segment must be one of: ${SEGMENTS.join(', ')}.`);
   }
 
-  const changeDate = toDateString(
-    body.change_date || body.effective_date || getAsOfDate()
-  );
+  const hasDate = Object.prototype.hasOwnProperty.call(body, 'change_date')
+    || Object.prototype.hasOwnProperty.call(body, 'effective_date');
+  const rawDate = hasDate ? (body.change_date ?? body.effective_date) : getAsOfDate();
+  const changeDate = rawDate == null || String(rawDate).trim() === '' || String(rawDate).trim().toLowerCase() === 'null'
+    ? null
+    : toDateString(rawDate);
+  const mathDate = changeDate || profile.start_date || getAsOfDate();
   const pack = getCalendarPack();
   const entry = rebuildEmployeeRouteState(
     profile.changeLog,
     pack.calendar,
-    changeDate
+    mathDate
   );
   if (!entry) {
     throw new Error('Starting schedule is missing. Add this person again.');
@@ -342,6 +365,7 @@ export function recordChange(body, storage) {
       entered_by: String(body.entered_by ?? '').trim() || name,
       entered_by_user_id: String(body.entered_by_user_id ?? '').trim() || null,
       force_oct1_contract: isForcedOctober1Contract(body.force_oct1_contract),
+      schedule_id: body.schedule_id || null,
     },
   ];
   store.saveProfile(profile, storage);
@@ -369,8 +393,16 @@ export function updateChange(changeId, body, storage) {
     );
   }
 
-  const newTime = formatSegmentRange(body.clock_in, body.clock_out);
-  const changeDate = toDateString(body.change_date || existing.effective_date);
+  const newTime = body.clock_in || body.clock_out
+    ? formatSegmentRange(body.clock_in, body.clock_out)
+    : existing.new_time;
+  let changeDate = existing.effective_date ?? null;
+  if (Object.prototype.hasOwnProperty.call(body, 'change_date')) {
+    const raw = body.change_date;
+    changeDate = raw == null || String(raw).trim() === '' || String(raw).trim().toLowerCase() === 'null'
+      ? null
+      : toDateString(raw);
+  }
   profile.changeLog[index] = {
     ...existing,
     effective_date: changeDate,

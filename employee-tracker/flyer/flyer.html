@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>My Teamster Contract Date Calculator — flyer</title>
+    <style>
+      @font-face {
+        font-family: "Patrick Hand";
+        src: url("./PatrickHand-Regular.ttf") format("truetype");
+        font-weight: 400;
+        font-style: normal;
+      }
+
+      @page {
+        size: letter portrait;
+        margin: 0;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: white;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      .sheet {
+        width: 8.5in;
+        height: 11in;
+      }
+
+      .flyer {
+        width: 8.5in;
+        height: 5.5in;
+        position: relative;
+        overflow: hidden;
+        background-color: #f6f1e3;
+        background-image: repeating-linear-gradient(
+          to bottom,
+          transparent 0,
+          transparent 0.34in,
+          rgba(120, 158, 206, 0.28) 0.34in,
+          rgba(120, 158, 206, 0.28) calc(0.34in + 0.6px)
+        );
+        color: #2a3340;
+        font-family: "Avenir Next", "Avenir", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      }
+
+      .flyer + .flyer {
+        border-top: 1px dashed #6d675c;
+      }
+
+      .margin-rule {
+        position: absolute;
+        left: 0.38in;
+        top: 0.22in;
+        bottom: 0.22in;
+        width: 2.5px;
+        background: #e23b3b;
+      }
+
+      .layout {
+        position: relative;
+        height: 100%;
+        display: grid;
+        grid-template-columns: 1fr 2.55in;
+        gap: 0.22in;
+        padding: 0.32in 0.32in 0.28in 0.62in;
+      }
+
+      .copy {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+
+      .eyebrow {
+        display: flex;
+        align-items: center;
+        gap: 0.1in;
+        margin: 0 0 0.04in;
+        color: #234e8c;
+        font-size: 11pt;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .eyebrow svg {
+        width: 0.28in;
+        height: 0.28in;
+        flex: none;
+      }
+
+      h1 {
+        margin: 0;
+        font-family: "Patrick Hand", "Segoe Print", cursive;
+        font-size: 32pt;
+        font-weight: 400;
+        line-height: 0.92;
+        letter-spacing: -0.01em;
+        color: #1c2430;
+      }
+
+      .deck {
+        margin: 0.1in 0 0;
+        font-size: 13pt;
+        line-height: 1.25;
+        font-weight: 600;
+        color: #2a3340;
+      }
+
+      ul {
+        margin: 0.12in 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      li {
+        position: relative;
+        margin: 0 0 0.06in;
+        padding-left: 0.22in;
+        font-size: 11.5pt;
+        line-height: 1.25;
+      }
+
+      li::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0.16em;
+        width: 0.1in;
+        height: 0.1in;
+        border-radius: 2px;
+        background: #234e8c;
+      }
+
+      .outcomes {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 0.08in;
+        margin-top: 0.1in;
+      }
+
+      .outcomes div {
+        background: rgba(255, 252, 245, 0.88);
+        border: 1.5px solid #234e8c;
+        border-radius: 8px 18px 8px 16px / 16px 8px 18px 8px;
+        padding: 0.06in 0.08in 0.07in;
+      }
+
+      .outcomes strong {
+        display: block;
+        font-size: 8.5pt;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: #234e8c;
+      }
+
+      .outcomes span {
+        display: block;
+        margin-top: 0.02in;
+        font-size: 10.5pt;
+        font-weight: 600;
+        line-height: 1.15;
+        color: #1c2430;
+      }
+
+      .fine {
+        margin-top: auto;
+        padding-top: 0.1in;
+        font-size: 8.5pt;
+        line-height: 1.3;
+        color: #3a4038;
+      }
+
+      .fine p { margin: 0; }
+
+      .fine p + p { margin-top: 0.04in; }
+
+      .qr-col {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        background: #234e8c;
+        color: #f6f1e3;
+        border-radius: 14px 22px 14px 20px / 20px 14px 22px 14px;
+        padding: 0.18in 0.14in 0.16in;
+      }
+
+      .qr-card {
+        background: #ffffff;
+        padding: 0.08in;
+        border-radius: 6px;
+        line-height: 0;
+      }
+
+      .qr-card img {
+        width: 1.82in;
+        height: 1.82in;
+        display: block;
+      }
+
+      .scan {
+        margin: 0.1in 0 0;
+        font-family: "Patrick Hand", "Segoe Print", cursive;
+        font-size: 16pt;
+        line-height: 1;
+        color: #ffffff;
+      }
+
+      .url {
+        margin: 0.06in 0 0;
+        font-size: 8.5pt;
+        line-height: 1.25;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sheet">
+      <article class="flyer" aria-label="Flyer">
+        <div class="margin-rule"></div>
+        <div class="layout">
+          <div class="copy">
+            <p class="eyebrow">
+              <svg viewBox="0 0 32 32" aria-hidden="true">
+                <rect width="32" height="32" rx="6" fill="#1f5c4a"/>
+                <path d="M8 20.5V11.5c0-1.1.9-2 2-2h8.5c.4 0 .8.1 1.1.4l3.4 3.4c.3.3.5.7.5 1.1v6.1c0 1.1-.9 2-2 2H10c-1.1 0-2-.9-2-2z" fill="none" stroke="#fffcf6" stroke-width="1.75" stroke-linejoin="round"/>
+                <circle cx="12.5" cy="21" r="1.75" fill="#fffcf6"/>
+                <circle cx="21" cy="21" r="1.75" fill="#fffcf6"/>
+                <path d="M8 15.5h16" stroke="#fffcf6" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              For bus drivers
+            </p>
+            <h1>My Teamster<br>Contract Date<br>Calculator</h1>
+            <p class="deck">Clock times changed? See when they become contracted.</p>
+            <ul>
+              <li>Enter your AM, Midday, and PM clock times.</li>
+              <li>Record the new time and the day it started.</li>
+              <li>Dates use school days on the 2026–2027 calendar.</li>
+            </ul>
+            <div class="outcomes">
+              <div>
+                <strong>Under 30 min</strong>
+                <span>Contracted hours</span>
+              </div>
+              <div>
+                <strong>Increase 30+</strong>
+                <span>Goes to bid</span>
+              </div>
+              <div>
+                <strong>Decrease 30+</strong>
+                <span>Bump eligible</span>
+              </div>
+            </div>
+            <div class="fine">
+              <p>Stays on your phone. Nothing is sent to the district or payroll.</p>
+              <p>Made by Rhys Smoker on his own time. Not affiliated with BPS, Transportation, or the Teamsters.</p>
+            </div>
+          </div>
+          <aside class="qr-col">
+            <div class="qr-card">
+              <img src="./share-qr.svg" alt="QR code linking to the calculator" />
+            </div>
+            <p class="scan">Scan to open</p>
+            <p class="url">mern-ing-the-midnight-oil<br>.github.io/hoursupdater</p>
+          </aside>
+        </div>
+      </article>
+      <article class="flyer" aria-hidden="true">
+        <div class="margin-rule"></div>
+        <div class="layout">
+          <div class="copy">
+            <p class="eyebrow">
+              <svg viewBox="0 0 32 32" aria-hidden="true">
+                <rect width="32" height="32" rx="6" fill="#1f5c4a"/>
+                <path d="M8 20.5V11.5c0-1.1.9-2 2-2h8.5c.4 0 .8.1 1.1.4l3.4 3.4c.3.3.5.7.5 1.1v6.1c0 1.1-.9 2-2 2H10c-1.1 0-2-.9-2-2z" fill="none" stroke="#fffcf6" stroke-width="1.75" stroke-linejoin="round"/>
+                <circle cx="12.5" cy="21" r="1.75" fill="#fffcf6"/>
+                <circle cx="21" cy="21" r="1.75" fill="#fffcf6"/>
+                <path d="M8 15.5h16" stroke="#fffcf6" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              For bus drivers
+            </p>
+            <h1>My Teamster<br>Contract Date<br>Calculator</h1>
+            <p class="deck">Clock times changed? See when they become contracted.</p>
+            <ul>
+              <li>Enter your AM, Midday, and PM clock times.</li>
+              <li>Record the new time and the day it started.</li>
+              <li>Dates use school days on the 2026–2027 calendar.</li>
+            </ul>
+            <div class="outcomes">
+              <div>
+                <strong>Under 30 min</strong>
+                <span>Contracted hours</span>
+              </div>
+              <div>
+                <strong>Increase 30+</strong>
+                <span>Goes to bid</span>
+              </div>
+              <div>
+                <strong>Decrease 30+</strong>
+                <span>Bump eligible</span>
+              </div>
+            </div>
+            <div class="fine">
+              <p>Stays on your phone. Nothing is sent to the district or payroll.</p>
+              <p>Made by Rhys Smoker on his own time. Not affiliated with BPS, Transportation, or the Teamsters.</p>
+            </div>
+          </div>
+          <aside class="qr-col">
+            <div class="qr-card">
+              <img src="./share-qr.svg" alt="" />
+            </div>
+            <p class="scan">Scan to open</p>
+            <p class="url">mern-ing-the-midnight-oil<br>.github.io/hoursupdater</p>
+          </aside>
+        </div>
+      </article>
+    </div>
+  </body>
+</html>

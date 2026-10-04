@@ -7,10 +7,12 @@ import {
   fillNoticeTemplate,
   isChangeNoticeSent,
   loadSentChangeIds,
+  normalizeDriverNotice,
   noticeCalendarFilename,
   noticeFromChange,
   rememberChangeNoticeSent,
 } from '../office-tracker/src/noticeMail.js';
+import { loadDriverNotice, saveDriverNotice } from '../office-tracker/web/store.js';
 
 function memoryStorage() {
   /** @type {Record<string, string>} */
@@ -106,6 +108,49 @@ test('a bump that has already happened is named in that change’s email', () =>
   assert.match(mail.body, /is bump eligible as of/);
   assert.match(mail.body, new RegExp(`Route ${match.routeName}`));
   assert.match(mail.body, /Original clock times, established/);
+});
+
+test('a saved driver notice replaces the opening and keeps the change list', () => {
+  const storage = memoryStorage();
+  const fresh = loadDriverNotice(storage);
+  assert.equal(fresh.subject, 'Clock-time notice for {{driver_name}}');
+  assert.equal(fresh.noticeImmediately, false);
+  assert.equal(fresh.noticeBeforeContract, false);
+  assert.equal(fresh.schoolDaysBefore, 1);
+  const timed = saveDriverNotice(
+    { noticeImmediately: 'yes', noticeBeforeContract: true, schoolDaysBefore: 4 },
+    storage
+  );
+  assert.equal(timed.noticeImmediately, true);
+  assert.equal(timed.noticeBeforeContract, true);
+  assert.equal(timed.schoolDaysBefore, 4);
+  const saved = saveDriverNotice(
+    {
+      subject: '  Times changed for {{driver_name}}  ',
+      body: '{{driver_name}}, your {{routes}} changed on {{date}}.\n\n{{notices}}',
+    },
+    storage
+  );
+  assert.equal(saved.subject, 'Times changed for {{driver_name}}');
+  assert.equal(loadDriverNotice(storage).body, saved.body);
+  assert.equal(normalizeDriverNotice({ subject: '  ', body: '' }).subject, 'Clock-time notice for {{driver_name}}');
+
+  const { section, row } = changeRow('Jean-Luc Picard', 'S1', '2026-09-25');
+  const mail = changeNoticeMail({
+    driverName: 'Jean-Luc Picard',
+    routeName: 'S1',
+    row,
+    asOf: '2026-09-25',
+    history: section.snapshot?.schedule_history || [],
+    subject: saved.subject,
+    body: saved.body,
+  });
+  assert.equal(mail.subject, 'Times changed for Jean-Luc Picard');
+  assert.match(mail.body, /^Jean-Luc Picard, your route S1 changed on/);
+  assert.match(mail.body, /Original clock times, established/);
+  const openingAt = mail.body.indexOf('Jean-Luc Picard, your route');
+  const historyAt = mail.body.indexOf('Changes to date on route S1');
+  assert.ok(openingAt >= 0 && historyAt > openingAt);
 });
 
 test('sending a notice remembers that change id', () => {

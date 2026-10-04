@@ -141,6 +141,28 @@ export function buildPayrollRoundingBreakdown(segments) {
  * @param {string | Date} value
  * @returns {string}
  */
+/**
+ * True when a schedule row has no start date. The calendar picker stores that as null.
+ * @param {unknown} value
+ */
+export function isBlankScheduleDate(value) {
+  const text = value == null ? '' : String(value).trim();
+  return !text || text.toLowerCase() === 'null';
+}
+
+/**
+ * Date used for contract math when a schedule row's start date is null.
+ * A blank date sorts with the route's established date so it stays the next row.
+ * @param {unknown} value
+ * @param {string} anchor
+ */
+export function scheduleDateForMath(value, anchor) {
+  const text = value == null ? '' : String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(anchor ?? ''))) return anchor;
+  return toDateString(new Date());
+}
+
 export function toDateString(value) {
   if (value instanceof Date) {
     return value.toISOString().slice(0, 10);

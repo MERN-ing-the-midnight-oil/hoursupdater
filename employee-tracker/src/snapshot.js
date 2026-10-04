@@ -141,10 +141,14 @@ function isSeedChange(change) {
   );
 }
 
+function dateSortKey(value) {
+  const text = value == null ? '' : String(value).trim();
+  if (!text || text.toLowerCase() === 'null') return '';
+  return text;
+}
+
 function chronologicalChangeCompare(a, b) {
-  const dateCompare = String(a.effective_date).localeCompare(
-    String(b.effective_date)
-  );
+  const dateCompare = dateSortKey(a.effective_date).localeCompare(dateSortKey(b.effective_date));
   if (dateCompare !== 0) {
     return dateCompare;
   }
@@ -218,28 +222,49 @@ export function buildScheduleHistory(changeLog, entry, window, startDate) {
     },
   ];
 
+  /** @type {Array<{ key: string, changes: typeof later }>} */
+  const groups = [];
   for (const change of later) {
-    running[change.segment] = change.new_time;
-    sources[change.segment] = change.id;
+    const key = change.schedule_id || change.id;
+    const current = groups.at(-1);
+    if (current && current.key === key) current.changes.push(change);
+    else groups.push({ key, changes: [change] });
+  }
+
+  for (const group of groups) {
+    /** @type {string[]} */
+    const segments = [];
+    let last = group.changes[0];
+    for (const change of group.changes) {
+      running[change.segment] = change.new_time || null;
+      sources[change.segment] = change.id;
+      if (!segments.includes(change.segment)) segments.push(change.segment);
+      last = change;
+    }
+    const date = dateSortKey(last.effective_date) || null;
     rows.push({
-      id: change.id,
+      id: last.id,
       kind: 'change',
-      date: change.effective_date,
-      change_id: change.id,
-      segment: change.segment,
-      previous_time: change.previous_time,
-      new_time: change.new_time,
-      previous: splitSegmentRange(change.previous_time),
-      next: splitSegmentRange(change.new_time),
-      delta_minutes: change.delta_minutes,
-      delta_label: formatSignedMinutes(change.delta_minutes),
+      date,
+      change_id: last.id,
+      change_ids: group.changes.map((change) => change.id),
+      segment: segments.length === 1 ? segments[0] : null,
+      segments,
+      previous_time: last.previous_time,
+      new_time: last.new_time,
+      previous: splitSegmentRange(last.previous_time),
+      next: splitSegmentRange(last.new_time),
+      delta_minutes: group.changes.reduce((sum, change) => sum + (change.delta_minutes || 0), 0),
+      delta_label: formatSignedMinutes(
+        group.changes.reduce((sum, change) => sum + (change.delta_minutes || 0), 0)
+      ),
       cumulative_drift_minutes: null,
       cumulative_drift_label: null,
-      note: change.note || '',
-      force_oct1_contract: isForcedOctober1Contract(change.force_oct1_contract),
+      note: group.changes.map((change) => change.note).filter(Boolean).filter((note, index, all) => all.indexOf(note) === index).join(' '),
+      force_oct1_contract: group.changes.some((change) => isForcedOctober1Contract(change.force_oct1_contract)),
       schedule: describeSchedule(running),
       time_sources: { ...sources },
-      contracted: contractedStatusForChange(change, {
+      contracted: contractedStatusForChange(last, {
         reports,
         openIds,
         lastOpenId,
@@ -458,9 +483,9 @@ export function buildEmployeeSnapshot({
       submitted_at: change.submitted_at,
     }))
     .sort((a, b) => {
-      const dateCompare = b.change_date.localeCompare(a.change_date);
+      const dateCompare = dateSortKey(b.change_date).localeCompare(dateSortKey(a.change_date));
       if (dateCompare !== 0) return dateCompare;
-      return b.submitted_at.localeCompare(a.submitted_at);
+      return String(b.submitted_at).localeCompare(String(a.submitted_at));
     });
 
   const schedule = describeSchedule(entry?.segments ?? {});

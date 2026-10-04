@@ -14,6 +14,7 @@ import {
   compareRouteNumbers,
   driversFromState,
   joinPersonName,
+  omittedDriverKeys,
   splitPersonName,
 } from '../web/store.js';
 import { contractColumnsForHistory } from './historyMarkup.js';
@@ -138,6 +139,7 @@ function driverIdFor(name) {
  * @param {object} state
  */
 function driversForWorkbook(state) {
+  const omitted = new Set(omittedDriverKeys(state?.omittedDrivers));
   /** @type {Map<string, { name: string, firstName: string, lastName: string, email: string }>} */
   const byName = new Map();
   for (const driver of driversFromState(state)) {
@@ -152,7 +154,7 @@ function driversForWorkbook(state) {
   }
   for (const row of clockRowsFromState(state)) {
     const name = String(row.driver ?? '').trim();
-    if (!name || byName.has(name.toLowerCase())) continue;
+    if (!name || omitted.has(name.toLowerCase()) || byName.has(name.toLowerCase())) continue;
     const parts = splitPersonName(name);
     byName.set(name.toLowerCase(), {
       name,
@@ -512,7 +514,7 @@ function isoDateFromCell(value, label) {
 /**
  * @param {unknown} value
  */
-function clockFromCell(value) {
+export function clockFromCell(value) {
   const raw = unwrap(value);
   if (raw == null || raw === '') return '';
   if (raw instanceof Date) {
@@ -835,10 +837,16 @@ function clockRowsFromScheduleSheet(sheet, header) {
     if (!any && isEmptyCell(dateRaw)) return;
     let date = '';
     try {
-      date = isoDateFromCell(dateRaw, 'Effective');
+      if (isEmptyCell(dateRaw)) {
+        if (!seen) throw new Error('the first schedule needs a date.');
+        date = '';
+      } else {
+        date = isoDateFromCell(dateRaw, 'Effective');
+      }
     } catch (error) {
       throw new Error(`${sheet.name} row ${rowNumber}: ${error.message}`);
     }
+    const scheduleId = `sheet-${route}-${rowNumber}`;
     const note =
       header.contracted >= 0 ? noteFromContracted(row.getCell(header.contracted + 1).value) : '';
     const forceOct1 =
@@ -866,7 +874,25 @@ function clockRowsFromScheduleSheet(sheet, header) {
       for (const run of RUN_COLUMNS) {
         const times = runs[run.id];
         const prior = previous[run.id];
-        if (!times) continue;
+        if (!times) {
+          if (prior) {
+            rows.push({
+              line: rowNumber,
+              route,
+              driver: rowDriver,
+              kind: 'change',
+              date,
+              run: run.label,
+              clockIn: '',
+              clockOut: '',
+          note,
+          forceOct1,
+          cleared: true,
+          scheduleId,
+        });
+          }
+          continue;
+        }
         if (prior && prior.clockIn === times.clockIn && prior.clockOut === times.clockOut) continue;
         rows.push({
           line: rowNumber,
@@ -879,6 +905,7 @@ function clockRowsFromScheduleSheet(sheet, header) {
           clockOut: times.clockOut,
           note: prior ? note : '',
           forceOct1: prior ? forceOct1 : false,
+          scheduleId: prior ? scheduleId : '',
         });
       }
     }

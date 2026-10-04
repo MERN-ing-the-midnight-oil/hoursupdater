@@ -2217,6 +2217,12 @@ function buildPayrollRoundingBreakdown(segments) {
     payroll_rounded_total_minutes: roundToQuarterHourForPayroll(rounded_piece_total)
   };
 }
+function scheduleDateForMath(value, anchor) {
+  const text = value == null ? "" : String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(anchor ?? ""))) return anchor;
+  return toDateString(/* @__PURE__ */ new Date());
+}
 function toDateString(value) {
   if (value instanceof Date) {
     return value.toISOString().slice(0, 10);
@@ -2230,6 +2236,234 @@ function toDateString(value) {
     throw new Error(`Invalid date: "${value}".`);
   }
   return parsed.toISOString().slice(0, 10);
+}
+
+// src/logic/calendar.js
+function getSchoolDays(calendarOrDays) {
+  if (Array.isArray(calendarOrDays)) {
+    if (calendarOrDays.length === 0) {
+      throw new Error("School calendar must include school days.");
+    }
+    if (typeof calendarOrDays[0] === "string") {
+      return [...calendarOrDays].map(toDateString).sort();
+    }
+    return extractSchoolDaysFromDayList(
+      /** @type {SchoolCalendarDay[]} */
+      calendarOrDays
+    );
+  }
+  if (Array.isArray(calendarOrDays?.days) && calendarOrDays.days.length > 0) {
+    return extractSchoolDaysFromDayList(calendarOrDays.days);
+  }
+  const legacy = calendarOrDays?.school_days;
+  if (!Array.isArray(legacy) || legacy.length === 0) {
+    throw new Error(
+      "School calendar must include a non-empty days[] (with is_school_day) or school_days[] array."
+    );
+  }
+  return [...legacy].map(toDateString).sort();
+}
+function extractSchoolDaysFromDayList(days) {
+  const schoolDays = days.filter((entry) => entry && entry.is_school_day === true && entry.date).map((entry) => toDateString(entry.date));
+  if (schoolDays.length === 0) {
+    throw new Error(
+      "School calendar days[] has no entries with is_school_day: true."
+    );
+  }
+  return [...new Set(schoolDays)].sort();
+}
+function addSchoolDays(calendarOrDays, fromDate, count) {
+  if (count < 0) {
+    throw new Error("School day count must be non-negative.");
+  }
+  if (count === 0) {
+    return toDateString(fromDate);
+  }
+  const schoolDays = getSchoolDays(calendarOrDays);
+  const start = toDateString(fromDate);
+  let remaining = count;
+  for (const day of schoolDays) {
+    if (day <= start) {
+      continue;
+    }
+    remaining -= 1;
+    if (remaining === 0) {
+      return day;
+    }
+  }
+  const last = schoolDays[schoolDays.length - 1] ?? "(empty)";
+  throw new Error(
+    `School calendar ends at ${last}; cannot count ${count} school day(s) after ${start} (only ${count - remaining} available). Extend school-calendar.json coverage.`
+  );
+}
+function daysRemainingInWindow(calendarOrDays, asOfDate, windowExpiresDate) {
+  if (!windowExpiresDate) {
+    return null;
+  }
+  const today = toDateString(asOfDate);
+  const expires = toDateString(windowExpiresDate);
+  if (today > expires) {
+    return 0;
+  }
+  const schoolDays = getSchoolDays(calendarOrDays);
+  return schoolDays.filter((day) => day >= today && day <= expires).length;
+}
+function isWindowExpired(asOfDate, windowExpiresDate) {
+  if (!windowExpiresDate) {
+    return false;
+  }
+  return toDateString(asOfDate) > toDateString(windowExpiresDate);
+}
+function shiftCalendarDate(date, days) {
+  const iso = toDateString(date);
+  const utc = /* @__PURE__ */ new Date(`${iso}T00:00:00.000Z`);
+  if (Number.isNaN(utc.getTime())) {
+    throw new Error(`Invalid date: ${iso}`);
+  }
+  utc.setUTCDate(utc.getUTCDate() + days);
+  return utc.toISOString().slice(0, 10);
+}
+function previousCalendarDate(date) {
+  return shiftCalendarDate(date, -1);
+}
+function nextCalendarDate(date) {
+  return shiftCalendarDate(date, 1);
+}
+
+// src/logic/contractWindows.js
+var BID_POSTING_MONTH_SET = new Set(MONTHLY_BID_POSTING_MONTHS);
+function isForcedOctober1Contract(value) {
+  if (value === true || value === 1) return true;
+  const text = String(value ?? "").trim().toLowerCase();
+  return text === "on" || text === "yes" || text === "true" || text === "1";
+}
+function forcedOctober1ContractPlan(changeDate) {
+  const start = toDateString(changeDate);
+  const oct1 = october1ForDate(start);
+  return {
+    regime: start < oct1 ? "pre_october_1" : "post_october_1",
+    rule: "forced_october_1_contract",
+    citation: "office override",
+    ...openThroughDayBefore(oct1)
+  };
+}
+function october1ForDate(date) {
+  const iso = toDateString(date);
+  const year = Number(iso.slice(0, 4));
+  const month = Number(iso.slice(5, 7));
+  const startYear = month >= 7 ? year : year - 1;
+  return `${startYear}-10-01`;
+}
+function monthlyBidPostingDays(calendar) {
+  const byMonth = /* @__PURE__ */ new Map();
+  for (const day of getSchoolDays(calendar)) {
+    const month = Number(day.slice(5, 7));
+    if (!BID_POSTING_MONTH_SET.has(month)) {
+      continue;
+    }
+    const key = day.slice(0, 7);
+    const group = byMonth.get(key);
+    if (group) {
+      group.push(day);
+    } else {
+      byMonth.set(key, [day]);
+    }
+  }
+  const posting = [];
+  for (const group of byMonth.values()) {
+    posting.push(...group.slice(-5));
+  }
+  return posting.sort();
+}
+function firstMonthlyBidPostingOnOrAfter(calendar, date) {
+  const start = toDateString(date);
+  const found = monthlyBidPostingDays(calendar).find((day) => day >= start);
+  if (!found) {
+    throw new Error(
+      `No October\u2013April last-five-school-day bid posting date on or after ${start}. Extend school-calendar.json coverage.`
+    );
+  }
+  return found;
+}
+function openThroughDayBefore(effectiveOn) {
+  return {
+    window_expires_date: previousCalendarDate(effectiveOn),
+    becomes_effective_on: effectiveOn
+  };
+}
+function contractWindowPlan(calendar, changeDate, drift) {
+  const start = toDateString(changeDate);
+  const oct1 = october1ForDate(start);
+  const preOctober1 = start < oct1;
+  const magnitude = Math.abs(drift);
+  if (magnitude >= BID_THRESHOLD_MINUTES && drift < 0) {
+    if (preOctober1) {
+      const dates2 = openThroughDayBefore(start);
+      return {
+        regime: "pre_october_1",
+        rule: "pre_october_1_bump",
+        citation: "3.08(a)(8)(b)",
+        ...dates2
+      };
+    }
+    const fifteenth2 = addSchoolDays(calendar, start, WINDOW_SCHOOL_DAYS);
+    return {
+      regime: "post_october_1",
+      rule: "post_october_1_bump",
+      citation: "3.08(b)(2)",
+      window_expires_date: fifteenth2,
+      becomes_effective_on: nextCalendarDate(fifteenth2)
+    };
+  }
+  if (magnitude >= BID_THRESHOLD_MINUTES) {
+    const fifteenth2 = addSchoolDays(calendar, start, WINDOW_SCHOOL_DAYS);
+    if (fifteenth2 < oct1) {
+      return {
+        regime: "pre_october_1",
+        rule: "pre_october_1_bid",
+        citation: "3.08(a)(8)(a)",
+        window_expires_date: fifteenth2,
+        becomes_effective_on: nextCalendarDate(fifteenth2)
+      };
+    }
+    const postingDay = firstMonthlyBidPostingOnOrAfter(
+      calendar,
+      nextCalendarDate(fifteenth2)
+    );
+    const dates2 = openThroughDayBefore(postingDay);
+    return {
+      regime: preOctober1 ? "pre_october_1" : "post_october_1",
+      rule: "post_october_1_bid",
+      citation: "3.08(b)(1)",
+      ...dates2
+    };
+  }
+  if (preOctober1) {
+    const dates2 = openThroughDayBefore(oct1);
+    return {
+      regime: "pre_october_1",
+      rule: "pre_october_1_lock",
+      citation: "3.08(a)(8)(c)",
+      ...dates2
+    };
+  }
+  const fifteenth = addSchoolDays(calendar, start, WINDOW_SCHOOL_DAYS);
+  const effective = addSchoolDays(calendar, fifteenth, 1);
+  const dates = openThroughDayBefore(effective);
+  if (drift < 0) {
+    return {
+      regime: "post_october_1",
+      rule: "post_october_1_decrease_lock",
+      citation: "3.08(b)(4)",
+      ...dates
+    };
+  }
+  return {
+    regime: "post_october_1",
+    rule: "post_october_1_increase_lock",
+    citation: "3.08(b)(3)",
+    ...dates
+  };
 }
 
 // src/logic/schoolCalendarGenerate.js
@@ -2532,98 +2766,6 @@ function localDateString(date = /* @__PURE__ */ new Date()) {
   return `${year}-${month}-${day}`;
 }
 
-// src/logic/calendar.js
-function getSchoolDays(calendarOrDays) {
-  if (Array.isArray(calendarOrDays)) {
-    if (calendarOrDays.length === 0) {
-      throw new Error("School calendar must include school days.");
-    }
-    if (typeof calendarOrDays[0] === "string") {
-      return [...calendarOrDays].map(toDateString).sort();
-    }
-    return extractSchoolDaysFromDayList(
-      /** @type {SchoolCalendarDay[]} */
-      calendarOrDays
-    );
-  }
-  if (Array.isArray(calendarOrDays?.days) && calendarOrDays.days.length > 0) {
-    return extractSchoolDaysFromDayList(calendarOrDays.days);
-  }
-  const legacy = calendarOrDays?.school_days;
-  if (!Array.isArray(legacy) || legacy.length === 0) {
-    throw new Error(
-      "School calendar must include a non-empty days[] (with is_school_day) or school_days[] array."
-    );
-  }
-  return [...legacy].map(toDateString).sort();
-}
-function extractSchoolDaysFromDayList(days) {
-  const schoolDays = days.filter((entry) => entry && entry.is_school_day === true && entry.date).map((entry) => toDateString(entry.date));
-  if (schoolDays.length === 0) {
-    throw new Error(
-      "School calendar days[] has no entries with is_school_day: true."
-    );
-  }
-  return [...new Set(schoolDays)].sort();
-}
-function addSchoolDays(calendarOrDays, fromDate, count) {
-  if (count < 0) {
-    throw new Error("School day count must be non-negative.");
-  }
-  if (count === 0) {
-    return toDateString(fromDate);
-  }
-  const schoolDays = getSchoolDays(calendarOrDays);
-  const start = toDateString(fromDate);
-  let remaining = count;
-  for (const day of schoolDays) {
-    if (day <= start) {
-      continue;
-    }
-    remaining -= 1;
-    if (remaining === 0) {
-      return day;
-    }
-  }
-  const last = schoolDays[schoolDays.length - 1] ?? "(empty)";
-  throw new Error(
-    `School calendar ends at ${last}; cannot count ${count} school day(s) after ${start} (only ${count - remaining} available). Extend school-calendar.json coverage.`
-  );
-}
-function daysRemainingInWindow(calendarOrDays, asOfDate, windowExpiresDate) {
-  if (!windowExpiresDate) {
-    return null;
-  }
-  const today = toDateString(asOfDate);
-  const expires = toDateString(windowExpiresDate);
-  if (today > expires) {
-    return 0;
-  }
-  const schoolDays = getSchoolDays(calendarOrDays);
-  return schoolDays.filter((day) => day >= today && day <= expires).length;
-}
-function isWindowExpired(asOfDate, windowExpiresDate) {
-  if (!windowExpiresDate) {
-    return false;
-  }
-  return toDateString(asOfDate) > toDateString(windowExpiresDate);
-}
-function shiftCalendarDate(date, days) {
-  const iso = toDateString(date);
-  const utc = /* @__PURE__ */ new Date(`${iso}T00:00:00.000Z`);
-  if (Number.isNaN(utc.getTime())) {
-    throw new Error(`Invalid date: ${iso}`);
-  }
-  utc.setUTCDate(utc.getUTCDate() + days);
-  return utc.toISOString().slice(0, 10);
-}
-function previousCalendarDate(date) {
-  return shiftCalendarDate(date, -1);
-}
-function nextCalendarDate(date) {
-  return shiftCalendarDate(date, 1);
-}
-
 // src/logic/changeReport.js
 function buildSeeTheMathFromSegments(before_segments, after_segments) {
   const before = buildPayrollRoundingBreakdown(before_segments);
@@ -2683,6 +2825,7 @@ function buildChangeReport(input) {
     contracted_hours_changed: math.contracted_hours_changed,
     contracted_hours_delta_minutes: math.contracted_hours_delta_minutes,
     contracted_hours_statement: math.statement,
+    ...input.forced_october_1 ? { forced_october_1: true } : {},
     // Alias for the shared "see the math" UI (after-state is the finalized schedule).
     see_the_math: {
       before: math.before,
@@ -2694,127 +2837,6 @@ function buildChangeReport(input) {
 function changeReportMatchKey(report) {
   const ids = (report.contributing_changes ?? []).map((change2) => change2.id).filter(Boolean).sort().join(",");
   return `${report.outcome ?? ""}|${report.window_opened_date ?? ""}|${ids}`;
-}
-
-// src/logic/contractWindows.js
-var BID_POSTING_MONTH_SET = new Set(MONTHLY_BID_POSTING_MONTHS);
-function october1ForDate(date) {
-  const iso = toDateString(date);
-  const year = Number(iso.slice(0, 4));
-  const month = Number(iso.slice(5, 7));
-  const startYear = month >= 7 ? year : year - 1;
-  return `${startYear}-10-01`;
-}
-function monthlyBidPostingDays(calendar) {
-  const byMonth = /* @__PURE__ */ new Map();
-  for (const day of getSchoolDays(calendar)) {
-    const month = Number(day.slice(5, 7));
-    if (!BID_POSTING_MONTH_SET.has(month)) {
-      continue;
-    }
-    const key = day.slice(0, 7);
-    const group = byMonth.get(key);
-    if (group) {
-      group.push(day);
-    } else {
-      byMonth.set(key, [day]);
-    }
-  }
-  const posting = [];
-  for (const group of byMonth.values()) {
-    posting.push(...group.slice(-5));
-  }
-  return posting.sort();
-}
-function firstMonthlyBidPostingOnOrAfter(calendar, date) {
-  const start = toDateString(date);
-  const found = monthlyBidPostingDays(calendar).find((day) => day >= start);
-  if (!found) {
-    throw new Error(
-      `No October\u2013April last-five-school-day bid posting date on or after ${start}. Extend school-calendar.json coverage.`
-    );
-  }
-  return found;
-}
-function openThroughDayBefore(effectiveOn) {
-  return {
-    window_expires_date: previousCalendarDate(effectiveOn),
-    becomes_effective_on: effectiveOn
-  };
-}
-function contractWindowPlan(calendar, changeDate, drift) {
-  const start = toDateString(changeDate);
-  const oct1 = october1ForDate(start);
-  const preOctober1 = start < oct1;
-  const magnitude = Math.abs(drift);
-  if (magnitude >= BID_THRESHOLD_MINUTES && drift < 0) {
-    if (preOctober1) {
-      const dates2 = openThroughDayBefore(start);
-      return {
-        regime: "pre_october_1",
-        rule: "pre_october_1_bump",
-        citation: "3.08(a)(8)(b)",
-        ...dates2
-      };
-    }
-    const fifteenth2 = addSchoolDays(calendar, start, WINDOW_SCHOOL_DAYS);
-    return {
-      regime: "post_october_1",
-      rule: "post_october_1_bump",
-      citation: "3.08(b)(2)",
-      window_expires_date: fifteenth2,
-      becomes_effective_on: nextCalendarDate(fifteenth2)
-    };
-  }
-  if (magnitude >= BID_THRESHOLD_MINUTES) {
-    const fifteenth2 = addSchoolDays(calendar, start, WINDOW_SCHOOL_DAYS);
-    if (fifteenth2 < oct1) {
-      return {
-        regime: "pre_october_1",
-        rule: "pre_october_1_bid",
-        citation: "3.08(a)(8)(a)",
-        window_expires_date: fifteenth2,
-        becomes_effective_on: nextCalendarDate(fifteenth2)
-      };
-    }
-    const postingDay = firstMonthlyBidPostingOnOrAfter(
-      calendar,
-      nextCalendarDate(fifteenth2)
-    );
-    const dates2 = openThroughDayBefore(postingDay);
-    return {
-      regime: preOctober1 ? "pre_october_1" : "post_october_1",
-      rule: "post_october_1_bid",
-      citation: "3.08(b)(1)",
-      ...dates2
-    };
-  }
-  if (preOctober1) {
-    const dates2 = openThroughDayBefore(oct1);
-    return {
-      regime: "pre_october_1",
-      rule: "pre_october_1_lock",
-      citation: "3.08(a)(8)(c)",
-      ...dates2
-    };
-  }
-  const fifteenth = addSchoolDays(calendar, start, WINDOW_SCHOOL_DAYS);
-  const effective = addSchoolDays(calendar, fifteenth, 1);
-  const dates = openThroughDayBefore(effective);
-  if (drift < 0) {
-    return {
-      regime: "post_october_1",
-      rule: "post_october_1_decrease_lock",
-      citation: "3.08(b)(4)",
-      ...dates
-    };
-  }
-  return {
-    regime: "post_october_1",
-    rule: "post_october_1_increase_lock",
-    citation: "3.08(b)(3)",
-    ...dates
-  };
 }
 
 // src/logic/stateMachine.js
@@ -2984,7 +3006,8 @@ function applyWindowExpiration(routeState, asOfDate, options = {}) {
   const exactDrift = state.cumulative_drift_minutes;
   const payrollBreakdown = buildPayrollRoundingBreakdown(state.segments);
   const payrollRoundedTotal = payrollBreakdown.payroll_rounded_total_minutes;
-  const outcome = windowFinalizationOutcome(exactDrift);
+  const forcedOctober1 = state.window_rule === "forced_october_1_contract";
+  const outcome = forcedOctober1 ? "STABLE" : windowFinalizationOutcome(exactDrift);
   const closedOn = nextCalendarDate(state.window_expires_date);
   if (options.changeLog && options.routeId) {
     const effectiveDeltas = options.effectiveDeltas ?? resolveEffectiveDeltas(options.changeLog);
@@ -3023,7 +3046,8 @@ function applyWindowExpiration(routeState, asOfDate, options = {}) {
       window_opened_date: state.window_opened_date,
       before_segments: { ...state.baseline_segments },
       after_segments: { ...state.segments },
-      contributing_changes
+      contributing_changes,
+      forced_october_1: forcedOctober1
     });
     state.change_reports = [...state.change_reports ?? [], report];
     if (resolved.found) {
@@ -3110,6 +3134,9 @@ function resolveEffectiveDeltas(changeLog) {
   }
   return deltas;
 }
+function forcesOctober1Contract(changeEvent) {
+  return isForcedOctober1Contract(changeEvent?.force_oct1_contract);
+}
 function applyChangeToRoute(routeState, changeEvent, schoolCalendar, asOfDate = changeEvent.effective_date, deltaOverride = void 0, options = {}) {
   const changeDate = toDateString(asOfDate);
   const isFirstEvent = !routeState;
@@ -3159,7 +3186,7 @@ function applyChangeToRoute(routeState, changeEvent, schoolCalendar, asOfDate = 
     state.bid_response_due_date = null;
     state.bid_signup = null;
   }
-  const plan = contractWindowPlan(
+  const plan = forcesOctober1Contract(changeEvent) ? forcedOctober1ContractPlan(changeDate) : contractWindowPlan(
     schoolCalendar,
     changeDate,
     state.cumulative_drift_minutes
@@ -3434,24 +3461,27 @@ function withAdminHistory(prior, historyNote) {
 function rebuildRouteStateFromChangeLog(changeLog, initialState = {}, schoolCalendar, asOfDate = /* @__PURE__ */ new Date(), options = {}) {
   const effectiveDeltas = resolveEffectiveDeltas(changeLog);
   const priorRouteState = options.priorRouteState ?? {};
-  const changes = changeLog.filter(isChangeEvent).map((entry) => (
-    /** @type {ChangeEvent} */
-    entry
-  )).sort((a, b) => {
-    const dateCompare = toDateString(a.effective_date).localeCompare(
-      toDateString(b.effective_date)
-    );
-    if (dateCompare !== 0) {
-      return dateCompare;
-    }
-    return a.submitted_at.localeCompare(b.submitted_at);
-  });
   const changesByRoute = {};
-  for (const change2 of changes) {
-    if (!changesByRoute[change2.route_id]) {
-      changesByRoute[change2.route_id] = [];
-    }
+  for (const entry of changeLog) {
+    if (!isChangeEvent(entry)) continue;
+    const change2 = (
+      /** @type {ChangeEvent} */
+      entry
+    );
+    if (!changesByRoute[change2.route_id]) changesByRoute[change2.route_id] = [];
     changesByRoute[change2.route_id].push(change2);
+  }
+  const anchorByRoute = {};
+  for (const [routeId, routeChanges] of Object.entries(changesByRoute)) {
+    const anchor = routeChanges.map((change2) => String(change2.effective_date ?? "").trim()).filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort()[0] || toDateString(asOfDate);
+    anchorByRoute[routeId] = anchor;
+    routeChanges.sort((a, b) => {
+      const dateCompare = scheduleDateForMath(a.effective_date, anchor).localeCompare(
+        scheduleDateForMath(b.effective_date, anchor)
+      );
+      if (dateCompare !== 0) return dateCompare;
+      return a.submitted_at.localeCompare(b.submitted_at);
+    });
   }
   const pendingByRoute = {};
   let state = { ...initialState };
@@ -3466,7 +3496,7 @@ function rebuildRouteStateFromChangeLog(changeLog, initialState = {}, schoolCale
         state[routeId],
         change2,
         schoolCalendar,
-        change2.effective_date,
+        scheduleDateForMath(change2.effective_date, anchorByRoute[routeId]),
         effectiveDelta,
         reportOptions
       );
@@ -3533,7 +3563,12 @@ var WINDOW_RULE_HEADLINE = {
   post_october_1_increase_lock: "After October 1 a 15-minute increase becomes contracted the workday after it has lasted 15 school days (Art. 3.08(b)(3)).",
   post_october_1_decrease_lock: "After October 1 a decrease under 30 minutes is counted with any other change in the same 15 school days, then becomes contracted the next school day (Art. 3.08(b)(4)).",
   post_october_1_bid: "After October 1 a 30-minute increase is posted for bid during the last five school days of the month, October through April (Art. 3.08(b)(1)).",
-  post_october_1_bump: "After October 1 a 30-minute decrease is bump-eligible after it has lasted 15 school days (Art. 3.08(b)(2))."
+  post_october_1_bump: "After October 1 a 30-minute decrease is bump-eligible after it has lasted 15 school days (Art. 3.08(b)(2)).",
+  forced_october_1_contract: "Force Oct 1 Contract is on, so this schedule becomes contracted on October 1. The size of the change and the 15-school-day countdown are not used."
+};
+var FORCED_OCT1_COPY = {
+  label: "Contracted on October 1",
+  detail: "Force Oct 1 Contract is on, so this schedule becomes contracted on October 1. The size of the change and the 15-school-day countdown are not used."
 };
 var OUTCOME_COPY = {
   STABLE: {
@@ -3569,10 +3604,13 @@ function describeSchedule(segments) {
 function isSeedChange(change2) {
   return change2 && change2.delta_minutes === 0 && change2.previous_time === change2.new_time;
 }
+function dateSortKey(value) {
+  const text = value == null ? "" : String(value).trim();
+  if (!text || text.toLowerCase() === "null") return "";
+  return text;
+}
 function chronologicalChangeCompare(a, b) {
-  const dateCompare = String(a.effective_date).localeCompare(
-    String(b.effective_date)
-  );
+  const dateCompare = dateSortKey(a.effective_date).localeCompare(dateSortKey(b.effective_date));
   if (dateCompare !== 0) {
     return dateCompare;
   }
@@ -3625,27 +3663,46 @@ function buildScheduleHistory(changeLog, entry, window2, startDate) {
       }
     }
   ];
+  const groups = [];
   for (const change2 of later) {
-    running[change2.segment] = change2.new_time;
-    sources[change2.segment] = change2.id;
+    const key = change2.schedule_id || change2.id;
+    const current = groups.at(-1);
+    if (current && current.key === key) current.changes.push(change2);
+    else groups.push({ key, changes: [change2] });
+  }
+  for (const group of groups) {
+    const segments = [];
+    let last = group.changes[0];
+    for (const change2 of group.changes) {
+      running[change2.segment] = change2.new_time || null;
+      sources[change2.segment] = change2.id;
+      if (!segments.includes(change2.segment)) segments.push(change2.segment);
+      last = change2;
+    }
+    const date = dateSortKey(last.effective_date) || null;
     rows.push({
-      id: change2.id,
+      id: last.id,
       kind: "change",
-      date: change2.effective_date,
-      change_id: change2.id,
-      segment: change2.segment,
-      previous_time: change2.previous_time,
-      new_time: change2.new_time,
-      previous: splitSegmentRange(change2.previous_time),
-      next: splitSegmentRange(change2.new_time),
-      delta_minutes: change2.delta_minutes,
-      delta_label: formatSignedMinutes(change2.delta_minutes),
+      date,
+      change_id: last.id,
+      change_ids: group.changes.map((change2) => change2.id),
+      segment: segments.length === 1 ? segments[0] : null,
+      segments,
+      previous_time: last.previous_time,
+      new_time: last.new_time,
+      previous: splitSegmentRange(last.previous_time),
+      next: splitSegmentRange(last.new_time),
+      delta_minutes: group.changes.reduce((sum, change2) => sum + (change2.delta_minutes || 0), 0),
+      delta_label: formatSignedMinutes(
+        group.changes.reduce((sum, change2) => sum + (change2.delta_minutes || 0), 0)
+      ),
       cumulative_drift_minutes: null,
       cumulative_drift_label: null,
-      note: change2.note || "",
+      note: group.changes.map((change2) => change2.note).filter(Boolean).filter((note, index, all) => all.indexOf(note) === index).join(" "),
+      force_oct1_contract: group.changes.some((change2) => isForcedOctober1Contract(change2.force_oct1_contract)),
       schedule: describeSchedule(running),
       time_sources: { ...sources },
-      contracted: contractedStatusForChange(change2, {
+      contracted: contractedStatusForChange(last, {
         reports,
         openIds,
         lastOpenId,
@@ -3697,13 +3754,15 @@ function contractedStatusForChange(change2, { reports, openIds, lastOpenId, entr
       const becomesOn = String(report.finalized_at || "").slice(0, 10) || null;
       const outcomeCopy = OUTCOME_COPY[report.outcome];
       if (report.outcome === "STABLE") {
+        const forced = Boolean(report.forced_october_1);
+        const copy = forced ? FORCED_OCT1_COPY : outcomeCopy;
         return {
           status: "became_contracted",
           becomes_on: becomesOn,
           projected_outcome: report.outcome,
-          projected_outcome_label: outcomeCopy?.label ?? null,
+          projected_outcome_label: copy?.label ?? null,
           label: becomesOn ? `Became contracted on ${prettyDate(becomesOn)}` : "Became contracted",
-          detail: outcomeCopy?.detail ?? report.contracted_hours_statement ?? null
+          detail: copy?.detail ?? report.contracted_hours_statement ?? null
         };
       }
       return {
@@ -3727,13 +3786,14 @@ function contractedStatusForChange(change2, { reports, openIds, lastOpenId, entr
   if (entry?.status === "ACCUMULATING" && openIds.includes(change2.id)) {
     if (change2.id === lastOpenId) {
       const becomesOn = window2?.becomes_contracted_on ?? null;
+      const forced = window2?.window_rule === "forced_october_1_contract";
       return {
         status: "predicted",
         becomes_on: becomesOn,
         projected_outcome: window2?.projected_outcome ?? null,
-        projected_outcome_label: window2?.projected_outcome_label ?? null,
+        projected_outcome_label: forced ? FORCED_OCT1_COPY.label : window2?.projected_outcome_label ?? null,
         label: becomesOn ? `Predicted to become contracted on ${prettyDate(becomesOn)}` : "Predicted to become contracted",
-        detail: window2?.projected_outcome_detail ?? null
+        detail: forced ? FORCED_OCT1_COPY.detail : window2?.projected_outcome_detail ?? null
       };
     }
     return {
@@ -3797,12 +3857,13 @@ function buildEmployeeSnapshot({
     delta_minutes: change2.delta_minutes,
     delta_label: formatSignedMinutes(change2.delta_minutes),
     note: change2.note || "",
+    force_oct1_contract: isForcedOctober1Contract(change2.force_oct1_contract),
     is_seed: change2.delta_minutes === 0 && change2.previous_time === change2.new_time,
     submitted_at: change2.submitted_at
   })).sort((a, b) => {
-    const dateCompare = b.change_date.localeCompare(a.change_date);
+    const dateCompare = dateSortKey(b.change_date).localeCompare(dateSortKey(a.change_date));
     if (dateCompare !== 0) return dateCompare;
-    return b.submitted_at.localeCompare(a.submitted_at);
+    return String(b.submitted_at).localeCompare(String(a.submitted_at));
   });
   const schedule = describeSchedule(entry?.segments ?? {});
   const scheduledExact = entry ? buildPayrollRoundingBreakdown(entry.segments) : null;
@@ -3858,10 +3919,11 @@ function buildWindowView(entry, calendar, asOf) {
   };
   const open = status === "ACCUMULATING" && entry.window_expires_date;
   const drift = entry.cumulative_drift_minutes ?? 0;
+  const forced = entry.window_rule === "forced_october_1_contract";
   const daysRemaining = open ? daysRemainingInWindow(calendar, asOf, entry.window_expires_date) : null;
   const becomesOn = open ? dayAfter(entry.window_expires_date) : null;
-  const projectedOutcome = open ? windowFinalizationOutcome(drift) : null;
-  const outcomeCopy = projectedOutcome ? OUTCOME_COPY[projectedOutcome] : null;
+  const projectedOutcome = open ? forced ? "STABLE" : windowFinalizationOutcome(drift) : null;
+  const outcomeCopy = forced ? FORCED_OCT1_COPY : projectedOutcome ? OUTCOME_COPY[projectedOutcome] : null;
   const math = open ? buildSeeTheMathFromSegments(entry.baseline_segments, entry.segments) : null;
   let headline = copy.summary;
   if (open && becomesOn && outcomeCopy) {
@@ -3925,7 +3987,9 @@ function previewEmployeeChange({
   segment,
   clock_in,
   clock_out,
-  change_date
+  change_date,
+  force_oct1_contract = false,
+  changeLog = null
 }) {
   if (!entry) {
     throw new Error("Set up your starting schedule before previewing a change.");
@@ -3957,13 +4021,28 @@ function previewEmployeeChange({
     routing_adjustment: null,
     reason_category: "OTHER",
     note: "",
-    entered_by: "Self"
+    entered_by: "Self",
+    force_oct1_contract: isForcedOctober1Contract(force_oct1_contract)
   };
-  const next = applyChangeToRoute(entry, hypothetical, calendar, changeDate, delta);
-  const nextDrift = next.cumulative_drift_minutes ?? delta;
-  const plan = contractWindowPlan(calendar, changeDate, nextDrift);
-  const outcome = windowFinalizationOutcome(nextDrift);
-  const math = buildSeeTheMathFromSegments(next.baseline_segments, next.segments);
+  const next = applyChangeToRoute(entry, hypothetical, calendar, changeDate, delta, {
+    changeLog: [...changeLog ?? [], hypothetical]
+  });
+  const closedReport = (next.change_reports ?? []).find(
+    (report) => report.forced_october_1 && (report.contributing_changes ?? []).some((item) => item.id === hypothetical.id)
+  );
+  const forced = next.window_rule === "forced_october_1_contract" || Boolean(closedReport);
+  const nextDrift = closedReport ? (closedReport.contributing_changes ?? []).reduce(
+    (sum, item) => sum + (item.delta_minutes || 0),
+    0
+  ) : next.cumulative_drift_minutes ?? delta;
+  const plan = forced ? forcedOctober1ContractPlan(changeDate) : contractWindowPlan(calendar, changeDate, nextDrift);
+  const outcome = forced ? "STABLE" : windowFinalizationOutcome(nextDrift);
+  const outcomeCopy = forced ? FORCED_OCT1_COPY : OUTCOME_COPY[outcome];
+  const math = closedReport ? {
+    contracted_hours_changed: closedReport.contracted_hours_changed,
+    contracted_hours_delta_minutes: closedReport.contracted_hours_delta_minutes,
+    statement: closedReport.contracted_hours_statement
+  } : buildSeeTheMathFromSegments(next.baseline_segments, next.segments);
   return {
     previous_time: previous,
     new_time: newTime,
@@ -3976,8 +4055,8 @@ function previewEmployeeChange({
     cumulative_drift_minutes: nextDrift,
     cumulative_drift_label: formatSignedMinutes(nextDrift),
     projected_outcome: outcome,
-    projected_outcome_label: OUTCOME_COPY[outcome].label,
-    projected_outcome_detail: OUTCOME_COPY[outcome].detail,
+    projected_outcome_label: outcomeCopy.label,
+    projected_outcome_detail: outcomeCopy.detail,
     contracted_hours_would_change: math.contracted_hours_changed,
     contracted_hours_delta_minutes: math.contracted_hours_delta_minutes,
     contracted_hours_statement: math.statement
@@ -4213,9 +4292,10 @@ function isSeedEvent(change2) {
   return change2 && change2.delta_minutes === 0 && change2.previous_time === change2.new_time;
 }
 function relinkChangeLog(changeLog, name = "") {
+  const anchor = (changeLog ?? []).map((event) => String(event.effective_date ?? "").trim()).filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort()[0] || "1970-01-01";
   const events = [...changeLog ?? []].sort((a, b) => {
-    const dateCompare = toDateString(a.effective_date).localeCompare(
-      toDateString(b.effective_date)
+    const dateCompare = scheduleDateForMath(a.effective_date, anchor).localeCompare(
+      scheduleDateForMath(b.effective_date, anchor)
     );
     if (dateCompare !== 0) {
       return dateCompare;
@@ -4227,7 +4307,7 @@ function relinkChangeLog(changeLog, name = "") {
     const next = {
       ...event,
       driver_name: name || event.driver_name,
-      entered_by: name || event.entered_by || "Self"
+      entered_by: event.entered_by || name || "Self"
     };
     if (isSeedEvent(event)) {
       current[event.segment] = event.new_time;
@@ -4237,6 +4317,17 @@ function relinkChangeLog(changeLog, name = "") {
       return next;
     }
     const previous = current[event.segment];
+    if (!String(event.new_time ?? "").trim()) {
+      if (previous) {
+        const delta2 = -parseTimeRange(previous).durationMinutes;
+        next.previous_time = previous;
+        next.new_time = "";
+        next.computed_delta_minutes = delta2;
+        next.delta_minutes = delta2;
+      }
+      current[event.segment] = null;
+      return next;
+    }
     if (!previous) {
       next.previous_time = event.new_time;
       next.computed_delta_minutes = 0;
@@ -4354,7 +4445,9 @@ function setupProfile(body, storage) {
 function previewChange(body, storage) {
   const profile = store.getCurrentProfile(storage);
   const pack = getCalendarPack();
-  const asOf = toDateString(body.change_date || getAsOfDate());
+  const rawDate = body.change_date;
+  const blankDate = rawDate == null || String(rawDate).trim() === "" || String(rawDate).trim().toLowerCase() === "null";
+  const asOf = blankDate ? toDateString(profile?.start_date || getAsOfDate()) : toDateString(rawDate);
   const entry = rebuildEmployeeRouteState(
     profile?.changeLog ?? [],
     pack.calendar,
@@ -4366,7 +4459,9 @@ function previewChange(body, storage) {
     segment: String(body.segment || "").trim(),
     clock_in: normalizeClockTime(body.clock_in),
     clock_out: normalizeClockTime(body.clock_out),
-    change_date: asOf
+    change_date: asOf,
+    force_oct1_contract: body.force_oct1_contract,
+    changeLog: profile?.changeLog ?? []
   });
 }
 function recordChange(body, storage) {
@@ -4378,14 +4473,15 @@ function recordChange(body, storage) {
   if (!SEGMENTS.includes(segment)) {
     throw new Error(`segment must be one of: ${SEGMENTS.join(", ")}.`);
   }
-  const changeDate = toDateString(
-    body.change_date || body.effective_date || getAsOfDate()
-  );
+  const hasDate = Object.prototype.hasOwnProperty.call(body, "change_date") || Object.prototype.hasOwnProperty.call(body, "effective_date");
+  const rawDate = hasDate ? body.change_date ?? body.effective_date : getAsOfDate();
+  const changeDate = rawDate == null || String(rawDate).trim() === "" || String(rawDate).trim().toLowerCase() === "null" ? null : toDateString(rawDate);
+  const mathDate = changeDate || profile.start_date || getAsOfDate();
   const pack = getCalendarPack();
   const entry = rebuildEmployeeRouteState(
     profile.changeLog,
     pack.calendar,
-    changeDate
+    mathDate
   );
   if (!entry) {
     throw new Error("Starting schedule is missing. Add this person again.");
@@ -4419,7 +4515,10 @@ function recordChange(body, storage) {
       routing_adjustment: null,
       reason_category: "OTHER",
       note: String(body.note ?? "").trim(),
-      entered_by: name
+      entered_by: String(body.entered_by ?? "").trim() || name,
+      entered_by_user_id: String(body.entered_by_user_id ?? "").trim() || null,
+      force_oct1_contract: isForcedOctober1Contract(body.force_oct1_contract),
+      schedule_id: body.schedule_id || null
     }
   ];
   store.saveProfile(profile, storage);
@@ -4440,13 +4539,18 @@ function updateChange(changeId, body, storage) {
       "Correct starting times from the established schedule row, not by editing a later change."
     );
   }
-  const newTime = formatSegmentRange(body.clock_in, body.clock_out);
-  const changeDate = toDateString(body.change_date || existing.effective_date);
+  const newTime = body.clock_in || body.clock_out ? formatSegmentRange(body.clock_in, body.clock_out) : existing.new_time;
+  let changeDate = existing.effective_date ?? null;
+  if (Object.prototype.hasOwnProperty.call(body, "change_date")) {
+    const raw = body.change_date;
+    changeDate = raw == null || String(raw).trim() === "" || String(raw).trim().toLowerCase() === "null" ? null : toDateString(raw);
+  }
   profile.changeLog[index] = {
     ...existing,
     effective_date: changeDate,
     new_time: newTime,
-    note: body.note != null ? String(body.note).trim() : existing.note
+    note: body.note != null ? String(body.note).trim() : existing.note,
+    force_oct1_contract: Object.prototype.hasOwnProperty.call(body, "force_oct1_contract") ? isForcedOctober1Contract(body.force_oct1_contract) : isForcedOctober1Contract(existing.force_oct1_contract)
   };
   profile.changeLog = relinkChangeLog(profile.changeLog, profile.name?.trim() || "");
   const updated = profile.changeLog.find((entry) => entry.id === changeId);
@@ -5303,7 +5407,7 @@ function shiftIsoDate(iso, days) {
 }
 function clockHistoryLabel(row) {
   if (row?.kind === "initial") return "Established";
-  const segment = row?.segment || "Change";
+  const segment = row?.segments?.length > 1 ? "Schedule" : row?.segment === "MIDDAY" ? "Midday" : row?.segment || "Schedule";
   const delta = row?.delta_label ? ` ${row.delta_label}` : "";
   return `${segment} change${delta}`;
 }
@@ -5316,6 +5420,7 @@ function fifteenSchoolDaysAfter(schoolDays, from) {
   }
 }
 function usesFifteenDayWindow(row, fifteen) {
+  if (row?.force_oct1_contract) return false;
   if (row?.kind !== "change" || !row.date || !fifteen.length) return false;
   const fifteenth = fifteen[fifteen.length - 1];
   const october1 = october1ForDate(row.date);

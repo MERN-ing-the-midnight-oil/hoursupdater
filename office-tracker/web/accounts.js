@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { loadState, onStateSaved, writeStateLocal } from './store.js';
+import { loadState, mergeSharedDriverList, onStateSaved, writeStateLocal } from './store.js';
 
 const OFFICE_ROW = 'shared';
 
@@ -12,6 +12,7 @@ let pushing = false;
 /** @type {() => void} */
 let onReplace = () => {};
 let pushChain = Promise.resolve();
+let lastSharedSave = Promise.resolve();
 
 /**
  * The person signed in on this browser, if accounts are turned on.
@@ -22,6 +23,26 @@ export function currentAccount() {
 
 export function accountsEnabled() {
   return Boolean(client);
+}
+
+/**
+ * People who can sign in. Their email is the Outlook address on a reminder.
+ * @returns {Promise<Array<{ id: string, email: string, name: string }>>}
+ */
+export async function listOfficeUsers() {
+  if (!client) return [];
+  const { data, error } = await client
+    .from('profiles')
+    .select('id, email, display_name')
+    .order('display_name');
+  if (error) throw error;
+  return (data || [])
+    .map((row) => {
+      const email = String(row.email ?? '').trim();
+      const name = String(row.display_name ?? '').trim() || email.split('@')[0];
+      return { id: row.id, email, name };
+    })
+    .filter((row) => row.email);
 }
 
 /**
@@ -92,28 +113,48 @@ async function reloadFromRemote() {
  * @param {ReturnType<typeof loadState>} state
  */
 async function push(state) {
-  if (!client || !account) return;
+  if (!client || !account) {
+    throw new Error('Sign in to save to the shared office.');
+  }
   pushing = true;
+  let pending = state;
   try {
-    const nextVersion = version + 1;
-    const { data, error } = await client
-      .from('office_state')
-      .update({
-        state,
-        version: nextVersion,
-        updated_at: new Date().toISOString(),
-        updated_by: account.id,
-      })
-      .eq('id', OFFICE_ROW)
-      .eq('version', version)
-      .select('version')
-      .maybeSingle();
-    if (error) throw error;
-    if (!data) {
-      await reloadFromRemote();
-      return;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const nextVersion = version + 1;
+      const { data, error } = await client
+        .from('office_state')
+        .update({
+          state: pending,
+          version: nextVersion,
+          updated_at: new Date().toISOString(),
+          updated_by: account.id,
+        })
+        .eq('id', OFFICE_ROW)
+        .eq('version', version)
+        .select('version')
+        .maybeSingle();
+      if (error) throw error;
+      if (data) {
+        version = data.version;
+        if (pending !== state) {
+          writeStateLocal(pending);
+          onReplace();
+        }
+        return;
+      }
+      const row = await readOffice();
+      if (!row) throw new Error('The shared office record is missing.');
+      version = row.version ?? 0;
+      pending = mergeSharedDriverList(row.state, pending);
     }
-    version = data.version;
+    throw new Error('The shared office changed while saving. Try again.');
+  } catch (error) {
+    try {
+      await reloadFromRemote();
+    } catch {
+      // Keep the save error. The next load reads the shared office again.
+    }
+    throw error;
   } finally {
     pushing = false;
   }
@@ -124,16 +165,26 @@ async function push(state) {
  */
 function enqueuePush(state) {
   const snapshot = JSON.parse(JSON.stringify(state));
-  pushChain = pushChain.then(() => push(snapshot)).catch((error) => {
+  const run = pushChain.then(() => push(snapshot));
+  lastSharedSave = run;
+  pushChain = run.catch((error) => {
     const status = document.querySelector('#file-status');
     if (status) {
       status.hidden = false;
-      status.textContent = error.message || 'Could not save the shared routes.';
+      status.textContent = error.message || 'Could not save the shared office.';
       status.className = 'status is-error';
     }
     const recent = document.querySelector('#recent-changes');
     if (recent) recent.hidden = true;
   });
+  return run;
+}
+
+/**
+ * Resolves when the newest shared-office save has finished.
+ */
+export function whenSharedOfficeSaved() {
+  return lastSharedSave;
 }
 
 let subscribed = false;

@@ -1,7 +1,10 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { officeStateFromDriverTimesCsv } from '../office-tracker/src/driverTimesSheet.js';
+import {
+  officeStateFromDriverTimesCsv,
+  officeStateFromDriverTimesWorkbook,
+} from '../office-tracker/src/driverTimesSheet.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const csvPath = process.argv[2];
@@ -10,7 +13,10 @@ if (!csvPath) {
   process.exit(1);
 }
 
-const state = officeStateFromDriverTimesCsv(readFileSync(csvPath, 'utf8'));
+const bytes = readFileSync(csvPath);
+const state = /\.xlsx$/i.test(csvPath)
+  ? await officeStateFromDriverTimesWorkbook(bytes)
+  : officeStateFromDriverTimesCsv(bytes.toString('utf8'));
 const dir = path.join(root, 'employee-data');
 mkdirSync(dir, { recursive: true });
 const out = path.join(dir, 'office-state.json');

@@ -1,6 +1,39 @@
+import { schoolDaysBeforeValue } from './contractReminder.js';
 import { prettyDate } from './historyMarkup.js';
 
 export const CHANGE_NOTICE_SENT_KEY = 'transportation-timechange.change-notice-sent.v1';
+
+export const DEFAULT_DRIVER_NOTICE_SUBJECT = 'Clock-time notice for {{driver_name}}';
+
+export const DEFAULT_DRIVER_NOTICE_BODY = 'Hi {{driver_name}},\n\n{{notices}}';
+
+/**
+ * @param {unknown} value
+ * @param {boolean} fallback
+ */
+function yesNo(value, fallback) {
+  if (value === true || value === 'yes' || value === 'true') return true;
+  if (value === false || value === 'no' || value === 'false') return false;
+  return fallback;
+}
+
+/**
+ * Wording and timing for the email a driver gets. Missing text uses the usual draft.
+ * Automatic notices stay off until someone turns them on.
+ * @param {unknown} raw
+ */
+export function normalizeDriverNotice(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const subject = String(source.subject ?? '').trim();
+  const body = String(source.body ?? '').trim();
+  return {
+    noticeImmediately: yesNo(source.noticeImmediately, false),
+    noticeBeforeContract: yesNo(source.noticeBeforeContract, false),
+    schoolDaysBefore: schoolDaysBeforeValue(source.schoolDaysBefore),
+    subject: subject || DEFAULT_DRIVER_NOTICE_SUBJECT,
+    body: body || DEFAULT_DRIVER_NOTICE_BODY,
+  };
+}
 
 const TYPE_FROM_STATUS = {
   became_contracted: 'contracted',
@@ -175,10 +208,11 @@ export function noticeHistoryText(routeName, history) {
 
 /**
  * Subject and body for the Mail draft opened from one clock-time change.
- * @param {{ driverName: string, routeName: string, row: object, asOf?: string, history?: object[] }} input
+ * @param {{ driverName: string, routeName: string, row: object, asOf?: string, history?: object[], subject?: string, body?: string }} input
  */
-export function changeNoticeMail({ driverName, routeName, row, asOf, history }) {
+export function changeNoticeMail({ driverName, routeName, row, asOf, history, subject, body }) {
   const notice = noticeFromChange({ driverName, routeName, row });
+  const settings = normalizeDriverNotice({ subject, body });
   const values = {
     driver_name: driverName,
     routes: routesPhrase([routeName]),
@@ -186,10 +220,11 @@ export function changeNoticeMail({ driverName, routeName, row, asOf, history }) 
     date: prettyDate(asOf || row?.date),
   };
   const story = noticeHistoryText(routeName, history);
+  const opening = fillNoticeTemplate(settings.body, values).trimEnd();
   return {
     changeId: notice.changeId,
-    subject: fillNoticeTemplate('Clock-time notice for {{driver_name}}', values),
-    body: `${fillNoticeTemplate('Hi {{driver_name}},\n\n{{notices}}\n', values)}\n${story}\n`,
+    subject: fillNoticeTemplate(settings.subject, values),
+    body: `${opening}\n\n${story}\n`,
   };
 }
 

@@ -9,6 +9,13 @@
   --purple-deep: #4b16c9;
   --orange: #ff7a18;
   --orange-deep: #e26500;
+  --reader: #12887a;
+  --reader-deep: #0c665c;
+  --reader-gold: #e6a317;
+  --reader-hot: #fff0c4;
+  --reader-ink: #102824;
+  --reader-case: #f3faf8;
+  --reader-shadow: #16332f;
   --accent: var(--purple);
   --accent-hover: var(--purple-deep);
   --signal: var(--orange);
@@ -65,6 +72,18 @@ body {
   border-bottom: 2px solid var(--purple);
 }
 
+.app-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 1.35rem;
+  min-width: 0;
+}
+
+.app-launch .brand {
+  max-width: 11rem;
+}
+
 .brand-block {
   display: flex;
   align-items: center;
@@ -101,6 +120,17 @@ body {
 .px-ink { fill: #241838; }
 .px-orange { fill: var(--orange); }
 .px-hot { fill: #ffe0c2; }
+.px-reader-shadow { fill: var(--reader-shadow); }
+.px-reader-frame { fill: var(--reader); }
+.px-reader-case { fill: var(--reader-case); }
+.px-reader-paper { fill: #ffffff; }
+.px-reader-ink { fill: var(--reader-ink); }
+.px-reader-gold { fill: var(--reader-gold); }
+.px-reader-hot { fill: var(--reader-hot); }
+
+body.is-reader-app .topbar {
+  border-bottom-color: var(--reader);
+}
 
 a {
   color: var(--accent);
@@ -466,6 +496,33 @@ button:hover {
   color: #fff;
 }
 
+button.app-launch,
+button.app-launch:hover {
+  justify-content: flex-start;
+  padding: 0.15rem 0.2rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+  box-shadow: none;
+}
+
+button.app-launch:hover {
+  background: transparent;
+}
+
+button.app-launch:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: 3px;
+}
+
+button.app-launch-reader:focus-visible {
+  outline-color: var(--reader);
+}
+
 button.secondary {
   background: #fff;
   color: var(--ink);
@@ -478,7 +535,8 @@ button.secondary:hover {
   color: var(--purple-deep);
 }
 
-.topbar-side .secondary {
+.sheet-actions .secondary,
+.account-chip .secondary {
   background: #fff;
   color: var(--ink);
   border-color: var(--line);
@@ -486,7 +544,8 @@ button.secondary:hover {
   font-size: 0.84rem;
 }
 
-.topbar-side .secondary:hover {
+.sheet-actions .secondary:hover,
+.account-chip .secondary:hover {
   background: #f4eeff;
   border-color: var(--purple);
   color: var(--purple-deep);
@@ -619,6 +678,30 @@ button:disabled:hover {
   line-height: 1.4;
 }
 
+.schedule-date {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.schedule-date-null {
+  border: 1px solid var(--line, #c5d0dc);
+  background: #fff;
+  color: var(--ink, #1c2b39);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.schedule-date.is-null .schedule-date-null,
+.schedule-date-null[aria-pressed='true'] {
+  background: var(--ink, #1c2b39);
+  color: #fff;
+  border-color: transparent;
+}
+
 .schedule-history .row-kind {
   display: block;
   margin-top: 0.2rem;
@@ -641,91 +724,6 @@ button:disabled:hover {
 .schedule-history .row-actions button {
   padding: 0.35rem 0.65rem;
   font-size: 0.85rem;
-}
-
-.notification-toasts {
-  display: grid;
-  gap: 0.65rem;
-  margin-bottom: 1rem;
-}
-
-.notification-toasts[hidden] {
-  display: none;
-}
-
-.notification-toast {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--purple);
-  border-radius: var(--radius-sm);
-  box-shadow: none;
-  padding: 0.95rem 1.1rem;
-  display: grid;
-  gap: 0.45rem;
-}
-
-.notification-toast.is-flashing {
-  animation: notification-toast-flash 3s ease-in-out 1;
-}
-
-@keyframes notification-toast-flash {
-  0%,
-  100% {
-    background: var(--card);
-    box-shadow: var(--shadow);
-  }
-  20%,
-  60% {
-    background: #f3f4f6;
-    box-shadow: 0 0 0 2px var(--ink);
-  }
-  40%,
-  80% {
-    background: var(--card);
-    box-shadow: var(--shadow);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .notification-toast.is-flashing {
-    animation: none;
-  }
-}
-
-.notification-toast-kicker {
-  margin: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.notification-toast-title {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: 1.2rem;
-}
-
-.notification-toast-text,
-.notification-toast-hours {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.95rem;
-  line-height: 1.45;
-}
-
-.notification-toast-times {
-  margin: 0.15rem 0 0;
-  padding-left: 1.15rem;
-  color: var(--ink);
-}
-
-.notification-toast-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.35rem;
 }
 
 .hero {

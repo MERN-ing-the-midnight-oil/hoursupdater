@@ -1,6 +1,6 @@
 import { createId } from '../../src/logic/createId.js';
 import { isForcedOctober1Contract } from '../../src/logic/contractWindows.js';
-import { computeDeltaMinutes, toDateString } from '../../src/logic/timeUtils.js';
+import { computeDeltaMinutes, parseTimeRange, toDateString } from '../../src/logic/timeUtils.js';
 import { EMPLOYEE_ROUTE_ID } from '../../employee-tracker/src/snapshot.js';
 import { formatSegmentRange } from '../../employee-tracker/src/clockTimes.js';
 import { compareRouteNumbers } from '../web/store.js';
@@ -241,6 +241,8 @@ export function stateFromRoutesCsv(csv, options = {}) {
  *   clockIn?: string,
  *   clockOut?: string,
  *   note?: string,
+ *   cleared?: boolean,
+ *   forceOct1?: unknown,
  * }>} rawRows
  * @param {{ currentRoute?: string | null, drivers?: object[] }} [options]
  */
@@ -268,15 +270,39 @@ export function stateFromClockRows(rawRows, options = {}) {
       kind = normalizeKind(raw.kind);
       segment = normalizeRun(raw.run);
       const rawDate = String(raw.date ?? '').trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
-        throw new Error(`Date must be YYYY-MM-DD (got "${rawDate}").`);
+      if (!rawDate || rawDate.toLowerCase() === 'null') {
+        if (kind === 'start') {
+          throw new Error('Starting times need a date.');
+        }
+        date = '';
+      } else if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+        throw new Error(`Date must be YYYY-MM-DD or null (got "${rawDate}").`);
+      } else {
+        date = toDateString(rawDate);
       }
-      date = toDateString(rawDate);
     } catch (error) {
       throw new Error(`Row ${line}: ${error.message}`);
     }
     const clockIn = String(raw.clockIn ?? '').trim();
     const clockOut = String(raw.clockOut ?? '').trim();
+    if (raw.cleared === true) {
+      if (kind !== 'change') {
+        throw new Error(`Row ${line}: only a clock-time change can remove a run.`);
+      }
+      group.rows.push({
+        kind,
+        segment,
+        date,
+        range: '',
+        cleared: true,
+        note: String(raw.note ?? '').trim(),
+        forceOct1: isForcedOctober1Contract(raw.forceOct1),
+        scheduleId: raw.scheduleId || '',
+        driver,
+        order: rowOffset,
+      });
+      return;
+    }
     if (!clockIn || !clockOut) {
       throw new Error(`Row ${line} needs both a clock-in and a clock-out.`);
     }
@@ -293,6 +319,7 @@ export function stateFromClockRows(rawRows, options = {}) {
       range,
       note: String(raw.note ?? '').trim(),
       forceOct1: isForcedOctober1Contract(raw.forceOct1),
+      scheduleId: raw.scheduleId || '',
       driver,
       order: rowOffset,
     });
@@ -359,13 +386,16 @@ export function stateFromClockRows(rawRows, options = {}) {
           `Route ${group.route} has a ${row.segment} change without starting times for that run.`
         );
       }
-      const delta = computeDeltaMinutes(previous, row.range);
-      if (delta === 0) {
+      const delta = row.cleared
+        ? -parseTimeRange(previous).durationMinutes
+        : computeDeltaMinutes(previous, row.range);
+      if (!row.cleared && row.range === previous) {
         throw new Error(
           `Route ${group.route} ${row.segment} change on ${row.date} matches the previous times.`
         );
       }
-      current[row.segment] = row.range;
+      if (row.cleared) delete current[row.segment];
+      else current[row.segment] = row.range;
       changeLog.push({
         id: createId(),
         route_id: EMPLOYEE_ROUTE_ID,
@@ -373,11 +403,12 @@ export function stateFromClockRows(rawRows, options = {}) {
         driver_id: null,
         segment: row.segment,
         submitted_at: new Date(
-          new Date(`${row.date}T15:00:00.000Z`).getTime() + index
+          new Date(`${row.date || startDate}T15:00:00.000Z`).getTime() + index
         ).toISOString(),
-        effective_date: row.date,
+        effective_date: row.date || null,
+        schedule_id: row.scheduleId || null,
         previous_time: previous,
-        new_time: row.range,
+        new_time: row.cleared ? '' : row.range,
         computed_delta_minutes: delta,
         delta_minutes: delta,
         routing_adjustment: null,

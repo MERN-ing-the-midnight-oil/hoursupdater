@@ -19,60 +19,68 @@
   <body class="is-booting">
     <main class="shell">
       <header class="topbar">
-        <div class="brand-block">
-          <svg class="brand-mark" viewBox="0 0 21 21" shape-rendering="crispEdges" aria-hidden="true">
-            <g class="px-shadow">
-              <rect x="4" y="2" width="14" height="18" />
-              <rect x="2" y="4" width="18" height="14" />
-            </g>
-            <rect class="px-frame" x="3" y="1" width="14" height="18" />
-            <rect class="px-frame" x="1" y="3" width="18" height="14" />
-            <rect class="px-case" x="3" y="3" width="14" height="14" />
-            <rect class="px-dial" x="5" y="5" width="10" height="10" />
-            <rect class="px-case" x="5" y="5" width="1" height="1" />
-            <rect class="px-case" x="14" y="5" width="1" height="1" />
-            <rect class="px-case" x="5" y="14" width="1" height="1" />
-            <rect class="px-case" x="14" y="14" width="1" height="1" />
-            <rect class="px-ink" x="9" y="5" width="2" height="1" />
-            <rect class="px-ink" x="9" y="14" width="2" height="1" />
-            <rect class="px-ink" x="5" y="9" width="1" height="2" />
-            <rect class="px-ink" x="14" y="9" width="1" height="2" />
-            <rect class="px-ink" x="9" y="6" width="2" height="4" />
-            <rect class="px-orange" x="10" y="9" width="2" height="2" />
-            <rect class="px-orange" x="12" y="10" width="2" height="2" />
-            <rect class="px-ink" x="9" y="9" width="2" height="2" />
-            <rect class="px-orange" x="14" y="3" width="2" height="2" />
-            <rect class="px-hot" x="14" y="3" width="1" height="1" />
-          </svg>
-          <div class="brand">Teamster Time Changes Dashboard</div>
-        </div>
+        <nav class="app-switch" aria-label="Apps">
+          <button type="button" class="brand-block app-launch is-active" id="dashboard-app" aria-current="page">
+            <svg class="brand-mark" viewBox="0 0 21 21" shape-rendering="crispEdges" aria-hidden="true">
+              <g class="px-shadow">
+                <rect x="4" y="2" width="14" height="18" />
+                <rect x="2" y="4" width="18" height="14" />
+              </g>
+              <rect class="px-frame" x="3" y="1" width="14" height="18" />
+              <rect class="px-frame" x="1" y="3" width="18" height="14" />
+              <rect class="px-case" x="3" y="3" width="14" height="14" />
+              <rect class="px-dial" x="5" y="5" width="10" height="10" />
+              <rect class="px-case" x="5" y="5" width="1" height="1" />
+              <rect class="px-case" x="14" y="5" width="1" height="1" />
+              <rect class="px-case" x="5" y="14" width="1" height="1" />
+              <rect class="px-case" x="14" y="14" width="1" height="1" />
+              <rect class="px-ink" x="9" y="5" width="2" height="1" />
+              <rect class="px-ink" x="9" y="14" width="2" height="1" />
+              <rect class="px-ink" x="5" y="9" width="1" height="2" />
+              <rect class="px-ink" x="14" y="9" width="1" height="2" />
+              <rect class="px-ink" x="9" y="6" width="2" height="4" />
+              <rect class="px-orange" x="10" y="9" width="2" height="2" />
+              <rect class="px-orange" x="12" y="10" width="2" height="2" />
+              <rect class="px-ink" x="9" y="9" width="2" height="2" />
+              <rect class="px-orange" x="14" y="3" width="2" height="2" />
+              <rect class="px-hot" x="14" y="3" width="1" height="1" />
+            </svg>
+            <span class="brand">Teamster Time Changes Dashboard</span>
+          </button>
+          <button type="button" class="brand-block app-launch app-launch-reader" id="timesheet-tab">
+            <svg class="brand-mark" viewBox="0 0 21 21" shape-rendering="crispEdges" aria-hidden="true">
+              <g class="px-reader-shadow">
+                <rect x="4" y="2" width="14" height="18" />
+                <rect x="2" y="4" width="18" height="14" />
+              </g>
+              <rect class="px-reader-frame" x="3" y="1" width="14" height="18" />
+              <rect class="px-reader-frame" x="1" y="3" width="18" height="14" />
+              <rect class="px-reader-case" x="3" y="3" width="14" height="14" />
+              <rect class="px-reader-paper" x="5" y="5" width="10" height="10" />
+              <rect class="px-reader-case" x="5" y="5" width="1" height="1" />
+              <rect class="px-reader-case" x="14" y="5" width="1" height="1" />
+              <rect class="px-reader-case" x="5" y="14" width="1" height="1" />
+              <rect class="px-reader-case" x="14" y="14" width="1" height="1" />
+              <rect class="px-reader-ink" x="7" y="6" width="6" height="1" />
+              <rect class="px-reader-ink" x="6" y="8" width="4" height="1" />
+              <rect class="px-reader-ink" x="6" y="10" width="4" height="1" />
+              <rect class="px-reader-ink" x="6" y="12" width="3" height="1" />
+              <rect class="px-reader-ink" x="10" y="8" width="1" height="5" />
+              <rect class="px-reader-gold" x="11" y="8" width="2" height="1" />
+              <rect class="px-reader-gold" x="11" y="10" width="2" height="1" />
+              <rect class="px-reader-gold" x="11" y="12" width="2" height="1" />
+              <rect class="px-reader-gold" x="14" y="3" width="2" height="2" />
+              <rect class="px-reader-hot" x="14" y="3" width="1" height="1" />
+            </svg>
+            <span class="brand">Timesheet reader</span>
+          </button>
+        </nav>
         <div class="topbar-side">
           <p class="account-chip" id="account-chip" hidden>
             <span id="account-who"></span>
             <button type="button" class="secondary" id="account-sign-out">Sign out</button>
           </p>
-          <button type="button" class="secondary" id="export-btn">
-            <span class="dash-ico dash-ico-down">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 3.1c.7 0 1.25.56 1.25 1.25v6.35l1.7-1.7a1.25 1.25 0 0 1 1.77 1.77l-3.84 3.84a1.25 1.25 0 0 1-1.76 0L7.28 10.77a1.25 1.25 0 0 1 1.77-1.77l1.7 1.7V4.35c0-.69.56-1.25 1.25-1.25z" />
-                <path d="M4.6 16.7h14.8c.7 0 1.25.56 1.25 1.25v.55a2.15 2.15 0 0 1-2.15 2.15H5.5a2.15 2.15 0 0 1-2.15-2.15v-.55c0-.69.56-1.25 1.25-1.25z" />
-              </svg>
-            </span>
-            Download a backup of Current Route Data
-          </button>
-          <button type="button" class="payroll-export" id="payroll-export-btn">
-            <span class="dash-ico dash-ico-sheet">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M6.2 3.2h8.1l4.5 4.5v12.1a1.8 1.8 0 0 1-1.8 1.8H6.2a1.8 1.8 0 0 1-1.8-1.8V5a1.8 1.8 0 0 1 1.8-1.8z" />
-                <path fill="currentColor" d="M14.1 3.4v3.7a1.2 1.2 0 0 0 1.2 1.2h3.5z" />
-                <path fill="currentColor" d="M7.4 11.2h9.2v1.5H7.4zm0 3.1h9.2v1.5H7.4zm0 3.1h6.2v1.5H7.4z" />
-              </svg>
-            </span>
-            Create Payroll Driver Times.xlsx
-          </button>
-          <input id="payroll-previous-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
         </div>
-        <p id="file-status" class="status file-status" role="status" hidden></p>
         <section
           id="recent-changes"
           class="recent-changes"
@@ -126,25 +134,56 @@
         </form>
       </section>
 
-      <nav class="office-sheets" role="tablist" aria-label="Office lists">
-        <button type="button" class="office-sheet is-active" id="drivers-tab" role="tab" aria-selected="true">
-          <svg class="office-sheet-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
-            <circle cx="9" cy="7" r="4"/>
-            <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
-            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-          </svg>
-          Driver Name List
-        </button>
-        <button type="button" class="office-sheet" id="timesheet-tab" role="tab" aria-selected="false">
-          <svg class="office-sheet-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M8 3.5h6.2L19 8.2V20a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 7 20V5a1.5 1.5 0 0 1 1-1.5z"/>
-            <path d="M14 3.8V8h4.2"/>
-            <path d="M9 12.2h6.2M9 15.4h6.2M9 18.2h4"/>
-          </svg>
-          Timesheet reader
-        </button>
-      </nav>
+      <div class="sheet-bar">
+        <nav class="office-sheets" role="tablist" aria-label="Office lists">
+          <button type="button" class="office-sheet is-active" id="drivers-tab" role="tab" aria-selected="true">
+            <svg class="office-sheet-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            Driver Name List
+          </button>
+          <button type="button" class="office-sheet" id="admin-reminder-tab" role="tab" aria-selected="false">
+            <svg class="office-sheet-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9"/>
+              <path d="M10 21a2 2 0 0 0 4 0"/>
+            </svg>
+            Admin contract reminder
+          </button>
+          <button type="button" class="office-sheet" id="driver-notice-tab" role="tab" aria-selected="false">
+            <svg class="office-sheet-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="5" width="18" height="14" rx="2"/>
+              <path d="m4 7 8 6 8-6"/>
+            </svg>
+            Driver time-change notice
+          </button>
+        </nav>
+        <div class="sheet-actions">
+          <button type="button" class="secondary" id="export-btn">
+            <span class="dash-ico dash-ico-down">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3.1c.7 0 1.25.56 1.25 1.25v6.35l1.7-1.7a1.25 1.25 0 0 1 1.77 1.77l-3.84 3.84a1.25 1.25 0 0 1-1.76 0L7.28 10.77a1.25 1.25 0 0 1 1.77-1.77l1.7 1.7V4.35c0-.69.56-1.25 1.25-1.25z" />
+                <path d="M4.6 16.7h14.8c.7 0 1.25.56 1.25 1.25v.55a2.15 2.15 0 0 1-2.15 2.15H5.5a2.15 2.15 0 0 1-2.15-2.15v-.55c0-.69.56-1.25 1.25-1.25z" />
+              </svg>
+            </span>
+            Download a backup of Current Route Data
+          </button>
+          <button type="button" class="payroll-export" id="payroll-export-btn">
+            <span class="dash-ico dash-ico-sheet">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6.2 3.2h8.1l4.5 4.5v12.1a1.8 1.8 0 0 1-1.8 1.8H6.2a1.8 1.8 0 0 1-1.8-1.8V5a1.8 1.8 0 0 1 1.8-1.8z" />
+                <path fill="currentColor" d="M14.1 3.4v3.7a1.2 1.2 0 0 0 1.2 1.2h3.5z" />
+                <path fill="currentColor" d="M7.4 11.2h9.2v1.5H7.4zm0 3.1h9.2v1.5H7.4zm0 3.1h6.2v1.5H7.4z" />
+              </svg>
+            </span>
+            Create Payroll Driver Times.xlsx
+          </button>
+          <input id="payroll-previous-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
+        </div>
+        <p id="file-status" class="status file-status" role="status" hidden></p>
+      </div>
 
       <div class="route-tabs" id="route-tabs" role="tablist" aria-label="Routes"></div>
 
@@ -271,6 +310,122 @@
         </div>
       </section>
 
+      <section id="admin-reminder-view" class="panel" hidden>
+        <h1 class="panel-title">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9" />
+            <path d="M10 21a2 2 0 0 0 4 0" />
+          </svg>
+          Admin contract reminder
+        </h1>
+        <p class="lead">
+          This is the Outlook event for the office. Open the downloaded calendar file in Outlook and send it.
+        </p>
+        <form id="reminder-form" novalidate>
+          <fieldset class="yes-no">
+            <legend>Create the Outlook reminder automatically</legend>
+            <label><input type="radio" name="reminder_auto" value="yes" checked /> Yes</label>
+            <label><input type="radio" name="reminder_auto" value="no" /> No</label>
+            <p class="field-hint">
+              Toggling to Yes will allow the app to automatically create an Outlook calendar event to remind admin of upcoming contract changes. The event is created as 1 minute long and is considered free time by your calendar so the event will not interfere with your schedule. The event is automatically created whenever a contract change is predicted on a route. The event is updated if the predicted date changes, or if additional routes are predicted to become contracted.
+            </p>
+          </fieldset>
+          <div class="field">
+            <label for="reminder-days">School days before the contract hours change</label>
+            <input id="reminder-days" name="school_days_before" type="number" min="0" max="200" step="1" value="1" required />
+            <p class="field-hint">
+              1 puts the event on the school day before the new contract hours. 0 puts it on the contract date.
+            </p>
+          </div>
+          <div class="field">
+            <label for="reminder-user">Invitees</label>
+            <div class="invitee-add">
+              <select id="reminder-user">
+                <option value="">Choose an account</option>
+              </select>
+              <button type="button" class="secondary" id="reminder-add-invitee">Add</button>
+            </div>
+            <p class="field-hint" id="reminder-users-hint">
+              Add one or more accounts. The sign-in address is the Outlook address on the invite.
+            </p>
+            <ul id="reminder-invitees" class="invitee-list"></ul>
+          </div>
+          <div class="field">
+            <label for="reminder-subject">Subject template</label>
+            <input id="reminder-subject" name="subject" type="text" required />
+          </div>
+          <div class="field">
+            <label for="reminder-body">Message template</label>
+            <textarea id="reminder-body" name="body" rows="6" required></textarea>
+            <p class="field-hint">
+              You can use {{route}}, {{driver}}, {{contract_date}}, {{reminder_date}},
+              {{school_days_before}}, {{change}}, {{outcome}}, and {{note}}.
+            </p>
+          </div>
+          <div class="template-preview" id="reminder-preview"></div>
+          <div class="actions">
+            <button type="submit">Save admin reminder</button>
+            <button type="button" class="secondary" id="reminder-reset">Use the usual wording</button>
+          </div>
+          <div id="reminder-status" class="status" role="status" hidden></div>
+        </form>
+      </section>
+
+      <section id="driver-notice-view" class="panel" hidden>
+        <h1 class="panel-title">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="5" width="18" height="14" rx="2" />
+            <path d="m4 7 8 6 8-6" />
+          </svg>
+          Driver time-change notice
+        </h1>
+        <p class="lead">
+          This is the email a driver gets about clock times. The address comes from
+          the Driver Name List. The template is the opening of that email. The original
+          clock times and every change to date are added after it. A created notice is
+          marked Yes. Send notice on a route can still create one by hand.
+        </p>
+        <form id="driver-notice-form" novalidate>
+          <fieldset class="yes-no">
+            <legend>Notices for route time changes, right away</legend>
+            <label><input type="radio" name="notice_immediately" value="no" checked /> No</label>
+            <label><input type="radio" name="notice_immediately" value="yes" /> Yes</label>
+            <p class="field-hint">
+              Yes opens the driver email as soon as a clock-time change is saved. No waits until you use Send notice, or until the day before the contract change if that is turned on.
+            </p>
+          </fieldset>
+          <fieldset class="yes-no">
+            <legend>Create a notice before the contract change</legend>
+            <label><input type="radio" name="notice_before" value="no" checked /> No</label>
+            <label><input type="radio" name="notice_before" value="yes" /> Yes</label>
+          </fieldset>
+          <div class="field">
+            <label for="driver-notice-days">School days before the contract change</label>
+            <input id="driver-notice-days" name="school_days_before" type="number" min="0" max="200" step="1" value="1" required />
+            <p class="field-hint">
+              Used when Yes is selected above. 1 creates the notice on the school day before the contract change. 0 creates it on the contract date.
+            </p>
+          </div>
+          <div class="field">
+            <label for="driver-notice-subject">Subject template</label>
+            <input id="driver-notice-subject" name="subject" type="text" required />
+          </div>
+          <div class="field">
+            <label for="driver-notice-body">Message template</label>
+            <textarea id="driver-notice-body" name="body" rows="6" required></textarea>
+            <p class="field-hint">
+              You can use {{driver_name}}, {{routes}}, {{notices}}, and {{date}}.
+            </p>
+          </div>
+          <div class="template-preview" id="driver-notice-preview"></div>
+          <div class="actions">
+            <button type="submit">Save driver notice</button>
+            <button type="button" class="secondary" id="driver-notice-reset">Use the usual wording</button>
+          </div>
+          <div id="driver-notice-status" class="status" role="status" hidden></div>
+        </form>
+      </section>
+
       <section id="drivers-view" class="panel" hidden>
         <h1 class="panel-title">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -284,6 +439,8 @@
         <p class="lead">
           Names on this sheet fill the driver column for each route. First name,
           last name, and email stay with the driver when they move between routes.
+          Remove takes a name off this list. A route they still hold keeps that
+          driver until you assign someone else.
           Send notice on a clock-time change uses this email. It opens a
           text message and downloads a calendar PDF you can attach.
         </p>
@@ -296,6 +453,7 @@
                 <th scope="col">Last name</th>
                 <th scope="col">Email</th>
                 <th scope="col">Routes</th>
+                <th scope="col"><span class="visually-hidden">Remove</span></th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -354,7 +512,6 @@
       </section>
 
       <div id="app-view" hidden>
-        <div id="notification-toasts" class="notification-toasts" aria-live="polite"></div>
         <section class="hero panel" id="hero"></section>
 
         <section class="panel">
@@ -444,7 +601,10 @@
             <div class="grid">
               <div class="field">
                 <label for="change_edit_date">Date the change took place</label>
-                <input id="change_edit_date" type="date" required />
+                <div class="schedule-date" id="change-edit-date-wrap">
+                  <input id="change_edit_date" type="date" />
+                  <button type="button" class="schedule-date-null js-date-null">N/A</button>
+                </div>
               </div>
               <div class="field">
                 <span class="field-static-label" id="change_edit_force_label">Force Oct 1 Contract</span>
@@ -621,7 +781,10 @@
           </div>
           <div class="field">
             <label for="change_date">Date the change took place</label>
-            <input id="change_date" name="change_date" type="date" required />
+            <div class="schedule-date" id="change-date-wrap">
+              <input id="change_date" name="change_date" type="date" />
+              <button type="button" class="schedule-date-null js-date-null">N/A</button>
+            </div>
           </div>
           <div class="field">
             <span class="field-static-label" id="change_force_label">Force Oct 1 Contract</span>

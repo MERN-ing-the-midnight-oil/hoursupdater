@@ -31,7 +31,11 @@ export function shiftIsoDate(iso, days) {
  */
 export function clockHistoryLabel(row) {
   if (row?.kind === 'initial') return 'Established';
-  const segment = row?.segment || 'Change';
+  const segment = row?.segments?.length > 1
+    ? 'Schedule'
+    : row?.segment === 'MIDDAY'
+      ? 'Midday'
+      : row?.segment || 'Schedule';
   const delta = row?.delta_label ? ` ${row.delta_label}` : '';
   return `${segment} change${delta}`;
 }
