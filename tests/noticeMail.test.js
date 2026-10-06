@@ -64,7 +64,11 @@ test('a known bid date is named in that change’s email', () => {
   assert.match(mail.body, /Route S1: the PM change from Fri, Sep 18, 2026 will be up for bid on Mon, Oct 26, 2026/);
   assert.match(mail.body, /Original clock times, established/);
   assert.match(mail.body, /Changes to date on route S1:/);
-  assert.match(mail.body, /PM changed from .+ to .+/);
+  assert.match(mail.body, /AM 6:10 AM-8:40 AM/);
+  assert.match(mail.body, /Midday 10:50 AM-12:05 PM/);
+  assert.match(mail.body, /PM 1:50 PM-4:15 PM/);
+  assert.match(mail.body, /PM changed from 1:50 PM-4:15 PM to 1:50 PM-4:30 PM/);
+  assert.doesNotMatch(mail.body, /\b(?:1[3-9]|2[0-3]):\d{2}\b/);
   const originalAt = mail.body.indexOf('Original clock times');
   const changeAt = mail.body.indexOf('PM changed from');
   assert.ok(originalAt >= 0 && changeAt > originalAt);

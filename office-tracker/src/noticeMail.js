@@ -1,3 +1,4 @@
+import { formatClockAmPm } from '../../employee-tracker/src/clockTimes.js';
 import { schoolDaysBeforeValue } from './contractReminder.js';
 import { prettyDate } from './historyMarkup.js';
 
@@ -116,10 +117,10 @@ export function formatNoticeLine(notice) {
     return `${route} is ${notice.phrase} as of ${prettyDate(notice.resolvedOn)}.`;
   }
   if (notice.phrase) return `${route} is ${notice.phrase}.`;
+  const previousTime = formatClockAmPm(notice.previousTime);
+  const newTime = formatClockAmPm(notice.newTime);
   const shift =
-    notice.previousTime && notice.newTime
-      ? `, ${notice.previousTime} to ${notice.newTime}`
-      : '';
+    previousTime && newTime ? `, ${previousTime} to ${newTime}` : '';
   const delta = notice.deltaLabel ? ` (${notice.deltaLabel})` : '';
   const status = notice.statusLabel ? ` ${notice.statusLabel}.` : '';
   return `${route}${shift}${delta}.${status}`;
@@ -142,7 +143,7 @@ export function fillNoticeTemplate(template, values) {
 function runClockText(schedule, segment) {
   const item = schedule?.[segment];
   if (!item?.clock_in || !item?.clock_out) return '';
-  return `${item.clock_in}-${item.clock_out}`;
+  return formatClockAmPm(`${item.clock_in}-${item.clock_out}`);
 }
 
 /**
@@ -165,8 +166,8 @@ function scheduleClockLines(schedule) {
  * @param {object} row
  */
 function changeClockShift(row) {
-  const from = row.previous?.range || row.previous_time || '';
-  const to = row.next?.range || row.new_time || '';
+  const from = formatClockAmPm(row.previous?.range || row.previous_time || '');
+  const to = formatClockAmPm(row.next?.range || row.new_time || '');
   if (from && to) return ` from ${from} to ${to}`;
   if (to) return ` to ${to}`;
   return '';

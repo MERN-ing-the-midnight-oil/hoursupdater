@@ -1,3 +1,4 @@
+import { formatClockAmPm } from '../../employee-tracker/src/clockTimes.js';
 import { getSchoolDays } from '../../src/logic/calendar.js';
 import { toDateString } from '../../src/logic/timeUtils.js';
 import { prettyDate } from './historyMarkup.js';
@@ -144,8 +145,8 @@ export function dateSchoolDaysBefore(calendar, contractDate, count) {
  */
 function describeChange(row) {
   const run = row?.segment === 'MIDDAY' ? 'Midday' : row?.segment || 'Clock time';
-  const from = String(row?.previous_time || '').trim();
-  const to = String(row?.new_time || '').trim();
+  const from = formatClockAmPm(row?.previous_time);
+  const to = formatClockAmPm(row?.new_time);
   if (from && to) return `${run} changed from ${from} to ${to}.`;
   return `${run} change.`;
 }

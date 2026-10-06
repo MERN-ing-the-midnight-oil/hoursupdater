@@ -32,6 +32,46 @@ export function formatClockMinutes(minutesSinceMidnight) {
 }
 
 /**
+ * One clock for a notice. 16:15 is "4:15 PM". Noon is "12:00 PM".
+ * @param {string} clock
+ * @returns {string}
+ */
+function formatOneClockAmPm(clock) {
+  const minutes = parseClockTime(String(clock ?? ''));
+  const hour24 = Math.floor(minutes / 60);
+  const suffix = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 || 12;
+  return `${hour12}:${String(minutes % 60).padStart(2, '0')} ${suffix}`;
+}
+
+/**
+ * Clock text for office notices. 16:15 is "4:15 PM". A range "13:50-16:15"
+ * is "1:50 PM-4:15 PM". Text that already says AM or PM is left as written.
+ * @param {string | null | undefined} value
+ * @returns {string}
+ */
+export function formatClockAmPm(value) {
+  const text = String(value ?? '').trim();
+  if (!text || /\b(?:AM|PM)\b/i.test(text)) return text;
+  if (text.includes('-')) {
+    const parts = text.split('-');
+    if (parts.length === 2) {
+      try {
+        return `${formatOneClockAmPm(parts[0])}-${formatOneClockAmPm(parts[1])}`;
+      } catch {
+        return text;
+      }
+    }
+    return text;
+  }
+  try {
+    return formatOneClockAmPm(text);
+  } catch {
+    return text;
+  }
+}
+
+/**
  * Pad for HTML `<input type="time">`.
  * @param {string} time
  * @returns {string}

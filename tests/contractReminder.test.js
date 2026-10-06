@@ -40,8 +40,8 @@ function predictedRow() {
   return {
     change_id: 'change-1',
     segment: 'PM',
-    previous_time: '2:00 PM-4:00 PM',
-    new_time: '2:20 PM-4:20 PM',
+    previous_time: '14:00-16:00',
+    new_time: '14:20-16:20',
     note: 'Stop added',
     contracted: {
       status: 'predicted',

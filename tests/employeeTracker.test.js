@@ -7,6 +7,7 @@ import { computeDeltaMinutes } from '../src/logic/timeUtils.js';
 import { addSchoolDays } from '../src/logic/calendar.js';
 import { buildBps2026_2027Calendar } from '../employee-tracker/src/bpsCalendar2026.js';
 import {
+  formatClockAmPm,
   formatSegmentRange,
   normalizeClockTime,
   splitSegmentRange,
@@ -79,6 +80,11 @@ describe('employee clock-time helpers', () => {
   it('normalizes time-input values into district H:MM ranges', () => {
     assert.equal(normalizeClockTime('06:35'), '6:35');
     assert.equal(formatSegmentRange('06:35', '08:55'), '6:35-8:55');
+    assert.equal(formatClockAmPm('16:15'), '4:15 PM');
+    assert.equal(formatClockAmPm('0:00'), '12:00 AM');
+    assert.equal(formatClockAmPm('12:00'), '12:00 PM');
+    assert.equal(formatClockAmPm('13:50-16:15'), '1:50 PM-4:15 PM');
+    assert.equal(formatClockAmPm('2:00 PM-4:00 PM'), '2:00 PM-4:00 PM');
     assert.deepEqual(splitSegmentRange('6:35-8:55'), {
       clock_in: '6:35',
       clock_out: '8:55',
