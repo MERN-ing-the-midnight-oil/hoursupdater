@@ -170,7 +170,7 @@ body {
 }
 
 .sheet-actions .secondary,
-.sheet-actions .payroll-export {
+.timeclock-toolbar .payroll-export {
   max-width: 100%;
   min-width: 0;
   gap: 0.6rem;
@@ -210,7 +210,15 @@ body {
   color: var(--purple);
 }
 
-.sheet-actions .payroll-export {
+.timeclock-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  margin: 0 0 1.25rem;
+}
+
+.timeclock-toolbar .payroll-export {
   padding: 0.42rem 0.75rem;
   border-color: var(--orange-deep);
   background: var(--orange);
@@ -218,10 +226,14 @@ body {
   font-size: 0.84rem;
 }
 
-.sheet-actions .payroll-export:hover {
+.timeclock-toolbar .payroll-export:hover {
   border-color: var(--orange-deep);
   background: var(--orange-deep);
   color: #fff;
+}
+
+.timeclock-toolbar .status {
+  margin: 0;
 }
 
 .file-status {
@@ -867,8 +879,13 @@ body.needs-account #recent-changes {
   display: none;
 }
 
-body.is-reader-app .sheet-bar {
+body.is-reader-app .sheet-bar,
+body.is-timeclock-app .sheet-bar {
   display: none;
+}
+
+body.is-timeclock-app .topbar {
+  border-bottom-color: var(--reader);
 }
 
 .account-gate {
@@ -905,6 +922,11 @@ body.is-reader-app .sheet-bar {
   gap: 0.4rem;
   margin-right: 1.1rem;
   font-weight: 650;
+}
+
+#driver-notice-memorandum {
+  width: 100%;
+  max-width: 42rem;
 }
 
 .template-preview {
@@ -972,6 +994,323 @@ h2.notification-section:first-of-type {
   border: 0;
   padding: 0;
   color: var(--muted);
+}
+
+.clock-form .field[hidden] {
+  display: none;
+}
+
+.clock-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.75rem 1rem;
+  align-items: end;
+  margin-bottom: 1rem;
+}
+
+.clock-form .actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.clock-launch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  margin: 0 0 1rem;
+}
+
+#start-timeclock {
+  font-size: 1.35rem;
+  padding: 0.95rem 1.4rem;
+}
+
+.pin-list {
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.pin-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  max-width: 28rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pin-list .pin-empty {
+  border: 0;
+  padding: 0;
+  color: var(--muted);
+}
+
+.timeclock-kiosk {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1rem 0.8rem;
+  background: #f7f5fb;
+  color: var(--ink);
+}
+
+.timeclock-kiosk[hidden] {
+  display: none;
+}
+
+.kiosk-now {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(2.6rem, 8vw, 5rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.kiosk-search {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-weight: 650;
+}
+
+#kiosk-list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+#kiosk-list[hidden],
+#kiosk-detail[hidden] {
+  display: none;
+}
+
+#kiosk-detail {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.kiosk-roster {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.5rem;
+  overflow: auto;
+  min-height: 0;
+}
+
+.kiosk-name {
+  min-height: 3.4rem;
+  font-size: 1.05rem;
+}
+
+.kiosk-roster.is-compact {
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+}
+
+.kiosk-roster.is-compact .kiosk-name {
+  min-height: 2.6rem;
+  font-size: 0.95rem;
+}
+
+.kiosk-roster.is-large {
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+}
+
+.kiosk-roster.is-large .kiosk-name {
+  min-height: 4.8rem;
+  font-size: 1.45rem;
+}
+
+.clock-driver-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+button.clock-driver {
+  width: 100%;
+  justify-content: space-between;
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
+button.clock-driver.is-open {
+  border-color: var(--purple);
+  background: #f4efff;
+}
+
+.clock-driver-routes {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.clock-driver-sheet-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  margin-top: 1.25rem;
+}
+
+.clock-driver-sheet-head h2 {
+  margin: 0;
+}
+
+.payroll-driver-sheet {
+  min-width: 96rem;
+}
+
+.payroll-driver-sheet th,
+.payroll-driver-sheet td {
+  white-space: nowrap;
+  font-size: 0.85rem;
+  padding: 0.45rem 0.55rem;
+}
+
+.timeclock-settings {
+  margin-top: 1.75rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.85rem;
+}
+
+.quarter-clock-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+
+.quarter-clock-label input {
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: 0.15rem 0 0;
+  padding: 0;
+  accent-color: var(--purple);
+}
+
+.timeclock-settings summary {
+  cursor: pointer;
+  font-weight: 650;
+  font-size: 1.05rem;
+}
+
+.timeclock-settings[open] summary {
+  margin-bottom: 0.85rem;
+}
+
+@keyframes kiosk-name-flash {
+  0%,
+  49% {
+    background: var(--orange);
+    border-color: var(--orange-deep);
+    color: #1c1e22;
+  }
+  50%,
+  100% {
+    background: #fff;
+    border-color: var(--orange-deep);
+    color: var(--orange-deep);
+  }
+}
+
+.kiosk-name.is-late {
+  animation: kiosk-name-flash 1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kiosk-name.is-late {
+    animation: none;
+    background: var(--orange);
+    border-color: var(--orange-deep);
+    color: #1c1e22;
+  }
+}
+
+.reason-picks {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0;
+}
+
+.reason-picks li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.2rem 0.45rem;
+}
+
+.kiosk-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.kiosk-reason-row,
+.kiosk-punch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.kiosk-actions[hidden],
+#kiosk-pin-form[hidden] {
+  display: none;
+}
+
+.kiosk-punch-row button {
+  min-width: 9rem;
+  min-height: 3.4rem;
+  font-size: 1.2rem;
+}
+
+.kiosk-leave {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: end;
+  margin: 0;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--line);
+}
+
+.kiosk-leave label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-weight: 650;
+}
+
+.kiosk-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+body.is-timeclock {
+  overflow: hidden;
 }
 
 .timesheet-form {

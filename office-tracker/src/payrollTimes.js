@@ -1,11 +1,12 @@
 import ExcelJS from 'exceljs';
 import { buildBps2026_2027Calendar } from '../../employee-tracker/src/bpsCalendar2026.js';
-import { formatClockMinutes, localDateString, normalizeClockTime } from '../../employee-tracker/src/clockTimes.js';
+import { formatClockAmPm, formatClockMinutes, localDateString, normalizeClockTime } from '../../employee-tracker/src/clockTimes.js';
 import { describeSchedule, rebuildEmployeeRouteState } from '../../employee-tracker/src/snapshot.js';
-import { buildPayrollRoundingBreakdown, parseClockTime } from '../../src/logic/timeUtils.js';
+import { parseClockTime, roundClockToQuarterHour } from '../../src/logic/timeUtils.js';
+import { pairClockPunches, segmentForClock } from '../../src/logic/timesheets.js';
 import { driverForDate } from './assignments.js';
 import { workbookFileBytes } from './downloadName.js';
-import { compareRouteNumbers, driversFromState } from '../web/store.js';
+import { compareRouteNumbers, driversFromState, quarterHourClocksEnabled } from '../web/store.js';
 
 export const PAYROLL_SHEET = 'Payroll Driver Times';
 
@@ -17,14 +18,17 @@ export const PAYROLL_HEADERS = [
   'Contract started',
   'Contracted AM clock in',
   'Contracted AM clock out',
+  'AM quarter-hour clocks',
   'AM total minutes',
   'AM rounded quarter hours',
   'Contracted midday clock in',
   'Contracted midday clock out',
+  'Mid Day quarter-hour clocks',
   'Mid Day total minutes',
   'Mid Day rounded quarter hours',
   'Contracted PM clock in',
   'Contracted PM clock out',
+  'PM quarter-hour clocks',
   'PM total minutes',
   'PM rounded quarter hours',
   'Full Day rounded quarter hours',
@@ -37,7 +41,7 @@ const QUARTER_HOUR_FORMAT = '0.0#';
  * Character-widths that fit a laptop or desktop window at normal zoom.
  * Text columns give up space first when a long email would push past this.
  */
-const PAYROLL_WIDTH_BUDGET = 190;
+const PAYROLL_WIDTH_BUDGET = 250;
 
 /**
  * Width follows the values, not the header. The minimum keeps a formatted
@@ -51,14 +55,17 @@ const PAYROLL_COLUMN_FIT = [
   { min: 11, max: 12, pad: 1 },
   { min: 11, max: 12, pad: 1 },
   { min: 11, max: 12, pad: 1 },
+  { min: 16, max: 20, pad: 1 },
   { min: 8, max: 10, pad: 1 },
   { min: 8, max: 10, pad: 1 },
   { min: 11, max: 12, pad: 1 },
   { min: 11, max: 12, pad: 1 },
+  { min: 16, max: 20, pad: 1 },
   { min: 8, max: 10, pad: 1 },
   { min: 8, max: 10, pad: 1 },
   { min: 11, max: 12, pad: 1 },
   { min: 11, max: 12, pad: 1 },
+  { min: 16, max: 20, pad: 1 },
   { min: 8, max: 10, pad: 1 },
   { min: 8, max: 10, pad: 1 },
   { min: 8, max: 10, pad: 1 },
@@ -94,10 +101,13 @@ const COLUMN_RUN = [
   'AM',
   'AM',
   'AM',
+  'AM',
   'MIDDAY',
   'MIDDAY',
   'MIDDAY',
   'MIDDAY',
+  'MIDDAY',
+  'PM',
   'PM',
   'PM',
   'PM',
@@ -106,9 +116,15 @@ const COLUMN_RUN = [
 ];
 
 const RUNS = [
-  { id: 'AM', inKey: 'amIn', outKey: 'amOut' },
-  { id: 'MIDDAY', inKey: 'middayIn', outKey: 'middayOut' },
-  { id: 'PM', inKey: 'pmIn', outKey: 'pmOut' },
+  { id: 'AM', inKey: 'amIn', outKey: 'amOut', quarterKey: 'amQuarterClocks', minutesKey: 'amTotalMinutes' },
+  {
+    id: 'MIDDAY',
+    inKey: 'middayIn',
+    outKey: 'middayOut',
+    quarterKey: 'middayQuarterClocks',
+    minutesKey: 'middayTotalMinutes',
+  },
+  { id: 'PM', inKey: 'pmIn', outKey: 'pmOut', quarterKey: 'pmQuarterClocks', minutesKey: 'pmTotalMinutes' },
 ];
 
 /**
@@ -241,14 +257,17 @@ export function payrollRowSignature(row) {
     String(row.route ?? '').trim().toLowerCase(),
     clockToken(row.amIn),
     clockToken(row.amOut),
+    String(row.amQuarterClocks ?? '').trim(),
     minutesToken(row.amTotalMinutes),
     formatQuarterHours(row.amRoundedQuarterHours),
     clockToken(row.middayIn),
     clockToken(row.middayOut),
+    String(row.middayQuarterClocks ?? '').trim(),
     minutesToken(row.middayTotalMinutes),
     formatQuarterHours(row.middayRoundedQuarterHours),
     clockToken(row.pmIn),
     clockToken(row.pmOut),
+    String(row.pmQuarterClocks ?? '').trim(),
     minutesToken(row.pmTotalMinutes),
     formatQuarterHours(row.pmRoundedQuarterHours),
     formatQuarterHours(row.fullDayRoundedQuarterHours),
@@ -274,6 +293,64 @@ export function changedPayrollKeys(currentRows, previousRows) {
     if (previous.get(key) !== payrollRowSignature(row)) keys.push(key);
   }
   return keys;
+}
+
+/**
+ * The fields a later payroll file compares. Highlight formatting is left out.
+ * @param {object[] | null | undefined} rows
+ */
+export function payrollBaselineRows(rows) {
+  return (rows ?? []).map((row) => ({
+    email: String(row?.email ?? '').trim(),
+    firstName: String(row?.firstName ?? '').trim(),
+    lastName: String(row?.lastName ?? '').trim(),
+    route: String(row?.route ?? '').trim(),
+    contractStarted: String(row?.contractStarted ?? '').slice(0, 10),
+    amIn: String(row?.amIn ?? '').trim(),
+    amOut: String(row?.amOut ?? '').trim(),
+    amQuarterClocks: String(row?.amQuarterClocks ?? '').trim(),
+    amTotalMinutes: baselineNumber(row?.amTotalMinutes),
+    amRoundedQuarterHours: baselineNumber(row?.amRoundedQuarterHours),
+    middayIn: String(row?.middayIn ?? '').trim(),
+    middayOut: String(row?.middayOut ?? '').trim(),
+    middayQuarterClocks: String(row?.middayQuarterClocks ?? '').trim(),
+    middayTotalMinutes: baselineNumber(row?.middayTotalMinutes),
+    middayRoundedQuarterHours: baselineNumber(row?.middayRoundedQuarterHours),
+    pmIn: String(row?.pmIn ?? '').trim(),
+    pmOut: String(row?.pmOut ?? '').trim(),
+    pmQuarterClocks: String(row?.pmQuarterClocks ?? '').trim(),
+    pmTotalMinutes: baselineNumber(row?.pmTotalMinutes),
+    pmRoundedQuarterHours: baselineNumber(row?.pmRoundedQuarterHours),
+    fullDayRoundedQuarterHours: baselineNumber(row?.fullDayRoundedQuarterHours),
+  }));
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number | null}
+ */
+function baselineNumber(value) {
+  if (value == null || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+/**
+ * Labels for rows that are new or no longer match the last payroll file.
+ * @param {object[]} currentRows
+ * @param {object[] | null | undefined} previousRows
+ */
+export function changedPayrollLabels(currentRows, previousRows) {
+  const keys = new Set(changedPayrollKeys(currentRows, previousRows));
+  return (currentRows ?? [])
+    .filter((row) => keys.has(payrollRowKey(row)))
+    .map((row) => {
+      const route = String(row?.route ?? '').trim();
+      const name = [row?.firstName, row?.lastName].filter(Boolean).join(' ');
+      if (route && name) return `${route} · ${name}`;
+      return route || name || 'Unassigned';
+    })
+    .sort((a, b) => compareRouteNumbers(a, b));
 }
 
 /**
@@ -509,10 +586,13 @@ export async function rowsFromPayrollWorkbook(buffer) {
       contractStarted: cell(row, ['Contract started'], dateFromCell),
       amIn: cell(row, ['Contracted AM clock in'], clockFromCell),
       amOut: cell(row, ['Contracted AM clock out'], clockFromCell),
+      amQuarterClocks: cell(row, ['AM quarter-hour clocks'], cellText),
       middayIn: cell(row, ['Contracted midday clock in'], clockFromCell),
       middayOut: cell(row, ['Contracted midday clock out'], clockFromCell),
+      middayQuarterClocks: cell(row, ['Mid Day quarter-hour clocks'], cellText),
       pmIn: cell(row, ['Contracted PM clock in'], clockFromCell),
       pmOut: cell(row, ['Contracted PM clock out'], clockFromCell),
+      pmQuarterClocks: cell(row, ['PM quarter-hour clocks'], cellText),
       amTotalMinutes: cell(row, ['AM total minutes', 'AM total', 'AM minutes'], numberFromCell),
       amRoundedQuarterHours: readRoundedQuarterHours(
         row,
@@ -603,14 +683,17 @@ function payrollCellLabels(row) {
     contractDateLabel(row.contractStarted),
     clockExcelLabel(row.amIn),
     clockExcelLabel(row.amOut),
+    String(row.amQuarterClocks ?? ''),
     minutes(row.amTotalMinutes),
     formatQuarterHours(row.amRoundedQuarterHours),
     clockExcelLabel(row.middayIn),
     clockExcelLabel(row.middayOut),
+    String(row.middayQuarterClocks ?? ''),
     minutes(row.middayTotalMinutes),
     formatQuarterHours(row.middayRoundedQuarterHours),
     clockExcelLabel(row.pmIn),
     clockExcelLabel(row.pmOut),
+    String(row.pmQuarterClocks ?? ''),
     minutes(row.pmTotalMinutes),
     formatQuarterHours(row.pmRoundedQuarterHours),
     formatQuarterHours(row.fullDayRoundedQuarterHours),
@@ -731,7 +814,7 @@ function highlightChangedRow(row) {
 
 /**
  * @param {object} state
- * @param {{ asOf?: string, calendar?: import('../../src/logic/calendar.js').SchoolCalendar }} [options]
+ * @param {{ asOf?: string, calendar?: import('../../src/logic/calendar.js').SchoolCalendar, roundClocks?: boolean }} [options]
  */
 export function payrollDriverRows(state, options = {}) {
   const asOf = options.asOf || localDateString();
@@ -744,6 +827,7 @@ export function payrollDriverRows(state, options = {}) {
   /** @type {ReturnType<typeof rowForRoute>[]} */
   const rows = [];
 
+  const roundClocks = options.roundClocks ?? quarterHourClocksEnabled(state);
   const profiles = Object.values(state?.profiles ?? {}).sort((a, b) =>
     compareRouteNumbers(a?.name, b?.name)
   );
@@ -757,13 +841,20 @@ export function payrollDriverRows(state, options = {}) {
       rowForRoute(driver?.email ?? '', driverName, profile.name, entry, {
         startDate: profile.start_date,
         changeLog: profile.changeLog,
+        punches: state?.punches,
+        roundClocks,
       })
     );
   }
 
   for (const driver of directory.values()) {
     if (assigned.has(driver.name.trim().toLowerCase())) continue;
-    rows.push(rowForRoute(driver.email, driver.name, '', null));
+    rows.push(
+      rowForRoute(driver.email, driver.name, '', null, {
+        punches: state?.punches,
+        roundClocks,
+      })
+    );
   }
 
   rows.sort((a, b) => {
@@ -777,31 +868,51 @@ export function payrollDriverRows(state, options = {}) {
 }
 
 /**
+ * Payroll rows for one driver. The name is the first and last name joined.
+ * @param {object[] | null | undefined} rows
+ * @param {string | null | undefined} name
+ */
+export function payrollRowsForDriver(rows, name) {
+  const wanted = String(name ?? '').trim().toLowerCase();
+  if (!wanted) return [];
+  return (rows ?? []).filter((row) => {
+    const full = [row?.firstName, row?.lastName].filter(Boolean).join(' ').trim().toLowerCase();
+    return full === wanted;
+  });
+}
+
+/**
  * @param {string} email
  * @param {string} name
  * @param {string} route
  * @param {import('../../src/logic/stateMachine.js').RouteStateEntry | null} entry
- * @param {{ startDate?: string | null, changeLog?: object[] }} [source]
+ * @param {{ startDate?: string | null, changeLog?: object[], punches?: object[], roundClocks?: boolean }} [source]
  */
 function rowForRoute(email, name, route, entry, source = {}) {
   const { firstName, lastName } = splitDriverName(name);
-  const segments = contractedSegments(entry);
+  const punched = segmentsFromPunches(source.punches, name);
+  const segments = punched || contractedSegments(entry);
   const schedule = describeSchedule(segments);
-  const present = RUNS.some((run) => schedule[run.id]);
-  const breakdown = present ? buildPayrollRoundingBreakdown(segments) : null;
+  const roundClocks = source.roundClocks !== false;
   /** @type {Record<string, string>} */
   const clocks = {};
+  /** @type {Record<string, string>} */
+  const quarterClocks = {};
+  /** @type {Record<string, number | null>} */
+  const totals = {};
   for (const run of RUNS) {
     const piece = schedule[run.id];
-    clocks[run.inKey] = piece?.clock_in ?? '';
-    clocks[run.outKey] = piece?.clock_out ?? '';
+    const clockIn = piece?.clock_in ?? '';
+    const clockOut = piece?.clock_out ?? '';
+    clocks[run.inKey] = clockIn;
+    clocks[run.outKey] = clockOut;
+    const used = clocksUsedForMinutes(clockIn, clockOut, roundClocks);
+    quarterClocks[run.quarterKey] = used.label;
+    totals[run.minutesKey] = used.minutes;
   }
-  const amTotalMinutes = runTotalMinutes(breakdown, 'AM');
-  const middayTotalMinutes = runTotalMinutes(breakdown, 'MIDDAY');
-  const pmTotalMinutes = runTotalMinutes(breakdown, 'PM');
-  const amRoundedQuarterHours = quarterHoursFromMinutes(amTotalMinutes);
-  const middayRoundedQuarterHours = quarterHoursFromMinutes(middayTotalMinutes);
-  const pmRoundedQuarterHours = quarterHoursFromMinutes(pmTotalMinutes);
+  const amRoundedQuarterHours = quarterHoursFromMinutes(totals.amTotalMinutes);
+  const middayRoundedQuarterHours = quarterHoursFromMinutes(totals.middayTotalMinutes);
+  const pmRoundedQuarterHours = quarterHoursFromMinutes(totals.pmTotalMinutes);
   return {
     email: String(email ?? '').trim(),
     firstName,
@@ -809,11 +920,12 @@ function rowForRoute(email, name, route, entry, source = {}) {
     route: String(route ?? '').trim(),
     contractStarted: contractStartedOn(entry, source),
     ...clocks,
-    amTotalMinutes,
+    ...quarterClocks,
+    amTotalMinutes: totals.amTotalMinutes,
     amRoundedQuarterHours,
-    middayTotalMinutes,
+    middayTotalMinutes: totals.middayTotalMinutes,
     middayRoundedQuarterHours,
-    pmTotalMinutes,
+    pmTotalMinutes: totals.pmTotalMinutes,
     pmRoundedQuarterHours,
     fullDayRoundedQuarterHours: sumRoundedQuarterHours([
       amRoundedQuarterHours,
@@ -824,12 +936,66 @@ function rowForRoute(email, name, route, entry, source = {}) {
 }
 
 /**
- * @param {ReturnType<typeof buildPayrollRoundingBreakdown> | null} breakdown
- * @param {'AM' | 'MIDDAY' | 'PM'} segment
+ * The clocks the minute total is counted from, and that count.
+ * Rounding snaps each clock to the nearest quarter hour first.
+ * @param {string} clockIn
+ * @param {string} clockOut
+ * @param {boolean} roundClocks
  */
-function runTotalMinutes(breakdown, segment) {
-  const detail = breakdown?.segments?.find((item) => item.segment === segment);
-  return detail?.duration_minutes ?? null;
+function clocksUsedForMinutes(clockIn, clockOut, roundClocks) {
+  if (!clockIn || !clockOut) return { label: '', minutes: null };
+  const start = roundClocks ? roundClockToQuarterHour(clockIn) : clockIn;
+  const end = roundClocks ? roundClockToQuarterHour(clockOut) : clockOut;
+  if (!start || !end) return { label: '', minutes: null };
+  return {
+    label: `${formatClockAmPm(start)}–${formatClockAmPm(end)}`,
+    minutes: clockMinutesApart(start, end),
+  };
+}
+
+/**
+ * @param {string} clockIn
+ * @param {string} clockOut
+ * @returns {number | null}
+ */
+function clockMinutesApart(clockIn, clockOut) {
+  const start = parseClockTime(clockIn);
+  let end = parseClockTime(clockOut);
+  if (end < start) end += 24 * 60;
+  return end - start;
+}
+
+/**
+ * Latest completed clock-in and clock-out in each run.
+ * The earlier stamp decides the run: before 8:00 is AM, until 1:00 is midday, and after that is PM.
+ * A driver with no completed pair keeps the contracted clocks.
+ * @param {object[] | null | undefined} punches
+ * @param {string} driverName
+ * @returns {Record<'AM' | 'MIDDAY' | 'PM', string | null> | null}
+ */
+function segmentsFromPunches(punches, driverName) {
+  const wanted = String(driverName || '').trim().toLowerCase();
+  const mine = (Array.isArray(punches) ? punches : []).filter(
+    (punch) => String(punch?.driver_name || '').trim().toLowerCase() === wanted
+  );
+  if (!mine.length) return null;
+  const { pairs } = pairClockPunches(mine);
+  if (!pairs.length) return null;
+  /** @type {Record<string, { start: Date, end: Date }>} */
+  const latest = {};
+  for (const pair of pairs) {
+    const earlier = pair.start <= pair.end ? pair.start : pair.end;
+    const segment = segmentForClock(earlier);
+    const key = segment === 'am' ? 'AM' : segment === 'midday' ? 'MIDDAY' : 'PM';
+    const prev = latest[key];
+    if (!prev || pair.start.getTime() > prev.start.getTime()) latest[key] = pair;
+  }
+  const label = (date) => `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
+  return {
+    AM: latest.AM ? `${label(latest.AM.start)}-${label(latest.AM.end)}` : null,
+    MIDDAY: latest.MIDDAY ? `${label(latest.MIDDAY.start)}-${label(latest.MIDDAY.end)}` : null,
+    PM: latest.PM ? `${label(latest.PM.start)}-${label(latest.PM.end)}` : null,
+  };
 }
 
 /**
@@ -890,14 +1056,17 @@ export async function buildPayrollWorkbook(state, options = {}) {
       excelDate(row.contractStarted),
       row.amIn ? excelTime(row.amIn) : null,
       row.amOut ? excelTime(row.amOut) : null,
+      row.amQuarterClocks || null,
       row.amTotalMinutes,
       row.amRoundedQuarterHours,
       row.middayIn ? excelTime(row.middayIn) : null,
       row.middayOut ? excelTime(row.middayOut) : null,
+      row.middayQuarterClocks || null,
       row.middayTotalMinutes,
       row.middayRoundedQuarterHours,
       row.pmIn ? excelTime(row.pmIn) : null,
       row.pmOut ? excelTime(row.pmOut) : null,
+      row.pmQuarterClocks || null,
       row.pmTotalMinutes,
       row.pmRoundedQuarterHours,
       row.fullDayRoundedQuarterHours,

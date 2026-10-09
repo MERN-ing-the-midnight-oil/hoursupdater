@@ -187,6 +187,82 @@ export function whenSharedOfficeSaved() {
   return lastSharedSave;
 }
 
+const PAYROLL_BASELINE_ROW = 'latest';
+const LOCAL_PAYROLL_KEY = 'transportation-payroll-baseline.v1';
+
+/**
+ * @param {{ message?: string, code?: string } | null | undefined} error
+ */
+function payrollBaselineError(error) {
+  const message = String(error?.message ?? '');
+  if (error?.code === 'PGRST205' || /payroll_baseline/i.test(message)) {
+    return new Error(
+      'The shared office cannot remember a payroll file yet. Run the payroll baseline SQL in Supabase.'
+    );
+  }
+  return error instanceof Error ? error : new Error(message || 'Could not read the last payroll file.');
+}
+
+/**
+ * Rows from the last payroll file this office created.
+ * A signed-in office reads the shared record. Otherwise this browser remembers them.
+ * @returns {Promise<object[] | null>}
+ */
+export async function loadPayrollBaseline() {
+  if (!client || !account) return readLocalPayrollBaseline();
+  const { data, error } = await client
+    .from('payroll_baseline')
+    .select('rows, saved_at')
+    .eq('id', PAYROLL_BASELINE_ROW)
+    .maybeSingle();
+  if (error) throw payrollBaselineError(error);
+  if (!data?.saved_at || !Array.isArray(data.rows)) return null;
+  return data.rows;
+}
+
+/**
+ * Remember the payroll rows just written, so the next file can highlight what changed.
+ * @param {object[]} rows
+ */
+export async function savePayrollBaseline(rows) {
+  const saved = Array.isArray(rows) ? rows : [];
+  if (!client || !account) {
+    writeLocalPayrollBaseline(saved);
+    return;
+  }
+  const { error } = await client.from('payroll_baseline').upsert({
+    id: PAYROLL_BASELINE_ROW,
+    rows: saved,
+    saved_at: new Date().toISOString(),
+    saved_by: account.id,
+  });
+  if (error) throw payrollBaselineError(error);
+}
+
+/**
+ * @returns {object[] | null}
+ */
+function readLocalPayrollBaseline() {
+  try {
+    const raw = globalThis.localStorage?.getItem(LOCAL_PAYROLL_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed?.rows) ? parsed.rows : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {object[]} rows
+ */
+function writeLocalPayrollBaseline(rows) {
+  globalThis.localStorage?.setItem(
+    LOCAL_PAYROLL_KEY,
+    JSON.stringify({ rows, saved_at: new Date().toISOString() })
+  );
+}
+
 let subscribed = false;
 
 function subscribe() {

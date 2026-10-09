@@ -10,9 +10,12 @@ import {
   PAYROLL_SHEET,
   buildPayrollWorkbook,
   changedPayrollKeys,
+  changedPayrollLabels,
   contractStartedOn,
+  payrollBaselineRows,
   formatQuarterHours,
   payrollDriverRows,
+  payrollRowsForDriver,
   quarterHoursFromMinutes,
   rowsFromPayrollWorkbook,
   splitDriverName,
@@ -118,6 +121,33 @@ describe('payroll driver times', () => {
     assert.equal(formatQuarterHours(alex104.fullDayRoundedQuarterHours), '5.25');
     assert.equal(alex104.contractStarted, '2026-09-08');
 
+    const punched = sampleState();
+    punched.punches = [
+      {
+        id: 'in',
+        driver_name: 'Alex Driver',
+        action: 'in',
+        punched_at: new Date(2026, 8, 16, 5, 50).toISOString(),
+        note: '',
+      },
+      {
+        id: 'out',
+        driver_name: 'Alex Driver',
+        action: 'out',
+        punched_at: new Date(2026, 8, 16, 8, 10).toISOString(),
+        note: '',
+      },
+    ];
+    const fromClock = payrollDriverRows(punched, { asOf, calendar }).find((row) => row.route === '104');
+    assert.equal(fromClock.amIn, '5:50');
+    assert.equal(fromClock.amOut, '8:10');
+    assert.equal(fromClock.middayIn, '');
+    assert.equal(fromClock.pmIn, '');
+    assert.equal(fromClock.amQuarterClocks, '5:45 AM–8:15 AM');
+    assert.equal(fromClock.amTotalMinutes, 150);
+    const riley = payrollDriverRows(punched, { asOf, calendar }).find((row) => row.route === '209');
+    assert.equal(riley.amIn, '6:00');
+
     const alex12 = rows.find((row) => row.route === '12');
     assert.equal(alex12.amTotalMinutes, 120);
     assert.equal(alex12.amRoundedQuarterHours, 2);
@@ -153,7 +183,9 @@ describe('payroll driver times', () => {
     const row = payrollDriverRows(stateFromRoutesCsv(csv), {
       asOf: '2026-09-16',
       calendar,
+      roundClocks: false,
     }).find((item) => item.route === '88');
+    assert.equal(row.amQuarterClocks, '6:00 AM–8:07 AM');
     assert.equal(row.amTotalMinutes, 127);
     assert.equal(row.amRoundedQuarterHours, 2);
     assert.equal(row.middayTotalMinutes, 67);
@@ -168,6 +200,29 @@ describe('payroll driver times', () => {
     );
   });
 
+  it('counts minutes from clocks snapped to the nearest quarter hour', () => {
+    const csv = [
+      'Route,Driver,Kind,Date,Run,Clock in,Clock out,Note',
+      '88,Pat Example,start,2026-09-08,AM,6:00,8:07,',
+      '88,Pat Example,start,2026-09-08,Midday,11:00,12:07,',
+      '88,Pat Example,start,2026-09-08,PM,14:00,16:07,',
+    ].join('\n');
+    const row = payrollDriverRows(stateFromRoutesCsv(csv), {
+      asOf: '2026-09-16',
+      calendar,
+    }).find((item) => item.route === '88');
+    assert.equal(row.amIn, '6:00');
+    assert.equal(row.amOut, '8:07');
+    assert.equal(row.amQuarterClocks, '6:00 AM–8:00 AM');
+    assert.equal(row.amTotalMinutes, 120);
+    assert.equal(row.amRoundedQuarterHours, 2);
+    assert.equal(row.middayQuarterClocks, '11:00 AM–12:00 PM');
+    assert.equal(row.middayTotalMinutes, 60);
+    assert.equal(row.pmQuarterClocks, '2:00 PM–4:00 PM');
+    assert.equal(row.pmTotalMinutes, 120);
+    assert.equal(row.fullDayRoundedQuarterHours, 5);
+  });
+
   it('uses the new clock times after a small change has been contracted', () => {
     const state = sampleState();
     const asOf = '2026-11-02';
@@ -177,7 +232,8 @@ describe('payroll driver times', () => {
 
     const riley = payrollDriverRows(state, { asOf, calendar }).find((row) => row.route === '209');
     assert.equal(riley.amOut, '8:10');
-    assert.equal(riley.amTotalMinutes, 130);
+    assert.equal(riley.amQuarterClocks, '6:00 AM–8:15 AM');
+    assert.equal(riley.amTotalMinutes, 135);
     assert.equal(riley.amRoundedQuarterHours, 2.25);
     assert.equal(formatQuarterHours(riley.amRoundedQuarterHours), '2.25');
     assert.equal(riley.middayRoundedQuarterHours, 1);
@@ -214,14 +270,17 @@ describe('payroll driver times', () => {
         'Contract started',
         'Contracted AM clock in',
         'Contracted AM clock out',
+        'AM quarter-hour clocks',
         'AM total minutes',
         'AM rounded quarter hours',
         'Contracted midday clock in',
         'Contracted midday clock out',
+        'Mid Day quarter-hour clocks',
         'Mid Day total minutes',
         'Mid Day rounded quarter hours',
         'Contracted PM clock in',
         'Contracted PM clock out',
+        'PM quarter-hour clocks',
         'PM total minutes',
         'PM rounded quarter hours',
         'Full Day rounded quarter hours',
@@ -242,36 +301,40 @@ describe('payroll driver times', () => {
     assert.equal(alex104.getCell(6).value.toISOString(), '1899-12-30T06:00:00.000Z');
     assert.equal(alex104.getCell(6).numFmt, 'h:mm AM/PM');
     assert.equal(alex104.getCell(7).value.toISOString(), '1899-12-30T08:00:00.000Z');
-    assert.equal(alex104.getCell(8).value, 120);
-    assert.equal(alex104.getCell(9).value, 2);
-    assert.equal(alex104.getCell(9).numFmt, '0.0#');
-    assert.equal(formatQuarterHours(alex104.getCell(9).value), '2.0');
-    assert.equal(alex104.getCell(10).value.toISOString(), '1899-12-30T11:00:00.000Z');
-    assert.equal(alex104.getCell(11).value.toISOString(), '1899-12-30T12:00:00.000Z');
-    assert.equal(alex104.getCell(12).value, 60);
-    assert.equal(alex104.getCell(13).value, 1);
-    assert.equal(formatQuarterHours(alex104.getCell(13).value), '1.0');
-    assert.equal(alex104.getCell(14).value.toISOString(), '1899-12-30T14:00:00.000Z');
-    assert.equal(alex104.getCell(15).value.toISOString(), '1899-12-30T16:15:00.000Z');
-    assert.equal(alex104.getCell(16).value, 135);
-    assert.equal(alex104.getCell(17).value, 2.25);
-    assert.equal(alex104.getCell(17).numFmt, '0.0#');
-    assert.equal(formatQuarterHours(alex104.getCell(17).value), '2.25');
-    assert.equal(alex104.getCell(18).value, 5.25);
-    assert.equal(alex104.getCell(18).numFmt, '0.0#');
-    assert.equal(formatQuarterHours(alex104.getCell(18).value), '5.25');
+    assert.equal(alex104.getCell(8).value, '6:00 AM–8:00 AM');
+    assert.equal(alex104.getCell(9).value, 120);
+    assert.equal(alex104.getCell(10).value, 2);
+    assert.equal(alex104.getCell(10).numFmt, '0.0#');
+    assert.equal(formatQuarterHours(alex104.getCell(10).value), '2.0');
+    assert.equal(alex104.getCell(11).value.toISOString(), '1899-12-30T11:00:00.000Z');
+    assert.equal(alex104.getCell(12).value.toISOString(), '1899-12-30T12:00:00.000Z');
+    assert.equal(alex104.getCell(13).value, '11:00 AM–12:00 PM');
+    assert.equal(alex104.getCell(14).value, 60);
+    assert.equal(alex104.getCell(15).value, 1);
+    assert.equal(formatQuarterHours(alex104.getCell(15).value), '1.0');
+    assert.equal(alex104.getCell(16).value.toISOString(), '1899-12-30T14:00:00.000Z');
+    assert.equal(alex104.getCell(17).value.toISOString(), '1899-12-30T16:15:00.000Z');
+    assert.equal(alex104.getCell(18).value, '2:00 PM–4:15 PM');
+    assert.equal(alex104.getCell(19).value, 135);
+    assert.equal(alex104.getCell(20).value, 2.25);
+    assert.equal(alex104.getCell(20).numFmt, '0.0#');
+    assert.equal(formatQuarterHours(alex104.getCell(20).value), '2.25');
+    assert.equal(alex104.getCell(21).value, 5.25);
+    assert.equal(alex104.getCell(21).numFmt, '0.0#');
+    assert.equal(formatQuarterHours(alex104.getCell(21).value), '5.25');
 
     const sam = data.find((row) => row.getCell(1).value === 'sam.noroute@example.com');
     assert.equal(sam.getCell(4).value, '');
     assert.equal(sam.getCell(5).value, null);
     assert.equal(sam.getCell(8).value, null);
-    assert.equal(sam.getCell(18).value, null);
+    assert.equal(sam.getCell(9).value, null);
+    assert.equal(sam.getCell(21).value, null);
 
     const widths = PAYROLL_HEADERS.map((_, index) => sheet.getColumn(index + 1).width);
     const total = widths.reduce((sum, width) => sum + width, 0);
-    assert.ok(total <= 190, `sheet is ${total} characters wide`);
+    assert.ok(total <= 250, `sheet is ${total} characters wide`);
     assert.deepEqual(widths, [
-      25, 10, 10, 6, 11, 11, 11, 8, 8, 11, 11, 8, 8, 11, 11, 8, 8, 8,
+      25, 10, 10, 6, 11, 11, 11, 16, 8, 8, 11, 11, 18, 8, 8, 11, 11, 16, 8, 8, 8,
     ]);
     assert.equal(sheet.getRow(1).getCell(6).alignment.wrapText, true);
     assert.ok(sheet.getRow(1).height >= 56);
@@ -280,26 +343,26 @@ describe('payroll driver times', () => {
     const headerRow = sheet.getRow(1);
     assert.equal(headerRow.getCell(6).fill.fgColor.argb, PAYROLL_RUN_COLORS.AM.fill);
     assert.equal(headerRow.getCell(6).font.color.argb, 'FF000000');
-    assert.equal(headerRow.getCell(9).fill.fgColor.argb, PAYROLL_RUN_COLORS.AM.fill);
-    assert.equal(headerRow.getCell(10).fill.fgColor.argb, PAYROLL_RUN_COLORS.MIDDAY.fill);
-    assert.equal(headerRow.getCell(10).font.color.argb, 'FF000000');
-    assert.equal(headerRow.getCell(13).fill.fgColor.argb, PAYROLL_RUN_COLORS.MIDDAY.fill);
-    assert.equal(headerRow.getCell(14).fill.fgColor.argb, PAYROLL_RUN_COLORS.PM.fill);
-    assert.equal(headerRow.getCell(14).font.color.argb, 'FF000000');
-    assert.equal(headerRow.getCell(17).fill.fgColor.argb, PAYROLL_RUN_COLORS.PM.fill);
+    assert.equal(headerRow.getCell(10).fill.fgColor.argb, PAYROLL_RUN_COLORS.AM.fill);
+    assert.equal(headerRow.getCell(11).fill.fgColor.argb, PAYROLL_RUN_COLORS.MIDDAY.fill);
+    assert.equal(headerRow.getCell(11).font.color.argb, 'FF000000');
+    assert.equal(headerRow.getCell(15).fill.fgColor.argb, PAYROLL_RUN_COLORS.MIDDAY.fill);
+    assert.equal(headerRow.getCell(16).fill.fgColor.argb, PAYROLL_RUN_COLORS.PM.fill);
+    assert.equal(headerRow.getCell(16).font.color.argb, 'FF000000');
+    assert.equal(headerRow.getCell(20).fill.fgColor.argb, PAYROLL_RUN_COLORS.PM.fill);
     assert.equal(headerRow.getCell(1).fill.fgColor.argb, 'FF1A4F86');
-    assert.equal(headerRow.getCell(18).fill.fgColor.argb, 'FF1A4F86');
+    assert.equal(headerRow.getCell(21).fill.fgColor.argb, 'FF1A4F86');
 
     assert.equal(alex104.getCell(6).fill.fgColor.argb, PAYROLL_RUN_COLORS.AM.fill);
     assert.equal(alex104.getCell(6).font.color.argb, 'FF000000');
-    assert.equal(alex104.getCell(9).fill.fgColor.argb, PAYROLL_RUN_COLORS.AM.fill);
-    assert.equal(alex104.getCell(10).fill.fgColor.argb, PAYROLL_RUN_COLORS.MIDDAY.fill);
-    assert.equal(alex104.getCell(13).fill.fgColor.argb, PAYROLL_RUN_COLORS.MIDDAY.fill);
-    assert.equal(alex104.getCell(14).fill.fgColor.argb, PAYROLL_RUN_COLORS.PM.fill);
-    assert.equal(alex104.getCell(14).font.color.argb, 'FF000000');
-    assert.equal(alex104.getCell(17).fill.fgColor.argb, PAYROLL_RUN_COLORS.PM.fill);
-    assert.equal(sam.getCell(10).fill.fgColor.argb, PAYROLL_RUN_COLORS.MIDDAY.fill);
-    assert.equal(sam.getCell(14).fill.fgColor.argb, PAYROLL_RUN_COLORS.PM.fill);
+    assert.equal(alex104.getCell(10).fill.fgColor.argb, PAYROLL_RUN_COLORS.AM.fill);
+    assert.equal(alex104.getCell(11).fill.fgColor.argb, PAYROLL_RUN_COLORS.MIDDAY.fill);
+    assert.equal(alex104.getCell(15).fill.fgColor.argb, PAYROLL_RUN_COLORS.MIDDAY.fill);
+    assert.equal(alex104.getCell(16).fill.fgColor.argb, PAYROLL_RUN_COLORS.PM.fill);
+    assert.equal(alex104.getCell(16).font.color.argb, 'FF000000');
+    assert.equal(alex104.getCell(20).fill.fgColor.argb, PAYROLL_RUN_COLORS.PM.fill);
+    assert.equal(sam.getCell(11).fill.fgColor.argb, PAYROLL_RUN_COLORS.MIDDAY.fill);
+    assert.equal(sam.getCell(16).fill.fgColor.argb, PAYROLL_RUN_COLORS.PM.fill);
   });
 
   it('widens a column for a longer value and still keeps the sheet on one screen', async () => {
@@ -320,7 +383,7 @@ describe('payroll driver times', () => {
     assert.equal(widths[5], 11);
     assert.equal(widths[8], 8);
     const total = widths.reduce((sum, width) => sum + width, 0);
-    assert.ok(total <= 190, `sheet is ${total} characters wide`);
+    assert.ok(total <= 250, `sheet is ${total} characters wide`);
   });
 
   it('highlights the routes changed during this visit', async () => {
@@ -346,6 +409,30 @@ describe('payroll driver times', () => {
     assert.equal(highlighted.getCell(1).fill.fgColor.argb, 'FFFFFF00');
     assert.notEqual(untouched.getCell(1).fill?.fgColor?.argb, 'FFFFFF00');
     assert.notEqual(untouched.getCell(1).font?.bold, true);
+  });
+
+  it('keeps a saved payroll file comparable with the next one', () => {
+    const asOf = '2026-09-16';
+    const rows = payrollDriverRows(sampleState(), { asOf, calendar });
+    const saved = payrollBaselineRows(rows);
+    assert.deepEqual(changedPayrollKeys(rows, saved), []);
+    assert.deepEqual(changedPayrollLabels(rows, saved), []);
+
+    const edited = saved.map((row) => ({ ...row }));
+    const alex104 = edited.find((row) => row.route === '104');
+    alex104.amOut = '8:10';
+    assert.deepEqual(changedPayrollLabels(rows, edited), ['104 · Alex Driver']);
+  });
+
+  it('keeps every payroll column for one driver', () => {
+    const rows = payrollDriverRows(sampleState(), { asOf: '2026-09-16', calendar });
+    const alex = payrollRowsForDriver(rows, 'Alex Driver');
+    assert.deepEqual(
+      alex.map((row) => row.route),
+      ['12', '104']
+    );
+    assert.equal(payrollRowsForDriver(rows, 'Sam NoRoute').length, 1);
+    assert.equal(payrollRowsForDriver(rows, 'Nobody').length, 0);
   });
 
   it('bolds and highlights rows that differ from the last payroll file', async () => {

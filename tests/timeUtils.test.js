@@ -5,11 +5,21 @@ import {
   computeDeltaMinutes,
   computeExactRouteDailyTotalMinutes,
   parseTimeRange,
+  roundClockToQuarterHour,
   roundToQuarterHourForPayroll,
   toDateString,
 } from '../src/logic/timeUtils.js';
 
 describe('timeUtils', () => {
+  it('snaps a clock to the nearest quarter hour', () => {
+    assert.equal(roundClockToQuarterHour('6:07'), '6:00');
+    assert.equal(roundClockToQuarterHour('6:08'), '6:15');
+    assert.equal(roundClockToQuarterHour('5:50'), '5:45');
+    assert.equal(roundClockToQuarterHour('8:10'), '8:15');
+    assert.equal(roundClockToQuarterHour('23:53'), '0:00');
+    assert.equal(roundClockToQuarterHour(''), '');
+  });
+
   it('parses a valid time range', () => {
     const parsed = parseTimeRange('6:35-8:55');
     assert.equal(parsed.startMinutes, 6 * 60 + 35);

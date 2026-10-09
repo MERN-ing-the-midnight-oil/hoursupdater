@@ -7,10 +7,14 @@ import {
   fillNoticeTemplate,
   isChangeNoticeSent,
   loadSentChangeIds,
+  memorandumById,
+  memorandumMail,
   normalizeDriverNotice,
   noticeCalendarFilename,
   noticeFromChange,
   rememberChangeNoticeSent,
+  timeChangeNoticeDocument,
+  timeChangeNoticeFilename,
 } from '../office-tracker/src/noticeMail.js';
 import { loadDriverNotice, saveDriverNotice } from '../office-tracker/web/store.js';
 
@@ -74,6 +78,7 @@ test('a known bid date is named in that change’s email', () => {
   assert.ok(originalAt >= 0 && changeAt > originalAt);
   assert.doesNotMatch(mail.body, /attached/i);
   assert.equal(noticeCalendarFilename('John Smith'), 'JohnSmith.pdf');
+  assert.equal(timeChangeNoticeFilename('John Smith'), 'JohnSmith-time-change-notice.pdf');
   assert.equal(noticeFromChange({ driverName: 'Jean-Luc Picard', routeName: 'S1', row }).type, 'bid_eligible');
 });
 
@@ -118,6 +123,8 @@ test('a saved driver notice replaces the opening and keeps the change list', () 
   const storage = memoryStorage();
   const fresh = loadDriverNotice(storage);
   assert.equal(fresh.subject, 'Clock-time notice for {{driver_name}}');
+  assert.equal(fresh.memorandumId, 'student-route-time');
+  assert.equal(fresh.attachTimeChangeNotice, false);
   assert.equal(fresh.noticeImmediately, false);
   assert.equal(fresh.noticeBeforeContract, false);
   assert.equal(fresh.schoolDaysBefore, 1);
@@ -136,8 +143,17 @@ test('a saved driver notice replaces the opening and keeps the change list', () 
     storage
   );
   assert.equal(saved.subject, 'Times changed for {{driver_name}}');
+  assert.equal(saved.memorandumId, 'student-route-time');
+  assert.equal(saved.attachTimeChangeNotice, false);
   assert.equal(loadDriverNotice(storage).body, saved.body);
   assert.equal(normalizeDriverNotice({ subject: '  ', body: '' }).subject, 'Clock-time notice for {{driver_name}}');
+  const chosen = normalizeDriverNotice({
+    memorandumId: 'not-a-memorandum',
+    attachTimeChangeNotice: 'yes',
+  });
+  assert.equal(chosen.memorandumId, 'student-route-time');
+  assert.equal(chosen.attachTimeChangeNotice, true);
+  assert.equal(memorandumById('not-a-memorandum').id, 'student-route-time');
 
   const { section, row } = changeRow('Jean-Luc Picard', 'S1', '2026-09-25');
   const mail = changeNoticeMail({
@@ -155,6 +171,51 @@ test('a saved driver notice replaces the opening and keeps the change list', () 
   const openingAt = mail.body.indexOf('Jean-Luc Picard, your route');
   const historyAt = mail.body.indexOf('Changes to date on route S1');
   assert.ok(openingAt >= 0 && historyAt > openingAt);
+  const attachment = timeChangeNoticeDocument({
+    driverName: 'Jean-Luc Picard',
+    routeName: 'S1',
+    row,
+    asOf: '2026-09-25',
+    history: section.snapshot?.schedule_history || [],
+    subject: saved.subject,
+    body: saved.body,
+  });
+  assert.equal(attachment.filename, 'JeanLucPicard-time-change-notice.pdf');
+  assert.match(attachment.text, /^Times changed for Jean-Luc Picard/);
+  assert.match(attachment.text, /Original clock times, established/);
+});
+
+test('the email is the student route-time memorandum', () => {
+  const { section, row } = changeRow('Jean-Luc Picard', 'S1', '2026-09-25');
+  assert.ok(section);
+  const mail = memorandumMail({
+    driverName: 'Jean-Luc Picard',
+    routeName: 'S1',
+    row,
+    asOf: '2026-09-25',
+  });
+  assert.equal(
+    mail.subject,
+    'Jean-Luc Picard: Route Time Changes due to added student(s) or loss of student(s) on or after October 1'
+  );
+  assert.match(mail.body, /^Action Required/);
+  assert.match(mail.body, /MEMORANDUM/);
+  assert.match(mail.body, /TO: Jean-Luc Picard/);
+  assert.match(mail.body, /FROM: Rachel Hrutfiord, Transportation Director/);
+  assert.match(mail.body, /DATE: Fri, Sep 25, 2026/);
+  assert.match(
+    mail.body,
+    /SUBJECT: Route Time Changes due to added student\(s\) or loss of student\(s\) on or after October 1/
+  );
+  assert.match(
+    mail.body,
+    /Effective Fri, Sep 18, 2026 your route times \(punch-in and punch-out time\) will be: route S1, AM punch-in 6:10 AM, punch-out 8:55 AM; Midday punch-in 10:50 AM, punch-out 12:05 PM; PM punch-in 1:50 PM, punch-out 4:30 PM/
+  );
+  assert.match(mail.body, /timecard code #1/);
+  assert.match(mail.body, /Driver Signature:/);
+  assert.doesNotMatch(mail.body, /Changes to date/);
+  assert.doesNotMatch(mail.body, /Original clock times/);
+  assert.doesNotMatch(mail.body, /Hi Jean-Luc Picard/);
 });
 
 test('sending a notice remembers that change id', () => {

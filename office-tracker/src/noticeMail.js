@@ -8,6 +8,58 @@ export const DEFAULT_DRIVER_NOTICE_SUBJECT = 'Clock-time notice for {{driver_nam
 
 export const DEFAULT_DRIVER_NOTICE_BODY = 'Hi {{driver_name}},\n\n{{notices}}';
 
+/** The memorandum used as the email until another one is chosen. */
+export const DEFAULT_MEMORANDUM_ID = 'student-route-time';
+
+/**
+ * Email bodies an admin can choose. Add another object here to offer another memorandum.
+ * `label` is the choice on the settings page. `subject` is the email subject.
+ * `body` is the email, with {{driver_name}}, {{date}}, {{effective_date}}, and {{route_times}}.
+ */
+export const DRIVER_MEMORANDA = [
+  {
+    id: 'student-route-time',
+    label:
+      'Route Time Changes due to added student(s) or loss of student(s) on or after October 1',
+    subject:
+      '{{driver_name}}: Route Time Changes due to added student(s) or loss of student(s) on or after October 1',
+    body: `Action Required
+
+MEMORANDUM
+
+TO: {{driver_name}}
+
+FROM: Rachel Hrutfiord, Transportation Director
+
+DATE: {{date}}
+
+SUBJECT: Route Time Changes due to added student(s) or loss of student(s) on or after October 1
+
+Effective {{effective_date}} your route times (punch-in and punch-out time) will be: {{route_times}}.
+
+John and Jamie will be tracking the number of days, so please just mark your timecard with the timecard code #1 each day. It is your responsibility to notify Rachel Hrutfiord, Transportation Director, if the student has not been on the bus for two weeks.
+
+This is not yet contracted time so if the student is absent, you should clock out at your regularly contracted time. If you sign up for work on the daily/weekly boards, please include this time as part of your day.
+
+If these route changes are a decrease in time of 15 minutes or less, you will receive an official notice of your reduced contract time and the date it will take effect. If the decrease is 30 minutes or more, you will receive notification of the effective date of change, which will be 15 days from the effective date as well as your options regarding this decrease.
+
+Please sign and date this form as your acknowledgement of receipt of your new route time. Please return your completed form to Jamie and she will get you a copy for your records. Feel free to see me if you have any questions.
+
+Driver Signature: ______________________________
+
+Date: ______________________________
+`,
+  },
+];
+
+/**
+ * @param {unknown} id
+ */
+export function memorandumById(id) {
+  const key = String(id ?? '').trim();
+  return DRIVER_MEMORANDA.find((item) => item.id === key) || DRIVER_MEMORANDA[0];
+}
+
 /**
  * @param {unknown} value
  * @param {boolean} fallback
@@ -19,7 +71,8 @@ function yesNo(value, fallback) {
 }
 
 /**
- * Wording and timing for the email a driver gets. Missing text uses the usual draft.
+ * Timing for the driver email, which memorandum is that email, and whether the
+ * older clock-time notice is also downloaded as a PDF to attach.
  * Automatic notices stay off until someone turns them on.
  * @param {unknown} raw
  */
@@ -31,6 +84,8 @@ export function normalizeDriverNotice(raw) {
     noticeImmediately: yesNo(source.noticeImmediately, false),
     noticeBeforeContract: yesNo(source.noticeBeforeContract, false),
     schoolDaysBefore: schoolDaysBeforeValue(source.schoolDaysBefore),
+    memorandumId: memorandumById(source.memorandumId).id,
+    attachTimeChangeNotice: yesNo(source.attachTimeChangeNotice, false),
     subject: subject || DEFAULT_DRIVER_NOTICE_SUBJECT,
     body: body || DEFAULT_DRIVER_NOTICE_BODY,
   };
@@ -208,7 +263,52 @@ export function noticeHistoryText(routeName, history) {
 }
 
 /**
- * Subject and body for the Mail draft opened from one clock-time change.
+ * Punch-in and punch-out for each run on the schedule after this change.
+ * @param {string} routeName
+ * @param {object | null | undefined} schedule
+ */
+export function routeTimesPhrase(routeName, schedule) {
+  const parts = [
+    ['AM', 'AM'],
+    ['MIDDAY', 'Midday'],
+    ['PM', 'PM'],
+  ]
+    .map(([segment, label]) => {
+      const item = schedule?.[segment];
+      if (!item?.clock_in || !item?.clock_out) return '';
+      return `${label} punch-in ${formatClockAmPm(item.clock_in)}, punch-out ${formatClockAmPm(item.clock_out)}`;
+    })
+    .filter(Boolean);
+  const route = String(routeName || '').trim();
+  if (!parts.length) {
+    return route ? `route ${route}, not recorded yet` : 'not recorded yet';
+  }
+  const listed = parts.join('; ');
+  return route ? `route ${route}, ${listed}` : listed;
+}
+
+/**
+ * The email opened from one clock-time change. The body is the chosen memorandum.
+ * @param {{ memorandumId?: string, driverName: string, routeName: string, row: object, asOf?: string }} input
+ */
+export function memorandumMail({ memorandumId, driverName, routeName, row, asOf }) {
+  const memo = memorandumById(memorandumId);
+  const values = {
+    driver_name: driverName,
+    route_name: String(routeName || '').trim(),
+    date: prettyDate(asOf),
+    effective_date: prettyDate(row?.date),
+    route_times: routeTimesPhrase(routeName, row?.schedule),
+  };
+  return {
+    id: memo.id,
+    subject: fillNoticeTemplate(memo.subject, values),
+    body: `${fillNoticeTemplate(memo.body, values).trimEnd()}\n`,
+  };
+}
+
+/**
+ * The previous email, kept as the optional driver time-change notice PDF.
  * @param {{ driverName: string, routeName: string, row: object, asOf?: string, history?: object[], subject?: string, body?: string }} input
  */
 export function changeNoticeMail({ driverName, routeName, row, asOf, history, subject, body }) {
@@ -236,6 +336,27 @@ export function changeNoticeMail({ driverName, routeName, row, asOf, history, su
 export function noticeCalendarFilename(driverName) {
   const compact = String(driverName ?? '').replace(/[^A-Za-z0-9]+/g, '');
   return `${compact || 'Driver'}.pdf`;
+}
+
+/**
+ * Optional clock-time notice PDF, named apart from the calendar.
+ * @param {string} driverName
+ */
+export function timeChangeNoticeFilename(driverName) {
+  const compact = String(driverName ?? '').replace(/[^A-Za-z0-9]+/g, '');
+  return `${compact || 'Driver'}-time-change-notice.pdf`;
+}
+
+/**
+ * Text of the optional driver time-change notice PDF.
+ * @param {{ driverName: string, routeName: string, row: object, asOf?: string, history?: object[], subject?: string, body?: string }} input
+ */
+export function timeChangeNoticeDocument(input) {
+  const mail = changeNoticeMail(input);
+  return {
+    filename: timeChangeNoticeFilename(input.driverName),
+    text: `${mail.subject}\n\n${mail.body}`.trimEnd() + '\n',
+  };
 }
 
 /**

@@ -47,7 +47,7 @@
             </svg>
             <span class="brand">Teamster Time Changes Dashboard</span>
           </button>
-          <button type="button" class="brand-block app-launch app-launch-reader" id="timesheet-tab">
+          <button type="button" class="brand-block app-launch app-launch-reader" id="clock-tab">
             <svg class="brand-mark" viewBox="0 0 21 21" shape-rendering="crispEdges" aria-hidden="true">
               <g class="px-reader-shadow">
                 <rect x="4" y="2" width="14" height="18" />
@@ -61,18 +61,18 @@
               <rect class="px-reader-case" x="14" y="5" width="1" height="1" />
               <rect class="px-reader-case" x="5" y="14" width="1" height="1" />
               <rect class="px-reader-case" x="14" y="14" width="1" height="1" />
-              <rect class="px-reader-ink" x="7" y="6" width="6" height="1" />
-              <rect class="px-reader-ink" x="6" y="8" width="4" height="1" />
-              <rect class="px-reader-ink" x="6" y="10" width="4" height="1" />
-              <rect class="px-reader-ink" x="6" y="12" width="3" height="1" />
-              <rect class="px-reader-ink" x="10" y="8" width="1" height="5" />
-              <rect class="px-reader-gold" x="11" y="8" width="2" height="1" />
-              <rect class="px-reader-gold" x="11" y="10" width="2" height="1" />
-              <rect class="px-reader-gold" x="11" y="12" width="2" height="1" />
+              <rect class="px-reader-ink" x="9" y="5" width="2" height="1" />
+              <rect class="px-reader-ink" x="9" y="14" width="2" height="1" />
+              <rect class="px-reader-ink" x="5" y="9" width="1" height="2" />
+              <rect class="px-reader-ink" x="14" y="9" width="1" height="2" />
+              <rect class="px-reader-ink" x="9" y="6" width="2" height="4" />
+              <rect class="px-reader-gold" x="10" y="9" width="2" height="2" />
+              <rect class="px-reader-gold" x="12" y="10" width="2" height="2" />
+              <rect class="px-reader-ink" x="9" y="9" width="2" height="2" />
               <rect class="px-reader-gold" x="14" y="3" width="2" height="2" />
               <rect class="px-reader-hot" x="14" y="3" width="1" height="1" />
             </svg>
-            <span class="brand">Timesheet reader</span>
+            <span class="brand">Timeclock</span>
           </button>
         </nav>
         <div class="topbar-side">
@@ -170,6 +170,26 @@
             </span>
             Download a backup of Current Route Data
           </button>
+        </div>
+        <p id="file-status" class="status file-status" role="status" hidden></p>
+      </div>
+
+      <div class="route-tabs" id="route-tabs" role="tablist" aria-label="Routes"></div>
+
+      <section id="clock-view" class="panel" hidden>
+        <h1 class="panel-title">Timeclock</h1>
+        <p class="lead">
+          Start Timeclock opens the driver screen on this tablet or laptop and keeps it there.
+          Open a driver to see the clock times that go into Payroll Driver Times.
+        </p>
+        <div class="clock-launch">
+          <button type="button" id="start-timeclock">Start Timeclock</button>
+          <p class="field-hint">
+            The lock code is how the office gets back. Driver PINs do not open it. Both are in Timeclock settings.
+          </p>
+        </div>
+        <p id="clock-status" class="status" role="status" hidden></p>
+        <div class="timeclock-toolbar">
           <button type="button" class="payroll-export" id="payroll-export-btn">
             <span class="dash-ico dash-ico-sheet">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -180,76 +200,183 @@
             </span>
             Create Payroll Driver Times.xlsx
           </button>
-          <input id="payroll-previous-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
+          <p id="payroll-status" class="status" role="status" hidden></p>
         </div>
-        <p id="file-status" class="status file-status" role="status" hidden></p>
-      </div>
-
-      <div class="route-tabs" id="route-tabs" role="tablist" aria-label="Routes"></div>
-
-      <section id="timesheet-view" class="panel" hidden>
-        <h1 class="panel-title">Timesheet reader</h1>
-        <p class="lead">
-          Use the camera for the front and the back of a paper time card. The reader fills in the stamps,
-          then compares those clock hours with the current contracted clocks on this dashboard.
-          Photos are not kept, and this desk does not change any route.
-        </p>
-        <form id="timesheet-form" class="timesheet-form" novalidate>
-          <div class="timesheet-sides">
-            <div class="timesheet-side">
-              <h2>Front</h2>
-              <img id="timesheet-front-preview" class="timesheet-preview" alt="" hidden />
-              <button type="button" id="timesheet-front-camera">Take front photo</button>
-              <button type="button" class="timesheet-file-link" id="timesheet-front-file">Choose a file</button>
-              <input id="timesheet-front" name="front" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" />
-            </div>
-            <div class="timesheet-side">
-              <h2>Back</h2>
-              <img id="timesheet-back-preview" class="timesheet-preview" alt="" hidden />
-              <button type="button" id="timesheet-back-camera">Take back photo</button>
-              <button type="button" class="timesheet-file-link" id="timesheet-back-file">Choose a file</button>
-              <input id="timesheet-back" name="back" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" />
-            </div>
+        <ul id="clock-driver-list" class="clock-driver-list"></ul>
+        <section id="clock-driver-sheet" hidden>
+          <div class="clock-driver-sheet-head">
+            <h2 id="clock-driver-sheet-title"></h2>
+            <button type="button" class="secondary" id="clock-driver-sheet-close">Close</button>
           </div>
-          <div class="actions">
-            <button type="submit" id="timesheet-read">Read card</button>
-            <button type="button" class="secondary" id="timesheet-clear">Clear</button>
-          </div>
-        </form>
-        <dialog id="timesheet-camera" class="timesheet-camera" aria-labelledby="timesheet-camera-title">
-          <h2 id="timesheet-camera-title">Front of the time card</h2>
-          <p class="lead">Point the camera at the card. A built-in laptop camera is used when one is available.</p>
-          <div class="field" id="timesheet-camera-picker" hidden>
-            <label for="timesheet-camera-device">Camera</label>
-            <select id="timesheet-camera-device"></select>
-          </div>
-          <div class="timesheet-camera-stage">
-            <video id="timesheet-camera-video" autoplay playsinline muted></video>
-          </div>
-          <p id="timesheet-camera-status" class="status" role="status" hidden></p>
-          <div class="actions">
-            <button type="button" id="timesheet-camera-shutter">Take photo</button>
-            <button type="button" class="secondary" id="timesheet-camera-cancel">Cancel</button>
-          </div>
-        </dialog>
-        <p id="timesheet-status" class="status" role="status" hidden></p>
-        <div id="timesheet-result" hidden>
-          <h2 id="timesheet-who" class="panel-title"></h2>
-          <div class="field">
-            <label for="timesheet-driver">Dashboard driver</label>
-            <select id="timesheet-driver"></select>
-          </div>
-          <p class="lead" id="timesheet-contract"></p>
-          <h3 id="timesheet-period"></h3>
+          <p class="field-hint">
+            These are the columns in Payroll Driver Times. A driver with no completed clock in and clock out
+            still uses the contracted clocks on their route.
+          </p>
           <div class="table-wrap">
-            <table class="schedule-history" id="timesheet-compare"></table>
+            <table class="schedule-history payroll-driver-sheet" id="clock-payroll-sheet">
+              <thead>
+                <tr></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
           </div>
-          <h3>Stamps</h3>
+          <h3>Clock records</h3>
+          <form id="clock-form" class="clock-form" novalidate>
+            <div class="field" hidden>
+              <label for="clock-driver">Driver</label>
+              <select id="clock-driver" required></select>
+            </div>
+            <div class="field">
+              <label for="clock-time">Time</label>
+              <input id="clock-time" type="datetime-local" required />
+            </div>
+            <div class="field">
+              <label for="clock-note">Note</label>
+              <input id="clock-note" type="text" maxlength="200" />
+            </div>
+            <div class="field">
+              <label for="clock-reason">Reason code</label>
+              <select id="clock-reason"></select>
+            </div>
+            <div class="actions">
+              <button type="button" class="secondary" id="clock-add-reason">Add to this record</button>
+            </div>
+            <ul id="clock-reason-picks" class="reason-picks"></ul>
+            <div class="actions">
+              <button type="button" id="clock-in">Clock in</button>
+              <button type="button" id="clock-out" class="secondary">Clock out</button>
+            </div>
+          </form>
           <div class="table-wrap">
-            <table class="schedule-history" id="timesheet-stamps"></table>
+            <table class="schedule-history" id="clock-records">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Kind</th>
+                  <th>Note</th>
+                  <th>Reason codes</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
           </div>
-          <p id="timesheet-caveats" class="lead" hidden></p>
-        </div>
+        </section>
+        <details class="timeclock-settings">
+          <summary>Timeclock settings</summary>
+          <form id="lock-form" class="clock-form" novalidate>
+            <div class="field">
+              <label for="lock-code">Lock code</label>
+              <input
+                id="lock-code"
+                type="text"
+                autocomplete="off"
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck="false"
+                minlength="4"
+                maxlength="64"
+                required
+              />
+              <p class="field-hint">This is how the office leaves the driver screen. A driver PIN does not open it.</p>
+            </div>
+            <div class="actions">
+              <button type="submit" class="secondary">Save lock code</button>
+            </div>
+          </form>
+          <form id="late-flash-form" class="clock-form" novalidate>
+            <div class="field">
+              <label for="late-flash-minutes">Minutes after a route clock-in before that name flashes</label>
+              <input
+                id="late-flash-minutes"
+                type="number"
+                min="0"
+                max="240"
+                step="1"
+                inputmode="numeric"
+                placeholder="Off"
+              />
+              <p class="field-hint">
+                Leave this blank and names stay steady. A number is how long to wait after a driver's route clock-in.
+                When that time passes and they have not clocked in, their name flashes on the driver screen.
+                Open that name and return to all drivers to stop the flash for that clock-in.
+              </p>
+            </div>
+            <div class="actions">
+              <button type="submit" class="secondary">Save flash time</button>
+            </div>
+          </form>
+          <form id="quarter-clock-form" class="clock-form" novalidate>
+            <div class="field">
+              <label class="quarter-clock-label" for="quarter-clocks">
+                <input id="quarter-clocks" type="checkbox" checked />
+                <span>Round each clock in and clock out to the nearest quarter hour</span>
+              </label>
+              <p class="field-hint">
+                On by default. 6:07 becomes 6:00 and 6:08 becomes 6:15. Payroll minutes are the time
+                between those rounded clocks. The quarter-hour clocks column shows the clocks used for that math.
+              </p>
+            </div>
+            <div class="actions">
+              <button type="submit" class="secondary">Save clock rounding</button>
+            </div>
+          </form>
+          <form id="name-size-form" class="clock-form" novalidate>
+            <div class="field">
+              <label for="name-size">Name badge size</label>
+              <select id="name-size">
+                <option value="compact">Compact</option>
+                <option value="regular">Regular</option>
+                <option value="large">Large</option>
+              </select>
+              <p class="field-hint">This is the size of each driver button on the Timeclock screen.</p>
+            </div>
+            <div class="actions">
+              <button type="submit" class="secondary">Save badge size</button>
+            </div>
+          </form>
+          <h2>Reason codes</h2>
+          <p class="field-hint">
+            Drivers choose from this list on a clock in or clock out. They can add more than one code to a record.
+          </p>
+          <form id="reason-form" class="clock-form" novalidate>
+            <div class="field">
+              <label for="reason-label">New reason code</label>
+              <input id="reason-label" type="text" maxlength="60" required />
+            </div>
+            <div class="actions">
+              <button type="submit">Add reason code</button>
+            </div>
+          </form>
+          <ul id="reason-list" class="pin-list"></ul>
+          <h2>Driver PINs</h2>
+          <p class="field-hint">
+            A driver needs a 4-digit PIN before the door screen will accept a punch. The number is listed here so the office can look it up.
+          </p>
+          <form id="pin-form" class="clock-form" novalidate>
+            <div class="field">
+              <label for="pin-driver">Driver</label>
+              <select id="pin-driver" required></select>
+            </div>
+            <div class="field">
+              <label for="pin-value">New PIN</label>
+              <input
+                id="pin-value"
+                type="text"
+                inputmode="numeric"
+                autocomplete="off"
+                minlength="4"
+                maxlength="4"
+                pattern="[0-9]{4}"
+                required
+              />
+            </div>
+            <div class="actions">
+              <button type="submit">Save PIN</button>
+            </div>
+          </form>
+          <ul id="pin-list" class="pin-list"></ul>
+        </details>
       </section>
 
       <section id="all-routes-view" class="panel" hidden>
@@ -380,10 +507,10 @@
           Driver time-change notice
         </h1>
         <p class="lead">
-          This is the email a driver gets about clock times. The address comes from
-          the Driver Name List. The template is the opening of that email. The original
-          clock times and every change to date are added after it. A created notice is
-          marked Yes. Send notice on a route can still create one by hand.
+          Send notice emails the memorandum chosen below. The address comes from
+          the Driver Name List. The driver time-change notice can be downloaded
+          as a PDF to attach. A calendar PDF is downloaded as well. A created
+          notice is marked Yes. Send notice on a route can still create one by hand.
         </p>
         <form id="driver-notice-form" novalidate>
           <fieldset class="yes-no">
@@ -407,17 +534,32 @@
             </p>
           </div>
           <div class="field">
-            <label for="driver-notice-subject">Subject template</label>
-            <input id="driver-notice-subject" name="subject" type="text" required />
-          </div>
-          <div class="field">
-            <label for="driver-notice-body">Message template</label>
-            <textarea id="driver-notice-body" name="body" rows="6" required></textarea>
-            <p class="field-hint">
-              You can use {{driver_name}}, {{routes}}, {{notices}}, and {{date}}.
-            </p>
+            <label for="driver-notice-memorandum">Email content</label>
+            <select id="driver-notice-memorandum" name="memorandum" required></select>
+            <p class="field-hint">This memorandum is the body of the email.</p>
           </div>
           <div class="template-preview" id="driver-notice-preview"></div>
+          <fieldset class="yes-no">
+            <legend>Attach the driver time-change notice</legend>
+            <label><input type="radio" name="notice_attach" value="no" checked /> No</label>
+            <label><input type="radio" name="notice_attach" value="yes" /> Yes</label>
+            <p class="field-hint">
+              Yes downloads a PDF of the clock-time notice to attach. That PDF is the previous email: the opening below, then the original clock times and every change to date. The email itself stays the memorandum.
+            </p>
+          </fieldset>
+          <div id="driver-notice-attachment-wording" hidden>
+            <div class="field">
+              <label for="driver-notice-subject">Notice PDF title</label>
+              <input id="driver-notice-subject" name="subject" type="text" />
+            </div>
+            <div class="field">
+              <label for="driver-notice-body">Notice PDF opening</label>
+              <textarea id="driver-notice-body" name="body" rows="6"></textarea>
+              <p class="field-hint">
+                You can use {{driver_name}}, {{routes}}, {{notices}}, and {{date}}. The clock-time history is added after this opening.
+              </p>
+            </div>
+          </div>
           <div class="actions">
             <button type="submit">Save driver notice</button>
             <button type="button" class="secondary" id="driver-notice-reset">Use the usual wording</button>
@@ -441,8 +583,9 @@
           last name, and email stay with the driver when they move between routes.
           Remove takes a name off this list. A route they still hold keeps that
           driver until you assign someone else.
-          Send notice on a clock-time change uses this email. It opens a
-          text message and downloads a calendar PDF you can attach.
+          Send notice on a clock-time change uses this email. It opens the
+          memorandum and downloads a calendar PDF you can attach. The driver
+          time-change notice is included only when that attachment is turned on.
         </p>
         <div class="table-wrap">
           <table class="schedule-history driver-sheet" id="driver-sheet">
@@ -531,10 +674,10 @@
             total of the clock times on that row. Contracted is the date that
             schedule became the contract, or a predicted date. Contract Hours is
             the official total, which stays at the previous figure until that
-            date. Send notice opens a text email that lists the original clock
-            times and every change to date, and downloads a calendar PDF. Attach
-            that PDF if you want the driver to see the calendar. Notice sent is
-            marked Yes.
+            date. Send notice opens an email with the chosen memorandum and
+            downloads a calendar PDF. Attach that PDF if you want the driver to
+            see the calendar. The driver time-change notice can be downloaded
+            too, when that attachment is turned on. Notice sent is marked Yes.
           </p>
           <div class="table-wrap">
             <table class="schedule-history" id="schedule-history">
@@ -730,6 +873,59 @@
       </div>
     </main>
 
+    <div id="timeclock-kiosk" class="timeclock-kiosk" hidden>
+      <p id="kiosk-now" class="kiosk-now"></p>
+      <section id="kiosk-list">
+        <label class="kiosk-search">
+          Find your name
+          <input id="kiosk-search" type="search" autocomplete="off" placeholder="Type a name" />
+        </label>
+        <div id="kiosk-roster" class="kiosk-roster"></div>
+        <p id="kiosk-list-status" class="status" role="status"></p>
+      </section>
+      <section id="kiosk-detail" hidden>
+        <button type="button" class="secondary" id="kiosk-back">All drivers</button>
+        <h2 id="kiosk-driver"></h2>
+        <p id="kiosk-routes" class="lead"></p>
+        <form id="kiosk-pin-form">
+          <label>
+            PIN
+            <input
+              id="kiosk-pin"
+              type="password"
+              inputmode="numeric"
+              autocomplete="off"
+              minlength="4"
+              maxlength="4"
+            />
+          </label>
+          <p id="kiosk-pin-error" class="status is-error" role="alert"></p>
+        </form>
+        <div id="kiosk-actions" class="kiosk-actions" hidden>
+          <div class="kiosk-reason-row">
+            <label>
+              Reason code
+              <select id="kiosk-reason"></select>
+            </label>
+            <button type="button" class="secondary" id="kiosk-add-reason">Add</button>
+          </div>
+          <ul id="kiosk-reason-picks" class="reason-picks"></ul>
+          <div class="kiosk-punch-row">
+            <button type="button" id="kiosk-in">Clock in</button>
+            <button type="button" id="kiosk-out" class="secondary">Clock out</button>
+          </div>
+        </div>
+      </section>
+      <form id="kiosk-leave" class="kiosk-leave">
+        <label>
+          Lock code
+          <input id="kiosk-leave-code" type="password" autocomplete="off" />
+        </label>
+        <button type="submit" class="secondary">Leave</button>
+        <p id="kiosk-leave-error" class="status is-error" role="alert"></p>
+      </form>
+    </div>
+
     <dialog id="notice-download-dialog" class="change-dialog" aria-labelledby="notice-download-title">
       <div class="change-dialog-header">
         <h2 id="notice-download-title">Attach the calendar</h2>
@@ -743,19 +939,13 @@
         <h2 id="payroll-compare-title">Highlight routes for payroll</h2>
         <button type="button" class="secondary" id="payroll-compare-close">Close</button>
       </div>
-      <p class="lead" id="payroll-highlight-lead">The following routes will be highlighted for payroll.</p>
-      <ul id="payroll-highlight-routes" class="payroll-highlight-routes"></ul>
-      <p class="lead" id="payroll-highlight-empty" hidden>
-        No routes were changed this visit, so no rows will be highlighted.
+      <p class="lead" id="payroll-highlight-lead">
+        These rows differ from the last payroll file this office created. They will be bold and highlighted.
       </p>
+      <ul id="payroll-highlight-routes" class="payroll-highlight-routes"></ul>
+      <p class="lead" id="payroll-highlight-empty" hidden></p>
       <div class="actions">
         <button type="button" id="payroll-compare-create">Create Payroll Driver Times</button>
-      </div>
-      <p class="lead payroll-upload-note">
-        Or upload the last payroll file. Rows that differ from that spreadsheet will be highlighted instead.
-      </p>
-      <div class="actions">
-        <button type="button" class="secondary" id="payroll-compare-upload">Upload the last payroll file</button>
       </div>
     </dialog>
 
@@ -865,11 +1055,28 @@
           <datalist id="assign-driver-options"></datalist>
         </div>
         <p class="field-hint">Names from the Driver Name List are listed as you type. A new name is added to that list.</p>
+        <div class="field">
+          <label for="assign_start_date">Start date</label>
+          <input id="assign_start_date" name="start_date" type="date" required />
+        </div>
+        <p class="field-hint">The first day this driver holds the route. Clock times before that day stay with the previous driver.</p>
         <div class="actions">
           <button type="submit">Assign driver</button>
         </div>
         <div id="assign-driver-status" class="status" role="status" hidden></div>
       </form>
+    </dialog>
+
+    <dialog id="duplicate-run-dialog" class="change-dialog" aria-labelledby="duplicate-run-title">
+      <div class="change-dialog-header">
+        <h2 id="duplicate-run-title">Same run on more than one route</h2>
+        <button type="button" class="secondary" id="duplicate-run-close">Close</button>
+      </div>
+      <p class="lead" id="duplicate-run-lead"></p>
+      <ul id="duplicate-run-choices" class="duplicate-run-choices"></ul>
+      <div class="actions">
+        <button type="button" class="secondary" id="duplicate-run-keep">Leave these routes</button>
+      </div>
     </dialog>
 
     <script type="module" src="./app.js"></script>

@@ -63,6 +63,38 @@ create policy "signed in can update office"
   using (true)
   with check (true);
 
+-- The last Payroll Driver Times file this office created.
+-- The next file highlights rows that differ from these.
+create table if not exists public.payroll_baseline (
+  id text primary key,
+  rows jsonb not null,
+  saved_at timestamptz,
+  saved_by uuid references auth.users (id)
+);
+
+alter table public.payroll_baseline enable row level security;
+
+grant select, insert, update on public.payroll_baseline to authenticated;
+
+drop policy if exists "signed in can read payroll baseline" on public.payroll_baseline;
+create policy "signed in can read payroll baseline"
+  on public.payroll_baseline for select
+  to authenticated
+  using (true);
+
+drop policy if exists "signed in can insert payroll baseline" on public.payroll_baseline;
+create policy "signed in can insert payroll baseline"
+  on public.payroll_baseline for insert
+  to authenticated
+  with check (true);
+
+drop policy if exists "signed in can update payroll baseline" on public.payroll_baseline;
+create policy "signed in can update payroll baseline"
+  on public.payroll_baseline for update
+  to authenticated
+  using (true)
+  with check (true);
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql

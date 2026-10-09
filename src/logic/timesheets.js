@@ -416,7 +416,7 @@ function combinedReasons(clockIn, clockOut) {
  * @param {Date} date
  * @returns {'am' | 'midday' | 'pm'}
  */
-function segmentForClock(date) {
+export function segmentForClock(date) {
   const minutes = date.getHours() * 60 + date.getMinutes();
   if (minutes < 8 * 60) return 'am';
   if (minutes < 13 * 60) return 'midday';

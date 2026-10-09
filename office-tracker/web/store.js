@@ -1,5 +1,7 @@
 import { renameDriverOnRoute, sameDriver } from '../src/assignments.js';
 import { normalizeContractReminder, reminderEventSignature } from '../src/contractReminder.js';
+import { DEFAULT_REASON_CODES, validLockCode } from '../../src/logic/clockKiosk.js';
+import { normalizeLateFlashMinutes } from '../../src/logic/lateClockFlash.js';
 import { normalizeDriverNotice } from '../src/noticeMail.js';
 
 export const STORAGE_KEY = 'transportation-timechange.v1';
@@ -12,7 +14,159 @@ export function emptyState() {
     version: 1,
     currentProfileId: null,
     profiles: {},
+    punches: [],
+    clockPins: {},
+    clockLockCode: '',
+    clockReasonCodes: defaultReasonCodes(),
   };
+}
+
+function defaultReasonCodes() {
+  return DEFAULT_REASON_CODES.map((code) => ({ id: code.id, label: code.label }));
+}
+
+/**
+ * Reason codes drivers can attach to a punch. A missing list uses the starting codes.
+ * An empty list stays empty.
+ * @param {unknown} raw
+ */
+export function normalizeClockReasonCodes(raw) {
+  if (raw == null) return defaultReasonCodes();
+  if (!Array.isArray(raw)) return [];
+  /** @type {Array<{ id: string, label: string }>} */
+  const codes = [];
+  const seen = new Set();
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const id = String(item.id || '').trim();
+    const label = String(item.label || '').trim();
+    if (!id || !label || label.length > 60 || seen.has(id)) continue;
+    seen.add(id);
+    codes.push({ id, label });
+  }
+  return codes;
+}
+
+/**
+ * @param {unknown} raw
+ */
+function normalizePunchReasons(raw) {
+  if (!Array.isArray(raw)) return [];
+  return normalizeClockReasonCodes(raw).filter((code) => code.id && code.label);
+}
+
+/**
+ * Four-digit driver PINs for the door screen, keyed by driver id.
+ * @param {unknown} raw
+ */
+export function normalizeClockPins(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  /** @type {Record<string, string>} */
+  const pins = {};
+  for (const [id, pin] of Object.entries(raw)) {
+    const driverId = String(id || '').trim();
+    const value = String(pin ?? '').trim();
+    if (!driverId || !/^\d{4}$/.test(value)) continue;
+    pins[driverId] = value;
+  }
+  return pins;
+}
+
+/**
+ * Office lock code that leaves the driver screen. Blank means the shared default.
+ * @param {unknown} raw
+ */
+export function normalizeClockLockCode(raw) {
+  const value = String(raw ?? '').trim();
+  return validLockCode(value) ? value : '';
+}
+
+/**
+ * Minutes after a route clock-in before that driver's name flashes.
+ * A missing field means this browser has not chosen, so a shared value can stay.
+ * Null means the office turned flashing off.
+ * @param {object | null | undefined} source
+ */
+function lateFlashField(source) {
+  if (!source || typeof source !== 'object' || !Object.prototype.hasOwnProperty.call(source, 'clockLateMinutes')) {
+    return {};
+  }
+  return { clockLateMinutes: normalizeLateFlashMinutes(source.clockLateMinutes) };
+}
+
+/**
+ * Size of the driver buttons on the Timeclock screen.
+ * A missing field means this browser has not chosen, so a shared value can stay.
+ * @param {unknown} raw
+ * @returns {'compact' | 'regular' | 'large' | ''}
+ */
+export function normalizeClockNameSize(raw) {
+  const value = String(raw ?? '').trim().toLowerCase();
+  if (value === 'compact' || value === 'regular' || value === 'large') return value;
+  return '';
+}
+
+/**
+ * @param {object | null | undefined} source
+ */
+function nameSizeField(source) {
+  if (!source || typeof source !== 'object' || !Object.prototype.hasOwnProperty.call(source, 'clockNameSize')) {
+    return {};
+  }
+  const size = normalizeClockNameSize(source.clockNameSize);
+  return size ? { clockNameSize: size } : {};
+}
+
+/**
+ * Clock in and clock out snap to the nearest quarter hour before payroll minutes are counted.
+ * A missing choice stays on.
+ * @param {object | null | undefined} state
+ */
+export function quarterHourClocksEnabled(state) {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return true;
+  if (!Object.prototype.hasOwnProperty.call(state, 'clockQuarterHourClocks')) return true;
+  return state.clockQuarterHourClocks !== false;
+}
+
+/**
+ * @param {object | null | undefined} source
+ */
+function quarterHourClocksField(source) {
+  if (
+    !source ||
+    typeof source !== 'object' ||
+    !Object.prototype.hasOwnProperty.call(source, 'clockQuarterHourClocks')
+  ) {
+    return {};
+  }
+  return { clockQuarterHourClocks: source.clockQuarterHourClocks !== false };
+}
+
+/**
+ * Clock in and clock out records saved with the shared office.
+ * @param {unknown} raw
+ */
+export function normalizeOfficePunches(raw) {
+  if (!Array.isArray(raw)) return [];
+  /** @type {Array<{ id: string, driver_name: string, action: 'in' | 'out', punched_at: string, note: string, reason_codes: Array<{ id: string, label: string }> }>} */
+  const punches = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const id = String(item.id || '').trim();
+    const driver_name = String(item.driver_name || '').trim();
+    const action = item.action === 'out' ? 'out' : item.action === 'in' ? 'in' : '';
+    const punched_at = String(item.punched_at || '').trim();
+    if (!id || !driver_name || !action || Number.isNaN(new Date(punched_at).getTime())) continue;
+    punches.push({
+      id,
+      driver_name,
+      action,
+      punched_at,
+      note: String(item.note || '').trim(),
+      reason_codes: normalizePunchReasons(item.reason_codes),
+    });
+  }
+  return punches;
 }
 
 /**
@@ -34,6 +188,13 @@ export function loadState(storage = globalThis.localStorage) {
       currentProfileId: parsed.currentProfileId ?? null,
       profiles: parsed.profiles ?? {},
       drivers: Array.isArray(parsed.drivers) ? parsed.drivers : [],
+      punches: normalizeOfficePunches(parsed.punches),
+      clockPins: normalizeClockPins(parsed.clockPins),
+      clockLockCode: normalizeClockLockCode(parsed.clockLockCode),
+      clockReasonCodes: normalizeClockReasonCodes(parsed.clockReasonCodes),
+      ...lateFlashField(parsed),
+      ...nameSizeField(parsed),
+      ...quarterHourClocksField(parsed),
       ...(omittedDrivers.length ? { omittedDrivers } : {}),
       exampleVersion: parsed.exampleVersion ?? 0,
       ...(parsed.contractReminder ? { contractReminder: parsed.contractReminder } : {}),
@@ -349,6 +510,37 @@ export function mergeSharedDriverList(remoteState, localState) {
     byName.set(key, driver);
   }
   remote.drivers = [...byName.values()];
+  const punches = new Map();
+  for (const punch of [
+    ...normalizeOfficePunches(remote.punches),
+    ...normalizeOfficePunches(localState?.punches),
+  ]) {
+    punches.set(punch.id, punch);
+  }
+  remote.punches = [...punches.values()];
+  remote.clockPins = {
+    ...normalizeClockPins(remote.clockPins),
+    ...normalizeClockPins(localState?.clockPins),
+  };
+  remote.clockLockCode =
+    normalizeClockLockCode(localState?.clockLockCode) ||
+    normalizeClockLockCode(remote.clockLockCode);
+  remote.clockReasonCodes = Array.isArray(localState?.clockReasonCodes)
+    ? normalizeClockReasonCodes(localState.clockReasonCodes)
+    : normalizeClockReasonCodes(remote.clockReasonCodes);
+  if (localState && Object.prototype.hasOwnProperty.call(localState, 'clockLateMinutes')) {
+    const minutes = normalizeLateFlashMinutes(localState.clockLateMinutes);
+    if (minutes == null) delete remote.clockLateMinutes;
+    else remote.clockLateMinutes = minutes;
+  }
+  if (localState && Object.prototype.hasOwnProperty.call(localState, 'clockNameSize')) {
+    const size = normalizeClockNameSize(localState.clockNameSize);
+    if (!size) delete remote.clockNameSize;
+    else remote.clockNameSize = size;
+  }
+  if (localState && Object.prototype.hasOwnProperty.call(localState, 'clockQuarterHourClocks')) {
+    remote.clockQuarterHourClocks = localState.clockQuarterHourClocks !== false;
+  }
   const omitted = new Set([...omittedDriverKeys(remote.omittedDrivers), ...localOmitted]);
   for (const driver of remote.drivers) {
     omitted.delete(String(driver?.name ?? '').trim().toLowerCase());
@@ -379,7 +571,7 @@ export function saveContractReminder(settings, storage = globalThis.localStorage
 }
 
 /**
- * Email wording for the notice a driver gets when clock times change.
+ * Which memorandum is emailed, and whether the clock-time notice PDF is attached.
  * @param {Storage} [storage]
  */
 export function loadDriverNotice(storage = globalThis.localStorage) {
@@ -615,6 +807,13 @@ export function importState(json, storage = globalThis.localStorage) {
     currentProfileId: parsed.currentProfileId ?? null,
     profiles: parsed.profiles,
     drivers: Array.isArray(parsed.drivers) ? parsed.drivers : [],
+    punches: normalizeOfficePunches(parsed.punches),
+    clockPins: normalizeClockPins(parsed.clockPins),
+    clockLockCode: normalizeClockLockCode(parsed.clockLockCode),
+    clockReasonCodes: normalizeClockReasonCodes(parsed.clockReasonCodes),
+    ...lateFlashField(parsed),
+    ...nameSizeField(parsed),
+    ...quarterHourClocksField(parsed),
     ...(omittedDriverKeys(parsed.omittedDrivers).length
       ? { omittedDrivers: omittedDriverKeys(parsed.omittedDrivers) }
       : {}),

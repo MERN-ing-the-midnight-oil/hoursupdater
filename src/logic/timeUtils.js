@@ -75,6 +75,29 @@ export function computeExactRouteDailyTotalMinutes(segments) {
 }
 
 /**
+ * Snap a clock to the nearest quarter hour on the clock face.
+ * 6:07 is 6:00. 6:08 is 6:15. 23:53 is 12:00 AM.
+ * @param {string | null | undefined} clock
+ * @returns {string}
+ */
+export function roundClockToQuarterHour(clock) {
+  const text = String(clock ?? '').trim();
+  if (!text) return '';
+  const minutes = parseClockTime(text);
+  const snapped = Math.round(minutes / 15) * 15;
+  return formatClockMinutesFromDay(snapped % (24 * 60));
+}
+
+/**
+ * @param {number} minutesSinceMidnight
+ */
+function formatClockMinutesFromDay(minutesSinceMidnight) {
+  const hours = Math.floor(minutesSinceMidnight / 60);
+  const minutes = minutesSinceMidnight % 60;
+  return `${hours}:${String(minutes).padStart(2, '0')}`;
+}
+
+/**
  * Round minutes to the nearest quarter hour for Payroll reporting only.
  *
  * Payroll rounds each run (AM, midday, PM) on its own, adds those rounded

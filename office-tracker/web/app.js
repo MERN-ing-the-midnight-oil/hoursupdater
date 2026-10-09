@@ -34,7 +34,6 @@ import {
   saveDriverNotice,
   saveProfile,
   saveState,
-  sessionModifiedRouteNames,
   setCurrentProfile,
   beginSessionRouteTracking,
 } from './store.js';
@@ -44,13 +43,27 @@ import {
   stampedWorkbookFilename,
   workbookTitleFromFilename,
 } from '../src/downloadName.js';
-import { buildPayrollWorkbook, rowsFromPayrollWorkbook } from '../src/payrollTimes.js';
+import {
+  buildPayrollWorkbook,
+  changedPayrollLabels,
+  payrollBaselineRows,
+  payrollDriverRows,
+} from '../src/payrollTimes.js';
 import { buildRouteWorkbook } from '../src/routeWorkbook.js';
-import { startAccounts, currentAccount, accountsEnabled, listOfficeUsers, whenSharedOfficeSaved } from './accounts.js';
+import {
+  startAccounts,
+  currentAccount,
+  accountsEnabled,
+  listOfficeUsers,
+  loadPayrollBaseline,
+  savePayrollBaseline,
+  whenSharedOfficeSaved,
+} from './accounts.js';
 import { attributionForChange } from './attribution.js';
 import { recentRouteChanges } from '../src/recentChanges.js';
 import { ensureExampleRoutes, isSampleOffice } from './exampleRoutes.js';
-import { mountTimesheetReader } from './timesheetReader.js';
+import { mountClockDesk } from './clockDesk.js';
+import { mountTimeclock } from './timeclockKiosk.js';
 
 bindCalculatorStore({
   deleteProfile,
@@ -62,6 +75,7 @@ bindCalculatorStore({
 });
 import { localDateString } from '../../employee-tracker/src/clockTimes.js';
 import { assignRouteDriver, dayBefore, driverForDate, driverOwnsRoute, routeAssignments, sameDriver } from '../src/assignments.js';
+import { duplicateRunRoutes, joinRunLabels, runTypeLabel } from '../src/duplicateRuns.js';
 import { sectionsForDriver } from '../src/driverPacket.js';
 import {
   DEFAULT_REMINDER_BODY,
@@ -79,14 +93,17 @@ import {
 import {
   DEFAULT_DRIVER_NOTICE_BODY,
   DEFAULT_DRIVER_NOTICE_SUBJECT,
-  changeNoticeMail,
-  fillNoticeTemplate,
+  DEFAULT_MEMORANDUM_ID,
+  DRIVER_MEMORANDA,
   isChangeNoticeSent,
   loadSentChangeIds,
+  memorandumMail,
   noticeCalendarFilename,
   rememberChangeNoticeSent,
+  timeChangeNoticeDocument,
 } from '../src/noticeMail.js';
 import { downloadCalendarPdf } from './noticeCalendarPdf.js';
+import { downloadTextPdf } from './noticeDocumentPdf.js';
 import { initCitations } from '../../employee-tracker/web/citations.js';
 import {
   calendarMonthsHtml,
@@ -115,6 +132,7 @@ const setupRuns = document.querySelector('#setup-runs');
 const setupForm = document.querySelector('#setup-form');
 const setupStatus = document.querySelector('#setup-status');
 const fileStatus = document.querySelector('#file-status');
+const payrollStatus = document.querySelector('#payroll-status');
 const recentChangesBox = document.querySelector('#recent-changes');
 const recentChangesTrack = document.querySelector('#recent-changes-track');
 const recentChangesCount = document.querySelector('#recent-changes-count');
@@ -137,8 +155,8 @@ const historyLegend = document.querySelector('#history-legend');
 const routeTabs = document.querySelector('#route-tabs');
 const driversTab = document.querySelector('#drivers-tab');
 const dashboardApp = document.querySelector('#dashboard-app');
-const timesheetTab = document.querySelector('#timesheet-tab');
-const timesheetView = document.querySelector('#timesheet-view');
+const clockTab = document.querySelector('#clock-tab');
+const clockView = document.querySelector('#clock-view');
 const adminReminderTab = document.querySelector('#admin-reminder-tab');
 const driverNoticeTab = document.querySelector('#driver-notice-tab');
 const adminReminderView = document.querySelector('#admin-reminder-view');
@@ -159,7 +177,7 @@ let snapshot = null;
 let addingPerson = false;
 let activeSheet = 'drivers';
 let viewingDriver = '';
-let sheetBeforeTimesheet = 'drivers';
+let sheetBeforeClock = 'drivers';
 
 function toTimeInput(clock) {
   if (!clock) return '';
@@ -195,7 +213,7 @@ function renderRouteTabs() {
   const onDrivers = activeSheet === 'drivers' && !addingPerson;
   const onAll = activeSheet === 'all' && !addingPerson;
   const onDriverHistory = activeSheet === 'driver-history' && !addingPerson;
-  const onTimesheet = activeSheet === 'timesheets' && !addingPerson;
+  const onClock = activeSheet === 'clock' && !addingPerson;
   const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
   const onRoute =
@@ -203,20 +221,20 @@ function renderRouteTabs() {
     !onDrivers &&
     !onAll &&
     !onDriverHistory &&
-    !onTimesheet &&
+    !onClock &&
     !onAdminReminder &&
     !onDriverNotice;
   const currentId = onRoute ? getCurrentProfile()?.id : null;
   driversTab.classList.toggle('is-active', onDrivers);
   driversTab.setAttribute('aria-selected', onDrivers ? 'true' : 'false');
-  dashboardApp?.classList.toggle('is-active', !onTimesheet);
-  timesheetTab?.classList.toggle('is-active', onTimesheet);
-  if (onTimesheet) {
+  dashboardApp?.classList.toggle('is-active', !onClock);
+  clockTab?.classList.toggle('is-active', onClock);
+  if (onClock) {
     dashboardApp?.removeAttribute('aria-current');
-    timesheetTab?.setAttribute('aria-current', 'page');
+    clockTab?.setAttribute('aria-current', 'page');
   } else {
     dashboardApp?.setAttribute('aria-current', 'page');
-    timesheetTab?.removeAttribute('aria-current');
+    clockTab?.removeAttribute('aria-current');
   }
   adminReminderTab?.classList.toggle('is-active', onAdminReminder);
   adminReminderTab?.setAttribute('aria-selected', onAdminReminder ? 'true' : 'false');
@@ -260,7 +278,7 @@ function chooseRoute(id) {
     activeSheet !== 'drivers' &&
     activeSheet !== 'all' &&
     activeSheet !== 'driver-history' &&
-    activeSheet !== 'timesheets' &&
+    activeSheet !== 'clock' &&
     activeSheet !== 'admin-reminder' &&
     activeSheet !== 'driver-notice' &&
     current?.id === id
@@ -298,20 +316,20 @@ function showDrivers() {
   loadAll();
 }
 
-function showTimesheets() {
-  if (activeSheet !== 'timesheets') {
-    sheetBeforeTimesheet = activeSheet === 'driver-history' ? 'drivers' : activeSheet;
+function showClock() {
+  if (activeSheet !== 'clock') {
+    sheetBeforeClock = activeSheet === 'driver-history' ? 'drivers' : activeSheet;
   }
   addingPerson = false;
   viewingDriver = '';
-  activeSheet = 'timesheets';
+  activeSheet = 'clock';
   loadAll();
-  timesheetView?.scrollIntoView({ block: 'start' });
+  clockView?.scrollIntoView({ block: 'start' });
 }
 
 function showDashboardApp() {
-  if (activeSheet !== 'timesheets') return;
-  const back = sheetBeforeTimesheet;
+  if (activeSheet !== 'clock') return;
+  const back = sheetBeforeClock;
   if (back === 'all') {
     showAllRoutes();
     return;
@@ -327,7 +345,7 @@ function showDashboardApp() {
   if (
     back &&
     back !== 'drivers' &&
-    back !== 'timesheets' &&
+    back !== 'clock' &&
     peopleList().some((person) => person.id === back)
   ) {
     chooseRoute(back);
@@ -354,7 +372,7 @@ function showDriverNotice() {
 
 driversTab.addEventListener('click', showDrivers);
 dashboardApp?.addEventListener('click', showDashboardApp);
-timesheetTab?.addEventListener('click', showTimesheets);
+clockTab?.addEventListener('click', showClock);
 adminReminderTab?.addEventListener('click', showAdminReminder);
 driverNoticeTab?.addEventListener('click', showDriverNotice);
 
@@ -464,21 +482,44 @@ function reminderPreviewText() {
 }
 
 function driverNoticePreviewText() {
-  const values = {
-    driver_name: 'Sample Driver',
-    routes: 'route 50',
-    notices: 'Route 50: the PM change from Mon, Sep 14, 2026 will be up for bid on Thu, Oct 1, 2026.',
-    date: 'Mon, Sep 14, 2026',
-  };
-  const subject = fillNoticeTemplate(
-    document.querySelector('#driver-notice-subject')?.value || DEFAULT_DRIVER_NOTICE_SUBJECT,
-    values
-  );
-  const body = fillNoticeTemplate(
-    document.querySelector('#driver-notice-body')?.value || DEFAULT_DRIVER_NOTICE_BODY,
-    values
-  );
-  return `Sample\n${subject}\n\n${body}\n\nThe original clock times and every change to date are added after this.`;
+  const mail = memorandumMail({
+    memorandumId: document.querySelector('#driver-notice-memorandum')?.value,
+    driverName: 'Sample Driver',
+    routeName: '50',
+    row: {
+      date: '2026-09-14',
+      schedule: {
+        AM: { clock_in: '6:10', clock_out: '8:40' },
+        PM: { clock_in: '14:00', clock_out: '16:20' },
+      },
+    },
+    asOf: '2026-09-14',
+  });
+  const attachment = checkedChoice('notice_attach')
+    ? '\n\nA driver time-change notice PDF is also downloaded to attach.'
+    : '';
+  return `Sample email\n${mail.subject}\n\n${mail.body}${attachment}`;
+}
+
+function fillMemorandumChoices(selectedId) {
+  const select = document.querySelector('#driver-notice-memorandum');
+  if (!select) return;
+  const current = selectedId || select.value || DEFAULT_MEMORANDUM_ID;
+  select.replaceChildren();
+  for (const memo of DRIVER_MEMORANDA) {
+    const option = document.createElement('option');
+    option.value = memo.id;
+    option.textContent = memo.label;
+    select.append(option);
+  }
+  select.value = DRIVER_MEMORANDA.some((memo) => memo.id === current)
+    ? current
+    : DEFAULT_MEMORANDUM_ID;
+}
+
+function syncNoticeAttachmentFields() {
+  const wording = document.querySelector('#driver-notice-attachment-wording');
+  if (wording) wording.hidden = !checkedChoice('notice_attach');
 }
 
 function paintTemplatePreview(id, text) {
@@ -498,9 +539,12 @@ function fillDriverNoticeSettings() {
   const status = document.querySelector('#driver-notice-status');
   setChoice('notice_immediately', settings.noticeImmediately);
   setChoice('notice_before', settings.noticeBeforeContract);
+  setChoice('notice_attach', settings.attachTimeChangeNotice);
   if (days) days.value = String(settings.schoolDaysBefore);
+  fillMemorandumChoices(settings.memorandumId);
   if (subject) subject.value = settings.subject;
   if (body) body.value = settings.body;
+  syncNoticeAttachmentFields();
   paintTemplatePreview('#driver-notice-preview', driverNoticePreviewText());
   if (status) setStatus(status, '');
 }
@@ -546,12 +590,14 @@ document.querySelector('#reminder-invitees')?.addEventListener('click', (event) 
 });
 
 document.querySelector('#driver-notice-form')?.addEventListener('input', () => {
+  syncNoticeAttachmentFields();
   paintTemplatePreview('#driver-notice-preview', driverNoticePreviewText());
 });
 
 document.querySelector('#driver-notice-reset')?.addEventListener('click', () => {
   const subject = document.querySelector('#driver-notice-subject');
   const body = document.querySelector('#driver-notice-body');
+  fillMemorandumChoices(DEFAULT_MEMORANDUM_ID);
   if (subject) subject.value = DEFAULT_DRIVER_NOTICE_SUBJECT;
   if (body) body.value = DEFAULT_DRIVER_NOTICE_BODY;
   paintTemplatePreview('#driver-notice-preview', driverNoticePreviewText());
@@ -565,6 +611,8 @@ document.querySelector('#driver-notice-form')?.addEventListener('submit', async 
       noticeImmediately: checkedChoice('notice_immediately'),
       noticeBeforeContract: checkedChoice('notice_before'),
       schoolDaysBefore: document.querySelector('#driver-notice-days')?.value,
+      memorandumId: document.querySelector('#driver-notice-memorandum')?.value,
+      attachTimeChangeNotice: checkedChoice('notice_attach'),
       subject: document.querySelector('#driver-notice-subject')?.value,
       body: document.querySelector('#driver-notice-body')?.value,
     });
@@ -627,7 +675,7 @@ function beginAddRoute() {
   driversView.hidden = true;
   allRoutesView.hidden = true;
   driverHistoryView.hidden = true;
-  if (timesheetView) timesheetView.hidden = true;
+  if (clockView) clockView.hidden = true;
   if (adminReminderView) adminReminderView.hidden = true;
   if (driverNoticeView) driverNoticeView.hidden = true;
   if (routeTabs) routeTabs.hidden = false;
@@ -638,16 +686,29 @@ function beginAddRoute() {
 
 function rememberDriver(driver) {
   const profile = getCurrentProfile();
-  if (!profile) return;
-  assignRouteDriver(profile, driver, localDateString());
+  if (!profile) return false;
+  const previous = String(profile.driver_name || '').trim();
+  const next = String(driver || '').trim();
+  assignRouteDriver(profile, next, localDateString());
   saveProfile(profile);
+  return Boolean(next) && !sameDriver(previous, next);
 }
 
 const assignDriverDialog = document.querySelector('#assign-driver-dialog');
 const assignDriverForm = document.querySelector('#assign-driver-form');
 const assignDriverStatus = document.querySelector('#assign-driver-status');
+const assignDriverDate = document.querySelector('#assign_start_date');
 
-function openAssignDriverDialog() {
+function assignDriverLead(profile, date) {
+  const current = String(profile.driver_name || '').trim();
+  const routeName = profile.name ? `Route ${profile.name}` : 'This route';
+  const when = date ? prettyDate(date) : 'the date you choose';
+  return current
+    ? `${routeName} is assigned to ${current}. Choose who takes it starting ${when}. Clock times from before then stay with ${current}.`
+    : `${routeName} has no driver yet. Choose who takes it starting ${when}.`;
+}
+
+function openAssignDriverDialog(startDate = '') {
   const profile = getCurrentProfile();
   if (!profile || !assignDriverDialog) return;
   const current = String(profile.driver_name || '').trim();
@@ -658,11 +719,13 @@ function openAssignDriverDialog() {
     .join('');
   const input = document.querySelector('#assign_driver');
   input.value = '';
-  const routeName = profile.name ? `Route ${profile.name}` : 'This route';
-  const when = prettyDate(localDateString());
-  document.querySelector('#assign-driver-lead').textContent = current
-    ? `${routeName} is assigned to ${current}. Choose who takes it starting ${when}. Clock times from before then stay with ${current}.`
-    : `${routeName} has no driver yet. Choose who takes it starting ${when}.`;
+  if (assignDriverDate) {
+    assignDriverDate.value = /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? startDate : localDateString();
+  }
+  document.querySelector('#assign-driver-lead').textContent = assignDriverLead(
+    profile,
+    assignDriverDate?.value || ''
+  );
   setStatus(assignDriverStatus, '');
   if (!assignDriverDialog.open) assignDriverDialog.showModal();
   input.focus();
@@ -682,8 +745,13 @@ assignDriverForm.addEventListener('submit', (event) => {
   const profile = getCurrentProfile();
   if (!profile) return;
   const typed = document.querySelector('#assign_driver').value.trim();
+  const startDate = assignDriverDate?.value || '';
   if (!typed) {
     setStatus(assignDriverStatus, 'Choose a driver.', 'error');
+    return;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+    setStatus(assignDriverStatus, 'Choose the date this driver starts.', 'error');
     return;
   }
   const known = listDrivers().find((driver) => sameDriver(driver.name, typed));
@@ -693,7 +761,8 @@ assignDriverForm.addEventListener('submit', (event) => {
     return;
   }
   try {
-    assignRouteDriver(profile, nextName, localDateString());
+    const previousName = String(profile.driver_name || '').trim();
+    assignRouteDriver(profile, nextName, startDate);
     if (!known) saveDriver({ name: nextName });
     saveProfile(profile);
     closeAssignDriverDialog();
@@ -701,17 +770,103 @@ assignDriverForm.addEventListener('submit', (event) => {
     const routeName = profile.name ? `Route ${profile.name}` : 'This route';
     setStatus(
       scheduleStatus,
-      `${routeName} is assigned to ${nextName} starting ${prettyDate(localDateString())}.`,
+      `${routeName} is assigned to ${nextName} starting ${prettyDate(startDate)}.`,
       'ok'
     );
+    if (!sameDriver(previousName, nextName)) offerDuplicateRunChoice(getCurrentProfile(), startDate);
   } catch (error) {
     setStatus(assignDriverStatus, error.message, 'error');
   }
 });
 
+assignDriverDate?.addEventListener('input', () => {
+  const profile = getCurrentProfile();
+  if (!profile) return;
+  document.querySelector('#assign-driver-lead').textContent = assignDriverLead(
+    profile,
+    assignDriverDate.value
+  );
+});
+
 document.querySelector('#assign-driver-close').addEventListener('click', closeAssignDriverDialog);
 assignDriverDialog.addEventListener('click', (event) => {
   if (event.target === assignDriverDialog) closeAssignDriverDialog();
+});
+
+const duplicateRunDialog = document.querySelector('#duplicate-run-dialog');
+const duplicateRunChoices = document.querySelector('#duplicate-run-choices');
+
+function scheduleRunTypes(profile, asOf) {
+  const schedule = buildSnapshot(profile, asOf).schedule || {};
+  return RUNS.map((run) => run.id).filter((id) => {
+    const item = schedule[id];
+    return Boolean(item?.clock_in || item?.clock_out);
+  });
+}
+
+function duplicateRunLead(driverName, types) {
+  const labels = types.map((type) => `another ${runTypeLabel(type)} route`);
+  let listed = labels[0] || 'another route';
+  if (labels.length === 2) listed = `${labels[0]} and ${labels[1]}`;
+  else if (labels.length > 2) {
+    listed = `${labels.slice(0, -1).join(', ')}, and ${labels.at(-1)}`;
+  }
+  return `${driverName} already has ${listed}. Choose one of these routes to assign to a different driver.`;
+}
+
+function offerDuplicateRunChoice(profile, asOf) {
+  const driverName = String(profile?.driver_name || '').trim();
+  if (!driverName || !profile?.id || !duplicateRunDialog) return;
+  const held = listProfiles()
+    .filter((item) => sameDriver(driverForDate(item, asOf), driverName))
+    .map((item) => ({
+      id: item.id,
+      name: item.name || 'Unnamed',
+      types: scheduleRunTypes(item, asOf),
+    }));
+  const overlap = duplicateRunRoutes(held, profile.id);
+  if (!overlap) return;
+  document.querySelector('#duplicate-run-lead').textContent = duplicateRunLead(
+    driverName,
+    overlap.types
+  );
+  const focus = overlap.routes.find((route) => route.id === profile.id);
+  const others = overlap.routes
+    .filter((route) => route.id !== profile.id)
+    .sort((a, b) => compareRouteNumbers(a.name, b.name));
+  duplicateRunChoices.innerHTML = [focus, ...others]
+    .filter(Boolean)
+    .map(
+      (route) => `
+        <li>
+          <button type="button" data-route-id="${escapeHtml(route.id)}">
+            Route ${escapeHtml(route.name)} · ${escapeHtml(joinRunLabels(route.types))}
+          </button>
+        </li>`
+    )
+    .join('');
+  duplicateRunDialog.dataset.startDate = asOf;
+  if (!duplicateRunDialog.open) duplicateRunDialog.showModal();
+  duplicateRunChoices.querySelector('button')?.focus();
+}
+
+function closeDuplicateRunDialog() {
+  if (duplicateRunDialog?.open) duplicateRunDialog.close();
+}
+
+duplicateRunChoices?.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-route-id]');
+  if (!button) return;
+  const startDate = duplicateRunDialog?.dataset.startDate || '';
+  closeDuplicateRunDialog();
+  chooseRoute(button.dataset.routeId);
+  openAssignDriverDialog(startDate);
+});
+
+document.querySelector('#duplicate-run-close')?.addEventListener('click', closeDuplicateRunDialog);
+document.querySelector('#duplicate-run-keep')?.addEventListener('click', closeDuplicateRunDialog);
+duplicateRunDialog?.addEventListener('click', (event) => {
+  if (event.target === duplicateRunDialog) closeDuplicateRunDialog();
 });
 
 function renderSetupRuns() {
@@ -804,7 +959,7 @@ function formatRange(item) {
 function renderScheduleHistory() {
   const start = snapshot.employee?.start_date;
   const rows = snapshot.schedule_history || [];
-  const noticeHint = ' Send notice opens a text email that lists the original clock times and every change to date, and downloads a calendar PDF. Attach that PDF if you want the driver to see the calendar. Notice sent is marked Yes.';
+  const noticeHint = ' Send notice opens an email with the chosen memorandum and downloads a calendar PDF. Attach that PDF if you want the driver to see the calendar. The driver time-change notice can be downloaded too, when that attachment is turned on. Notice sent is marked Yes.';
   const hoursHint =
     ' Hours is the rounded total of the clock times on that row. Contracted is the date that schedule became the contract, or a predicted date. Contract Hours is the official total, which stays at the previous figure until that date.';
   const forceHint =
@@ -1103,27 +1258,40 @@ async function deliverChangeNotice(located) {
   }
   const routeName = String(profile.name || '').trim();
   const noticeSettings = loadDriverNotice();
-  const mail = changeNoticeMail({
+  const mail = memorandumMail({
+    memorandumId: noticeSettings.memorandumId,
     driverName,
     routeName,
     row,
     asOf: getAsOfDate(),
-    history,
-    subject: noticeSettings.subject,
-    body: noticeSettings.body,
   });
-  const filename = noticeCalendarFilename(driverName);
+  const downloads = [noticeCalendarFilename(driverName)];
   try {
-    await downloadCalendarPdf(filename);
+    await downloadCalendarPdf(downloads[0]);
+    if (noticeSettings.attachTimeChangeNotice) {
+      const notice = timeChangeNoticeDocument({
+        driverName,
+        routeName,
+        row,
+        asOf: getAsOfDate(),
+        history,
+        subject: noticeSettings.subject,
+        body: noticeSettings.body,
+      });
+      downloadTextPdf(notice.filename, notice.text);
+      downloads.push(notice.filename);
+    }
     openNoticeMail({ to: email, subject: mail.subject, body: mail.body });
-    explainCalendarDownload(filename);
+    explainNoticeDownloads(downloads);
     rememberChangeNoticeSent(changeId);
     if ((snapshot?.schedule_history || []).some((item) => item.change_id === changeId)) {
       renderScheduleHistory();
     }
+    const listed = downloads.join(' and ');
+    const noun = downloads.length > 1 ? 'them' : 'it';
     return {
       ok: true,
-      message: `Please look for ${filename} in your downloads folder and attach it. Notice sent is Yes for this change.`,
+      message: `Please look for ${listed} in your downloads folder and attach ${noun}. Notice sent is Yes for this change.`,
     };
   } catch (error) {
     return { ok: false, message: error.message || 'Could not create that notice.' };
@@ -1135,7 +1303,10 @@ async function sendChangeNotice(button) {
   const located = locateChange(changeId);
   if (!located) return;
   button.disabled = true;
-  setStatus(scheduleStatus, 'Opening the email and downloading the calendar…');
+  const downloading = loadDriverNotice().attachTimeChangeNotice
+    ? 'Opening the email and downloading the calendar and the time-change notice…'
+    : 'Opening the email and downloading the calendar…';
+  setStatus(scheduleStatus, downloading);
   const result = await deliverChangeNotice(located);
   setStatus(scheduleStatus, result.message, result.ok ? 'ok' : 'error');
   if (!result.ok) button.disabled = false;
@@ -1155,13 +1326,18 @@ function openNoticeMail(mail) {
 }
 
 /**
- * @param {string} filename
+ * @param {string[]} filenames
  */
-function explainCalendarDownload(filename) {
+function explainNoticeDownloads(filenames) {
   const dialog = document.querySelector('#notice-download-dialog');
   const message = document.querySelector('#notice-download-message');
+  const title = document.querySelector('#notice-download-title');
   if (!dialog || !message) return;
-  message.textContent = `Please look for ${filename} in your downloads folder and attach it.`;
+  const names = filenames.filter(Boolean);
+  if (title) title.textContent = names.length > 1 ? 'Attach the downloads' : 'Attach the calendar';
+  const listed = names.join(' and ');
+  const noun = names.length > 1 ? 'them' : 'it';
+  message.textContent = `Please look for ${listed} in your downloads folder and attach ${noun}.`;
   if (!dialog.open) dialog.showModal();
 }
 
@@ -1727,22 +1903,23 @@ function renderApp() {
   const onDrivers = activeSheet === 'drivers' && !addingPerson;
   const onAll = activeSheet === 'all' && !addingPerson;
   const onDriverHistory = activeSheet === 'driver-history' && !addingPerson;
-  const onTimesheet = activeSheet === 'timesheets' && !addingPerson;
+  const onClock = activeSheet === 'clock' && !addingPerson;
   const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
-  document.body.classList.toggle('is-reader-app', onTimesheet);
-  if (routeTabs) routeTabs.hidden = onTimesheet;
-  if (timesheetView) timesheetView.hidden = !onTimesheet;
+  document.body.classList.toggle('is-timeclock-app', onClock);
+  if (routeTabs) routeTabs.hidden = onClock;
+  if (clockView) clockView.hidden = !onClock;
   if (adminReminderView) adminReminderView.hidden = !onAdminReminder;
   if (driverNoticeView) driverNoticeView.hidden = !onDriverNotice;
-  if (onTimesheet) {
+  if (onClock) {
     driversView.hidden = true;
     allRoutesView.hidden = true;
     driverHistoryView.hidden = true;
     setupView.hidden = true;
     appView.hidden = true;
-    document.title = 'Timesheet reader';
-    timesheetDesk.refresh();
+    document.title = 'Timeclock';
+    clockDesk.refresh();
+    timeclockDesk.refresh();
     return;
   }
   if (onAdminReminder || onDriverNotice) {
@@ -1858,10 +2035,11 @@ setupForm.addEventListener('submit', (event) => {
   }
   try {
     snapshot = setupProfile(data);
-    rememberDriver(data.driver);
+    const driverChanged = rememberDriver(data.driver);
     addingPerson = false;
     setStatus(setupStatus, `Route ${routeNumber} saved in this browser.`, 'ok');
     loadAll();
+    if (driverChanged) offerDuplicateRunChoice(getCurrentProfile(), localDateString());
   } catch (error) {
     setStatus(setupStatus, error.message, 'error');
   }
@@ -1938,135 +2116,102 @@ function downloadWorkbook(bytes, filename) {
 
 /**
  * @param {number} changed
+ * @param {boolean} remembered
  */
-function payrollCompareStatus(changed) {
-  if (changed === 0) return 'No rows differ from the last file sent to payroll.';
-  if (changed === 1) {
-    return '1 row is bold and highlighted. It differs from the last file sent to payroll.';
+function payrollCompareStatus(changed, remembered) {
+  if (!remembered) {
+    return 'This payroll file is saved. The next file will highlight rows that differ from it.';
   }
-  return `${changed} rows are bold and highlighted. They differ from the last file sent to payroll.`;
+  if (changed === 0) return 'No rows differ from the last payroll file this office created.';
+  if (changed === 1) {
+    return '1 row is bold and highlighted. It differs from the last payroll file this office created.';
+  }
+  return `${changed} rows are bold and highlighted. They differ from the last payroll file this office created.`;
 }
 
 /**
- * @param {string[]} routes
+ * @param {{ labels: string[], hasBaseline: boolean }} choice
  */
-function renderPayrollHighlightChoices(routes) {
+function renderPayrollHighlightChoices({ labels, hasBaseline }) {
   const list = document.querySelector('#payroll-highlight-routes');
   const lead = document.querySelector('#payroll-highlight-lead');
   const empty = document.querySelector('#payroll-highlight-empty');
-  list.innerHTML = routes
-    .map(
-      (route) => `<li>
-        <label>
-          <input type="checkbox" name="payroll-highlight" value="${escapeHtml(route)}" checked />
-          <span>${escapeHtml(route)}</span>
-        </label>
-      </li>`
-    )
-    .join('');
-  const hasRoutes = routes.length > 0;
+  list.innerHTML = labels.map((label) => `<li>${escapeHtml(label)}</li>`).join('');
+  const hasRoutes = labels.length > 0;
   list.hidden = !hasRoutes;
   lead.hidden = !hasRoutes;
   empty.hidden = hasRoutes;
+  empty.textContent = hasBaseline
+    ? 'No rows differ from the last payroll file this office created, so nothing will be highlighted.'
+    : 'This office has not saved a payroll file yet. Nothing will be highlighted. Creating this file remembers it, and the next file will highlight every row that changed.';
 }
 
 /**
- * Route numbers still checked in the payroll dialog.
- * @returns {string[]}
+ * @param {{ labels: string[], hasBaseline: boolean }} choice
+ * @returns {Promise<boolean>}
  */
-function checkedPayrollRoutes() {
-  return [...document.querySelectorAll('#payroll-highlight-routes input:checked')].map(
-    (input) => input.value
-  );
-}
-
-/**
- * @param {string[]} routes
- */
-function payrollSessionStatus(routes) {
-  if (!routes.length) return 'No rows are highlighted.';
-  const list = routes.join(', ');
-  if (routes.length === 1) {
-    return `Route ${list} is bold and highlighted. It was changed during this visit.`;
-  }
-  return `Routes ${list} are bold and highlighted. They were changed during this visit.`;
-}
-
-/**
- * @returns {Promise<File | string[] | null>} the last payroll file, the routes left checked, or null to cancel
- */
-function askForPreviousPayrollFile() {
+function confirmPayrollHighlights(choice) {
   const dialog = document.querySelector('#payroll-compare-dialog');
-  const fileInput = document.querySelector('#payroll-previous-file');
-  const uploadBtn = document.querySelector('#payroll-compare-upload');
   const createBtn = document.querySelector('#payroll-compare-create');
   const closeBtn = document.querySelector('#payroll-compare-close');
   return new Promise((resolve) => {
-    /** @type {File | string[] | null} */
-    let result = null;
+    let create = false;
     const onClose = () => {
-      uploadBtn.removeEventListener('click', onUpload);
       createBtn.removeEventListener('click', onCreate);
       closeBtn.removeEventListener('click', onCancel);
-      fileInput.removeEventListener('change', onFile);
       dialog.removeEventListener('close', onClose);
-      fileInput.value = '';
-      resolve(result);
+      resolve(create);
     };
-    const onUpload = () => fileInput.click();
     const onCreate = () => {
-      result = checkedPayrollRoutes();
+      create = true;
       dialog.close();
     };
     const onCancel = () => {
-      result = null;
+      create = false;
       dialog.close();
     };
-    const onFile = () => {
-      const file = fileInput.files?.[0];
-      if (!file) return;
-      result = file;
-      dialog.close();
-    };
-    uploadBtn.addEventListener('click', onUpload);
     createBtn.addEventListener('click', onCreate);
     closeBtn.addEventListener('click', onCancel);
-    fileInput.addEventListener('change', onFile);
     dialog.addEventListener('close', onClose);
-    renderPayrollHighlightChoices(sessionModifiedRouteNames());
+    renderPayrollHighlightChoices(choice);
     dialog.showModal();
   });
 }
 
 document.querySelector('#payroll-export-btn').addEventListener('click', async () => {
-  setStatus(fileStatus, '');
-  const choice = await askForPreviousPayrollFile();
-  if (choice === null) return;
+  setStatus(payrollStatus, '');
   try {
+    const state = { ...loadState(), asOf: getAsOfDate() };
+    const currentRows = payrollDriverRows(state, { asOf: state.asOf });
+    const previousRows = await loadPayrollBaseline();
+    const hasBaseline = Array.isArray(previousRows);
+    const labels = hasBaseline ? changedPayrollLabels(currentRows, previousRows) : [];
+    const create = await confirmPayrollHighlights({ labels, hasBaseline });
+    if (!create) return;
     const createdAt = new Date();
     const filename = payrollWorkbookFilename(createdAt);
     /** @type {{ changedCount?: number }} */
     const result = {};
-    const previousFile = choice instanceof File ? choice : null;
-    const previousRows = previousFile
-      ? await rowsFromPayrollWorkbook(await previousFile.arrayBuffer())
-      : null;
-    const sessionRoutes = Array.isArray(choice) ? choice : null;
-    const bytes = await buildPayrollWorkbook(
-      { ...loadState(), asOf: getAsOfDate() },
-      {
-        title: workbookTitleFromFilename(filename),
-        createdAt,
-        previousRows,
-        highlightRoutes: sessionRoutes,
-        result,
-      }
-    );
+    const bytes = await buildPayrollWorkbook(state, {
+      title: workbookTitleFromFilename(filename),
+      createdAt,
+      previousRows: hasBaseline ? previousRows : null,
+      result,
+    });
     downloadWorkbook(bytes, filename);
-    if (previousRows) setStatus(fileStatus, payrollCompareStatus(result.changedCount ?? 0), 'ok');
-    else setStatus(fileStatus, payrollSessionStatus(sessionRoutes ?? []), 'ok');
+    try {
+      await savePayrollBaseline(payrollBaselineRows(currentRows));
+      setStatus(payrollStatus, payrollCompareStatus(result.changedCount ?? 0, hasBaseline), 'ok');
+    } catch (error) {
+      setStatus(
+        payrollStatus,
+        error.message ||
+          'The spreadsheet downloaded, but the office could not remember it. The next file may highlight these same rows.',
+        'error'
+      );
+    }
   } catch (error) {
-    setStatus(fileStatus, error.message || 'Could not create the payroll spreadsheet.', 'error');
+    setStatus(payrollStatus, error.message || 'Could not create the payroll spreadsheet.', 'error');
   }
 });
 
@@ -2223,10 +2368,11 @@ startEditForm.addEventListener('submit', (event) => {
   }
   try {
     snapshot = updateStartingSchedule(data);
-    rememberDriver(data.driver);
+    const driverChanged = rememberDriver(data.driver);
     startEditForm.hidden = true;
     setStatus(scheduleStatus, 'Starting times corrected.', 'ok');
     renderApp();
+    if (driverChanged) offerDuplicateRunChoice(getCurrentProfile(), localDateString());
   } catch (error) {
     setStatus(startEditStatus, error.message, 'error');
   }
@@ -2671,6 +2817,19 @@ async function adoptStarterOffice() {
     currentProfileId: next.currentProfileId ?? null,
     profiles: next.profiles,
     drivers: Array.isArray(next.drivers) ? next.drivers : [],
+    punches: Array.isArray(current.punches) ? current.punches : [],
+    clockPins: current.clockPins && typeof current.clockPins === 'object' ? current.clockPins : {},
+    clockLockCode: current.clockLockCode || '',
+    ...(Object.prototype.hasOwnProperty.call(current, 'clockLateMinutes')
+      ? { clockLateMinutes: current.clockLateMinutes }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(current, 'clockNameSize')
+      ? { clockNameSize: current.clockNameSize }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(current, 'clockQuarterHourClocks')
+      ? { clockQuarterHourClocks: current.clockQuarterHourClocks }
+      : {}),
+    clockReasonCodes: Array.isArray(current.clockReasonCodes) ? current.clockReasonCodes : [],
     exampleVersion: 0,
     ...(next.contractReminder
       ? { contractReminder: next.contractReminder }
@@ -2695,9 +2854,69 @@ async function adoptStarterOffice() {
   });
 }
 
-const timesheetDesk = mountTimesheetReader({
+const clockDesk = mountClockDesk({
   readState: loadState,
-  asOf: getAsOfDate,
+  writePunches(punches) {
+    const state = loadState();
+    state.punches = punches;
+    saveState(state);
+  },
+  listNames() {
+    return listDrivers().map((driver) => driver.name);
+  },
+  asOf() {
+    return getAsOfDate();
+  },
+});
+
+/**
+ * Clock-in times on the schedule in effect today for this route.
+ * @param {object} profile
+ * @param {string} today
+ */
+function routeClockIns(profile, today) {
+  try {
+    const schedule = buildSnapshot(profile, today)?.schedule || {};
+    return ['AM', 'MIDDAY', 'PM'].flatMap((segment) => {
+      const clockIn = schedule[segment]?.clock_in;
+      return clockIn ? [String(clockIn)] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+const timeclockDesk = mountTimeclock({
+  readState: loadState,
+  writeState(state) {
+    saveState(state);
+    clockDesk.refresh();
+  },
+  listPeople() {
+    const state = loadState();
+    const today = localDateString();
+    /** @type {Map<string, string[]>} */
+    const routesByName = new Map();
+    /** @type {Map<string, string[]>} */
+    const clockInsByName = new Map();
+    for (const profile of Object.values(state.profiles || {})) {
+      const name = String(profile?.driver_name || '').trim().toLowerCase();
+      const route = String(profile?.name || '').trim();
+      if (!name || !route) continue;
+      const routes = routesByName.get(name) || [];
+      routes.push(route);
+      routesByName.set(name, routes);
+      const clockIns = clockInsByName.get(name) || [];
+      clockIns.push(...routeClockIns(profile, today));
+      clockInsByName.set(name, clockIns);
+    }
+    return listDrivers().map((driver) => ({
+      id: driver.id,
+      name: driver.name,
+      routes: routesByName.get(driver.name.toLowerCase()) || [],
+      clockIns: clockInsByName.get(driver.name.toLowerCase()) || [],
+    }));
+  },
 });
 
 renderSetupRuns();
