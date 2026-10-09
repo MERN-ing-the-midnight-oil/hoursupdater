@@ -1180,6 +1180,20 @@ button.kiosk-name:focus-visible {
   gap: 0.4rem;
 }
 
+.clock-driver-list > li {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.clock-driver-list #clock-driver-sheet {
+  min-width: 0;
+}
+
+.clock-driver-list .clock-driver-sheet-head {
+  margin-top: 0.15rem;
+}
+
 button.clock-driver {
   width: 100%;
   justify-content: space-between;

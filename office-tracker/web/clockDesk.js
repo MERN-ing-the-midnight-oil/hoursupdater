@@ -140,8 +140,10 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf }) {
       routes.textContent = routeList.length ? routeList.join(', ') : 'No route';
       button.append(label, routes);
       item.append(button);
+      if (name === openDriver && driverSheet) item.append(driverSheet);
       driverList.append(item);
     }
+    if (!openDriver && driverSheet) driverList.after(driverSheet);
   }
 
   function payrollCell(row, header) {
@@ -251,7 +253,11 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf }) {
         Number.isNaN(when.getTime())
           ? ''
           : when.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }),
-        punch.action === 'out' ? 'Clock out' : 'Clock in',
+        punch.substitute_name
+          ? `${punch.action === 'out' ? 'Clock out' : 'Clock in'} · ${punch.substitute_name}`
+          : punch.action === 'out'
+            ? 'Clock out'
+            : 'Clock in',
         punch.note || '',
         (Array.isArray(punch.reason_codes) ? punch.reason_codes : [])
           .map((code) => code.label)
