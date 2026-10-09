@@ -4,13 +4,14 @@
  */
 
 import { formatClockAmPm } from '../../employee-tracker/src/clockTimes.js';
+import { buildMonthlyTimeSummary, renderMonthlyTimeSummaryHtml } from '../src/monthlyTimeSummary.js';
 import {
   PAYROLL_HEADERS,
   formatQuarterHours,
   payrollDriverRows,
   payrollRowsForDriver,
 } from '../src/payrollTimes.js';
-import { compareRouteNumbers } from './store.js';
+import { compareRouteNumbers, quarterHourClocksEnabled } from './store.js';
 
 /**
  * @param {{
@@ -49,10 +50,7 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf }) {
   driverList?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-driver-name]');
     if (!button) return;
-    const name = button.getAttribute('data-driver-name') || '';
-    openDriver = openDriver === name ? '' : name;
-    refresh();
-    if (openDriver) driverSheet?.scrollIntoView({ block: 'nearest' });
+    openMonthlySummary(button.getAttribute('data-driver-name') || '');
   });
 
   document.querySelector('#clock-in')?.addEventListener('click', () => record('in'));
@@ -104,6 +102,25 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf }) {
       driverSelect.append(option);
     }
     if (names.includes(current)) driverSelect.value = current;
+  }
+
+  function openMonthlySummary(name) {
+    const state = readState() || {};
+    const summary = buildMonthlyTimeSummary({
+      driverName: name,
+      routes: routesFor(name),
+      punches: punchesFromState(),
+      roundClocks: quarterHourClocksEnabled(state),
+    });
+    const popup = window.open('', '_blank', 'width=1100,height=800');
+    if (!popup) {
+      setStatus('The browser blocked the Monthly Time Summary window. Allow pop-ups for this site.');
+      return;
+    }
+    popup.document.open();
+    popup.document.write(renderMonthlyTimeSummaryHtml(summary));
+    popup.document.close();
+    popup.focus();
   }
 
   function routesFor(name) {
