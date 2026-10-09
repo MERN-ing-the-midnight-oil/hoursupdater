@@ -1,4 +1,4 @@
-import { formatDurationLabel } from '../../employee-tracker/src/clockTimes.js';
+import { formatDurationLabel, localDateString } from '../../employee-tracker/src/clockTimes.js';
 import { getSchoolDays } from '../../src/logic/calendar.js';
 import { buildPayrollRoundingBreakdown } from '../../src/logic/timeUtils.js';
 import {
@@ -231,6 +231,34 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES)
 }
 
 /**
+ * YYYY-MM for a grouped calendar month.
+ * @param {{ month?: string, days?: Array<{ date?: string }> }} month
+ */
+function calendarMonthKey(month) {
+  if (/^\d{4}-\d{2}$/.test(month?.month || '')) return month.month;
+  const date = month?.days?.[0]?.date || '';
+  return date.slice(0, 7);
+}
+
+/**
+ * Past months, the month of asOf, and the following month.
+ * @param {Array<{ month?: string, days?: Array<{ date?: string }> }>} months
+ * @param {string} [asOf]
+ */
+export function historyMonthsThroughNext(months, asOf) {
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(String(asOf || '')) ? asOf : localDateString();
+  const year = Number(iso.slice(0, 4));
+  const month = Number(iso.slice(5, 7));
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const limit = `${nextYear}-${String(nextMonth).padStart(2, '0')}`;
+  return (months || []).filter((item) => {
+    const key = calendarMonthKey(item);
+    return Boolean(key) && key <= limit;
+  });
+}
+
+/**
  * @param {{ calendar: object, rows: object[], asOf?: string, tones?: string[] }} options
  */
 export function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTORY_TONES }) {
@@ -239,7 +267,7 @@ export function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTOR
   const bidRanges = bidPeriodRanges(schoolDays);
   const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const today = asOf || '';
-  return (calendar.months || [])
+  return historyMonthsThroughNext(calendar.months, asOf)
     .map((month) => {
       const first = month.days[0];
       const pad = first ? new Date(`${first.date}T00:00:00Z`).getUTCDay() : 0;
@@ -268,6 +296,7 @@ export function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTOR
         const classes = [
           'cal-day',
           day.is_school_day ? 'is-school' : 'is-off',
+          inBid ? 'is-bid-period' : '',
           mark?.arrow ? 'is-bid-arrow' : '',
           mark?.arrow && dow !== 0 ? 'is-arrow-join' : '',
           mark?.arrow && !mark.arrowHead && dow !== 6 ? 'is-arrow-bridge' : '',

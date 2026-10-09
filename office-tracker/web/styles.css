@@ -847,10 +847,8 @@ button:disabled:hover {
 }
 
 .history-swatch.is-bid {
-  width: 1.15rem;
-  height: 0.72rem;
-  background: transparent;
-  border: 2px solid #8a4b12;
+  background: #f4e6d4;
+  border: 1px solid #e4d0b6;
   border-radius: 2px;
 }
 
@@ -866,6 +864,7 @@ button:disabled:hover {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: var(--cal-gap);
+  isolation: isolate;
 }
 
 .dow,
@@ -894,6 +893,10 @@ button:disabled:hover {
 .cal-day.is-off {
   background: #f4f5f7;
   color: var(--muted);
+}
+
+.cal-day.is-bid-period {
+  background: transparent;
 }
 
 .cal-day.is-today {
@@ -1049,9 +1052,9 @@ button:disabled:hover {
 }
 
 .bid-rect {
-  z-index: 2;
+  z-index: -1;
   pointer-events: none;
-  border: 2px solid #8a4b12;
+  background: #f4e6d4;
   border-radius: 3px;
 }
 
