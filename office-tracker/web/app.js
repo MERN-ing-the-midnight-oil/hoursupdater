@@ -74,8 +74,8 @@ bindCalculatorStore({
   setCurrentProfile,
 });
 import { localDateString } from '../../employee-tracker/src/clockTimes.js';
-import { assignRouteDriver, dayBefore, driverForDate, driverOwnsRoute, routeAssignments, sameDriver } from '../src/assignments.js';
-import { duplicateRunRoutes, joinRunLabels, runTypeLabel } from '../src/duplicateRuns.js';
+import { assignRouteDriver, assignmentOnDate, dayBefore, driverForDate, driverOwnsRoute, routeAssignments, sameDriver } from '../src/assignments.js';
+import { duplicateRunRoutes, joinRunLabels, runClocksFromOriginalRoute, runTypeLabel } from '../src/duplicateRuns.js';
 import { sectionsForDriver } from '../src/driverPacket.js';
 import {
   DEFAULT_REMINDER_BODY,
@@ -2870,19 +2870,24 @@ const clockDesk = mountClockDesk({
 });
 
 /**
- * Clock-in times on the schedule in effect today for this route.
+ * Clock-in for each run on the schedule in effect today. A bad route is skipped
+ * so one profile cannot take down the driver screen.
  * @param {object} profile
  * @param {string} today
+ * @returns {Record<string, string>}
  */
-function routeClockIns(profile, today) {
+function routeClocksByRun(profile, today) {
   try {
     const schedule = buildSnapshot(profile, today)?.schedule || {};
-    return ['AM', 'MIDDAY', 'PM'].flatMap((segment) => {
+    /** @type {Record<string, string>} */
+    const clocks = {};
+    for (const segment of ['AM', 'MIDDAY', 'PM']) {
       const clockIn = schedule[segment]?.clock_in;
-      return clockIn ? [String(clockIn)] : [];
-    });
+      if (clockIn) clocks[segment] = String(clockIn);
+    }
+    return clocks;
   } catch {
-    return [];
+    return {};
   }
 }
 
@@ -2897,8 +2902,8 @@ const timeclockDesk = mountTimeclock({
     const today = localDateString();
     /** @type {Map<string, string[]>} */
     const routesByName = new Map();
-    /** @type {Map<string, string[]>} */
-    const clockInsByName = new Map();
+    /** @type {Map<string, Array<{ name: string, assignedFrom: string, clocks: Record<string, string> }>>} */
+    const heldByName = new Map();
     for (const profile of Object.values(state.profiles || {})) {
       const name = String(profile?.driver_name || '').trim().toLowerCase();
       const route = String(profile?.name || '').trim();
@@ -2906,16 +2911,28 @@ const timeclockDesk = mountTimeclock({
       const routes = routesByName.get(name) || [];
       routes.push(route);
       routesByName.set(name, routes);
-      const clockIns = clockInsByName.get(name) || [];
-      clockIns.push(...routeClockIns(profile, today));
-      clockInsByName.set(name, clockIns);
+      const assignment = assignmentOnDate(profile, today);
+      const held = heldByName.get(name) || [];
+      held.push({
+        name: route,
+        assignedFrom:
+          assignment && sameDriver(assignment.driver_name, profile.driver_name)
+            ? assignment.from
+            : String(profile?.start_date || ''),
+        clocks: routeClocksByRun(profile, today),
+      });
+      heldByName.set(name, held);
     }
-    return listDrivers().map((driver) => ({
-      id: driver.id,
-      name: driver.name,
-      routes: routesByName.get(driver.name.toLowerCase()) || [],
-      clockIns: clockInsByName.get(driver.name.toLowerCase()) || [],
-    }));
+    return listDrivers().map((driver) => {
+      const key = driver.name.toLowerCase();
+      const clocks = runClocksFromOriginalRoute(heldByName.get(key) || []);
+      return {
+        id: driver.id,
+        name: driver.name,
+        routes: routesByName.get(key) || [],
+        clockIns: ['AM', 'MIDDAY', 'PM'].flatMap((run) => (clocks[run] ? [clocks[run]] : [])),
+      };
+    });
   },
 });
 

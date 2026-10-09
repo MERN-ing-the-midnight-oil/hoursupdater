@@ -12,7 +12,9 @@ import {
   assertKioskCode,
   buildRoster,
   changePunch,
+  DEFAULT_DRIVER_PIN,
   DEFAULT_KIOSK_CODE,
+  driverClockPin,
   kioskCookieHeader,
   latestStatusByDriver,
   normalizeKioskSettings,
@@ -150,7 +152,11 @@ describe('clock kiosk', () => {
     );
     assert.equal(office[1].pin, '1357');
     assert.equal(office[0].pin, null);
-    assert.equal(roster[0].clock_status, null);
+    assert.equal(roster[0].clock_status, 'out');
+    assert.equal(DEFAULT_DRIVER_PIN, '1234');
+    assert.equal(driverClockPin({}, 'drv-bob'), '1234');
+    assert.equal(driverClockPin({ 'drv-jane': '1003' }, 'drv-jane'), '1003');
+    assert.equal(driverClockPin({ 'drv-jane': '12' }, 'drv-jane'), '1234');
     const status = latestStatusByDriver([
       {
         id: 'p-early',

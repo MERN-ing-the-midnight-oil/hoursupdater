@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { duplicateRunRoutes, joinRunLabels } from '../office-tracker/src/duplicateRuns.js';
+import { duplicateRunRoutes, joinRunLabels, runClocksFromOriginalRoute } from '../office-tracker/src/duplicateRuns.js';
 
 test('duplicateRunRoutes finds routes that share a run with the one just assigned', () => {
   const overlap = duplicateRunRoutes(
@@ -58,4 +58,31 @@ test('joinRunLabels names Midday with the other runs', () => {
   assert.equal(joinRunLabels(['AM']), 'AM');
   assert.equal(joinRunLabels(['AM', 'MIDDAY']), 'AM and Midday');
   assert.equal(joinRunLabels(['AM', 'MIDDAY', 'PM']), 'AM, Midday, and PM');
+});
+
+test('runClocksFromOriginalRoute keeps the earlier route when a run is duplicated', () => {
+  const clocks = runClocksFromOriginalRoute([
+    {
+      name: '62',
+      assignedFrom: '2026-10-09',
+      clocks: { AM: '7:00', MIDDAY: '11:30' },
+    },
+    {
+      name: '50',
+      assignedFrom: '2026-08-31',
+      clocks: { AM: '6:30', PM: '14:00' },
+    },
+  ]);
+  assert.equal(clocks.AM, '6:30');
+  assert.equal(clocks.PM, '14:00');
+  assert.equal(clocks.MIDDAY, '11:30');
+});
+
+test('runClocksFromOriginalRoute ignores a blank clock and a missing start date', () => {
+  const clocks = runClocksFromOriginalRoute([
+    { name: '80', assignedFrom: '', clocks: { AM: '8:00' } },
+    { name: '12', assignedFrom: '2026-09-01', clocks: { AM: '6:10', PM: '' } },
+  ]);
+  assert.equal(clocks.AM, '6:10');
+  assert.equal(clocks.PM, undefined);
 });

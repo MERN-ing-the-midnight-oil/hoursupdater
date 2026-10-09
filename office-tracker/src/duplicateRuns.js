@@ -1,6 +1,35 @@
 const RUN_ORDER = ['AM', 'MIDDAY', 'PM'];
 
 /**
+ * Clock time for each run from the route this driver was assigned first.
+ * A later route fills a run only when no earlier route already has that run,
+ * so a temporary second AM, Midday, or PM route does not replace the original.
+ * @param {Array<{ assignedFrom?: string, name?: string, clocks?: Record<string, string> }>} routes
+ * @returns {Record<string, string>}
+ */
+export function runClocksFromOriginalRoute(routes) {
+  const ordered = [...(routes || [])].sort((a, b) => {
+    const byFrom = String(a?.assignedFrom || '9999-99-99').localeCompare(
+      String(b?.assignedFrom || '9999-99-99')
+    );
+    if (byFrom !== 0) return byFrom;
+    return String(a?.name || '').localeCompare(String(b?.name || ''), undefined, {
+      numeric: true,
+    });
+  });
+  /** @type {Record<string, string>} */
+  const clocks = {};
+  for (const route of ordered) {
+    for (const run of RUN_ORDER) {
+      const clock = String(route?.clocks?.[run] || '').trim();
+      if (!clock || clocks[run]) continue;
+      clocks[run] = clock;
+    }
+  }
+  return clocks;
+}
+
+/**
  * @param {string} type
  */
 export function runTypeLabel(type) {

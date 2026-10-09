@@ -50,15 +50,26 @@ export function driverOwnsRoute(profile, driverName) {
 }
 
 /**
+ * The stint that covers `date`, if this route has one.
+ * @param {object} profile
+ * @param {string} date
+ * @returns {{ driver_name: string, from: string, until: string | null } | null}
+ */
+export function assignmentOnDate(profile, date) {
+  const iso = String(date || '');
+  return (
+    [...routeAssignments(profile)]
+      .reverse()
+      .find((item) => item.from <= iso && (!item.until || iso < item.until)) || null
+  );
+}
+
+/**
  * @param {object} profile
  * @param {string} date
  */
 export function driverForDate(profile, date) {
-  const iso = String(date || '');
-  const match = [...routeAssignments(profile)]
-    .reverse()
-    .find((item) => item.from <= iso && (!item.until || iso < item.until));
-  return match?.driver_name || String(profile?.driver_name ?? '').trim();
+  return assignmentOnDate(profile, date)?.driver_name || String(profile?.driver_name ?? '').trim();
 }
 
 /**

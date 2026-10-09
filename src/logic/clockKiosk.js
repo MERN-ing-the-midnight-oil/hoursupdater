@@ -16,6 +16,18 @@ const REASON_LABEL_MAX = 60;
 /** Lock code that leaves the driver clock screen. Not a driver PIN. */
 export const DEFAULT_KIOSK_CODE = 'TeamsterTracker2026';
 
+/** PIN every driver starts with. A saved 4-digit PIN replaces this. */
+export const DEFAULT_DRIVER_PIN = '1234';
+
+/**
+ * @param {Record<string, string> | null | undefined} pins
+ * @param {string} driverId
+ */
+export function driverClockPin(pins, driverId) {
+  const saved = pins && typeof pins === 'object' ? String(pins[driverId] ?? '').trim() : '';
+  return PIN_PATTERN.test(saved) ? saved : DEFAULT_DRIVER_PIN;
+}
+
 export const KIOSK_COOKIE = 'clock_kiosk';
 
 /**
@@ -546,13 +558,13 @@ export function buildRoster(drivers, routeState, pins, options = {}) {
     .map((driver) => {
       const stored = pinFile[driver.driver_id];
       const status = statusByDriver[driver.driver_id];
-      /** @type {{ driver_id: string, name: string, routes: string[], pin_set: boolean, clock_status: 'in' | 'out' | null, pin?: string | null }} */
+      /** @type {{ driver_id: string, name: string, routes: string[], pin_set: boolean, clock_status: 'in' | 'out', pin?: string | null }} */
       const row = {
         driver_id: driver.driver_id,
         name: driver.name,
         routes: routesForDriver(routeState, driver.driver_id),
         pin_set: Boolean(stored),
-        clock_status: status === 'in' || status === 'out' ? status : null,
+        clock_status: status === 'in' ? 'in' : 'out',
       };
       if (includePin) row.pin = stored?.pin ?? null;
       return row;

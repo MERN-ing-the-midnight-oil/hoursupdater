@@ -3,12 +3,13 @@
  * until the office lock code is entered. Driver PINs do not leave that screen.
  */
 
-import { addReasonCode, DEFAULT_KIOSK_CODE, removeReasonCode } from '../../src/logic/clockKiosk.js';
+import { addReasonCode, DEFAULT_KIOSK_CODE, driverClockPin, removeReasonCode } from '../../src/logic/clockKiosk.js';
 import { dueClockInKeys, flashingClockInKeys, normalizeLateFlashMinutes } from '../../src/logic/lateClockFlash.js';
 import { normalizeClockNameSize, quarterHourClocksEnabled } from './store.js';
 
 const LOCK_KEY = 'teamster-timeclock-lock';
 const LATE_ACK_KEY = 'teamster-timeclock-late-ack';
+const NAME_COLOR_KEY = 'teamster-timeclock-name-colors';
 
 /**
  * @param {{
@@ -172,24 +173,26 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     if (roster.some((person) => person.id === current)) pinDriver.value = current;
   }
 
+  function pinFor(driverId) {
+    return driverClockPin(pins(), driverId);
+  }
+
   function renderPinList() {
-    const saved = pins();
     const roster = people();
     pinList.replaceChildren();
-    const listed = roster.filter((person) => saved[person.id]);
-    if (!listed.length) {
+    if (!roster.length) {
       const item = document.createElement('li');
       item.className = 'pin-empty';
-      item.textContent = 'No PINs yet.';
+      item.textContent = 'No drivers yet.';
       pinList.append(item);
       return;
     }
-    for (const person of listed) {
+    for (const person of roster) {
       const item = document.createElement('li');
       const name = document.createElement('span');
       name.textContent = person.name;
       const code = document.createElement('span');
-      code.textContent = saved[person.id];
+      code.textContent = pinFor(person.id);
       item.append(name, code);
       pinList.append(item);
     }
@@ -430,17 +433,44 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
       kioskRoster.append(empty);
       return;
     }
+    const colors = ensureNameColors(people());
     for (const person of roster) {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'kiosk-name';
       button.dataset.driverId = person.id;
+      button.dataset.driverName = person.name;
       button.dataset.clockIns = person.clockIns.join(',');
-      button.textContent = person.name;
+      const paint = nameButtonColors(colors.get(person.id) ?? 0);
+      button.style.setProperty('--name-bg', paint.background);
+      button.style.setProperty('--name-border', paint.border);
+      const label = document.createElement('span');
+      label.className = 'kiosk-name-label';
+      label.textContent = person.name;
+      const status = clockStatus(person.name);
+      const badge = document.createElement('span');
+      badge.className = `kiosk-status is-${status}`;
+      badge.textContent = status === 'in' ? 'IN' : 'OUT';
+      button.append(label, badge);
       paintLate(button, person);
       button.addEventListener('click', () => openDriver(person));
       kioskRoster.append(button);
     }
+  }
+
+  /**
+   * Latest punch wins. No punch, or a last clock out, is Out.
+   * @param {string} name
+   * @returns {'in' | 'out'}
+   */
+  function clockStatus(name) {
+    const wanted = name.trim().toLowerCase();
+    let latest = null;
+    for (const punch of Array.isArray(state().punches) ? state().punches : []) {
+      if (String(punch?.driver_name || '').trim().toLowerCase() !== wanted) continue;
+      if (!latest || String(punch.punched_at) > String(latest.punched_at)) latest = punch;
+    }
+    return latest?.action === 'in' ? 'in' : 'out';
   }
 
   /**
@@ -508,7 +538,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     const now = new Date();
     for (const button of kioskRoster.querySelectorAll('.kiosk-name')) {
       if (!(button instanceof HTMLButtonElement)) continue;
-      const name = button.textContent || '';
+      const name = button.dataset.driverName || '';
       const next =
         flashingClockInKeys({
           now,
@@ -541,12 +571,9 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     kioskReasonIds = [];
     renderKioskReasons();
     kioskActions.hidden = true;
-    const hasPin = Boolean(pins()[person.id]);
-    if (kioskPinForm) kioskPinForm.hidden = !hasPin;
-    if (kioskPinError) {
-      kioskPinError.textContent = hasPin ? '' : 'The office has not set a PIN for this driver.';
-    }
-    if (hasPin) kioskPin.focus();
+    if (kioskPinForm) kioskPinForm.hidden = false;
+    if (kioskPinError) kioskPinError.textContent = '';
+    kioskPin.focus();
   }
 
   function onPinInput() {
@@ -561,7 +588,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
    */
   function checkPin(entered) {
     if (!selected || unlocked || !/^\d{4}$/.test(entered)) return;
-    if (pins()[selected.id] !== entered) {
+    if (pinFor(selected.id) !== entered) {
       kioskPin.value = '';
       if (kioskPinError) kioskPinError.textContent = 'That PIN does not match.';
       kioskPin.focus();
@@ -680,4 +707,100 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
   }
 
   return { refresh };
+}
+
+/**
+ * @param {number} index
+ */
+function hueForColorIndex(index) {
+  return (index * 47) % 360;
+}
+
+/**
+ * @param {number} a
+ * @param {number} b
+ */
+function hueDistance(a, b) {
+  const diff = Math.abs(a - b) % 360;
+  return Math.min(diff, 360 - diff);
+}
+
+/**
+ * Pick an unused palette slot whose hue is as far as possible from colors already in use.
+ * @param {Set<number>} used
+ */
+function nextColorIndex(used) {
+  const limit = Math.max(used.size + 36, 12);
+  let best = 0;
+  let bestDistance = -1;
+  for (let index = 0; index < limit; index += 1) {
+    if (used.has(index)) continue;
+    const hue = hueForColorIndex(index);
+    let nearest = 180;
+    for (const taken of used) nearest = Math.min(nearest, hueDistance(hue, hueForColorIndex(taken)));
+    if (nearest > bestDistance) {
+      bestDistance = nearest;
+      best = index;
+    }
+  }
+  return best;
+}
+
+/**
+ * @param {number} index
+ */
+function nameButtonColors(index) {
+  const hue = hueForColorIndex(index);
+  const band = index % 3;
+  const saturation = [52, 64, 42][band];
+  const lightness = [86, 80, 91][band];
+  return {
+    background: `hsl(${hue} ${saturation}% ${lightness}%)`,
+    border: `hsl(${hue} ${Math.min(saturation + 12, 78)}% ${lightness - 18}%)`,
+  };
+}
+
+function readStoredNameColors() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(NAME_COLOR_KEY) || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Keep a stable color for each driver. New people get a free color; saved ones stay put.
+ * @param {Array<{ id: string, name: string }>} drivers
+ */
+function ensureNameColors(drivers) {
+  const stored = readStoredNameColors();
+  /** @type {Map<string, number>} */
+  const assigned = new Map();
+  const used = new Set();
+  const ordered = [...drivers].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }));
+  for (const driver of ordered) {
+    const saved = stored[driver.id];
+    if (!Number.isInteger(saved) || saved < 0 || used.has(saved)) continue;
+    assigned.set(driver.id, saved);
+    used.add(saved);
+  }
+  let changed = false;
+  for (const driver of ordered) {
+    if (assigned.has(driver.id)) continue;
+    const index = nextColorIndex(used);
+    assigned.set(driver.id, index);
+    used.add(index);
+    stored[driver.id] = index;
+    changed = true;
+  }
+  if (changed) {
+    try {
+      localStorage.setItem(NAME_COLOR_KEY, JSON.stringify(stored));
+    } catch {
+      // The colors still apply for this visit when storage is blocked.
+    }
+  }
+  return assigned;
 }

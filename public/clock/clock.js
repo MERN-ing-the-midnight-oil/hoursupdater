@@ -263,13 +263,12 @@ function renderRoster() {
     label.className = 'name-label';
     label.textContent = driver.name;
     button.append(label);
-    if (driver.clock_status === 'in' || driver.clock_status === 'out') {
-      button.classList.add('has-status');
-      const badge = document.createElement('span');
-      badge.className = `status-badge status-${driver.clock_status}`;
-      badge.textContent = driver.clock_status === 'in' ? 'IN' : 'OUT';
-      button.append(badge);
-    }
+    const status = driver.clock_status === 'in' ? 'in' : 'out';
+    button.classList.add('has-status');
+    const badge = document.createElement('span');
+    badge.className = `status-badge status-${status}`;
+    badge.textContent = status === 'in' ? 'IN' : 'OUT';
+    button.append(badge);
     button.addEventListener('click', () => openDriver(driver));
     rosterEl.append(button);
   }
