@@ -17,6 +17,7 @@ import {
   isDataDirConfigError,
 } from './logic/dataDirValidation.js';
 import { syncWorkbook } from './services/workbookSync.js';
+import { requestHasKioskLock } from './logic/clockKiosk.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, '../public');
@@ -24,6 +25,55 @@ const publicDir = path.resolve(__dirname, '../public');
 const app = express();
 
 app.use(express.json({ limit: '1mb' }));
+
+// A locked timeclock cookie belongs to this browser only. Other devices
+// keep the office pages. The driver screen and its punch calls stay open.
+app.use((req, res, next) => {
+  if (!requestHasKioskLock(req.headers.cookie)) {
+    next();
+    return;
+  }
+  const pathName = req.path;
+  if (pathName === '/clock' || pathName.startsWith('/clock/')) {
+    next();
+    return;
+  }
+  if (pathName.startsWith('/shared/') || pathName === '/favicon.svg') {
+    next();
+    return;
+  }
+  if (pathName === '/api/clock/kiosk' && req.method === 'GET') {
+    next();
+    return;
+  }
+  if (pathName === '/api/clock/kiosk/unlock' && req.method === 'POST') {
+    next();
+    return;
+  }
+  if (pathName === '/api/clock/roster' && req.method === 'GET' && req.query.pins !== '1') {
+    next();
+    return;
+  }
+  if (req.method === 'GET' && pathName === '/api/clock/reason-codes') {
+    next();
+    return;
+  }
+  if (
+    req.method === 'POST' &&
+    (pathName === '/api/clock/verify' ||
+      pathName === '/api/clock/punches' ||
+      pathName === '/api/clock/mine' ||
+      /^\/api\/clock\/punches\/[^/]+\/details$/.test(pathName))
+  ) {
+    next();
+    return;
+  }
+  if (pathName.startsWith('/api/')) {
+    res.status(403).json({ error: 'The timeclock is locked on this device.' });
+    return;
+  }
+  res.redirect('/clock');
+});
 
 app.use('/api', apiRouter);
 
@@ -55,6 +105,22 @@ app.get('/admin/drivers/:driverId', (_req, res) => {
 
 app.get(['/help', '/help/'], (_req, res) => {
   res.sendFile(path.join(publicDir, 'help', 'index.html'));
+});
+
+app.get(['/board', '/board/'], (_req, res) => {
+  res.sendFile(path.join(publicDir, 'board', 'index.html'));
+});
+
+app.get(['/clock', '/clock/'], (_req, res) => {
+  res.sendFile(path.join(publicDir, 'clock', 'index.html'));
+});
+
+app.get(['/admin/clock', '/admin/clock/'], (_req, res) => {
+  res.sendFile(path.join(publicDir, 'admin', 'clock.html'));
+});
+
+app.get(['/admin/timesheets', '/admin/timesheets/'], (_req, res) => {
+  res.sendFile(path.join(publicDir, 'admin', 'timesheets.html'));
 });
 
 app.use(express.static(publicDir));
@@ -113,6 +179,10 @@ app.listen(PORT, () => {
   console.log(`App data=_app_data → ${getAppDataDir()}`);
   console.log(`Workbook=${getWorkbookPath()}`);
   console.log(`Routing: http://localhost:${PORT}/routing`);
+  console.log(`Extra work board (local only): http://localhost:${PORT}/board`);
+  console.log(`Door clock: http://localhost:${PORT}/clock`);
+  console.log(`Clock records: http://localhost:${PORT}/admin/clock`);
+  console.log(`Timesheets: http://localhost:${PORT}/admin/timesheets`);
   console.log('');
   console.log('If your browser did not open, paste this into Edge:');
   console.log(`  http://localhost:${PORT}`);

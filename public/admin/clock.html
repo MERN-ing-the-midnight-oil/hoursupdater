@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clock records · Admin · Teamster Tracker</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/admin/clock.css" />
+  </head>
+  <body>
+    <main class="shell shell-wide">
+      <div class="topbar">
+        <div class="brand-block">
+          <a href="/" class="brand-home" aria-label="Home" data-icon="home"></a>
+          <div class="brand">Teamster Tracker</div>
+        </div>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="/routing" data-icon="route">Routing</a>
+          <a href="/routing/sheet" data-icon="calendar">Route sheet</a>
+          <a href="/admin" data-icon="clipboard-list">Admin</a>
+          <a href="/admin/drivers" data-icon="users">Drivers/Routes</a>
+          <a href="/board?as=office" data-icon="bus">Extra work</a>
+          <a href="/admin/clock" aria-current="page" data-icon="clock">Clock Records</a>
+          <a href="/admin/timesheets" data-icon="file-text">Timesheets</a>
+          <a href="/help" data-icon="book-open">Definitions</a>
+        </nav>
+      </div>
+
+      <section class="panel">
+        <h1 data-icon="clock">Clock records</h1>
+        <p class="lead">
+          Every clock in and clock out from the door screen, including notes and reason codes.
+        </p>
+        <div class="clock-launch">
+          <button type="button" id="start-timeclock" data-icon="log-in">Start Timeclock</button>
+          <p class="field-hint">
+            Opens the driver screen on this tablet or laptop and keeps it there.
+            The lock code below is how the office gets back. Driver PINs do not open it.
+          </p>
+        </div>
+        <form id="lock-form" class="clock-add">
+          <label class="field">
+            <span>Lock code</span>
+            <input
+              id="lock-code"
+              type="text"
+              autocomplete="off"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck="false"
+              minlength="4"
+              maxlength="64"
+              required
+            />
+          </label>
+          <button type="submit" class="secondary" data-icon="lock">Save lock code</button>
+        </form>
+        <div id="office-status" class="status" role="status"></div>
+
+        <h2>Reason codes</h2>
+        <p class="field-hint">
+          Drivers choose from this list on a clock in or clock out. They can add more than one code to a record.
+        </p>
+        <form id="reason-form" class="clock-add">
+          <label class="field">
+            <span>New reason code</span>
+            <input id="reason-label" type="text" maxlength="60" required />
+          </label>
+          <button type="submit" data-icon="plus">Add reason code</button>
+        </form>
+        <ul id="reason-list" class="pin-list"></ul>
+
+        <h2>Add a record</h2>
+        <form id="add-form" class="clock-add">
+          <label class="field">
+            <span>Driver</span>
+            <select id="add-driver" required></select>
+          </label>
+          <label class="field">
+            <span>Kind</span>
+            <select id="add-action" required>
+              <option value="in">Clock in</option>
+              <option value="out">Clock out</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Time</span>
+            <input id="add-time" type="datetime-local" required />
+          </label>
+          <button type="submit" data-icon="plus">Add record</button>
+        </form>
+
+        <h2>Records</h2>
+        <div class="clock-table-wrap">
+          <table class="clock-table">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Driver</th>
+                <th>Kind</th>
+                <th>Note</th>
+                <th>Reason codes</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="punch-rows"></tbody>
+          </table>
+        </div>
+
+        <h2>PINs</h2>
+        <p class="field-hint">
+          A driver needs a 4-digit PIN before the door screen will accept a punch. The number is listed here so the office can look it up.
+        </p>
+        <form id="pin-form" class="clock-add">
+          <label class="field">
+            <span>Driver</span>
+            <select id="pin-driver" required></select>
+          </label>
+          <label class="field">
+            <span>New PIN</span>
+            <input
+              id="pin-value"
+              type="text"
+              inputmode="numeric"
+              autocomplete="off"
+              minlength="4"
+              maxlength="4"
+              pattern="[0-9]{4}"
+              required
+            />
+          </label>
+          <button type="submit" data-icon="lock">Save PIN</button>
+        </form>
+        <ul id="pin-list" class="pin-list"></ul>
+      </section>
+    </main>
+    <script type="module" src="/admin/clock.js"></script>
+  </body>
+</html>

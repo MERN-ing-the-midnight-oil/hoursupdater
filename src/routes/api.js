@@ -30,6 +30,18 @@ import {
   readChangeLog,
   readDrivers,
   readEmailTemplates,
+  readExtraWorkBoard,
+  writeExtraWorkBoard,
+  readClockKiosk,
+  readClockPins,
+  readClockPunches,
+  readClockReasonCodes,
+  readTimesheetExtras,
+  writeClockKiosk,
+  writeClockPins,
+  writeClockPunches,
+  writeClockReasonCodes,
+  writeTimesheetExtras,
   readNotifications,
   readPayrollSettings,
   readPendingNotifications,
@@ -111,7 +123,50 @@ import {
 import {
   applySeniorityTieResolution,
   findUnresolvedSeniorityTies,
+  getSeniorityOrder,
 } from '../logic/seniority.js';
+import {
+  awardPosting,
+  createPosting,
+  deleteDraft,
+  markNoticeRead,
+  publishPosting,
+  removeBid,
+  updatePosting,
+  upsertBid,
+} from '../logic/extraWorkBoard.js';
+import {
+  addReasonCode,
+  annotatePunch,
+  appendPunch,
+  assertPinMatches,
+  buildRoster,
+  changePunch,
+  assertKioskCode,
+  kioskCookieHeader,
+  latestStatusByDriver,
+  presentPunches,
+  relabelReasonCode,
+  removePunch,
+  removeReasonCode,
+  renameReasonCode,
+  requestHasKioskLock,
+  setPin,
+  validLockCode,
+} from '../logic/clockKiosk.js';
+import {
+  buildPeriodTimesheets,
+  buildTimesheet,
+  extraDateInPeriod,
+  extraStoreKey,
+  listPeriods,
+  payPeriodCalculatorsCsv,
+  payPeriodExportFilename,
+  periodFromQuery,
+  presentPeriod,
+  routesHeldBy,
+  setExtraHours,
+} from '../logic/timesheets.js';
 import { computeDeltaMinutes } from '../logic/timeUtils.js';
 import { buildAdminQueue, buildDriverDetail } from '../services/adminViews.js';
 import { rebuildAndPersistRouteState } from '../services/rebuild.js';
@@ -2419,6 +2474,554 @@ router.post('/workbook/import-adjustment', async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+});
+
+function boardError(res, error) {
+  const message = error instanceof Error ? error.message : 'Request failed';
+  res.status(400).json({ error: message });
+}
+
+router.get('/extra-work', async (_req, res, next) => {
+  try {
+    const [board, drivers, routeState] = await Promise.all([
+      readExtraWorkBoard(dataDir()),
+      readDrivers(dataDir()),
+      readRouteState(dataDir()),
+    ]);
+    const ranked = getSeniorityOrder(drivers).map((driver) => ({
+      driver_id: driver.driver_id,
+      name: driver.name,
+      email: driver.email,
+      seniority_rank: driver.seniority_rank,
+      missing_hire_date: driver.missing_hire_date,
+    }));
+    const schedules = Object.entries(routeState).flatMap(([route_id, entry]) => {
+      if (!entry?.driver_id) return [];
+      const segments = entry.segments || {};
+      return [
+        {
+          route_id,
+          driver_id: entry.driver_id,
+          segments: {
+            AM: segments.AM ?? null,
+            MIDDAY: segments.MIDDAY ?? null,
+            PM: segments.PM ?? null,
+          },
+        },
+      ];
+    });
+    res.json({ ...board, drivers: ranked, schedules });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/extra-work', async (req, res, next) => {
+  try {
+    const board = await readExtraWorkBoard(dataDir());
+    const saved = createPosting(board, req.body ?? {}, getAsOfTimestamp());
+    await writeExtraWorkBoard(saved.board, dataDir());
+    res.status(201).json(saved.posting);
+  } catch (error) {
+    boardError(res, error);
+  }
+});
+
+router.put('/extra-work/:id', async (req, res, next) => {
+  try {
+    const board = await readExtraWorkBoard(dataDir());
+    const saved = updatePosting(
+      board,
+      req.params.id,
+      req.body ?? {},
+      getAsOfTimestamp()
+    );
+    await writeExtraWorkBoard(saved.board, dataDir());
+    res.json(saved.posting);
+  } catch (error) {
+    boardError(res, error);
+  }
+});
+
+router.post('/extra-work/:id/post', async (req, res, next) => {
+  try {
+    const board = await readExtraWorkBoard(dataDir());
+    const saved = publishPosting(board, req.params.id, getAsOfTimestamp());
+    await writeExtraWorkBoard(saved.board, dataDir());
+    res.json({ posting: saved.posting, board: saved.board });
+  } catch (error) {
+    boardError(res, error);
+  }
+});
+
+router.delete('/extra-work/:id', async (req, res, next) => {
+  try {
+    const board = await readExtraWorkBoard(dataDir());
+    const nextBoard = deleteDraft(board, req.params.id);
+    await writeExtraWorkBoard(nextBoard, dataDir());
+    res.json({ ok: true });
+  } catch (error) {
+    boardError(res, error);
+  }
+});
+
+router.post('/extra-work/:id/bids', async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const drivers = await readDrivers(dataDir());
+    const driver = drivers.find((row) => row.driver_id === String(body.driver_id || '').trim());
+    if (!driver) {
+      res.status(400).json({ error: 'That name is not in the driver directory.' });
+      return;
+    }
+    const board = await readExtraWorkBoard(dataDir());
+    const saved = upsertBid(
+      board,
+      req.params.id,
+      {
+        driver_id: driver.driver_id,
+        initials: body.initials,
+        preference: body.preference,
+      },
+      getAsOfTimestamp()
+    );
+    await writeExtraWorkBoard(saved.board, dataDir());
+    res.json(saved.posting);
+  } catch (error) {
+    boardError(res, error);
+  }
+});
+
+router.delete('/extra-work/:id/bids/:driverId', async (req, res, next) => {
+  try {
+    const board = await readExtraWorkBoard(dataDir());
+    const saved = removeBid(
+      board,
+      req.params.id,
+      req.params.driverId,
+      getAsOfTimestamp()
+    );
+    await writeExtraWorkBoard(saved.board, dataDir());
+    res.json(saved.posting);
+  } catch (error) {
+    boardError(res, error);
+  }
+});
+
+router.post('/extra-work/:id/award', async (req, res, next) => {
+  try {
+    const driverId = String(req.body?.driver_id || '').trim();
+    const drivers = await readDrivers(dataDir());
+    const driver = drivers.find((row) => row.driver_id === driverId);
+    if (!driver) {
+      res.status(400).json({ error: 'That name is not in the driver directory.' });
+      return;
+    }
+    const board = await readExtraWorkBoard(dataDir());
+    const saved = awardPosting(board, req.params.id, driver, getAsOfTimestamp());
+    await writeExtraWorkBoard(saved.board, dataDir());
+    res.json({ posting: saved.posting, email: saved.email, board: saved.board });
+  } catch (error) {
+    boardError(res, error);
+  }
+});
+
+function sendClockError(res, error, next) {
+  if (error && typeof error.status === 'number' && error.status < 500) {
+    res.status(error.status).json({ error: error.message });
+    return;
+  }
+  next(error);
+}
+
+async function requireClockDriver(driverId) {
+  const driver = await findDriverById(String(driverId || '').trim(), dataDir());
+  if (!driver) {
+    const error = new Error('Driver not found.');
+    error.status = 404;
+    throw error;
+  }
+  return driver;
+}
+
+router.get('/clock/kiosk', async (req, res, next) => {
+  try {
+    const settings = await readClockKiosk(dataDir());
+    const locked = requestHasKioskLock(req.headers.cookie);
+    res.json(locked ? { locked: true } : { locked: false, unlock_pin: settings.unlock_pin });
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.post('/clock/kiosk/lock', (_req, res) => {
+  res.setHeader('Set-Cookie', kioskCookieHeader(true));
+  res.json({ locked: true });
+});
+
+router.post('/clock/kiosk/unlock', async (req, res, next) => {
+  try {
+    const settings = await readClockKiosk(dataDir());
+    assertKioskCode(settings, req.body?.code);
+    res.setHeader('Set-Cookie', kioskCookieHeader(false));
+    res.json({ locked: false });
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.put('/clock/kiosk', async (req, res, next) => {
+  try {
+    const unlock_pin = String(req.body?.unlock_pin ?? '').trim();
+    if (!validLockCode(unlock_pin)) {
+      res.status(400).json({ error: 'Lock code must be 4 to 64 letters or digits.' });
+      return;
+    }
+    const saved = await writeClockKiosk({ unlock_pin }, dataDir());
+    res.json(saved);
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.get('/clock/roster', async (req, res, next) => {
+  try {
+    const [drivers, routeState, pins, punches] = await Promise.all([
+      readDrivers(dataDir()),
+      readRouteState(dataDir()),
+      readClockPins(dataDir()),
+      readClockPunches(dataDir()),
+    ]);
+    const includePin = req.query.pins === '1';
+    res.json({
+      drivers: buildRoster(drivers, routeState, pins, {
+        includePin,
+        statusByDriver: latestStatusByDriver(punches),
+      }),
+    });
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.post('/clock/verify', async (req, res, next) => {
+  try {
+    const driver = await requireClockDriver(req.body?.driver_id);
+    const pins = await readClockPins(dataDir());
+    assertPinMatches(pins, driver.driver_id, req.body?.pin);
+    res.json({ ok: true, driver_id: driver.driver_id, name: driver.name });
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.post('/clock/punches', async (req, res, next) => {
+  try {
+    const driver = await requireClockDriver(req.body?.driver_id);
+    const pins = await readClockPins(dataDir());
+    assertPinMatches(pins, driver.driver_id, req.body?.pin);
+    const [existing, catalog] = await Promise.all([
+      readClockPunches(dataDir()),
+      readClockReasonCodes(dataDir()),
+    ]);
+    const now = getAsOfTimestamp();
+    const saved = appendPunch(existing, {
+      driver_id: driver.driver_id,
+      driver_name: driver.name,
+      action: req.body?.action,
+      punched_at: now,
+      now,
+      note: req.body?.note,
+      reason_code_ids: req.body?.reason_code_ids,
+      catalog,
+    });
+    await writeClockPunches(saved.punches, dataDir());
+    res.status(201).json(saved.punch);
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.post('/clock/mine', async (req, res, next) => {
+  try {
+    const driver = await requireClockDriver(req.body?.driver_id);
+    const pins = await readClockPins(dataDir());
+    assertPinMatches(pins, driver.driver_id, req.body?.pin);
+    const [punches, drivers] = await Promise.all([
+      readClockPunches(dataDir()),
+      readDrivers(dataDir()),
+    ]);
+    res.json({
+      punches: presentPunches(punches, drivers).filter((punch) => punch.driver_id === driver.driver_id),
+    });
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.post('/clock/punches/:id/details', async (req, res, next) => {
+  try {
+    const driver = await requireClockDriver(req.body?.driver_id);
+    const pins = await readClockPins(dataDir());
+    assertPinMatches(pins, driver.driver_id, req.body?.pin);
+    const [existing, catalog] = await Promise.all([
+      readClockPunches(dataDir()),
+      readClockReasonCodes(dataDir()),
+    ]);
+    const saved = annotatePunch(existing, req.params.id, {
+      driver_id: driver.driver_id,
+      note: req.body?.note,
+      reason_code_ids: req.body?.reason_code_ids,
+      catalog,
+      now: getAsOfTimestamp(),
+    });
+    await writeClockPunches(saved.punches, dataDir());
+    res.json(saved.punch);
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.get('/clock/reason-codes', async (_req, res, next) => {
+  try {
+    res.json({ codes: await readClockReasonCodes(dataDir()) });
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.post('/clock/reason-codes', async (req, res, next) => {
+  try {
+    const codes = addReasonCode(await readClockReasonCodes(dataDir()), req.body?.label);
+    await writeClockReasonCodes(codes, dataDir());
+    res.status(201).json({ codes });
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.patch('/clock/reason-codes/:id', async (req, res, next) => {
+  try {
+    const codes = renameReasonCode(
+      await readClockReasonCodes(dataDir()),
+      req.params.id,
+      req.body?.label
+    );
+    await writeClockReasonCodes(codes, dataDir());
+    const label = codes.find((code) => code.id === req.params.id)?.label ?? '';
+    const punches = relabelReasonCode(await readClockPunches(dataDir()), req.params.id, label);
+    await writeClockPunches(punches, dataDir());
+    res.json({ codes });
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.delete('/clock/reason-codes/:id', async (req, res, next) => {
+  try {
+    const codes = removeReasonCode(await readClockReasonCodes(dataDir()), req.params.id);
+    await writeClockReasonCodes(codes, dataDir());
+    res.json({ codes });
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.get('/timesheets', async (_req, res, next) => {
+  try {
+    const [drivers, state, punches] = await Promise.all([
+      readDrivers(dataDir()),
+      readRouteState(dataDir()),
+      readClockPunches(dataDir()),
+    ]);
+    const now = new Date();
+    res.json({
+      drivers: [...drivers]
+        .map((driver) => ({
+          driver_id: driver.driver_id,
+          name: driver.name,
+          route_ids: routesHeldBy(state, driver).map((route) => route.route_id),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
+      periods: listPeriods(punches, now).map((period) => presentPeriod(period)),
+      current: presentPeriod(periodFromQuery({}, now)),
+    });
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.get('/timesheets/export', async (req, res, next) => {
+  try {
+    const period = periodFromQuery(req.query);
+    const [drivers, state, punches, calendar] = await Promise.all([
+      readDrivers(dataDir()),
+      readRouteState(dataDir()),
+      readClockPunches(dataDir()),
+      readSchoolCalendar(dataDir()),
+    ]);
+    const sheets = buildPeriodTimesheets({
+      drivers,
+      punches,
+      routeState: state,
+      calendar,
+      period,
+    });
+    const filename = payPeriodExportFilename(presentPeriod(period).label);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(`\uFEFF${payPeriodCalculatorsCsv(sheets)}`);
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.get('/timesheets/:driverId', async (req, res, next) => {
+  try {
+    const driver = await requireClockDriver(req.params.driverId);
+    const period = periodFromQuery(req.query);
+    const [state, punches, calendar, extras] = await Promise.all([
+      readRouteState(dataDir()),
+      readClockPunches(dataDir()),
+      readSchoolCalendar(dataDir()),
+      readTimesheetExtras(dataDir()),
+    ]);
+    res.json(
+      buildTimesheet({
+        driver,
+        punches,
+        routes: routesHeldBy(state, driver),
+        calendar,
+        period,
+        extraByDate: extras[extraStoreKey(driver.driver_id, period)] || {},
+      })
+    );
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.put('/timesheets/:driverId/extra', async (req, res, next) => {
+  try {
+    const driver = await requireClockDriver(req.params.driverId);
+    const period = periodFromQuery(req.body || {});
+    const date = String(req.body?.date || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !extraDateInPeriod(period, date)) {
+      const error = new Error('That day is not in this pay period.');
+      error.status = 400;
+      throw error;
+    }
+    const saved = setExtraHours(
+      await readTimesheetExtras(dataDir()),
+      driver.driver_id,
+      period,
+      date,
+      req.body?.hours
+    );
+    await writeTimesheetExtras(saved, dataDir());
+    res.json({ extra_hours: saved[extraStoreKey(driver.driver_id, period)] || {} });
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.get('/clock/punches', async (_req, res, next) => {
+  try {
+    const [punches, drivers] = await Promise.all([
+      readClockPunches(dataDir()),
+      readDrivers(dataDir()),
+    ]);
+    res.json({ punches: presentPunches(punches, drivers) });
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.post('/clock/office/punches', async (req, res, next) => {
+  try {
+    const driver = await requireClockDriver(req.body?.driver_id);
+    const [existing, catalog] = await Promise.all([
+      readClockPunches(dataDir()),
+      readClockReasonCodes(dataDir()),
+    ]);
+    const now = getAsOfTimestamp();
+    const saved = appendPunch(existing, {
+      driver_id: driver.driver_id,
+      driver_name: driver.name,
+      action: req.body?.action,
+      punched_at: req.body?.punched_at || now,
+      now,
+      note: req.body?.note,
+      reason_code_ids: req.body?.reason_code_ids,
+      catalog,
+    });
+    await writeClockPunches(saved.punches, dataDir());
+    res.status(201).json(saved.punch);
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.patch('/clock/punches/:id', async (req, res, next) => {
+  try {
+    const [existing, catalog] = await Promise.all([
+      readClockPunches(dataDir()),
+      readClockReasonCodes(dataDir()),
+    ]);
+    const saved = changePunch(
+      existing,
+      req.params.id,
+      {
+        action: req.body?.action,
+        punched_at: req.body?.punched_at,
+        note: req.body?.note,
+        reason_code_ids: req.body?.reason_code_ids,
+      },
+      { now: getAsOfTimestamp(), catalog }
+    );
+    await writeClockPunches(saved.punches, dataDir());
+    res.json(saved.punch);
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.delete('/clock/punches/:id', async (req, res, next) => {
+  try {
+    const existing = await readClockPunches(dataDir());
+    const nextPunches = removePunch(existing, req.params.id);
+    await writeClockPunches(nextPunches, dataDir());
+    res.json({ ok: true });
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.put('/clock/pins/:driverId', async (req, res, next) => {
+  try {
+    const driver = await requireClockDriver(req.params.driverId);
+    const pins = await readClockPins(dataDir());
+    const nextPins = setPin(pins, driver.driver_id, req.body?.pin, getAsOfTimestamp());
+    await writeClockPins(nextPins, dataDir());
+    res.json({ driver_id: driver.driver_id, pin_set: true });
+  } catch (error) {
+    sendClockError(res, error, next);
+  }
+});
+
+router.post('/extra-work/notifications/:id/read', async (req, res, next) => {
+  try {
+    const board = await readExtraWorkBoard(dataDir());
+    const nextBoard = markNoticeRead(
+      board,
+      req.params.id,
+      String(req.body?.driver_id || '')
+    );
+    await writeExtraWorkBoard(nextBoard, dataDir());
+    res.json({ ok: true });
+  } catch (error) {
+    boardError(res, error);
   }
 });
 

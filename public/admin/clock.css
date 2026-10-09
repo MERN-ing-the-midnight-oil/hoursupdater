@@ -1,0 +1,156 @@
+.clock-launch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  margin: 0.4rem 0 1rem;
+}
+
+#start-timeclock {
+  font-size: 1.35rem;
+  padding: 0.95rem 1.4rem;
+}
+
+.clock-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem 1rem;
+  align-items: end;
+  margin-bottom: 1.5rem;
+}
+
+.clock-add .field {
+  min-width: 12rem;
+}
+
+.clock-table-wrap {
+  overflow-x: auto;
+  margin-bottom: 1.5rem;
+}
+
+.clock-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--card);
+}
+
+.clock-table th,
+.clock-table td {
+  padding: 0.7rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.clock-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.clock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+
+.clock-actions button,
+.clock-edit button {
+  padding: 0.4rem 0.7rem;
+}
+
+.kind-in,
+.kind-out {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  font-weight: 600;
+}
+
+.kind-in {
+  color: var(--accent);
+}
+
+.kind-out {
+  color: var(--warn);
+}
+
+.clock-edit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.clock-edit input,
+.clock-edit select {
+  width: auto;
+  padding: 0.35rem 0.45rem;
+}
+
+.pin-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.5rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.pin-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.reason-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.reason-row-actions button,
+.reason-picks button {
+  padding: 0.35rem 0.65rem;
+}
+
+.note-cell {
+  max-width: 18rem;
+  white-space: pre-wrap;
+}
+
+.noted-at,
+.reason-cell {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.reason-picks {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.4rem 0 0;
+  padding: 0;
+}
+
+.reason-picks li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0.3rem 0.1rem 0.55rem;
+  border: 1px solid var(--line);
+  background: var(--paper, var(--card));
+}
+
+.clock-edit {
+  align-items: end;
+}
+
+.clock-edit textarea {
+  width: min(100%, 22rem);
+  min-height: 4.5rem;
+  padding: 0.35rem 0.45rem;
+  font: inherit;
+}

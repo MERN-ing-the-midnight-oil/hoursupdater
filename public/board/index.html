@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Extra work board · Teamster Tracker</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/board/board.css" />
+  </head>
+  <body class="board-page">
+    <header class="board-bar">
+      <div class="board-bar-title">
+        <a class="board-home" href="/admin">Admin</a>
+        <h1>Extra work board</h1>
+        <p class="local-note">On this computer only. Not published.</p>
+      </div>
+      <div class="board-bar-tools">
+        <div class="mode-switch" role="group" aria-label="Who is using the board">
+          <button type="button" id="mode-office" data-mode="office">Office</button>
+          <button type="button" id="mode-driver" data-mode="driver">Driver</button>
+        </div>
+        <label class="identity" id="identity-wrap">
+          I am
+          <select id="driver-identity">
+            <option value="">Choose your name</option>
+          </select>
+        </label>
+        <button type="button" class="bell" id="notice-bell" hidden>
+          Notices <span id="notice-count">0</span>
+        </button>
+      </div>
+    </header>
+
+    <div id="notice-panel" class="notice-panel" hidden></div>
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+
+    <div class="board-layout">
+      <aside class="board-side" id="board-side"></aside>
+      <div class="board-stage">
+        <p id="sheet-status" class="sheet-status" role="status"></p>
+        <div id="sheet-root"></div>
+      </div>
+    </div>
+
+    <script type="module" src="/board/board.js"></script>
+  </body>
+</html>

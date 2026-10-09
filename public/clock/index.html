@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clock · Teamster Tracker</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/clock/clock.css" />
+  </head>
+  <body>
+    <main class="kiosk">
+      <time id="clock-now" class="clock-now"></time>
+      <section id="list-view">
+        <label class="search">
+          <span>Find your name</span>
+          <input id="name-search" type="search" autocomplete="off" placeholder="Type a name" />
+        </label>
+        <div id="roster" class="roster"></div>
+      </section>
+
+      <section id="detail-view" hidden>
+        <button type="button" id="back" class="back" data-icon="arrow-left">All drivers</button>
+        <h2 id="driver-name"></h2>
+        <p id="driver-routes" class="routes"></p>
+
+        <form id="pin-form">
+          <label>
+            PIN
+            <input
+              id="pin"
+              type="password"
+              inputmode="numeric"
+              autocomplete="off"
+              minlength="4"
+              maxlength="4"
+              pattern="[0-9]{4}"
+            />
+          </label>
+          <p id="pin-error" class="error" role="alert"></p>
+        </form>
+
+        <div id="punch-actions" hidden>
+          <div class="punch-note">
+            <label>
+              Note
+              <textarea id="punch-note" rows="3" maxlength="500" placeholder="Optional"></textarea>
+            </label>
+            <p class="hint">The note keeps the time you save it.</p>
+            <div class="reason-add">
+              <label>
+                Reason code
+                <select id="punch-reason"></select>
+              </label>
+              <button type="button" id="add-punch-reason">Add</button>
+            </div>
+            <ul id="punch-reason-list" class="reason-picks"></ul>
+          </div>
+          <div class="punch-actions">
+            <button type="button" id="clock-in" class="punch-btn punch-in" data-icon="log-in">
+              Clock IN
+            </button>
+            <button type="button" id="clock-out" class="punch-btn punch-out" data-icon="log-out">
+              Clock OUT
+            </button>
+          </div>
+          <p id="punch-error" class="error" role="alert"></p>
+          <section class="my-records">
+            <h3>Your records</h3>
+            <p class="hint">Add a note or reason codes to any clock in or clock out.</p>
+            <div id="my-records"></div>
+          </section>
+        </div>
+      </section>
+
+      <footer class="kiosk-foot">
+        <span class="kiosk-mark">Clock</span>
+        <p id="status" class="status" role="status"></p>
+        <a id="office-link" href="/admin/clock">Office records</a>
+        <form id="leave-form" class="leave-form" hidden>
+          <label>
+            Lock code
+            <input
+              id="leave-code"
+              type="password"
+              autocomplete="off"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck="false"
+            />
+          </label>
+          <button type="submit" class="leave" data-icon="lock">Leave</button>
+          <p id="leave-error" class="error" role="alert"></p>
+        </form>
+      </footer>
+    </main>
+    <div id="punch-confirm" class="punch-confirm" hidden>
+      <div class="punch-confirm-card" role="alertdialog" aria-modal="true" aria-labelledby="punch-confirm-text">
+        <p id="punch-confirm-text"></p>
+        <button type="button" id="punch-confirm-ok">OK</button>
+      </div>
+    </div>
+    <script type="module" src="/clock/clock.js"></script>
+  </body>
+</html>

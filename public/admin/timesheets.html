@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Timesheets · Teamster Tracker</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/admin/timesheets.css" />
+  </head>
+  <body>
+    <main class="shell shell-wide">
+      <div class="topbar">
+        <div class="brand-block">
+          <a href="/" class="brand-home" aria-label="Home" data-icon="home"></a>
+          <div class="brand">Teamster Tracker</div>
+        </div>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="/routing" data-icon="route">Routing</a>
+          <a href="/routing/sheet" data-icon="calendar">Route sheet</a>
+          <a href="/admin" data-icon="clipboard-list">Admin</a>
+          <a href="/admin/drivers" data-icon="users">Drivers/Routes</a>
+          <a href="/board?as=office" data-icon="bus">Extra work</a>
+          <a href="/admin/clock" data-icon="clock">Clock Records</a>
+          <a href="/admin/timesheets" aria-current="page" data-icon="file-text">Timesheets</a>
+          <a href="/help" data-icon="book-open">Definitions</a>
+        </nav>
+      </div>
+
+      <section class="panel">
+        <h1 data-icon="file-text">Timesheets</h1>
+        <p class="lead">
+          Clock in and clock out records compared with current contracted clocks.
+          A pay period is the 1st–15th or the 16th through the end of the month.
+          Export downloads every driver's regular and overtime hours for the selected pay period.
+          This page does not change any route.
+        </p>
+        <form id="timesheet-filters" class="timesheet-filters">
+          <label class="field">
+            <span>Driver</span>
+            <select id="timesheet-driver">
+              <option value="">Choose a driver</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Pay period</span>
+            <select id="timesheet-period"></select>
+          </label>
+          <button type="button" id="timesheet-export" data-icon="download">Export</button>
+        </form>
+        <div id="timesheet-status" class="status" role="status"></div>
+        <div id="timesheet-result" hidden>
+          <h2 id="timesheet-who" class="panel-title"></h2>
+          <p class="lead" id="timesheet-contract"></p>
+          <h3 id="timesheet-period-label"></h3>
+          <div class="timesheet-table-wrap">
+            <table class="timesheet-table" id="timesheet-compare"></table>
+          </div>
+          <h3>Hours above and below the contracted day</h3>
+          <p class="lead">
+            AM, midday, and PM totals come from the clock records. A pair is AM when its earlier time
+            is before 8:00, midday from 8:00 until 1:00, and PM after that.
+            Extra is a number you type for hours that are not a clock in and clock out.
+            Extra stays on this sheet. It is not added to regular, overtime, or the two rows copied for payroll.
+          </p>
+          <div class="timesheet-table-wrap">
+            <table class="timesheet-table timesheet-variance" id="timesheet-variance"></table>
+          </div>
+          <div class="actions">
+            <button type="button" id="timesheet-copy-good">COPY THE GOOD STUFF!</button>
+            <button type="button" id="timesheet-email" class="secondary" data-icon="mail">Email driver</button>
+            <button type="button" id="timesheet-print" class="secondary" data-icon="printer">Print</button>
+          </div>
+          <p id="timesheet-copy-status" class="status" role="status"></p>
+          <h3>Clock records</h3>
+          <div class="timesheet-table-wrap">
+            <table class="timesheet-table" id="timesheet-pairs"></table>
+          </div>
+          <p id="timesheet-caveats" class="lead" hidden></p>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/admin/timesheets.js"></script>
+  </body>
+</html>
