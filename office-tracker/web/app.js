@@ -65,6 +65,7 @@ import { recentRouteChanges } from '../src/recentChanges.js';
 import { ensureExampleRoutes, isSampleOffice } from './exampleRoutes.js';
 import { mountClockDesk } from './clockDesk.js';
 import { mountTimeclock } from './timeclockKiosk.js';
+import { driverPayStatusChoices, normalizeClockPayDefaults, normalizeDriverPay } from '../src/driverPay.js';
 
 bindCalculatorStore({
   deleteProfile,
@@ -1956,6 +1957,270 @@ function renderDrivers(highlightName = '') {
   if (highlightName) body.querySelector('.is-just-added')?.scrollIntoView({ block: 'nearest' });
 }
 
+const driverInfoSheet = document.querySelector('#driver-info-sheet');
+const driverInfoNote = document.querySelector('#driver-info-status');
+
+function setInfoNote(message, kind = '') {
+  if (!driverInfoNote) return;
+  setStatus(driverInfoNote, message, kind);
+}
+
+function payLinesForInfo() {
+  return normalizeClockPayDefaults(loadState().clockPayDefaults).lines;
+}
+
+function infoDriver(id) {
+  return listDrivers().find((driver) => driver.id === id) || null;
+}
+
+function driverFromInfoControl(node) {
+  const row = node.closest('tr');
+  return infoDriver(row?.dataset.driverId || '');
+}
+
+function routeLabelForDriver(name) {
+  const routes = routesForDriver(name);
+  if (!routes.length) return 'No route';
+  return routes.map((route) => (route.current ? route.name : `${route.name} (earlier)`)).join(', ');
+}
+
+function infoInput(driver, field, value, type, label, extra = '') {
+  return `<input class="entry-input" data-info-field="${field}" type="${type}" value="${escapeHtml(value)}" aria-label="${escapeHtml(label)} for ${escapeHtml(driver.name)}" ${extra} />`;
+}
+
+function driverInfoStatusMarkup(driver, lines) {
+  const chosen = driverPayStatusChoices(driver.payStatuses, lines);
+  const chosenIds = new Set(chosen.map((line) => line.id));
+  const options = lines
+    .filter((line) => !chosenIds.has(line.id))
+    .map((line) => `<option value="${escapeHtml(line.id)}">${escapeHtml(line.label)}</option>`)
+    .join('');
+  const pills = chosen
+    .map(
+      (line) =>
+        `<li><span>${escapeHtml(line.label)}</span><button type="button" class="secondary" data-remove-status="${escapeHtml(line.id)}" aria-label="Remove ${escapeHtml(line.label)} from ${escapeHtml(driver.name)}">Remove</button></li>`
+    )
+    .join('');
+  return `<div class="driver-info-statuses">
+    <ul class="driver-info-status-lines">${pills}</ul>
+    <select data-pay-status-add="1" aria-label="Pay status to add for ${escapeHtml(driver.name)}">
+      <option value="">Add a pay status</option>
+      ${options}
+    </select>
+    <button type="button" class="secondary" data-add-status="1"${options ? '' : ' disabled'}>Add</button>
+  </div>`;
+}
+
+function renderDriverInfo(force = false) {
+  const body = driverInfoSheet?.querySelector('tbody');
+  if (!body || !driverInfoSheet) return;
+  const active = document.activeElement;
+  if (!force && active instanceof HTMLElement && driverInfoSheet.contains(active)) return;
+  const drivers = listDrivers();
+  const lines = payLinesForInfo();
+  if (!drivers.length) {
+    body.innerHTML = '<tr><td class="empty" colspan="9">No drivers on the list yet.</td></tr>';
+    return;
+  }
+  body.innerHTML = drivers
+    .map(
+      (driver) => `<tr data-driver-id="${escapeHtml(driver.id)}">
+        <td>${infoInput(driver, 'firstName', driver.firstName, 'text', 'First name', 'autocomplete="given-name"')}</td>
+        <td>${infoInput(driver, 'lastName', driver.lastName, 'text', 'Last name', 'autocomplete="family-name"')}</td>
+        <td>${infoInput(driver, 'email', driver.email, 'email', 'Email', 'autocomplete="email" placeholder="name@example.com"')}</td>
+        <td>${infoInput(driver, 'phone', driver.phone, 'tel', 'Phone', 'autocomplete="tel"')}</td>
+        <td class="driver-info-routes">${escapeHtml(routeLabelForDriver(driver.name))}</td>
+        <td>${infoInput(driver, 'serial', driver.pay?.serial || '', 'text', 'Serial number', 'maxlength="20" autocomplete="off"')}</td>
+        <td>${infoInput(driver, 'rate', driver.pay?.rate || '', 'text', 'Hourly rate', 'inputmode="decimal" maxlength="7" placeholder="0.00" autocomplete="off"')}</td>
+        <td>${infoInput(driver, 'account', driver.pay?.account || '', 'text', 'Payroll account', 'maxlength="40" autocomplete="off"')}</td>
+        <td data-info-statuses>${driverInfoStatusMarkup(driver, lines)}</td>
+      </tr>`
+    )
+    .join('');
+}
+
+async function persistDriverInfo(driver, fields) {
+  const lines = payLinesForInfo();
+  const saved = saveDriver({
+    id: driver.id,
+    firstName: driver.firstName,
+    lastName: driver.lastName,
+    email: driver.email,
+    phone: driver.phone,
+    previousName: driver.name,
+    serial: driver.pay?.serial ?? '',
+    rate: driver.pay?.rate ?? '',
+    account: driver.pay?.account ?? '',
+    payStatuses: driverPayStatusChoices(driver.payStatuses, lines).map((line) => line.id),
+    ...fields,
+  });
+  if (accountsEnabled()) await whenSharedOfficeSaved();
+  return saved;
+}
+
+async function writeInfoField(driver, fields, messageFor, restore) {
+  try {
+    const saved = await persistDriverInfo(driver, fields);
+    setInfoNote(messageFor(saved), 'ok');
+  } catch (error) {
+    restore();
+    setInfoNote(error instanceof Error ? error.message : 'Could not save that change.', 'error');
+  }
+}
+
+async function commitDriverInfoField(input) {
+  const driver = driverFromInfoControl(input);
+  const field = input.dataset.infoField || '';
+  if (!driver || !field) return;
+  if (field === 'rate') {
+    const raw = input.value.trim();
+    const rate = normalizeDriverPay({ rate: raw }).rate;
+    if (raw && !rate) {
+      input.value = driver.pay?.rate || '';
+      setInfoNote('Enter an hourly rate like 37.74.', 'error');
+      return;
+    }
+    if (rate === (driver.pay?.rate || '')) {
+      input.value = rate;
+      return;
+    }
+    input.value = rate;
+    await writeInfoField(
+      driver,
+      { rate },
+      (saved) => (rate ? `Hourly rate saved for ${saved.name}.` : `Hourly rate removed for ${saved.name}.`),
+      () => {
+        input.value = driver.pay?.rate || '';
+      }
+    );
+    return;
+  }
+  if (field === 'serial' || field === 'account') {
+    const normalized = normalizeDriverPay({ [field]: input.value })[field];
+    const previous = driver.pay?.[field] || '';
+    const label = field === 'serial' ? 'Serial number' : 'Payroll account';
+    if (normalized === previous) {
+      input.value = normalized;
+      return;
+    }
+    input.value = normalized;
+    await writeInfoField(
+      driver,
+      { [field]: normalized },
+      (saved) => (normalized ? `${label} saved for ${saved.name}.` : `${label} removed for ${saved.name}.`),
+      () => {
+        input.value = previous;
+      }
+    );
+    return;
+  }
+  const value = input.value.trim();
+  if (field === 'firstName' || field === 'lastName') {
+    const firstName = field === 'firstName' ? value : driver.firstName;
+    const lastName = field === 'lastName' ? value : driver.lastName;
+    if (!firstName && !lastName) {
+      input.value = driver[field] || '';
+      setInfoNote('Enter a first or last name.', 'error');
+      return;
+    }
+  }
+  if (value === String(driver[field] ?? '').trim()) {
+    input.value = value;
+    return;
+  }
+  input.value = value;
+  const labels = { firstName: 'First name', lastName: 'Last name', email: 'Email', phone: 'Phone' };
+  const label = labels[field] || 'Driver info';
+  await writeInfoField(
+    driver,
+    { [field]: value },
+    (saved) => (value ? `${label} saved for ${saved.name}.` : `${label} removed for ${saved.name}.`),
+    () => {
+      input.value = driver[field] || '';
+    }
+  );
+}
+
+async function finishInfoStatus(driver, payStatuses, message) {
+  const row = driverInfoSheet?.querySelector(`tr[data-driver-id="${CSS.escape(driver.id)}"]`);
+  try {
+    const saved = await persistDriverInfo(driver, { payStatuses });
+    const fresh = infoDriver(saved.id) || saved;
+    const cell = row?.querySelector('[data-info-statuses]');
+    if (cell) cell.innerHTML = driverInfoStatusMarkup(fresh, payLinesForInfo());
+    setInfoNote(message, 'ok');
+  } catch (error) {
+    setInfoNote(error instanceof Error ? error.message : 'Could not save that change.', 'error');
+  }
+}
+
+async function addDriverInfoStatus(select) {
+  const driver = driverFromInfoControl(select);
+  if (!driver || !select.value) return;
+  const lines = payLinesForInfo();
+  const current = driverPayStatusChoices(driver.payStatuses, lines).map((line) => line.id);
+  if (current.includes(select.value)) return;
+  const next = lines.map((line) => line.id).filter((id) => current.includes(id) || id === select.value);
+  const added = lines.find((line) => line.id === select.value);
+  await finishInfoStatus(driver, next, `${added?.label || 'Pay status'} added for ${driver.name}.`);
+}
+
+async function removeDriverInfoStatus(button) {
+  const driver = driverFromInfoControl(button);
+  const id = button.dataset.removeStatus || '';
+  if (!driver || !id) return;
+  const lines = payLinesForInfo();
+  const current = driverPayStatusChoices(driver.payStatuses, lines);
+  if (current.length < 2) {
+    setInfoNote('Leave at least one pay status for this driver.', 'error');
+    return;
+  }
+  const next = lines.map((line) => line.id).filter((lineId) => current.some((line) => line.id === lineId) && lineId !== id);
+  const removed = lines.find((line) => line.id === id);
+  await finishInfoStatus(driver, next, `${removed?.label || 'Pay status'} removed for ${driver.name}.`);
+}
+
+driverInfoSheet?.addEventListener('focusout', (event) => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || !input.dataset.infoField) return;
+  commitDriverInfoField(input);
+});
+
+driverInfoSheet?.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter') return;
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || !input.dataset.infoField) return;
+  event.preventDefault();
+  input.blur();
+});
+
+driverInfoSheet?.addEventListener('change', (event) => {
+  const select = event.target;
+  if (!(select instanceof HTMLSelectElement) || select.dataset.payStatusAdd !== '1') return;
+  if (select.value) addDriverInfoStatus(select);
+});
+
+driverInfoSheet?.addEventListener('click', (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const remove = target?.closest('[data-remove-status]');
+  if (remove instanceof HTMLButtonElement) {
+    removeDriverInfoStatus(remove);
+    return;
+  }
+  const add = target?.closest('[data-add-status]');
+  if (!(add instanceof HTMLButtonElement)) return;
+  const select = add.parentElement?.querySelector('[data-pay-status-add]');
+  if (select instanceof HTMLSelectElement && select.value) addDriverInfoStatus(select);
+});
+
+document.querySelector('#payroll-tools')?.addEventListener('click', (event) => {
+  const button = event.target instanceof Element ? event.target.closest('#open-driver-info') : null;
+  if (!(button instanceof HTMLButtonElement)) return;
+  queueMicrotask(() => {
+    if (button.getAttribute('aria-expanded') === 'true') renderDriverInfo(true);
+  });
+});
+
 function confirmRemoveDriver(driver) {
   const routes = routesForDriver(driver.name);
   const current = routes.filter((route) => route.current).map((route) => route.name);
@@ -2107,6 +2372,7 @@ function renderApp() {
     appView.hidden = true;
     clockDesk.refresh();
     timeclockDesk.refresh();
+    if (onPayroll) renderDriverInfo();
     const openDriver = clockDesk.openDriver();
     const appName = onClocking ? 'Clocking' : 'Payroll';
     if (driversWindow) {
@@ -3185,6 +3451,17 @@ const clockDesk = mountClockDesk({
   onOpenHistory(name) {
     showDriverHistory(name);
   },
+  async saveDriverPay(driver, fields) {
+    saveDriver({
+      id: driver.id,
+      firstName: driver.firstName,
+      lastName: driver.lastName,
+      email: driver.email,
+      phone: driver.phone,
+      ...fields,
+    });
+    if (accountsEnabled()) await whenSharedOfficeSaved();
+  },
 });
 
 /**
@@ -3274,6 +3551,7 @@ window.addEventListener('storage', (event) => {
   if (event.key !== STORAGE_KEY) return;
   clockDesk.refresh();
   timeclockDesk.refresh();
+  if (activeSheet === 'payroll') renderDriverInfo();
 });
 
 renderSetupRuns();

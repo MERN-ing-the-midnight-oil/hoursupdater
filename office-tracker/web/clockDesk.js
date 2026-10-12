@@ -6,7 +6,7 @@
 import { addOfficePunch, changeOfficePunch, removeOfficePunch } from '../src/officePunches.js';
 import { punchRunLabel } from '../../src/logic/timesheets.js';
 import { buildDriverClockRecord, CLOCK_RECORD_COLUMNS } from '../src/driverClockRecord.js';
-import { driverPayStatusChoices, normalizeClockPayDefaults } from '../src/driverPay.js';
+import { driverPayStatusChoices, normalizeClockPayDefaults, normalizeDriverPay } from '../src/driverPay.js';
 import { compareRouteNumbers, driversFromState } from './store.js';
 
 /**
@@ -17,9 +17,10 @@ import { compareRouteNumbers, driversFromState } from './store.js';
  *   asOf?: () => string,
  *   readAccount?: () => { id?: string, name?: string } | null,
  *   onOpenHistory?: (name: string) => void,
+ *   saveDriverPay?: (driver: object, fields: { serial?: string, rate?: string, payStatuses?: string[] }) => Promise<void> | void,
  * }} options
  */
-export function mountClockDesk({ readState, writePunches, listNames, asOf, readAccount, onOpenHistory }) {
+export function mountClockDesk({ readState, writePunches, listNames, asOf, readAccount, onOpenHistory, saveDriverPay }) {
   const driverSelect = document.querySelector('#clock-driver');
   const timeInput = document.querySelector('#clock-time');
   const noteInput = document.querySelector('#clock-note');
@@ -47,6 +48,7 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
   const driverSheet = document.querySelector('#clock-driver-sheet');
   const driverSheetTitle = document.querySelector('#clock-driver-sheet-title');
   const driverFacts = document.querySelector('#clock-driver-facts');
+  const driverPayStatus = document.querySelector('#clock-driver-pay-status');
   const recordJumps = document.querySelector('#clock-record-periods');
   const recordHead = document.querySelector('#clock-record-sheet thead tr');
   const recordBody = document.querySelector('#clock-record-sheet tbody');
@@ -61,6 +63,7 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
   let draftReasonIds = [];
   /** @type {string} */
   let openDriver = '';
+  let factsDriver = '';
   let editingId = '';
   let removingId = '';
   /** @type {{ time: string, action: string, note: string, reasonIds: string[], adminNote: string, adminName: string } | null} */
@@ -102,6 +105,33 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
   document.querySelector('#clocking-driver-sheet-close')?.addEventListener('click', closeDriverSheet);
   document.querySelector('#clock-driver-history')?.addEventListener('click', () => {
     if (openDriver) onOpenHistory?.(openDriver);
+  });
+  driverFacts?.addEventListener('focusout', (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement)) return;
+    if (input.dataset.payField === 'serial' || input.dataset.payField === 'rate') commitPayField(input);
+  });
+  driverFacts?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement)) return;
+    if (input.dataset.payField !== 'serial' && input.dataset.payField !== 'rate') return;
+    event.preventDefault();
+    input.blur();
+  });
+  driverFacts?.addEventListener('change', (event) => {
+    const select = event.target;
+    if (!(select instanceof HTMLSelectElement) || select.dataset.payStatusAdd !== '1') return;
+    if (select.value) addPayStatus();
+  });
+  driverFacts?.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const remove = target?.closest('[data-remove-status]');
+    if (remove instanceof HTMLButtonElement) {
+      removePayStatus(remove.dataset.removeStatus || '');
+      return;
+    }
+    if (target?.closest('[data-add-status]')) addPayStatus();
   });
   recordJumps?.addEventListener('click', (event) => {
     const link = event.target.closest('a[href^="#"]');
@@ -268,23 +298,196 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     if (driverSelect.value !== openDriver) driverSelect.value = openDriver;
   }
 
-  function driverInfo(name) {
+  function openPayDriver() {
     const state = readState() || {};
-    const driver = driversFromState(state).find(
-      (item) => item.name.trim().toLowerCase() === String(name || '').trim().toLowerCase()
+    return (
+      driversFromState(state).find(
+        (item) => item.name.trim().toLowerCase() === String(openDriver || '').trim().toLowerCase()
+      ) || null
     );
-    const defaults = normalizeClockPayDefaults(state.clockPayDefaults);
-    const statuses = driverPayStatusChoices(driver?.payStatuses, defaults.lines).map((line) => line.label);
-    const routes = routesFor(name);
-    /** @type {Array<[string, string]>} */
-    const facts = [['Routes', routes.length ? routes.join(', ') : 'No route']];
-    if (driver?.email) facts.push(['Email', driver.email]);
-    if (driver?.phone) facts.push(['Phone', driver.phone]);
-    if (driver?.pay?.serial) facts.push(['Serial number', driver.pay.serial]);
-    if (driver?.pay?.rate) facts.push(['Hourly rate', driver.pay.rate]);
-    if (driver?.pay?.account) facts.push(['Payroll account', driver.pay.account]);
-    if (statuses.length) facts.push(['Pay status', statuses.join(', ')]);
-    return facts;
+  }
+
+  function payLines() {
+    return normalizeClockPayDefaults(readState()?.clockPayDefaults).lines;
+  }
+
+  function setPayNote(message, kind = '') {
+    if (!driverPayStatus) return;
+    driverPayStatus.hidden = !message;
+    driverPayStatus.textContent = message || '';
+    driverPayStatus.className = kind ? `status is-${kind}` : 'status';
+  }
+
+  function factGroup(label, value) {
+    const group = document.createElement('div');
+    const term = document.createElement('dt');
+    term.textContent = label;
+    const detail = document.createElement('dd');
+    detail.textContent = value;
+    group.append(term, detail);
+    return group;
+  }
+
+  function payField(label, field, value) {
+    const group = document.createElement('div');
+    group.className = 'clock-record-edit';
+    const name = document.createElement('label');
+    name.className = 'clock-record-label';
+    name.textContent = label;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.dataset.payField = field;
+    input.value = value;
+    input.setAttribute('aria-label', label);
+    if (field === 'serial') input.maxLength = 20;
+    if (field === 'rate') {
+      input.inputMode = 'decimal';
+      input.maxLength = 7;
+      input.placeholder = '0.00';
+    }
+    name.append(input);
+    group.append(name);
+    return group;
+  }
+
+  function renderDriverFacts(force = false) {
+    if (!driverFacts) return;
+    if (!force && driverFacts.contains(document.activeElement)) return;
+    if (factsDriver !== openDriver) {
+      factsDriver = openDriver;
+      setPayNote('');
+    }
+    const driver = openPayDriver();
+    const lines = payLines();
+    const chosen = driverPayStatusChoices(driver?.payStatuses, lines);
+    const chosenIds = new Set(chosen.map((line) => line.id));
+    const routes = routesFor(openDriver);
+    driverFacts.replaceChildren();
+    driverFacts.append(factGroup('Routes', routes.length ? routes.join(', ') : 'No route'));
+    if (driver?.email) driverFacts.append(factGroup('Email', driver.email));
+    if (driver?.phone) driverFacts.append(factGroup('Phone', driver.phone));
+    driverFacts.append(payField('Serial number', 'serial', driver?.pay?.serial || ''));
+    driverFacts.append(payField('Hourly rate', 'rate', driver?.pay?.rate || ''));
+    if (driver?.pay?.account) driverFacts.append(factGroup('Payroll account', driver.pay.account));
+
+    const statuses = document.createElement('div');
+    statuses.className = 'clock-record-statuses';
+    const heading = document.createElement('span');
+    heading.className = 'clock-record-label';
+    heading.textContent = 'Pay status';
+    const list = document.createElement('ul');
+    list.className = 'clock-record-status-lines';
+    for (const line of chosen) {
+      const item = document.createElement('li');
+      const name = document.createElement('span');
+      name.textContent = line.label;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'secondary';
+      remove.dataset.removeStatus = line.id;
+      remove.textContent = 'Remove';
+      remove.setAttribute('aria-label', `Remove ${line.label}`);
+      item.append(name, remove);
+      list.append(item);
+    }
+    const select = document.createElement('select');
+    select.dataset.payStatusAdd = '1';
+    select.setAttribute('aria-label', 'Pay status to add');
+    const blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = 'Add a pay status';
+    select.append(blank);
+    for (const line of lines) {
+      if (chosenIds.has(line.id)) continue;
+      const option = document.createElement('option');
+      option.value = line.id;
+      option.textContent = line.label;
+      select.append(option);
+    }
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'secondary';
+    add.dataset.addStatus = '1';
+    add.textContent = 'Add';
+    add.disabled = select.options.length < 2;
+    statuses.append(heading, list, select, add);
+    driverFacts.append(statuses);
+  }
+
+  /**
+   * @param {HTMLInputElement} input
+   */
+  function commitPayField(input) {
+    const driver = openPayDriver();
+    if (!driver || !saveDriverPay) return;
+    const field = input.dataset.payField;
+    const raw = input.value.trim();
+    if (field === 'serial') {
+      const serial = normalizeDriverPay({ serial: raw }).serial;
+      if (serial === (driver.pay?.serial || '')) return;
+      input.value = serial;
+      savePay(driver, { serial }, serial ? `Serial number saved for ${driver.name}.` : `Serial number removed for ${driver.name}.`);
+      return;
+    }
+    if (field !== 'rate') return;
+    const rate = normalizeDriverPay({ rate: raw }).rate;
+    if (raw && !rate) {
+      input.value = driver.pay?.rate || '';
+      setPayNote('Enter an hourly rate like 37.74.', 'error');
+      return;
+    }
+    if (rate === (driver.pay?.rate || '')) return;
+    input.value = rate;
+    savePay(driver, { rate }, rate ? `Hourly rate saved for ${driver.name}.` : `Hourly rate removed for ${driver.name}.`);
+  }
+
+  function chosenStatusIds(driver) {
+    return driverPayStatusChoices(driver?.payStatuses, payLines()).map((line) => line.id);
+  }
+
+  function addPayStatus() {
+    const driver = openPayDriver();
+    const select = driverFacts?.querySelector('[data-pay-status-add]');
+    if (!driver || !(select instanceof HTMLSelectElement) || !select.value) return;
+    const lines = payLines();
+    const next = lines.map((line) => line.id).filter((id) => chosenStatusIds(driver).includes(id) || id === select.value);
+    const added = lines.find((line) => line.id === select.value);
+    savePay(driver, { payStatuses: next }, `${added?.label || 'Pay status'} added for ${driver.name}.`, true);
+  }
+
+  function removePayStatus(id) {
+    const driver = openPayDriver();
+    if (!driver || !id) return;
+    const lines = payLines();
+    const current = chosenStatusIds(driver);
+    if (current.length < 2) {
+      setPayNote('Leave at least one pay status for this driver.', 'error');
+      return;
+    }
+    const next = lines.map((line) => line.id).filter((lineId) => current.includes(lineId) && lineId !== id);
+    const removed = lines.find((line) => line.id === id);
+    savePay(driver, { payStatuses: next }, `${removed?.label || 'Pay status'} removed for ${driver.name}.`, true);
+  }
+
+  /**
+   * @param {NonNullable<ReturnType<typeof openPayDriver>>} driver
+   * @param {{ serial?: string, rate?: string, payStatuses?: string[] }} fields
+   * @param {string} message
+   * @param {boolean} [redraw]
+   */
+  function savePay(driver, fields, message, redraw = false) {
+    try {
+      const pending = saveDriverPay?.(driver, fields);
+      setPayNote(message, 'ok');
+      if (redraw) renderDriverFacts(true);
+      Promise.resolve(pending).catch((error) => {
+        setPayNote(error instanceof Error ? error.message : 'Could not save that change.', 'error');
+      });
+    } catch (error) {
+      setPayNote(error instanceof Error ? error.message : 'Could not save that change.', 'error');
+    }
   }
 
   function renderClockRecord() {
@@ -295,21 +498,12 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
       recordBody.replaceChildren();
       recordJumps?.replaceChildren();
       driverFacts?.replaceChildren();
+      factsDriver = '';
+      setPayNote('');
       return;
     }
     if (driverSheetTitle) driverSheetTitle.textContent = openDriver;
-    if (driverFacts) {
-      driverFacts.replaceChildren();
-      for (const [label, value] of driverInfo(openDriver)) {
-        const group = document.createElement('div');
-        const term = document.createElement('dt');
-        term.textContent = label;
-        const detail = document.createElement('dd');
-        detail.textContent = value;
-        group.append(term, detail);
-        driverFacts.append(group);
-      }
-    }
+    renderDriverFacts();
     const state = readState() || {};
     const periods = buildDriverClockRecord(
       state.punches,
