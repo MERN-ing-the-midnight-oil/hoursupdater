@@ -16,6 +16,7 @@ import { normalizeOfficeEdits } from '../src/officePunches.js';
 import { normalizePunchRun } from '../../src/logic/timesheets.js';
 import { normalizeDriverNotice } from '../src/noticeMail.js';
 import { normalizeOvertimeRules } from '../src/overtimeRules.js';
+import { mergePaperBackup, normalizePaperBackup } from '../src/paperClockBackup.js';
 import { normalizePunchSound } from './punchSounds.js';
 
 export const STORAGE_KEY = 'transportation-timechange.v1';
@@ -298,6 +299,18 @@ function timeSummaryEditsField(source) {
 }
 
 /**
+ * Paper backup duration, reminder choice, and the last time it was printed.
+ * A missing field means this browser has not chosen, so a shared value can stay.
+ * @param {object | null | undefined} source
+ */
+function paperBackupField(source) {
+  if (!source || typeof source !== 'object' || !Object.prototype.hasOwnProperty.call(source, 'paperBackup')) {
+    return {};
+  }
+  return { paperBackup: normalizePaperBackup(source.paperBackup) };
+}
+
+/**
  * Serial number, hourly rate, and payroll account number saved for one driver.
  * Empty values are left off.
  * @param {unknown} driver
@@ -386,6 +399,7 @@ export function loadState(storage = globalThis.localStorage) {
       ...overtimeRulesField(parsed),
       ...payDefaultsField(parsed),
       ...timeSummaryEditsField(parsed),
+      ...paperBackupField(parsed),
       ...(omittedDrivers.length ? { omittedDrivers } : {}),
       exampleVersion: parsed.exampleVersion ?? 0,
       ...(parsed.contractReminder ? { contractReminder: parsed.contractReminder } : {}),
@@ -795,6 +809,9 @@ export function mergeSharedDriverList(remoteState, localState) {
   if (localState && Object.prototype.hasOwnProperty.call(localState, 'timeSummaryEdits')) {
     remote.timeSummaryEdits = mergeTimeSummaryEdits(remote.timeSummaryEdits, localState.timeSummaryEdits);
   }
+  if (localState && Object.prototype.hasOwnProperty.call(localState, 'paperBackup')) {
+    remote.paperBackup = mergePaperBackup(remote.paperBackup, localState.paperBackup);
+  }
   const omitted = new Set([...omittedDriverKeys(remote.omittedDrivers), ...localOmitted]);
   for (const driver of remote.drivers) {
     omitted.delete(String(driver?.name ?? '').trim().toLowerCase());
@@ -1074,6 +1091,7 @@ export function importState(json, storage = globalThis.localStorage) {
     ...overtimeRulesField(parsed),
     ...payDefaultsField(parsed),
     ...timeSummaryEditsField(parsed),
+    ...paperBackupField(parsed),
     ...(omittedDriverKeys(parsed.omittedDrivers).length
       ? { omittedDrivers: omittedDriverKeys(parsed.omittedDrivers) }
       : {}),

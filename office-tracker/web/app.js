@@ -64,6 +64,7 @@ import { attributionForChange } from './attribution.js';
 import { recentRouteChanges } from '../src/recentChanges.js';
 import { ensureExampleRoutes, isSampleOffice } from './exampleRoutes.js';
 import { mountClockDesk } from './clockDesk.js';
+import { mountPaperBackup } from './paperBackup.js';
 import { mountTimeclock } from './timeclockKiosk.js';
 import { driverPayStatusChoices, normalizeClockPayDefaults, normalizeDriverPay } from '../src/driverPay.js';
 
@@ -164,6 +165,7 @@ const payrollTab = document.querySelector('#payroll-tab');
 const clockingTab = document.querySelector('#clocking-tab');
 const payrollView = document.querySelector('#payroll-view');
 const clockingView = document.querySelector('#clocking-view');
+const paperBackupView = document.querySelector('#paper-backup-view');
 const timeclockSettingsView = document.querySelector('#timeclock-settings-view');
 const adminReminderTab = document.querySelector('#admin-reminder-tab');
 const driverNoticeTab = document.querySelector('#driver-notice-tab');
@@ -231,7 +233,8 @@ function renderRouteTabs() {
   const onPayroll = activeSheet === 'payroll' && !addingPerson;
   const onClocking = activeSheet === 'clocking' && !addingPerson;
   const onClockSettings = activeSheet === 'clock-settings' && !addingPerson;
-  const onOfficeApp = onPayroll || onClocking || onClockSettings;
+  const onPaperBackup = activeSheet === 'paper-backup' && !addingPerson;
+  const onOfficeApp = onPayroll || onClocking || onClockSettings || onPaperBackup;
   const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
   const onRoute =
@@ -247,12 +250,12 @@ function renderRouteTabs() {
   driversTab.setAttribute('aria-selected', onDrivers ? 'true' : 'false');
   dashboardApp?.classList.toggle('is-active', !onOfficeApp);
   payrollTab?.classList.toggle('is-active', onPayroll);
-  clockingTab?.classList.toggle('is-active', onClocking || onClockSettings);
+  clockingTab?.classList.toggle('is-active', onClocking || onClockSettings || onPaperBackup);
   dashboardApp?.removeAttribute('aria-current');
   payrollTab?.removeAttribute('aria-current');
   clockingTab?.removeAttribute('aria-current');
   if (onPayroll) payrollTab?.setAttribute('aria-current', 'page');
-  else if (onClocking || onClockSettings) clockingTab?.setAttribute('aria-current', 'page');
+  else if (onClocking || onClockSettings || onPaperBackup) clockingTab?.setAttribute('aria-current', 'page');
   else dashboardApp?.setAttribute('aria-current', 'page');
   adminReminderTab?.classList.toggle('is-active', onAdminReminder);
   adminReminderTab?.setAttribute('aria-selected', onAdminReminder ? 'true' : 'false');
@@ -299,6 +302,7 @@ function chooseRoute(id) {
     activeSheet !== 'payroll' &&
     activeSheet !== 'clocking' &&
     activeSheet !== 'clock-settings' &&
+    activeSheet !== 'paper-backup' &&
     activeSheet !== 'admin-reminder' &&
     activeSheet !== 'driver-notice' &&
     current?.id === id
@@ -363,7 +367,12 @@ function openOfficeWindow(app) {
 }
 
 function rememberOfficeSheet() {
-  if (activeSheet !== 'payroll' && activeSheet !== 'clocking' && activeSheet !== 'clock-settings') {
+  if (
+    activeSheet !== 'payroll' &&
+    activeSheet !== 'clocking' &&
+    activeSheet !== 'clock-settings' &&
+    activeSheet !== 'paper-backup'
+  ) {
     sheetBeforeOffice = activeSheet === 'driver-history' ? 'drivers' : activeSheet;
   }
 }
@@ -395,8 +404,24 @@ function showClockSettings() {
   timeclockSettingsView?.scrollIntoView({ block: 'start' });
 }
 
+function showPaperBackup() {
+  rememberOfficeSheet();
+  addingPerson = false;
+  viewingDriver = '';
+  activeSheet = 'paper-backup';
+  loadAll();
+  paperBackupView?.scrollIntoView({ block: 'start' });
+}
+
 function showDashboardApp() {
-  if (activeSheet !== 'payroll' && activeSheet !== 'clocking' && activeSheet !== 'clock-settings') return;
+  if (
+    activeSheet !== 'payroll' &&
+    activeSheet !== 'clocking' &&
+    activeSheet !== 'clock-settings' &&
+    activeSheet !== 'paper-backup'
+  ) {
+    return;
+  }
   const back = sheetBeforeOffice;
   if (back === 'all') {
     showAllRoutes();
@@ -416,6 +441,7 @@ function showDashboardApp() {
     back !== 'payroll' &&
     back !== 'clocking' &&
     back !== 'clock-settings' &&
+    back !== 'paper-backup' &&
     peopleList().some((person) => person.id === back)
   ) {
     chooseRoute(back);
@@ -448,6 +474,9 @@ document.querySelector('#open-drivers')?.addEventListener('click', () => openOff
 document.querySelector('#open-clock-records')?.addEventListener('click', () => openOfficeWindow('clocking'));
 document.querySelector('#timeclock-settings-open')?.addEventListener('click', showClockSettings);
 document.querySelector('#timeclock-settings-back')?.addEventListener('click', showClocking);
+document.querySelector('#open-paper-backup')?.addEventListener('click', showPaperBackup);
+document.querySelector('#paper-backup-reminder-open')?.addEventListener('click', showPaperBackup);
+document.querySelector('#paper-backup-back')?.addEventListener('click', showClocking);
 adminReminderTab?.addEventListener('click', showAdminReminder);
 driverNoticeTab?.addEventListener('click', showDriverNotice);
 
@@ -820,6 +849,7 @@ function beginAddRoute() {
   driverHistoryView.hidden = true;
   if (payrollView) payrollView.hidden = true;
   if (clockingView) clockingView.hidden = true;
+  if (paperBackupView) paperBackupView.hidden = true;
   if (timeclockSettingsView) timeclockSettingsView.hidden = true;
   if (adminReminderView) adminReminderView.hidden = true;
   if (driverNoticeView) driverNoticeView.hidden = true;
@@ -2323,28 +2353,32 @@ function renderApp() {
   const onPayroll = activeSheet === 'payroll' && !addingPerson;
   const onClocking = activeSheet === 'clocking' && !addingPerson;
   const onClockSettings = activeSheet === 'clock-settings' && !addingPerson;
-  const onOfficeApp = onPayroll || onClocking || onClockSettings;
+  const onPaperBackup = activeSheet === 'paper-backup' && !addingPerson;
+  const onOfficeApp = onPayroll || onClocking || onClockSettings || onPaperBackup;
   const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
   const payrollWindow = driversWindow && driversApp === 'payroll';
   document.body.classList.toggle('is-payroll-app', onPayroll || (payrollWindow && onDriverHistory));
-  document.body.classList.toggle('is-clocking-app', onClocking || onClockSettings);
+  document.body.classList.toggle('is-clocking-app', onClocking || onClockSettings || onPaperBackup);
+  document.body.classList.toggle('is-paper-backup', onPaperBackup);
   const themeColor =
     onPayroll || (payrollWindow && onDriverHistory)
       ? '#12887a'
-      : onClocking || onClockSettings
+      : onClocking || onClockSettings || onPaperBackup
         ? '#1a4f8b'
         : '#6428f0';
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor);
   if (routeTabs) routeTabs.hidden = onOfficeApp || driversWindow;
   if (payrollView) payrollView.hidden = !onPayroll;
   if (clockingView) clockingView.hidden = !onClocking;
+  if (paperBackupView) paperBackupView.hidden = !onPaperBackup;
   if (timeclockSettingsView) timeclockSettingsView.hidden = !onClockSettings;
   if (adminReminderView) adminReminderView.hidden = !onAdminReminder;
   if (driverNoticeView) driverNoticeView.hidden = !onDriverNotice;
   if (driversWindow && onDriverHistory) {
     if (payrollView) payrollView.hidden = true;
     if (clockingView) clockingView.hidden = true;
+    if (paperBackupView) paperBackupView.hidden = true;
     if (timeclockSettingsView) timeclockSettingsView.hidden = true;
     driversView.hidden = true;
     allRoutesView.hidden = true;
@@ -2364,6 +2398,16 @@ function renderApp() {
     timeclockDesk.refresh();
     return;
   }
+  if (onPaperBackup) {
+    driversView.hidden = true;
+    allRoutesView.hidden = true;
+    driverHistoryView.hidden = true;
+    setupView.hidden = true;
+    appView.hidden = true;
+    document.title = `Paper backup · ${APP_TITLE}`;
+    paperBackup.refresh();
+    return;
+  }
   if (onPayroll || onClocking) {
     driversView.hidden = true;
     allRoutesView.hidden = true;
@@ -2372,6 +2416,7 @@ function renderApp() {
     appView.hidden = true;
     clockDesk.refresh();
     timeclockDesk.refresh();
+    if (onClocking) paperBackup.refresh();
     if (onPayroll) renderDriverInfo();
     const openDriver = clockDesk.openDriver();
     const appName = onClocking ? 'Clocking' : 'Payroll';
@@ -3410,6 +3455,7 @@ async function adoptStarterOffice() {
       : {}),
     clockReasonCodes: Array.isArray(current.clockReasonCodes) ? current.clockReasonCodes : [],
     clockSubstituteDrivers: Array.isArray(current.clockSubstituteDrivers) ? current.clockSubstituteDrivers : [],
+    ...(current.paperBackup ? { paperBackup: current.paperBackup } : {}),
     exampleVersion: 0,
     ...(next.contractReminder
       ? { contractReminder: next.contractReminder }
@@ -3547,10 +3593,19 @@ const timeclockDesk = mountTimeclock({
   },
 });
 
+const paperBackup = mountPaperBackup({
+  readState: loadState,
+  writeState(state) {
+    saveState(state);
+    timeclockDesk.refresh();
+  },
+});
+
 window.addEventListener('storage', (event) => {
   if (event.key !== STORAGE_KEY) return;
   clockDesk.refresh();
   timeclockDesk.refresh();
+  paperBackup.refresh();
   if (activeSheet === 'payroll') renderDriverInfo();
 });
 

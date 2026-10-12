@@ -520,10 +520,15 @@
         <div id="clocking-hub" class="payroll-clock-layout">
           <div class="payroll-clock-head">
             <h1 class="panel-title">Clocking</h1>
+            <div id="paper-backup-reminder" class="paper-backup-reminder" hidden>
+              <p id="paper-backup-reminder-text"></p>
+              <button type="button" id="paper-backup-reminder-open">Print paper backup</button>
+            </div>
             <p class="lead">
               Start Timeclock opens the driver screen on this tablet or laptop and keeps it there.
               On another screen opens that same driver screen on a second monitor and leaves this window free.
               Clock records opens the name list so you can add, change, or remove a clock in or clock out.
+              Paper backup prints the recent clock ins and clock outs, grouped by driver.
             </p>
           </div>
           <div class="payroll-clock-side">
@@ -556,6 +561,14 @@
                 Clock records
               </button>
               <p id="clock-records-open-status" class="status is-error" role="alert" hidden></p>
+              <button type="button" class="secondary" id="open-paper-backup">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 9V3h12v6" />
+                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                  <rect x="6" y="14" width="12" height="7" />
+                </svg>
+                Paper backup
+              </button>
               <button type="button" class="secondary timeclock-settings-launch" id="timeclock-settings-open">
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
                   <circle cx="12" cy="12" r="3" />
@@ -673,6 +686,72 @@
         </section>
       </section>
 
+      <section id="paper-backup-view" class="panel" hidden>
+        <div class="paper-backup-screen">
+          <div class="actions">
+            <button type="button" class="secondary" id="paper-backup-back">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M19 12H5" />
+                <path d="m11 6-6 6 6 6" />
+              </svg>
+              Back to Clocking
+            </button>
+          </div>
+          <h1 class="panel-title">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 9V3h12v6" />
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+              <rect x="6" y="14" width="12" height="7" />
+            </svg>
+            Paper backup
+          </h1>
+          <p class="lead">
+            Print the clock ins and clock outs from the backup window. They are grouped by driver name in 10-point type.
+            Download keeps every clock record from January 1 through today.
+          </p>
+          <form id="paper-backup-form" class="clock-form" novalidate>
+            <div class="field">
+              <label for="paper-backup-hours">Backup duration</label>
+              <input
+                id="paper-backup-hours"
+                type="number"
+                min="1"
+                max="744"
+                step="1"
+                inputmode="numeric"
+                value="24"
+                required
+              />
+              <p class="field-hint">Hours. 24 prints every clock in and clock out from the last day. The longest window is 744 hours.</p>
+            </div>
+            <div class="field">
+              <label>
+                <input id="paper-backup-reminders" type="checkbox" checked />
+                Remind me to print a paper backup
+              </label>
+              <p class="field-hint">
+                When this is on, Clocking reminds you after the backup duration passes.
+                The same choice is in Timeclock settings.
+              </p>
+            </div>
+            <div class="actions">
+              <button type="submit" class="secondary">Save backup settings</button>
+              <button type="button" id="paper-backup-print">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 9V3h12v6" />
+                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                  <rect x="6" y="14" width="12" height="7" />
+                </svg>
+                Print paper backup
+              </button>
+              <button type="button" class="secondary" id="paper-backup-ytd">Download year-to-date</button>
+            </div>
+          </form>
+          <p id="paper-backup-status" class="status" role="status" hidden></p>
+        </div>
+        <div id="paper-backup-sheet" class="paper-backup-sheet"></div>
+      </section>
+
       <section id="timeclock-settings-view" class="panel" hidden>
         <h1 class="panel-title">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -720,6 +799,33 @@
             </div>
             <div class="actions">
               <button type="submit" class="secondary">Save Admin Lock Code</button>
+            </div>
+          </form>
+          </section>
+          <section class="settings-card">
+          <h2>
+            <span class="settings-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <path d="M6 9V3h12v6" />
+                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                <rect x="6" y="14" width="12" height="7" />
+              </svg>
+            </span>
+            Paper backup reminder
+          </h2>
+          <p class="field-hint">
+            Clocking reminds you to print a paper backup after the backup duration passes.
+            That duration starts at 24 hours and is changed on Paper backup.
+          </p>
+          <form id="paper-backup-reminder-form" class="clock-form" novalidate>
+            <div class="field">
+              <label>
+                <input id="paper-backup-reminders-setting" type="checkbox" checked />
+                Remind me to print a paper backup
+              </label>
+            </div>
+            <div class="actions">
+              <button type="submit" class="secondary">Save reminder</button>
             </div>
           </form>
           </section>

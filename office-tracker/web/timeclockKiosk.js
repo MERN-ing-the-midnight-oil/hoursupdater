@@ -24,6 +24,7 @@ import {
 } from '../src/driverPay.js';
 import { buildMonthlyTimeSummary, buildMonthlySummaryMath, describePayPeriod, mathPeriodsWithPunches, payPeriodsForClocks, renderMonthlyTimeSummaryHtml } from '../src/monthlyTimeSummary.js';
 import { normalizeOvertimeRules } from '../src/overtimeRules.js';
+import { normalizePaperBackup } from '../src/paperClockBackup.js';
 import { renderMonthlySummaryMathHtml } from '../src/summaryMath.js';
 import {
   DEFAULT_PUNCH_SOUND_IN,
@@ -257,6 +258,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
   document.addEventListener('fullscreenchange', updateFillButton);
   lockForm.addEventListener('submit', onSaveLock);
   lateFlashForm?.addEventListener('submit', onSaveLateFlash);
+  document.querySelector('#paper-backup-reminder-form')?.addEventListener('submit', onSavePaperBackupReminder);
   earlyReleaseForm?.addEventListener('submit', onSaveEarlyRelease);
   quarterClockForms.forEach((form) => form.addEventListener('submit', onSaveQuarterClocks));
   overtimeForms.forEach((form) => form.addEventListener('submit', onSaveOvertimeRules));
@@ -408,6 +410,26 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     next.clockLockCode = code;
     writeState(next);
     setOfficeStatus('Admin Lock Code saved.', 'ok');
+  }
+
+  function fillPaperBackupReminder() {
+    const input = document.querySelector('#paper-backup-reminders-setting');
+    if (!(input instanceof HTMLInputElement) || document.activeElement === input) return;
+    input.checked = normalizePaperBackup(state().paperBackup).reminders;
+  }
+
+  function onSavePaperBackupReminder(event) {
+    event.preventDefault();
+    const input = document.querySelector('#paper-backup-reminders-setting');
+    if (!(input instanceof HTMLInputElement)) return;
+    const next = state();
+    const current = normalizePaperBackup(next.paperBackup);
+    next.paperBackup = { ...current, reminders: input.checked };
+    writeState(next);
+    setOfficeStatus(
+      input.checked ? 'Paper backup reminders are on.' : 'Paper backup reminders are off.',
+      'ok'
+    );
   }
 
   function fillLateFlash() {
@@ -3047,6 +3069,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
 
   function refresh() {
     fillLockField();
+    fillPaperBackupReminder();
     fillLateFlash();
     fillEarlyRelease();
     fillQuarterClocks();
