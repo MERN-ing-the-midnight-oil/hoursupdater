@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#0c665c" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Clock records</title>
+    <link rel="icon" href="./favicon.ico" sizes="48x48" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./office.css" />
+  </head>
+  <body class="driver-clock-page">
+    <header class="driver-clock-head">
+      <p class="app-name">Teamster Tracker</p>
+      <h1 id="driver-clock-title">Clock records</h1>
+      <p class="driver-clock-note">Read only. These are your clock in and clock out times.</p>
+    </header>
+    <p id="driver-clock-status" class="status" role="status">Loading your clock records…</p>
+    <nav id="driver-clock-periods" class="clock-record-jumps" aria-label="Pay periods" hidden></nav>
+    <div class="clock-record-scroll" id="driver-clock-scroll" hidden>
+      <table class="clock-record" id="driver-clock-sheet">
+        <thead>
+          <tr></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="driver-clock-actions">
+      <button type="button" id="driver-clock-download" disabled>Download</button>
+      <button type="button" id="driver-clock-email" class="secondary" disabled>Email</button>
+      <button type="button" id="driver-clock-print" class="secondary" disabled>Print</button>
+    </div>
+    <script type="module" src="./driver-clock.js"></script>
+  </body>
+</html>

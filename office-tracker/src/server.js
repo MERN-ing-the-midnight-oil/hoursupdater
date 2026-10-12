@@ -27,6 +27,7 @@ import {
 import { buildPayrollWorkbook, rowsFromPayrollWorkbook } from './payrollTimes.js';
 import { buildRouteWorkbook, stateFromRouteWorkbook } from './routeWorkbook.js';
 import { handleTimesheetExtract } from './timesheetExtract.js';
+import { clockShareOrigin } from './clockShare.js';
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -424,6 +425,29 @@ app.post(
     }
   }
 );
+
+function lanAddresses() {
+  /** @type {string[]} */
+  const found = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const net of list || []) {
+      const v4 = net.family === 'IPv4' || net.family === 4;
+      if (v4 && !net.internal && net.address) found.push(net.address);
+    }
+  }
+  return found;
+}
+
+app.get('/api/clock-share-origin', (req, res) => {
+  res.json({
+    origin: clockShareOrigin({
+      protocol: req.protocol,
+      host: req.headers.host,
+      port: PORT,
+      addresses: lanAddresses(),
+    }),
+  });
+});
 
 app.get('/api/supabase-config', (_req, res) => {
   const url = String(process.env.SUPABASE_URL ?? '').trim();

@@ -3311,6 +3311,7 @@ button.timesheet-file-link:hover {
 
 .paper-backup-sheet,
 .paper-backup-sheet h1,
+.paper-backup-sheet h2,
 .paper-backup-sheet p,
 .paper-backup-sheet th,
 .paper-backup-sheet td {
@@ -3320,25 +3321,40 @@ button.timesheet-file-link:hover {
 }
 
 #paper-backup-sheet h1,
+#paper-backup-sheet h2,
 #paper-backup-sheet p {
   display: block;
   margin: 0 0 0.15em;
   font-weight: 400;
 }
 
-#paper-backup-sheet h1 {
+#paper-backup-sheet h1,
+#paper-backup-sheet h2 {
   font-weight: 700;
+}
+
+.paper-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 0.35in;
+  align-items: start;
+}
+
+.paper-driver {
+  break-inside: avoid;
+  margin: 0 0 0.45em;
 }
 
 .paper-backup-sheet table {
   width: 100%;
   border-collapse: collapse;
-  margin: 0.35em 0 0;
+  margin: 0;
+  table-layout: fixed;
 }
 
 .paper-backup-sheet th,
 .paper-backup-sheet td {
-  padding: 0 0.45em 0 0;
+  padding: 0 0.35em 0 0;
   border: 0;
   text-align: left;
   font-weight: 400;
@@ -3346,14 +3362,13 @@ button.timesheet-file-link:hover {
   white-space: nowrap;
 }
 
-.paper-backup-sheet td:last-child,
-.paper-backup-sheet th:last-child {
-  white-space: normal;
+.paper-backup-sheet td:first-child {
+  width: 68%;
 }
 
-.paper-backup-sheet tr.driver th {
-  font-weight: 700;
-  padding-top: 0.45em;
+.paper-backup-sheet td:last-child {
+  width: 32%;
+  padding-right: 0;
 }
 
 .paper-backup-sheet .paper-empty {

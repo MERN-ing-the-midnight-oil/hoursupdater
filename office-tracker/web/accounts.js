@@ -368,6 +368,42 @@ async function loadAccountConfig() {
 }
 
 /**
+ * The same link every time this driver opens the route screen.
+ * Signed-in offices can create it. The public page reads clocks through it.
+ * @param {string} driverName
+ */
+export async function ensureDriverClockLink(driverName) {
+  if (!client || !account) return '';
+  const driver_name = String(driverName ?? '').trim();
+  const driver_key = driver_name.toLowerCase();
+  if (!driver_key) return '';
+  const existing = await client
+    .from('clock_links')
+    .select('token, driver_name')
+    .eq('driver_key', driver_key)
+    .maybeSingle();
+  if (existing.error) throw existing.error;
+  if (existing.data?.token) {
+    if (existing.data.driver_name !== driver_name) {
+      await client.from('clock_links').update({ driver_name }).eq('driver_key', driver_key);
+    }
+    return existing.data.token;
+  }
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  const token = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  const inserted = await client
+    .from('clock_links')
+    .insert({ token, driver_key, driver_name })
+    .select('token')
+    .single();
+  if (!inserted.error && inserted.data?.token) return inserted.data.token;
+  const again = await client.from('clock_links').select('token').eq('driver_key', driver_key).maybeSingle();
+  if (again.data?.token) return again.data.token;
+  throw inserted.error || new Error('Could not save the clock record link.');
+}
+
+/**
  * Ask for a Supabase sign-in when an account project is configured.
  * Otherwise the dashboard keeps using this browser only.
  * @param {{ onReady: () => void, onRemoteReset: () => void }} handlers

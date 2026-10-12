@@ -3,6 +3,7 @@
  * until the office lock code is entered. Driver PINs do not leave that screen.
  */
 
+import QRCode from 'qrcode';
 import { formatClockAmPm, localDateString, toTimeInputValue } from '../../employee-tracker/src/clockTimes.js';
 import { addReasonCode, assertNote, DEFAULT_KIOSK_CODE, driverClockPin, NOTE_MAX, removeReasonCode } from '../../src/logic/clockKiosk.js';
 import {
@@ -33,6 +34,8 @@ import {
   playPunchSound,
   punchSoundFor,
 } from './punchSounds.js';
+import { ensureDriverClockLink } from './accounts.js';
+import { clockShareUrl } from '../src/clockShare.js';
 import { driverPhotoSrc } from './driverPhotos.js';
 import {
   compareRouteNumbers,
@@ -182,6 +185,8 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
   const kioskLeaveError = document.querySelector('#kiosk-leave-error');
   const kioskConfirm = document.querySelector('#kiosk-confirm');
   const kioskConfirmText = document.querySelector('#kiosk-confirm-text');
+  const kioskClockQr = document.querySelector('#kiosk-clock-qr');
+  const kioskClockQrCode = document.querySelector('#kiosk-clock-qr-code');
   if (
     !startButton ||
     !lockForm ||
@@ -2364,6 +2369,67 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     return String(value || '').replace(/\D/g, '').slice(0, 4);
   }
 
+  /** @type {Promise<string> | null} */
+  let shareOriginPromise = null;
+  let clockQrRequest = 0;
+  let clockQrUrl = '';
+
+  function loadShareOrigin() {
+    if (!shareOriginPromise) {
+      shareOriginPromise = fetch('/api/clock-share-origin')
+        .then((response) => (response.ok ? response.json() : { origin: '' }))
+        .then((body) => String(body?.origin || '').replace(/\/$/, ''))
+        .catch(() => '');
+    }
+    return shareOriginPromise;
+  }
+
+  function hideClockQr() {
+    clockQrRequest += 1;
+    if (kioskClockQr) kioskClockQr.hidden = true;
+  }
+
+  /**
+   * @param {{ id: string, name: string }} person
+   */
+  async function paintClockQr(person) {
+    const request = ++clockQrRequest;
+    if (!kioskClockQr || !(kioskClockQrCode instanceof HTMLCanvasElement) || !person?.name) {
+      hideClockQr();
+      return;
+    }
+    kioskClockQr.hidden = true;
+    let origin = '';
+    let token = '';
+    try {
+      [origin, token] = await Promise.all([
+        loadShareOrigin(),
+        ensureDriverClockLink(person.name),
+      ]);
+    } catch {
+      origin = '';
+      token = '';
+    }
+    if (request !== clockQrRequest) return;
+    if (!selected || selected.id !== person.id || kioskActions.hidden) return;
+    const url = clockShareUrl(origin, token);
+    if (!url) return;
+    if (clockQrUrl !== url) {
+      try {
+      await QRCode.toCanvas(kioskClockQrCode, url, {
+        width: 288,
+        margin: 1,
+        color: { dark: '#102824', light: '#ffffff' },
+      });
+      } catch {
+        return;
+      }
+      if (request !== clockQrRequest) return;
+      clockQrUrl = url;
+    }
+    kioskClockQr.hidden = false;
+  }
+
   function showList(message = '') {
     if (selected) rememberLateVisit(selected);
     selected = null;
@@ -2373,6 +2439,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     kioskList.hidden = false;
     kioskDetail.hidden = true;
     kioskActions.hidden = true;
+    hideClockQr();
     if (kioskCovering) kioskCovering.hidden = true;
     if (kioskSubstituteWho) kioskSubstituteWho.hidden = true;
     kioskPin.value = '';
@@ -2630,6 +2697,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     kioskList.hidden = true;
     kioskDetail.hidden = true;
     kioskActions.hidden = true;
+    hideClockQr();
     kiosk.classList.remove('is-detail');
     if (kioskSubstitutes) kioskSubstitutes.hidden = false;
     renderSubstituteChoices();
@@ -2643,6 +2711,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     if (kioskSubstitutes) kioskSubstitutes.hidden = true;
     if (kioskSubstituteWho) kioskSubstituteWho.hidden = true;
     kioskActions.hidden = true;
+    hideClockQr();
     unlocked = false;
     syncSubstituteHeader();
   }
@@ -2683,6 +2752,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     kioskList.hidden = false;
     kioskDetail.hidden = true;
     kioskActions.hidden = true;
+    hideClockQr();
     if (kioskListStatus) {
       kioskListStatus.textContent = `${name}, tap the driver whose route you are covering.`;
     }
@@ -2707,6 +2777,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     renderKioskReasons();
     kioskActions.hidden = false;
     syncSubstituteHeader();
+    if (selected) paintClockQr(selected);
     document.querySelector('#kiosk-in')?.focus();
   }
 

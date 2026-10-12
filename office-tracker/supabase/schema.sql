@@ -130,3 +130,105 @@ exception
   when duplicate_object then
     null;
 end $$;
+
+-- One unguessable link per driver. Anyone with the link can read that
+-- driver's clock sheet. The rest of the office stays signed-in only.
+create table if not exists public.clock_links (
+  token text primary key,
+  driver_key text not null unique,
+  driver_name text not null,
+  created_at timestamptz not null default now(),
+  constraint clock_links_token_length check (char_length(token) >= 32),
+  constraint clock_links_key_matches check (driver_key = lower(trim(driver_name)) and driver_key <> '')
+);
+
+alter table public.clock_links enable row level security;
+
+revoke all on table public.clock_links from anon;
+grant select, insert, update on public.clock_links to authenticated;
+
+drop policy if exists "signed in can read clock links" on public.clock_links;
+create policy "signed in can read clock links"
+  on public.clock_links for select
+  to authenticated
+  using (true);
+
+drop policy if exists "signed in can insert clock links" on public.clock_links;
+create policy "signed in can insert clock links"
+  on public.clock_links for insert
+  to authenticated
+  with check (true);
+
+drop policy if exists "signed in can update clock links" on public.clock_links;
+create policy "signed in can update clock links"
+  on public.clock_links for update
+  to authenticated
+  using (true)
+  with check (true);
+
+create or replace function public.driver_clock_record(link_token text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  link public.clock_links%rowtype;
+  office jsonb;
+  driver_email text := '';
+  periods jsonb := '[]'::jsonb;
+  punches jsonb := '[]'::jsonb;
+begin
+  if link_token is null or char_length(link_token) < 32 then
+    return null;
+  end if;
+
+  select * into link
+  from public.clock_links
+  where token = link_token;
+
+  if not found then
+    return null;
+  end if;
+
+  select state into office
+  from public.office_state
+  where id = 'shared';
+
+  if office is not null then
+    select coalesce(d->>'email', '')
+      into driver_email
+    from jsonb_array_elements(coalesce(office->'drivers', '[]'::jsonb)) d
+    where lower(trim(coalesce(d->>'name', ''))) = link.driver_key
+    limit 1;
+
+    periods := coalesce(office #> '{clockPayDefaults,periods}', '[]'::jsonb);
+    if jsonb_typeof(periods) <> 'array' then
+      periods := '[]'::jsonb;
+    end if;
+
+    select coalesce(jsonb_agg(jsonb_build_object(
+      'driver_name', p->>'driver_name',
+      'punched_at', p->>'punched_at',
+      'action', p->>'action',
+      'run', p->>'run',
+      'removed', coalesce(p->>'removed', '') = 'true'
+    )), '[]'::jsonb)
+      into punches
+    from jsonb_array_elements(coalesce(office->'punches', '[]'::jsonb)) p
+    where lower(trim(coalesce(p->>'driver_name', ''))) = link.driver_key
+      and coalesce(p->>'removed', '') <> 'true';
+  end if;
+
+  return jsonb_build_object(
+    'driverName', link.driver_name,
+    'email', coalesce(driver_email, ''),
+    'periods', periods,
+    'punches', punches
+  );
+end;
+$$;
+
+revoke all on function public.driver_clock_record(text) from public;
+grant execute on function public.driver_clock_record(text) to anon, authenticated;

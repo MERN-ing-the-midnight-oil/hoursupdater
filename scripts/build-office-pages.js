@@ -14,6 +14,7 @@ await build({
   entryPoints: {
     app: path.join(webDir, 'app.js'),
     'math-page': path.join(webDir, 'mathPage.js'),
+    'driver-clock': path.join(webDir, 'driverClockPage.js'),
   },
   outdir: distDir,
   bundle: true,
@@ -30,6 +31,7 @@ const staticAssets = [
   'clock-hours-guide.html',
   'monthly-summary.html',
   'monthly-summary-math.html',
+  'driver-clock.html',
   'favicon.ico',
   'favicon.svg',
   'apple-touch-icon.png',
