@@ -11,8 +11,11 @@ await fs.mkdir(distDir, { recursive: true });
 
 await build({
   absWorkingDir: root,
-  entryPoints: [path.join(webDir, 'app.js')],
-  outfile: path.join(distDir, 'app.js'),
+  entryPoints: {
+    app: path.join(webDir, 'app.js'),
+    'math-page': path.join(webDir, 'mathPage.js'),
+  },
+  outdir: distDir,
   bundle: true,
   format: 'esm',
   platform: 'browser',
@@ -25,6 +28,8 @@ const staticAssets = [
   'styles.css',
   'office.css',
   'clock-hours-guide.html',
+  'monthly-summary.html',
+  'monthly-summary-math.html',
   'favicon.ico',
   'favicon.svg',
   'apple-touch-icon.png',
@@ -36,6 +41,11 @@ const staticAssets = [
 for (const name of staticAssets) {
   await fs.copyFile(path.join(webDir, name), path.join(distDir, name));
 }
+
+await fs.cp(path.join(webDir, 'driver-photos'), path.join(distDir, 'driver-photos'), {
+  recursive: true,
+  force: true,
+});
 
 const envText = await fs.readFile(path.join(root, '.env'), 'utf8');
 const envValue = (name) => {

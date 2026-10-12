@@ -440,7 +440,7 @@ export async function buildRouteWorkbook(state, options = {}) {
     ['Current route data', { bold: true, size: 18 }],
     [''],
     [
-      'This workbook is a backup of the routes in the Teamster Time Changes Dashboard. It opens in Excel. Keep the file if you want a copy. The live routes stay with the signed-in accounts.',
+      'This workbook is a backup of the routes in Teamster Tracker. It opens in Excel. Keep the file if you want a copy. The live routes stay with the signed-in accounts.',
     ],
     [''],
     ['One sheet per route', { bold: true, size: 14 }],

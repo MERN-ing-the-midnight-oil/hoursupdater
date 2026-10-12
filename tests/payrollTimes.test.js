@@ -15,6 +15,8 @@ import {
   payrollBaselineRows,
   formatQuarterHours,
   payrollDriverRows,
+  payrollHeaderRun,
+  payrollPeriodSheetsForDriver,
   payrollRowsForDriver,
   quarterHoursFromMinutes,
   rowsFromPayrollWorkbook,
@@ -52,6 +54,16 @@ function sampleState() {
     { id: 'driver-madonna', name: 'Madonna', phone: '', email: 'madonna@example.com' },
   ];
   return state;
+}
+
+function punch(id, name, action, date) {
+  return {
+    id,
+    driver_name: name,
+    action,
+    punched_at: date.toISOString(),
+    note: '',
+  };
 }
 
 describe('payroll driver times', () => {
@@ -145,6 +157,42 @@ describe('payroll driver times', () => {
     assert.equal(fromClock.pmIn, '');
     assert.equal(fromClock.amQuarterClocks, '5:45 AM–8:15 AM');
     assert.equal(fromClock.amTotalMinutes, 150);
+
+    const removedClocks = sampleState();
+    removedClocks.punches = punched.punches.map((punch) => ({ ...punch, removed: true }));
+    const ignored = payrollDriverRows(removedClocks, { asOf, calendar }).find((row) => row.route === '104');
+    assert.equal(ignored.amIn, '6:00');
+    assert.equal(ignored.amOut, '8:00');
+
+    const chosen = sampleState();
+    chosen.punches = [
+      {
+        id: 'pm-in',
+        driver_name: 'Alex Driver',
+        action: 'in',
+        punched_at: new Date(2026, 8, 16, 15, 0).toISOString(),
+        note: '',
+        run: 'AM',
+      },
+      {
+        id: 'pm-out',
+        driver_name: 'Alex Driver',
+        action: 'out',
+        punched_at: new Date(2026, 8, 16, 16, 0).toISOString(),
+        note: '',
+        run: 'AM',
+      },
+    ];
+    const byChoice = payrollDriverRows(chosen, { asOf, calendar }).find((row) => row.route === '104');
+    assert.equal(byChoice.amIn, '15:00');
+    assert.equal(byChoice.amOut, '16:00');
+    assert.equal(byChoice.pmIn, '');
+    chosen.punches[0].run = 'OTHER';
+    chosen.punches[1].run = 'OTHER';
+    const other = payrollDriverRows(chosen, { asOf, calendar }).find((row) => row.route === '104');
+    assert.equal(other.amIn, '6:00');
+    assert.equal(other.pmIn, '14:00');
+
     const riley = payrollDriverRows(punched, { asOf, calendar }).find((row) => row.route === '209');
     assert.equal(riley.amIn, '6:00');
 
@@ -198,6 +246,29 @@ describe('payroll driver times', () => {
       row.fullDayRoundedQuarterHours,
       sumRoundedQuarterHours([2, 1, 2])
     );
+  });
+
+  it('rounds only the exact daily total when that rounding is selected', () => {
+    const csv = [
+      'Route,Driver,Kind,Date,Run,Clock in,Clock out,Note',
+      '88,Pat Example,start,2026-09-08,AM,6:00,8:07,',
+      '88,Pat Example,start,2026-09-08,Midday,11:00,12:07,',
+      '88,Pat Example,start,2026-09-08,PM,14:00,16:07,',
+    ].join('\n');
+    const row = payrollDriverRows(stateFromRoutesCsv(csv), {
+      asOf: '2026-09-16',
+      calendar,
+      roundClocks: 'daily',
+    }).find((item) => item.route === '88');
+    assert.equal(row.amQuarterClocks, '6:00 AM–8:07 AM');
+    assert.equal(row.amTotalMinutes, 127);
+    assert.equal(row.amRoundedQuarterHours, null);
+    assert.equal(row.middayTotalMinutes, 67);
+    assert.equal(row.middayRoundedQuarterHours, null);
+    assert.equal(row.pmTotalMinutes, 127);
+    assert.equal(row.pmRoundedQuarterHours, null);
+    assert.equal(row.fullDayRoundedQuarterHours, 5.25);
+    assert.equal(formatQuarterHours(row.fullDayRoundedQuarterHours), '5.25');
   });
 
   it('counts minutes from clocks snapped to the nearest quarter hour', () => {
@@ -625,6 +696,68 @@ describe('payroll driver times', () => {
       storage
     );
     assert.deepEqual(sessionModifiedRouteNames(), ['S1', 'S6']);
+  });
+
+  it('lists one payroll sheet per pay period for a driver', () => {
+    assert.equal(payrollHeaderRun('AM total minutes'), 'AM');
+    assert.equal(payrollHeaderRun('Mid Day quarter-hour clocks'), 'MIDDAY');
+    assert.equal(payrollHeaderRun('PM rounded quarter hours'), 'PM');
+    assert.equal(payrollHeaderRun('Email'), null);
+    assert.equal(payrollHeaderRun('Date'), null);
+
+    const state = sampleState();
+    state.punches = [
+      punch('a-in', 'Alex Driver', 'in', new Date(2026, 8, 10, 6, 0)),
+      punch('a-out', 'Alex Driver', 'out', new Date(2026, 8, 10, 8, 0)),
+      punch('b-in', 'Alex Driver', 'in', new Date(2026, 8, 12, 6, 15)),
+      punch('b-out', 'Alex Driver', 'out', new Date(2026, 8, 12, 8, 15)),
+      punch('c-in', 'Alex Driver', 'in', new Date(2026, 9, 2, 7, 0)),
+      punch('c-out', 'Alex Driver', 'out', new Date(2026, 9, 2, 9, 0)),
+      punch('r-in', 'Riley Cho', 'in', new Date(2026, 8, 10, 5, 0)),
+      punch('r-out', 'Riley Cho', 'out', new Date(2026, 8, 10, 7, 0)),
+    ];
+    const now = new Date(2026, 9, 10, 12);
+    const sheets = payrollPeriodSheetsForDriver(state, 'Alex Driver', { calendar, now });
+    assert.deepEqual(
+      sheets.map((sheet) => sheet.label),
+      ['October 1\u201315, 2026', 'September 16\u201330, 2026', 'September 1\u201315, 2026']
+    );
+    assert.equal(sheets[0].contracted, false);
+    assert.equal(sheets[1].contracted, true);
+    assert.equal(sheets[2].contracted, false);
+    assert.ok(sheets[1].rows.every((row) => row.workDate === ''));
+    assert.ok(sheets[1].rows.every((row) => row.amIn !== '6:15' && row.amOut !== '8:15'));
+
+    const october = sheets[0].rows.filter((row) => row.route === '104');
+    assert.deepEqual(
+      october.map((row) => [row.workDate, row.amIn, row.amOut]),
+      [['2026-10-02', '7:00', '9:00']]
+    );
+    const september = sheets[2].rows.filter((row) => row.route === '104');
+    assert.deepEqual(
+      september.map((row) => [row.workDate, row.amIn, row.amOut, row.middayIn]),
+      [
+        ['2026-09-10', '6:00', '8:00', ''],
+        ['2026-09-12', '6:15', '8:15', ''],
+      ]
+    );
+    const sameDayOtherRoute = sheets[2].rows.find(
+      (row) => row.route === '12' && row.workDate === '2026-09-10'
+    );
+    assert.equal(sameDayOtherRoute.amIn, '6:00');
+
+    const riley = payrollPeriodSheetsForDriver(state, 'Riley Cho', { calendar, now }).find(
+      (sheet) => sheet.key === '2026-09-1'
+    );
+    assert.equal(riley.contracted, false);
+    assert.equal(riley.rows.find((row) => row.route === '209').amIn, '5:00');
+
+    const none = payrollPeriodSheetsForDriver(sampleState(), 'Alex Driver', { calendar, now });
+    assert.equal(none.length, 1);
+    assert.equal(none[0].contracted, true);
+    assert.equal(none[0].label, 'October 1\u201315, 2026');
+    assert.equal(none[0].rows.find((row) => row.route === '104').workDate, '');
+    assert.deepEqual(payrollPeriodSheetsForDriver(state, '', { calendar, now }), []);
   });
 
   it('rejects a spreadsheet that is not payroll driver times', async () => {

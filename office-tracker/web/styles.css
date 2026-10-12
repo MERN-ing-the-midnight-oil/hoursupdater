@@ -1,14 +1,16 @@
 :root {
-  --bg: #e7e9ee;
+  --bg: #eceaf3;
   --ink: #1c1e22;
   --muted: #5e6570;
-  --line: #d5d8de;
+  --line: #ddd8ea;
   --card: #ffffff;
   --dash-ink: var(--ink);
   --purple: #6428f0;
   --purple-deep: #4b16c9;
   --orange: #ff7a18;
   --orange-deep: #e26500;
+  --time-frame: #6428f0;
+  --time-signal: #ff7a18;
   --reader: #12887a;
   --reader-deep: #0c665c;
   --reader-gold: #e6a317;
@@ -16,8 +18,17 @@
   --reader-ink: #102824;
   --reader-case: #f3faf8;
   --reader-shadow: #16332f;
+  --clocking: #1a4f8b;
+  --clocking-deep: #123864;
+  --clocking-copper: #e07a2f;
+  --clocking-hot: #ffd7b8;
+  --clocking-ink: #102033;
+  --clocking-case: #f4f7fb;
+  --clocking-shadow: #102033;
   --accent: var(--purple);
   --accent-hover: var(--purple-deep);
+  --accent-wash: #f3eefe;
+  --accent-line: #d9ccf7;
   --signal: var(--orange);
   --warn: #8a4b12;
   --danger: #8f2d2d;
@@ -72,16 +83,36 @@ body {
   border-bottom: 2px solid var(--purple);
 }
 
+.app-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.app-name {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--purple);
+}
+
 .app-switch {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem 1.35rem;
+  align-items: stretch;
+  gap: 0.35rem;
   min-width: 0;
 }
 
 .app-launch .brand {
   max-width: 11rem;
+}
+
+.app-launch-reader .brand {
+  max-width: 13.5rem;
 }
 
 .brand-block {
@@ -114,11 +145,11 @@ body {
 }
 
 .px-shadow { fill: #2a2140; }
-.px-frame { fill: var(--purple); }
+.px-frame { fill: var(--time-frame); }
 .px-case { fill: #f7f5fb; }
 .px-dial { fill: #ffffff; }
 .px-ink { fill: #241838; }
-.px-orange { fill: var(--orange); }
+.px-orange { fill: var(--time-signal); }
 .px-hot { fill: #ffe0c2; }
 .px-reader-shadow { fill: var(--reader-shadow); }
 .px-reader-frame { fill: var(--reader); }
@@ -127,9 +158,49 @@ body {
 .px-reader-ink { fill: var(--reader-ink); }
 .px-reader-gold { fill: var(--reader-gold); }
 .px-reader-hot { fill: var(--reader-hot); }
+.px-clocking-shadow { fill: var(--clocking-shadow); }
+.px-clocking-frame { fill: var(--clocking); }
+.px-clocking-case { fill: var(--clocking-case); }
+.px-clocking-face { fill: #ffffff; }
+.px-clocking-ink { fill: var(--clocking-ink); }
+.px-clocking-copper { fill: var(--clocking-copper); }
+.px-clocking-hot { fill: var(--clocking-hot); }
 
-body.is-reader-app .topbar {
+body.is-payroll-app {
+  --bg: #e4f1ef;
+  --line: #cfe3df;
+  --purple: var(--reader);
+  --purple-deep: var(--reader-deep);
+  --orange: var(--reader-gold);
+  --orange-deep: #a8740c;
+  --accent: var(--reader);
+  --accent-hover: var(--reader-deep);
+  --accent-wash: #e5f4f1;
+  --accent-line: #b7ddd6;
+  --signal: var(--reader-gold);
+}
+
+body.is-clocking-app {
+  --bg: #e8eef6;
+  --line: #d3deec;
+  --purple: var(--clocking);
+  --purple-deep: var(--clocking-deep);
+  --orange: var(--clocking-copper);
+  --orange-deep: #c4621c;
+  --accent: var(--clocking);
+  --accent-hover: var(--clocking-deep);
+  --accent-wash: #e7eef8;
+  --accent-line: #c5d4e8;
+  --signal: var(--clocking-copper);
+}
+
+body.is-reader-app .topbar,
+body.is-payroll-app .topbar {
   border-bottom-color: var(--reader);
+}
+
+body.is-clocking-app .topbar {
+  border-bottom-color: var(--clocking);
 }
 
 a {
@@ -483,11 +554,11 @@ button:hover {
 button.app-launch,
 button.app-launch:hover {
   justify-content: flex-start;
-  padding: 0.15rem 0.2rem;
+  padding: 0.35rem 0.55rem 0.6rem;
   border: 0;
-  border-radius: 0;
+  border-radius: 12px;
   background: transparent;
-  color: var(--ink);
+  color: var(--muted);
   font: inherit;
   font-weight: 650;
   text-align: left;
@@ -496,6 +567,45 @@ button.app-launch:hover {
 
 button.app-launch:hover {
   background: transparent;
+}
+
+.app-launch .brand-mark {
+  filter: grayscale(1);
+  opacity: 0.45;
+}
+
+.app-launch .brand {
+  color: var(--muted);
+}
+
+.app-launch:not(.is-active):hover .brand-mark {
+  opacity: 0.72;
+}
+
+button.app-launch.is-active,
+button.app-launch.is-active:hover {
+  background: var(--accent-wash);
+  color: var(--ink);
+  box-shadow: inset 0 -4px 0 var(--time-frame);
+}
+
+button.app-launch.app-launch-reader.is-active,
+button.app-launch.app-launch-reader.is-active:hover {
+  box-shadow: inset 0 -4px 0 var(--reader);
+}
+
+button.app-launch.app-launch-clocking.is-active,
+button.app-launch.app-launch-clocking.is-active:hover {
+  box-shadow: inset 0 -4px 0 var(--clocking);
+}
+
+.app-launch.is-active .brand-mark {
+  filter: none;
+  opacity: 1;
+}
+
+.app-launch.is-active .brand {
+  color: var(--ink);
 }
 
 button.app-launch:focus-visible {
@@ -507,6 +617,10 @@ button.app-launch-reader:focus-visible {
   outline-color: var(--reader);
 }
 
+button.app-launch-clocking:focus-visible {
+  outline-color: var(--clocking);
+}
+
 button.secondary {
   background: #fff;
   color: var(--ink);
@@ -514,7 +628,7 @@ button.secondary {
 }
 
 button.secondary:hover {
-  background: #f4eeff;
+  background: var(--accent-wash);
   border-color: var(--purple);
   color: var(--purple-deep);
 }
@@ -530,7 +644,7 @@ button.secondary:hover {
 
 .sheet-actions .secondary:hover,
 .account-chip .secondary:hover {
-  background: #f4eeff;
+  background: var(--accent-wash);
   border-color: var(--purple);
   color: var(--purple-deep);
 }

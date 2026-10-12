@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isSampleOffice, migrateLegacyExampleOffice } from '../office-tracker/web/exampleRoutes.js';
+import { ensureExampleRoutes, isSampleOffice, migrateLegacyExampleOffice, seedDisneyOvertimeHours } from '../office-tracker/web/exampleRoutes.js';
 
 test('renames the previous sample office to S routes and Star Trek drivers', () => {
   const migrated = migrateLegacyExampleOffice({
@@ -44,6 +44,42 @@ test('renames the previous sample office to S routes and Star Trek drivers', () 
   assert.equal(migrated.drivers[0].name, 'Jean-Luc Picard');
   assert.equal(migrated.drivers[0].email, 'jean-luc.picard@example.com');
   assert.equal(migrateLegacyExampleOffice(migrated), null);
+});
+
+test('sample offices gain Disney weekend and evening clocks once', () => {
+  const sample = {
+    version: 1,
+    exampleVersion: 4,
+    currentProfileId: 'route-s1',
+    profiles: { 'route-s1': { id: 'route-s1', name: 'S1', driver_name: 'Jean-Luc Picard' } },
+    drivers: [{ id: 'driver-jean-luc-picard', name: 'Jean-Luc Picard' }],
+    punches: [],
+  };
+  const seeded = seedDisneyOvertimeHours(sample);
+  assert.equal(seeded.drivers.some((driver) => driver.name === 'Mickey Mouse'), true);
+  assert.equal(seeded.drivers.some((driver) => driver.name === 'Goofy Goof'), true);
+  assert.equal(seeded.punches.some((punch) => punch.id === 'disney-mickey-sat-in'), true);
+  assert.equal(seeded.punches.some((punch) => punch.id === 'disney-pluto-fri-in'), true);
+  assert.equal(seedDisneyOvertimeHours(seeded), seeded);
+  const realOffice = { version: 1, exampleVersion: 0, profiles: { real: { name: '50' } }, drivers: [], punches: [] };
+  assert.equal(seedDisneyOvertimeHours(realOffice), realOffice);
+
+  const storage = {
+    /** @type {Record<string, string>} */
+    data: {},
+    getItem(key) {
+      return this.data[key] ?? null;
+    },
+    setItem(key, value) {
+      this.data[key] = String(value);
+    },
+  };
+  storage.setItem(
+    'transportation-timechange.v1',
+    JSON.stringify(sample)
+  );
+  const saved = ensureExampleRoutes(storage);
+  assert.equal(saved.punches.some((punch) => String(punch.id).startsWith('disney-')), true);
 });
 
 test('the fictional office is a sample even after its route ids change', () => {

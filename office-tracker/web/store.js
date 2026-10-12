@@ -1,8 +1,22 @@
 import { renameDriverOnRoute, sameDriver } from '../src/assignments.js';
 import { normalizeContractReminder, reminderEventSignature } from '../src/contractReminder.js';
+import {
+  applyTimeSummaryEdit,
+  mergeTimeSummaryEdits,
+  isPayLineId,
+  normalizeClockPayDefaults,
+  normalizeDriverPay,
+  normalizeDriverPayStatuses,
+  normalizeTimeSummaryEdits,
+} from '../src/driverPay.js';
 import { DEFAULT_REASON_CODES, validLockCode } from '../../src/logic/clockKiosk.js';
+import { normalizeEarlyReleaseTimes } from '../../src/logic/earlyRelease.js';
 import { normalizeLateFlashMinutes } from '../../src/logic/lateClockFlash.js';
+import { normalizeOfficeEdits } from '../src/officePunches.js';
+import { normalizePunchRun } from '../../src/logic/timesheets.js';
 import { normalizeDriverNotice } from '../src/noticeMail.js';
+import { normalizeOvertimeRules } from '../src/overtimeRules.js';
+import { normalizePunchSound } from './punchSounds.js';
 
 export const STORAGE_KEY = 'transportation-timechange.v1';
 
@@ -18,6 +32,7 @@ export function emptyState() {
     clockPins: {},
     clockLockCode: '',
     clockReasonCodes: defaultReasonCodes(),
+    clockSubstituteDrivers: [],
   };
 }
 
@@ -45,6 +60,28 @@ export function normalizeClockReasonCodes(raw) {
     codes.push({ id, label });
   }
   return codes;
+}
+
+/**
+ * People who may clock in for a route without that driver's PIN.
+ * @param {unknown} raw
+ * @returns {Array<{ id: string, name: string }>}
+ */
+export function normalizeClockSubstituteDrivers(raw) {
+  if (!Array.isArray(raw)) return [];
+  /** @type {Array<{ id: string, name: string }>} */
+  const drivers = [];
+  const seen = new Set();
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const id = String(item.id || '').trim();
+    const name = String(item.name || '').trim();
+    const key = name.toLowerCase();
+    if (!id || !name || name.length > 80 || seen.has(key)) continue;
+    seen.add(key);
+    drivers.push({ id, name });
+  }
+  return drivers;
 }
 
 /**
@@ -95,6 +132,22 @@ function lateFlashField(source) {
 }
 
 /**
+ * Early release PM clock-ins by school code.
+ * A missing field means this browser has not chosen, so a shared value can stay.
+ * @param {object | null | undefined} source
+ */
+function earlyReleaseField(source) {
+  if (
+    !source ||
+    typeof source !== 'object' ||
+    !Object.prototype.hasOwnProperty.call(source, 'clockEarlyReleaseTimes')
+  ) {
+    return {};
+  }
+  return { clockEarlyReleaseTimes: normalizeEarlyReleaseTimes(source.clockEarlyReleaseTimes) };
+}
+
+/**
  * Size of the driver buttons on the Timeclock screen.
  * A missing field means this browser has not chosen, so a shared value can stay.
  * @param {unknown} raw
@@ -118,28 +171,149 @@ function nameSizeField(source) {
 }
 
 /**
- * Clock in and clock out snap to the nearest quarter hour before payroll minutes are counted.
- * A missing choice stays on.
+ * Clock-in and clock-out sounds. A missing field keeps the starting sound.
+ * `off` stays quiet.
+ * @param {object | null | undefined} source
+ */
+function punchSoundField(source) {
+  if (!source || typeof source !== 'object') return {};
+  /** @type {{ clockPunchSoundIn?: string, clockPunchSoundOut?: string }} */
+  const saved = {};
+  if (Object.prototype.hasOwnProperty.call(source, 'clockPunchSoundIn')) {
+    const id = normalizePunchSound(source.clockPunchSoundIn);
+    if (id) saved.clockPunchSoundIn = id;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, 'clockPunchSoundOut')) {
+    const id = normalizePunchSound(source.clockPunchSoundOut);
+    if (id) saved.clockPunchSoundOut = id;
+  }
+  return saved;
+}
+
+/**
+ * Snap each clock in and clock out to the nearest quarter hour, then count minutes.
+ * This is the starting choice.
+ */
+export const CLOCK_ROUNDING_SNAP = 'snap';
+
+/**
+ * Keep each clock on the minute it was punched.
+ * Add the day's minutes, then round that one total to the nearest quarter hour.
+ */
+export const CLOCK_ROUNDING_DAILY = 'daily';
+
+/**
+ * Keep each clock on the minute it was punched.
+ * Round each clock in and clock out span to the nearest quarter hour, then add those.
+ */
+export const CLOCK_ROUNDING_SEPARATE = 'separate';
+
+/**
+ * @param {unknown} value
+ * @returns {'snap' | 'daily' | 'separate'}
+ */
+export function normalizeClockRounding(value) {
+  if (value === CLOCK_ROUNDING_DAILY || value === CLOCK_ROUNDING_SEPARATE || value === CLOCK_ROUNDING_SNAP) {
+    return value;
+  }
+  if (value === false) return CLOCK_ROUNDING_SEPARATE;
+  return CLOCK_ROUNDING_SNAP;
+}
+
+/**
+ * The one clock-rounding choice for this office.
+ * A missing choice snaps each clock. An older off switch rounds each clock span.
+ * @param {object | null | undefined} state
+ * @returns {'snap' | 'daily' | 'separate'}
+ */
+export function clockRoundingMode(state) {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return CLOCK_ROUNDING_SNAP;
+  if (Object.prototype.hasOwnProperty.call(state, 'clockRounding')) {
+    const mode = state.clockRounding;
+    if (mode === CLOCK_ROUNDING_SNAP || mode === CLOCK_ROUNDING_DAILY || mode === CLOCK_ROUNDING_SEPARATE) {
+      return mode;
+    }
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(state, 'clockQuarterHourClocks') &&
+    state.clockQuarterHourClocks === false
+  ) {
+    return CLOCK_ROUNDING_SEPARATE;
+  }
+  return CLOCK_ROUNDING_SNAP;
+}
+
+/**
+ * True when payroll snaps each clock in and clock out to the nearest quarter hour.
  * @param {object | null | undefined} state
  */
 export function quarterHourClocksEnabled(state) {
-  if (!state || typeof state !== 'object' || Array.isArray(state)) return true;
-  if (!Object.prototype.hasOwnProperty.call(state, 'clockQuarterHourClocks')) return true;
-  return state.clockQuarterHourClocks !== false;
+  return clockRoundingMode(state) === CLOCK_ROUNDING_SNAP;
 }
 
 /**
  * @param {object | null | undefined} source
  */
 function quarterHourClocksField(source) {
-  if (
-    !source ||
-    typeof source !== 'object' ||
-    !Object.prototype.hasOwnProperty.call(source, 'clockQuarterHourClocks')
-  ) {
+  if (!source || typeof source !== 'object') return {};
+  /** @type {{ clockRounding?: 'snap' | 'daily' | 'separate', clockQuarterHourClocks?: boolean }} */
+  const saved = {};
+  if (Object.prototype.hasOwnProperty.call(source, 'clockRounding')) {
+    const mode = source.clockRounding;
+    if (mode === CLOCK_ROUNDING_SNAP || mode === CLOCK_ROUNDING_DAILY || mode === CLOCK_ROUNDING_SEPARATE) {
+      saved.clockRounding = mode;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(source, 'clockQuarterHourClocks')) {
+    saved.clockQuarterHourClocks = source.clockQuarterHourClocks !== false;
+  }
+  return saved;
+}
+
+/**
+ * @param {object | null | undefined} source
+ */
+function overtimeRulesField(source) {
+  if (!source || typeof source !== 'object' || !Object.prototype.hasOwnProperty.call(source, 'overtimeRules')) {
     return {};
   }
-  return { clockQuarterHourClocks: source.clockQuarterHourClocks !== false };
+  return { overtimeRules: normalizeOvertimeRules(source.overtimeRules) };
+}
+
+function payDefaultsField(source) {
+  if (!source || typeof source !== 'object' || !Object.prototype.hasOwnProperty.call(source, 'clockPayDefaults')) {
+    return {};
+  }
+  return { clockPayDefaults: normalizeClockPayDefaults(source.clockPayDefaults) };
+}
+
+/**
+ * @param {object | null | undefined} source
+ */
+function timeSummaryEditsField(source) {
+  if (!source || typeof source !== 'object' || !Object.prototype.hasOwnProperty.call(source, 'timeSummaryEdits')) {
+    return {};
+  }
+  return { timeSummaryEdits: normalizeTimeSummaryEdits(source.timeSummaryEdits) };
+}
+
+/**
+ * Serial number, hourly rate, and payroll account number saved for one driver.
+ * Empty values are left off.
+ * @param {unknown} driver
+ */
+function driverPayField(driver) {
+  const pay = normalizeDriverPay(driver?.pay);
+  return pay.serial || pay.rate || pay.account ? { pay } : {};
+}
+
+/**
+ * @param {{ payStatuses?: unknown }} driver
+ */
+function driverPayStatusesField(driver) {
+  if (!Array.isArray(driver?.payStatuses)) return {};
+  const payStatuses = normalizeDriverPayStatuses(driver.payStatuses);
+  return payStatuses.length ? { payStatuses } : {};
 }
 
 /**
@@ -157,14 +331,25 @@ export function normalizeOfficePunches(raw) {
     const action = item.action === 'out' ? 'out' : item.action === 'in' ? 'in' : '';
     const punched_at = String(item.punched_at || '').trim();
     if (!id || !driver_name || !action || Number.isNaN(new Date(punched_at).getTime())) continue;
-    punches.push({
+    const substitute_name = String(item.substitute_name || '').trim();
+    const run = normalizePunchRun(item.run);
+    const payStatus = String(item.pay_status || '').trim();
+    /** @type {{ id: string, driver_name: string, action: 'in' | 'out', punched_at: string, note: string, reason_codes: Array<{ id: string, label: string }>, substitute_name?: string, run?: 'AM' | 'MIDDAY' | 'PM' | 'OTHER', pay_status?: string }} */
+    const punch = {
       id,
       driver_name,
       action,
       punched_at,
       note: String(item.note || '').trim(),
       reason_codes: normalizePunchReasons(item.reason_codes),
-    });
+    };
+    if (substitute_name && substitute_name.length <= 80) punch.substitute_name = substitute_name;
+    if (run) punch.run = run;
+    if (isPayLineId(payStatus)) punch.pay_status = payStatus;
+    const office_edits = normalizeOfficeEdits(item.office_edits);
+    if (office_edits.length) punch.office_edits = office_edits;
+    if (item.removed === true) punch.removed = true;
+    punches.push(punch);
   }
   return punches;
 }
@@ -192,9 +377,15 @@ export function loadState(storage = globalThis.localStorage) {
       clockPins: normalizeClockPins(parsed.clockPins),
       clockLockCode: normalizeClockLockCode(parsed.clockLockCode),
       clockReasonCodes: normalizeClockReasonCodes(parsed.clockReasonCodes),
+      clockSubstituteDrivers: normalizeClockSubstituteDrivers(parsed.clockSubstituteDrivers),
       ...lateFlashField(parsed),
+      ...earlyReleaseField(parsed),
       ...nameSizeField(parsed),
+      ...punchSoundField(parsed),
       ...quarterHourClocksField(parsed),
+      ...overtimeRulesField(parsed),
+      ...payDefaultsField(parsed),
+      ...timeSummaryEditsField(parsed),
       ...(omittedDrivers.length ? { omittedDrivers } : {}),
       exampleVersion: parsed.exampleVersion ?? 0,
       ...(parsed.contractReminder ? { contractReminder: parsed.contractReminder } : {}),
@@ -241,6 +432,26 @@ export function saveState(state, storage = globalThis.localStorage) {
   storage.setItem(STORAGE_KEY, JSON.stringify(state));
   if (!suppressSync) afterSave?.(state);
   return state;
+}
+
+/**
+ * Save one typed cell or comment on a driver's Monthly Time Summary.
+ * @param {{
+ *   driverId?: string,
+ *   periodKey?: string,
+ *   lineId?: string,
+ *   kind?: string,
+ *   day?: string | number,
+ *   hours?: string,
+ *   comment?: string,
+ * }} edit
+ * @param {Storage} [storage]
+ */
+export function saveTimeSummaryEdit(edit, storage = globalThis.localStorage) {
+  const state = loadState(storage);
+  state.timeSummaryEdits = applyTimeSummaryEdit(state.timeSummaryEdits, edit);
+  saveState(state, storage);
+  return state.timeSummaryEdits;
 }
 
 /** @type {Set<string> | null} */
@@ -361,7 +572,7 @@ export function omittedDriverKeys(raw) {
  */
 export function driversFromState(state) {
   const omitted = new Set(omittedDriverKeys(state?.omittedDrivers));
-  /** @type {Map<string, { id: string, name: string, firstName: string, lastName: string, phone: string, email: string }>} */
+  /** @type {Map<string, { id: string, name: string, firstName: string, lastName: string, phone: string, email: string, pay?: { serial: string, rate: string, account: string }, payStatuses?: string[] }>} */
   const byName = new Map();
   for (const driver of state?.drivers ?? []) {
     const parts = personNameParts(driver);
@@ -373,6 +584,8 @@ export function driversFromState(state) {
       lastName: parts.lastName,
       phone: String(driver.phone ?? ''),
       email: String(driver.email ?? ''),
+      ...driverPayField(driver),
+      ...driverPayStatusesField(driver),
     });
   }
   for (const profile of Object.values(state?.profiles ?? {})) {
@@ -398,7 +611,7 @@ export function listDrivers(storage = globalThis.localStorage) {
 }
 
 /**
- * @param {{ id?: string, name?: string, firstName?: string, lastName?: string, phone?: string, email?: string, previousName?: string }} driver
+ * @param {{ id?: string, name?: string, firstName?: string, lastName?: string, phone?: string, email?: string, previousName?: string, serial?: string, rate?: string, account?: string, payStatuses?: string[] }} driver
  * @param {Storage} [storage]
  */
 export function saveDriver(driver, storage = globalThis.localStorage) {
@@ -424,6 +637,9 @@ export function saveDriver(driver, storage = globalThis.localStorage) {
     throw new Error(`${name} is already on the driver sheet.`);
   }
   const existing = drivers.find((item) => item.id === id);
+  const payStatuses = Object.prototype.hasOwnProperty.call(driver, 'payStatuses')
+    ? normalizeDriverPayStatuses(driver.payStatuses)
+    : existing?.payStatuses;
   const next = {
     id,
     name,
@@ -431,6 +647,14 @@ export function saveDriver(driver, storage = globalThis.localStorage) {
     lastName: parts.lastName,
     phone: driver.phone != null ? String(driver.phone).trim() : String(existing?.phone ?? ''),
     email: String(driver.email ?? '').trim(),
+    ...driverPayField({
+      pay: {
+        serial: Object.prototype.hasOwnProperty.call(driver, 'serial') ? driver.serial : existing?.pay?.serial,
+        rate: Object.prototype.hasOwnProperty.call(driver, 'rate') ? driver.rate : existing?.pay?.rate,
+        account: Object.prototype.hasOwnProperty.call(driver, 'account') ? driver.account : existing?.pay?.account,
+      },
+    }),
+    ...(Array.isArray(payStatuses) ? { payStatuses } : {}),
   };
   const index = drivers.findIndex((item) => item.id === id);
   if (index >= 0) drivers[index] = next;
@@ -528,18 +752,48 @@ export function mergeSharedDriverList(remoteState, localState) {
   remote.clockReasonCodes = Array.isArray(localState?.clockReasonCodes)
     ? normalizeClockReasonCodes(localState.clockReasonCodes)
     : normalizeClockReasonCodes(remote.clockReasonCodes);
+  remote.clockSubstituteDrivers = Array.isArray(localState?.clockSubstituteDrivers)
+    ? normalizeClockSubstituteDrivers(localState.clockSubstituteDrivers)
+    : normalizeClockSubstituteDrivers(remote.clockSubstituteDrivers);
   if (localState && Object.prototype.hasOwnProperty.call(localState, 'clockLateMinutes')) {
     const minutes = normalizeLateFlashMinutes(localState.clockLateMinutes);
     if (minutes == null) delete remote.clockLateMinutes;
     else remote.clockLateMinutes = minutes;
+  }
+  if (localState && Object.prototype.hasOwnProperty.call(localState, 'clockEarlyReleaseTimes')) {
+    remote.clockEarlyReleaseTimes = normalizeEarlyReleaseTimes(localState.clockEarlyReleaseTimes);
   }
   if (localState && Object.prototype.hasOwnProperty.call(localState, 'clockNameSize')) {
     const size = normalizeClockNameSize(localState.clockNameSize);
     if (!size) delete remote.clockNameSize;
     else remote.clockNameSize = size;
   }
+  if (localState && Object.prototype.hasOwnProperty.call(localState, 'clockPunchSoundIn')) {
+    const id = normalizePunchSound(localState.clockPunchSoundIn);
+    if (!id) delete remote.clockPunchSoundIn;
+    else remote.clockPunchSoundIn = id;
+  }
+  if (localState && Object.prototype.hasOwnProperty.call(localState, 'clockPunchSoundOut')) {
+    const id = normalizePunchSound(localState.clockPunchSoundOut);
+    if (!id) delete remote.clockPunchSoundOut;
+    else remote.clockPunchSoundOut = id;
+  }
+  if (localState && Object.prototype.hasOwnProperty.call(localState, 'clockRounding')) {
+    const mode = localState.clockRounding;
+    if (mode === 'snap' || mode === 'daily' || mode === 'separate') remote.clockRounding = mode;
+    else delete remote.clockRounding;
+  }
   if (localState && Object.prototype.hasOwnProperty.call(localState, 'clockQuarterHourClocks')) {
     remote.clockQuarterHourClocks = localState.clockQuarterHourClocks !== false;
+  }
+  if (localState && Object.prototype.hasOwnProperty.call(localState, 'overtimeRules')) {
+    remote.overtimeRules = normalizeOvertimeRules(localState.overtimeRules);
+  }
+  if (localState && Object.prototype.hasOwnProperty.call(localState, 'clockPayDefaults')) {
+    remote.clockPayDefaults = normalizeClockPayDefaults(localState.clockPayDefaults);
+  }
+  if (localState && Object.prototype.hasOwnProperty.call(localState, 'timeSummaryEdits')) {
+    remote.timeSummaryEdits = mergeTimeSummaryEdits(remote.timeSummaryEdits, localState.timeSummaryEdits);
   }
   const omitted = new Set([...omittedDriverKeys(remote.omittedDrivers), ...localOmitted]);
   for (const driver of remote.drivers) {
@@ -800,7 +1054,7 @@ export function importState(json, storage = globalThis.localStorage) {
     throw new Error('That file is not valid JSON.');
   }
   if (!parsed || typeof parsed !== 'object' || !parsed.profiles) {
-    throw new Error('That file is not a Teamster Time Changes Dashboard backup.');
+    throw new Error('That file is not a Teamster Tracker backup.');
   }
   const next = {
     version: 1,
@@ -811,9 +1065,15 @@ export function importState(json, storage = globalThis.localStorage) {
     clockPins: normalizeClockPins(parsed.clockPins),
     clockLockCode: normalizeClockLockCode(parsed.clockLockCode),
     clockReasonCodes: normalizeClockReasonCodes(parsed.clockReasonCodes),
+    clockSubstituteDrivers: normalizeClockSubstituteDrivers(parsed.clockSubstituteDrivers),
     ...lateFlashField(parsed),
+    ...earlyReleaseField(parsed),
     ...nameSizeField(parsed),
+    ...punchSoundField(parsed),
     ...quarterHourClocksField(parsed),
+    ...overtimeRulesField(parsed),
+    ...payDefaultsField(parsed),
+    ...timeSummaryEditsField(parsed),
     ...(omittedDriverKeys(parsed.omittedDrivers).length
       ? { omittedDrivers: omittedDriverKeys(parsed.omittedDrivers) }
       : {}),

@@ -370,9 +370,103 @@ export function exampleOfficeState() {
     version: 1,
     currentProfileId: 'route-s1',
     profiles: Object.fromEntries(routes.map((item) => [item.id, item])),
-    drivers: EXAMPLE_DRIVERS,
+    drivers: [...EXAMPLE_DRIVERS, ...DISNEY_DRIVERS],
+    punches: exampleOvertimePunches(),
     exampleVersion: EXAMPLE_VERSION,
   };
+}
+
+const DISNEY_DRIVERS = [
+  { id: 'driver-mickey-mouse', name: 'Mickey Mouse', firstName: 'Mickey', lastName: 'Mouse', phone: '360-555-0191', email: 'mickey.mouse@example.com', payStatuses: ['ex-driver'] },
+  { id: 'driver-minnie-mouse', name: 'Minnie Mouse', firstName: 'Minnie', lastName: 'Mouse', phone: '360-555-0192', email: 'minnie.mouse@example.com', payStatuses: ['ex-driver'] },
+  { id: 'driver-donald-duck', name: 'Donald Duck', firstName: 'Donald', lastName: 'Duck', phone: '360-555-0193', email: 'donald.duck@example.com', payStatuses: ['ex-driver'] },
+  { id: 'driver-daisy-duck', name: 'Daisy Duck', firstName: 'Daisy', lastName: 'Duck', phone: '360-555-0194', email: 'daisy.duck@example.com', payStatuses: ['ex-driver'] },
+  { id: 'driver-goofy-goof', name: 'Goofy Goof', firstName: 'Goofy', lastName: 'Goof', phone: '360-555-0195', email: 'goofy.goof@example.com', payStatuses: ['ex-driver'] },
+  { id: 'driver-pluto', name: 'Pluto', firstName: 'Pluto', lastName: '', phone: '360-555-0196', email: 'pluto@example.com', payStatuses: ['ex-driver'] },
+];
+
+/**
+ * @param {string} id
+ * @param {string} driver
+ * @param {'in' | 'out'} action
+ * @param {number} year
+ * @param {number} monthIndex
+ * @param {number} day
+ * @param {number} hour
+ * @param {number} minute
+ * @param {{ run?: string, pay_status?: string }} [extra]
+ */
+function samplePunch(id, driver, action, year, monthIndex, day, hour, minute, extra = {}) {
+  return {
+    id,
+    driver_name: driver,
+    action,
+    punched_at: new Date(year, monthIndex, day, hour, minute).toISOString(),
+    note: '',
+    reason_codes: [],
+    ...extra,
+  };
+}
+
+/**
+ * Weekend, holiday, early-morning, and evening clocks so overtime shows on the math sheet.
+ * October 2026: the 3rd and 10th are Saturdays, the 4th and 11th are Sundays,
+ * and the 12th is a school holiday.
+ */
+export function exampleOvertimePunches() {
+  const pay = { pay_status: 'ex-driver' };
+  return [
+    samplePunch('disney-mickey-thu-in', 'Mickey Mouse', 'in', 2026, 9, 8, 14, 7, { ...pay, run: 'PM' }),
+    samplePunch('disney-mickey-thu-out', 'Mickey Mouse', 'out', 2026, 9, 8, 18, 38, { run: 'PM' }),
+    samplePunch('disney-mickey-sat-in', 'Mickey Mouse', 'in', 2026, 9, 10, 8, 4, { ...pay, run: 'OTHER' }),
+    samplePunch('disney-mickey-sat-out', 'Mickey Mouse', 'out', 2026, 9, 10, 12, 19, { run: 'OTHER' }),
+    samplePunch('disney-minnie-wed-in', 'Minnie Mouse', 'in', 2026, 9, 7, 5, 8, { ...pay, run: 'AM' }),
+    samplePunch('disney-minnie-wed-out', 'Minnie Mouse', 'out', 2026, 9, 7, 8, 2, { run: 'AM' }),
+    samplePunch('disney-minnie-sun-in', 'Minnie Mouse', 'in', 2026, 9, 11, 9, 2, { ...pay, run: 'OTHER' }),
+    samplePunch('disney-minnie-sun-out', 'Minnie Mouse', 'out', 2026, 9, 11, 13, 33, { run: 'OTHER' }),
+    samplePunch('disney-donald-sun-in', 'Donald Duck', 'in', 2026, 9, 4, 7, 11, { ...pay, run: 'OTHER' }),
+    samplePunch('disney-donald-sun-out', 'Donald Duck', 'out', 2026, 9, 4, 11, 6, { run: 'OTHER' }),
+    samplePunch('disney-donald-fri-in', 'Donald Duck', 'in', 2026, 9, 9, 16, 48, { ...pay, run: 'PM' }),
+    samplePunch('disney-donald-fri-out', 'Donald Duck', 'out', 2026, 9, 9, 20, 16, { run: 'PM' }),
+    samplePunch('disney-daisy-sat-in', 'Daisy Duck', 'in', 2026, 9, 3, 6, 16, { ...pay, run: 'OTHER' }),
+    samplePunch('disney-daisy-sat-out', 'Daisy Duck', 'out', 2026, 9, 3, 9, 44, { run: 'OTHER' }),
+    samplePunch('disney-daisy-hol-in', 'Daisy Duck', 'in', 2026, 9, 12, 8, 5, { ...pay, run: 'AM' }),
+    samplePunch('disney-daisy-hol-out', 'Daisy Duck', 'out', 2026, 9, 12, 11, 35, { run: 'AM' }),
+    samplePunch('disney-goofy-am-in', 'Goofy Goof', 'in', 2026, 9, 5, 6, 4, { ...pay, run: 'AM' }),
+    samplePunch('disney-goofy-am-out', 'Goofy Goof', 'out', 2026, 9, 5, 9, 11, { run: 'AM' }),
+    samplePunch('disney-goofy-mid-in', 'Goofy Goof', 'in', 2026, 9, 5, 10, 58, { ...pay, run: 'MIDDAY' }),
+    samplePunch('disney-goofy-mid-out', 'Goofy Goof', 'out', 2026, 9, 5, 12, 22, { run: 'MIDDAY' }),
+    samplePunch('disney-goofy-pm-in', 'Goofy Goof', 'in', 2026, 9, 5, 13, 36, { ...pay, run: 'PM' }),
+    samplePunch('disney-goofy-pm-out', 'Goofy Goof', 'out', 2026, 9, 5, 18, 21, { run: 'PM' }),
+    samplePunch('disney-pluto-fri-in', 'Pluto', 'in', 2026, 9, 2, 18, 6, { ...pay, run: 'OTHER' }),
+    samplePunch('disney-pluto-fri-out', 'Pluto', 'out', 2026, 9, 2, 21, 18, { run: 'OTHER' }),
+  ];
+}
+
+/**
+ * Add the Disney sample clocks to a fictional office that does not have them yet.
+ * A real office is left alone. A driver removed from the list stays off it.
+ * @param {object} state
+ */
+export function seedDisneyOvertimeHours(state) {
+  if (!isSampleOffice(state)) return state;
+  const punches = Array.isArray(state.punches) ? state.punches : [];
+  if (punches.some((punch) => String(punch?.id || '').startsWith('disney-'))) return state;
+  const omitted = new Set((state.omittedDrivers || []).map((name) => String(name).toLowerCase()));
+  const next = structuredClone(state);
+  const drivers = Array.isArray(next.drivers) ? [...next.drivers] : [];
+  const names = new Set(drivers.map((driver) => String(driver?.name || '').trim().toLowerCase()));
+  for (const driver of DISNEY_DRIVERS) {
+    if (omitted.has(driver.name.toLowerCase()) || names.has(driver.name.toLowerCase())) continue;
+    drivers.push({ ...driver });
+    names.add(driver.name.toLowerCase());
+  }
+  next.drivers = drivers;
+  next.punches = [
+    ...punches,
+    ...exampleOvertimePunches().filter((punch) => !omitted.has(punch.driver_name.toLowerCase())),
+  ];
+  return next;
 }
 
 const LEGACY_ROUTE_NAMES = {
@@ -471,18 +565,22 @@ export function isSampleOffice(state) {
  * @param {Storage} [storage]
  */
 export function ensureExampleRoutes(storage) {
-  const state = loadState(storage);
+  let state = loadState(storage);
   const migrated = migrateLegacyExampleOffice(state);
   if (migrated) {
-    saveState(migrated, storage);
-    return migrated;
+    state = migrated;
+    saveState(state, storage);
   }
   const ids = Object.keys(state.profiles ?? {});
   const onlyExamples = ids.every((id) => EXAMPLE_IDS.has(id));
-  if (ids.length && (state.exampleVersion === EXAMPLE_VERSION || !onlyExamples)) {
-    return state;
+  if (!ids.length || (onlyExamples && state.exampleVersion !== EXAMPLE_VERSION)) {
+    state = exampleOfficeState();
+    saveState(state, storage);
   }
-  const next = exampleOfficeState();
-  saveState(next, storage);
-  return next;
+  const seeded = seedDisneyOvertimeHours(state);
+  if (seeded !== state) {
+    saveState(seeded, storage);
+    return seeded;
+  }
+  return state;
 }

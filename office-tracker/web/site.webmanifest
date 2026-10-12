@@ -1,7 +1,7 @@
 {
-  "name": "Teamster Time Changes Dashboard",
-  "short_name": "Teamster Time",
-  "description": "Dashboard for route time changes",
+  "name": "Teamster Tracker",
+  "short_name": "Teamster Tracker",
+  "description": "Time changes, clocking, and payroll",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

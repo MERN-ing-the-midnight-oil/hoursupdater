@@ -8,6 +8,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { buildDriverPacket, packetPdfBasename } from './driverPacket.js';
+import { summaryPdfBasename } from './monthlyTimeSummary.js';
+import { mathPdfBasename } from './summaryMath.js';
 import {
   chromeExecutable,
   isEmailAddress,
@@ -227,6 +229,124 @@ app.post('/api/email-notice-batch', async (req, res) => {
     res.json({ ok: true, count: drafts.length });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Could not open the emails.' });
+  }
+});
+
+app.post('/api/email-time-summary', async (req, res) => {
+  const name = String(req.body?.name ?? '').trim();
+  const email = String(req.body?.email ?? '').trim();
+  const period = String(req.body?.period ?? '').trim();
+  const html = String(req.body?.html ?? '');
+  if (!name) {
+    res.status(400).json({ error: 'Choose a driver.' });
+    return;
+  }
+  if (!isEmailAddress(email)) {
+    res.status(400).json({ error: `${name} has no email on the Driver Name List.` });
+    return;
+  }
+  if (!html.includes('MONTHLY TIME SUMMARY') || !html.includes('letter landscape') || html.length > 500000) {
+    res.status(400).json({ error: 'That summary could not be prepared.' });
+    return;
+  }
+  const chromePath = chromeExecutable();
+  if (!chromePath) {
+    res.status(500).json({
+      error: 'Chrome is needed to make the summary PDF, and it was not found.',
+    });
+    return;
+  }
+  const safe = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+  const id = randomBytes(4).toString('hex');
+  const base = summaryPdfBasename(name);
+  const htmlPath = path.join(os.tmpdir(), `${base}-${id}.html`);
+  const pdfPath = path.join(os.tmpdir(), `${base}-${id}.pdf`);
+  const subject = period
+    ? `Monthly Time Summary — ${name} — ${period}`
+    : `Monthly Time Summary — ${name}`;
+  const body = period
+    ? `${name}'s Monthly Time Summary for ${period} is attached.`
+    : `${name}'s Monthly Time Summary is attached.`;
+  try {
+    await writeFile(htmlPath, safe);
+    await writeGuidePdf({
+      htmlUrl: pathToFileURL(htmlPath).href,
+      pdfPath,
+      chromePath,
+      execFile: execFileAsync,
+    });
+    await openMailDraft(
+      mailDraftScript({
+        to: email,
+        name,
+        pdfPath,
+        subject,
+        body,
+      }),
+      execFileAsync
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Could not open the email.' });
+  }
+});
+
+app.post('/api/email-time-summary-math', async (req, res) => {
+  const name = String(req.body?.name ?? '').trim();
+  const email = String(req.body?.email ?? '').trim();
+  const period = String(req.body?.period ?? '').trim();
+  const html = String(req.body?.html ?? '');
+  if (!name) {
+    res.status(400).json({ error: 'Choose a driver.' });
+    return;
+  }
+  if (!isEmailAddress(email)) {
+    res.status(400).json({ error: `${name} has no email on the Driver Name List.` });
+    return;
+  }
+  if (!html.includes('EX DRIVER TIME SUMMARY MATH') || !html.includes('letter landscape') || html.length > 500000) {
+    res.status(400).json({ error: 'That summary could not be prepared.' });
+    return;
+  }
+  const chromePath = chromeExecutable();
+  if (!chromePath) {
+    res.status(500).json({
+      error: 'Chrome is needed to make the summary PDF, and it was not found.',
+    });
+    return;
+  }
+  const safe = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+  const id = randomBytes(4).toString('hex');
+  const base = mathPdfBasename(name);
+  const htmlPath = path.join(os.tmpdir(), `${base}-${id}.html`);
+  const pdfPath = path.join(os.tmpdir(), `${base}-${id}.pdf`);
+  const subject = period
+    ? `EX DRIVER TIME SUMMARY MATH — ${name} — ${period}`
+    : `EX DRIVER TIME SUMMARY MATH — ${name}`;
+  const body = period
+    ? `${name}'s EX DRIVER time summary math for ${period} is attached.`
+    : `${name}'s EX DRIVER time summary math is attached.`;
+  try {
+    await writeFile(htmlPath, safe);
+    await writeGuidePdf({
+      htmlUrl: pathToFileURL(htmlPath).href,
+      pdfPath,
+      chromePath,
+      execFile: execFileAsync,
+    });
+    await openMailDraft(
+      mailDraftScript({
+        to: email,
+        name,
+        pdfPath,
+        subject,
+        body,
+      }),
+      execFileAsync
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Could not open the email.' });
   }
 });
 

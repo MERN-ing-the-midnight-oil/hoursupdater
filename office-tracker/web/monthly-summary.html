@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Monthly Time Summary</title>
+  </head>
+  <body>
+    <script>
+      const html = localStorage.getItem('teamster-monthly-summary')
+        || sessionStorage.getItem('teamster-monthly-summary');
+      if (!html) {
+        document.body.textContent = 'Open this summary from Generate Monthly Time Summary on Payroll.';
+      } else {
+        document.open();
+        document.write(html);
+        document.close();
+      }
+    </script>
+  </body>
+</html>

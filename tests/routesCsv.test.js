@@ -62,7 +62,7 @@ describe('transportation timechange CSV', () => {
   it('rejects a file that is not this calculator’s CSV', () => {
     assert.throws(
       () => stateFromRoutesCsv('Name,Date\nAlex,2026-09-08\n'),
-      /Teamster Time Changes Dashboard/
+      /Teamster Tracker/
     );
   });
 });

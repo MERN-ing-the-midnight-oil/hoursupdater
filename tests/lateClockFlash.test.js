@@ -57,6 +57,15 @@ test('a name flashes once the route clock-in is late and no clock-in covers that
   });
   assert.deepEqual(earlyPunch, []);
 
+  const removedPunch = flashingClockInKeys({
+    now: new Date(2026, 9, 9, 6, 40),
+    graceMinutes: 5,
+    clockIns,
+    driverName: 'Jean-Luc Picard',
+    punches: [{ ...punch(6, 10), removed: true }],
+  });
+  assert.deepEqual(removedPunch, [clockInKey(date, 6 * 60 + 30)]);
+
   const otherRun = flashingClockInKeys({
     now: day,
     graceMinutes: 5,
@@ -119,4 +128,17 @@ test('flashing stays off until the office sets a number of minutes', () => {
     dueClockInKeys({ now: new Date(2026, 9, 9, 6, 30), graceMinutes: 0, clockIns: ['6:30'] }),
     [clockInKey(date, 6 * 60 + 30)]
   );
+});
+
+test('a chosen route covers that run even when the clock time falls in another', () => {
+  const now = new Date(2026, 9, 9, 14, 10);
+  const keys = flashingClockInKeys({
+    now,
+    graceMinutes: 0,
+    clockIns: ['6:30', '14:05'],
+    clockRuns: ['AM', 'PM'],
+    punches: [{ ...punch(14, 10), run: 'AM' }],
+    driverName: 'Jean-Luc Picard',
+  });
+  assert.deepEqual(keys, [clockInKey(date, 14 * 60 + 5)]);
 });

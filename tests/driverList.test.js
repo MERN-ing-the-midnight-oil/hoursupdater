@@ -9,6 +9,7 @@ import {
   loadState,
   mergeSharedDriverList,
   normalizeClockNameSize,
+  clockRoundingMode,
   quarterHourClocksEnabled,
   normalizeClockReasonCodes,
   normalizeOfficePunches,
@@ -264,6 +265,28 @@ test('a clock record keeps its reason codes and a missing list uses the starting
     },
   ]);
   assert.deepEqual(punches[0].reason_codes, [{ id: 'reason-traffic', label: 'Traffic' }]);
+  assert.equal(
+    normalizeOfficePunches([{ ...punches[0], id: 'punch-run', run: 'mid day' }])[0].run,
+    'MIDDAY'
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      normalizeOfficePunches([{ ...punches[0], id: 'punch-bad', run: 'lunch' }])[0],
+      'run'
+    ),
+    false
+  );
+  assert.equal(
+    normalizeOfficePunches([{ ...punches[0], id: 'punch-status', pay_status: 'ot-trainer' }])[0].pay_status,
+    'ot-trainer'
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      normalizeOfficePunches([{ ...punches[0], id: 'punch-status-bad', pay_status: 'lunch' }])[0],
+      'pay_status'
+    ),
+    false
+  );
 
   const storage = memoryStorage();
   const state = loadState(storage);
@@ -294,25 +317,85 @@ test('name badge size stays with the office', () => {
   );
 });
 
-test('quarter-hour clock rounding stays on unless the office turns it off', () => {
+test('clock rounding defaults to snapping each clock, and the office picks one choice', () => {
   const storage = memoryStorage();
   const state = loadState(storage);
+  assert.equal(clockRoundingMode(state), 'snap');
   assert.equal(quarterHourClocksEnabled(state), true);
+  assert.equal(Object.prototype.hasOwnProperty.call(state, 'clockRounding'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(state, 'clockQuarterHourClocks'), false);
 
   state.profiles = { 'route-12': { id: 'route-12', name: '12' } };
   state.clockQuarterHourClocks = false;
   saveState(state, storage);
   assert.equal(loadState(storage).clockQuarterHourClocks, false);
+  assert.equal(clockRoundingMode(loadState(storage)), 'separate');
   assert.equal(quarterHourClocksEnabled(loadState(storage)), false);
 
-  const remote = { ...loadState(storage), clockQuarterHourClocks: false };
+  const legacy = loadState(storage);
+  legacy.clockRounding = 'daily';
+  saveState(legacy, storage);
+  assert.equal(loadState(storage).clockRounding, 'daily');
+  assert.equal(clockRoundingMode(loadState(storage)), 'daily');
+  assert.equal(quarterHourClocksEnabled(loadState(storage)), false);
+
+  const remote = { ...loadState(storage), clockRounding: 'separate', clockQuarterHourClocks: false };
   const localUnset = loadState(storage);
+  delete localUnset.clockRounding;
   delete localUnset.clockQuarterHourClocks;
+  assert.equal(mergeSharedDriverList(remote, localUnset).clockRounding, 'separate');
   assert.equal(mergeSharedDriverList(remote, localUnset).clockQuarterHourClocks, false);
 
   assert.equal(
-    mergeSharedDriverList(remote, { ...localUnset, clockQuarterHourClocks: true }).clockQuarterHourClocks,
-    true
+    mergeSharedDriverList(remote, { ...localUnset, clockRounding: 'snap', clockQuarterHourClocks: true }).clockRounding,
+    'snap'
   );
+});
+
+test('substitute drivers and a substitute clock-in stay with the office', () => {
+  const storage = memoryStorage();
+  assert.deepEqual(loadState(storage).clockSubstituteDrivers, []);
+
+  const punches = normalizeOfficePunches([
+    {
+      id: 'punch-sub',
+      driver_name: 'Alex Driver',
+      action: 'in',
+      punched_at: '2026-10-09T14:00:00.000Z',
+      note: '',
+      substitute_name: '  Pat Lee  ',
+    },
+    {
+      id: 'punch-plain',
+      driver_name: 'Alex Driver',
+      action: 'out',
+      punched_at: '2026-10-09T18:00:00.000Z',
+      substitute_name: '',
+    },
+  ]);
+  assert.equal(punches[0].substitute_name, 'Pat Lee');
+  assert.equal(Object.prototype.hasOwnProperty.call(punches[1], 'substitute_name'), false);
+
+  const state = loadState(storage);
+  state.profiles = { 'route-s10': { id: 'route-s10', name: 'S10' } };
+  state.clockSubstituteDrivers = [
+    { id: 'sub-1', name: 'Pat Lee' },
+    { id: 'sub-2', name: 'pat lee' },
+    { id: '', name: 'Nope' },
+    { id: 'sub-3', name: 'Jordan Lee' },
+  ];
+  state.punches = punches;
+  saveState(state, storage);
+  const loaded = loadState(storage);
+  assert.deepEqual(loaded.clockSubstituteDrivers, [
+    { id: 'sub-1', name: 'Pat Lee' },
+    { id: 'sub-3', name: 'Jordan Lee' },
+  ]);
+  assert.equal(loaded.punches[0].substitute_name, 'Pat Lee');
+
+  const remote = { ...loaded, clockSubstituteDrivers: [{ id: 'sub-9', name: 'Remote Sub' }] };
+  assert.equal(mergeSharedDriverList(remote, loaded).clockSubstituteDrivers[0].name, 'Pat Lee');
+  const localUnset = loadState(storage);
+  delete localUnset.clockSubstituteDrivers;
+  assert.equal(mergeSharedDriverList(remote, localUnset).clockSubstituteDrivers[0].name, 'Remote Sub');
 });

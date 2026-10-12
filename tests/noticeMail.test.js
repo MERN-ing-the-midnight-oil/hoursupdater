@@ -12,10 +12,13 @@ import {
   normalizeDriverNotice,
   noticeCalendarFilename,
   noticeFromChange,
+  routeHistoryFilename,
+  routeHistoryMail,
   rememberChangeNoticeSent,
   timeChangeNoticeDocument,
   timeChangeNoticeFilename,
 } from '../office-tracker/src/noticeMail.js';
+import { splitSegmentRange } from '../employee-tracker/src/clockTimes.js';
 import { loadDriverNotice, saveDriverNotice } from '../office-tracker/web/store.js';
 
 function memoryStorage() {
@@ -74,7 +77,7 @@ test('a known bid date is named in that change’s email', () => {
   assert.match(mail.body, /PM changed from 1:50 PM-4:15 PM to 1:50 PM-4:30 PM/);
   assert.doesNotMatch(mail.body, /\b(?:1[3-9]|2[0-3]):\d{2}\b/);
   const originalAt = mail.body.indexOf('Original clock times');
-  const changeAt = mail.body.indexOf('PM changed from');
+  const changeAt = mail.body.indexOf('PM changed from', originalAt);
   assert.ok(originalAt >= 0 && changeAt > originalAt);
   assert.doesNotMatch(mail.body, /attached/i);
   assert.equal(noticeCalendarFilename('John Smith'), 'JohnSmith.pdf');
@@ -124,17 +127,11 @@ test('a saved driver notice replaces the opening and keeps the change list', () 
   const fresh = loadDriverNotice(storage);
   assert.equal(fresh.subject, 'Clock-time notice for {{driver_name}}');
   assert.equal(fresh.memorandumId, 'student-route-time');
+  assert.deepEqual(fresh.memorandumTemplates, {});
   assert.equal(fresh.attachTimeChangeNotice, false);
-  assert.equal(fresh.noticeImmediately, false);
-  assert.equal(fresh.noticeBeforeContract, false);
-  assert.equal(fresh.schoolDaysBefore, 1);
-  const timed = saveDriverNotice(
-    { noticeImmediately: 'yes', noticeBeforeContract: true, schoolDaysBefore: 4 },
-    storage
-  );
-  assert.equal(timed.noticeImmediately, true);
-  assert.equal(timed.noticeBeforeContract, true);
-  assert.equal(timed.schoolDaysBefore, 4);
+  assert.equal(Object.hasOwn(fresh, 'noticeImmediately'), false);
+  assert.equal(Object.hasOwn(fresh, 'noticeBeforeContract'), false);
+  assert.equal(Object.hasOwn(fresh, 'schoolDaysBefore'), false);
   const saved = saveDriverNotice(
     {
       subject: '  Times changed for {{driver_name}}  ',
@@ -216,6 +213,177 @@ test('the email is the student route-time memorandum', () => {
   assert.doesNotMatch(mail.body, /Changes to date/);
   assert.doesNotMatch(mail.body, /Original clock times/);
   assert.doesNotMatch(mail.body, /Hi Jean-Luc Picard/);
+});
+
+test('a saved template replaces that memorandum and the usual wording stays put', () => {
+  const usual = memorandumById('student-route-time');
+  const untouched = normalizeDriverNotice({
+    memorandumTemplates: {
+      'student-route-time': { subject: ` ${usual.subject} `, body: usual.body },
+      missing: { subject: 'Ignore', body: 'Ignore' },
+    },
+  });
+  assert.deepEqual(untouched.memorandumTemplates, {});
+
+  const storage = memoryStorage();
+  const saved = saveDriverNotice(
+    {
+      memorandumTemplates: {
+        'student-route-time': {
+          subject: '  Notice for {{driver_name}}  ',
+          body: '   ',
+        },
+      },
+    },
+    storage
+  );
+  assert.equal(saved.memorandumTemplates['student-route-time'].subject, 'Notice for {{driver_name}}');
+  assert.equal(saved.memorandumTemplates['student-route-time'].body, usual.body.trim());
+
+  const { row } = changeRow('Jean-Luc Picard', 'S1', '2026-09-25');
+  const mail = memorandumMail({
+    memorandumId: saved.memorandumId,
+    templates: saved.memorandumTemplates,
+    driverName: 'Jean-Luc Picard',
+    routeName: 'S1',
+    row,
+    asOf: '2026-09-25',
+  });
+  assert.equal(mail.subject, 'Notice for Jean-Luc Picard');
+  assert.match(mail.body, /TO: Jean-Luc Picard/);
+  assert.match(mail.body, /Effective Fri, Sep 18, 2026/);
+
+  const rewritten = memorandumMail({
+    memorandumId: 'student-route-time',
+    templates: {
+      'student-route-time': {
+        subject: 'Hello {{driver_name}}',
+        body: 'Custom note for {{driver_name}} on {{effective_date}}. {{route_times}}',
+      },
+    },
+    driverName: 'Jean-Luc Picard',
+    routeName: 'S1',
+    row,
+    asOf: '2026-09-25',
+  });
+  assert.equal(rewritten.subject, 'Hello Jean-Luc Picard');
+  assert.match(rewritten.body, /^Custom note for Jean-Luc Picard on Fri, Sep 18, 2026\. route S1,/);
+  assert.doesNotMatch(rewritten.body, /MEMORANDUM/);
+});
+
+test('a route history email is the full clock-time history for that route', () => {
+  const { section } = changeRow('Jean-Luc Picard', 'S1', '2026-09-25');
+  const mail = routeHistoryMail({
+    driverName: 'William Riker',
+    routeName: 'S1',
+    history: section.snapshot?.schedule_history || [],
+  });
+  assert.equal(mail.subject, 'Route clock-time history for route S1');
+  assert.match(mail.body, /^Hi William Riker/);
+  assert.match(mail.body, /Changes to date on route S1:/);
+  assert.match(mail.body, /Original clock times, established/);
+  assert.match(mail.body, /PM changed from/);
+  assert.equal(routeHistoryFilename('D 03'), 'RouteD03-clock-history.pdf');
+});
+
+function clocks(am, pm) {
+  return {
+    AM: am ? splitSegmentRange(am) : null,
+    MIDDAY: null,
+    PM: pm ? splitSegmentRange(pm) : null,
+  };
+}
+
+test('a notice separates a longer run from a shorter one when dates were left blank', () => {
+  const history = [
+    {
+      kind: 'initial',
+      date: '2026-08-31',
+      schedule: clocks('7:10-8:30', '13:35-15:35'),
+    },
+    {
+      kind: 'change',
+      date: null,
+      segment: null,
+      segments: ['AM', 'PM'],
+      previous_time: '13:35-15:35',
+      new_time: '13:35-17:30',
+      note: 'POST',
+      schedule: clocks('7:10-9:25', '13:35-17:30'),
+    },
+    {
+      kind: 'change',
+      date: null,
+      segment: 'AM',
+      previous_time: '7:10-9:25',
+      new_time: '7:10-8:40',
+      note: '',
+      schedule: clocks('7:10-8:40', '13:35-17:30'),
+      contracted: {
+        status: 'bid_pending',
+        becomes_on: '2026-09-29',
+        label: 'Posted for bid',
+      },
+    },
+  ];
+  const mail = changeNoticeMail({
+    driverName: 'Charlie Lane',
+    routeName: 'S 20',
+    row: history[2],
+    history,
+  });
+  assert.match(
+    mail.body,
+    /Route S 20: the AM change, date not recorded, is posted for bid as of Tue, Sep 29, 2026\. AM changed from 7:10 AM-9:25 AM to 7:10 AM-8:40 AM, 45 min shorter\./
+  );
+  assert.match(mail.body, /These runs were entered together:/);
+  assert.match(
+    mail.body,
+    /AM changed from 7:10 AM-8:30 AM to 7:10 AM-9:25 AM, 55 min longer\./
+  );
+  assert.match(
+    mail.body,
+    /PM changed from 1:35 PM-3:35 PM to 1:35 PM-5:30 PM, 1 hr 55 min longer\./
+  );
+  assert.match(mail.body, /POST/);
+  assert.match(
+    mail.body,
+    /Date not recorded\. AM changed from 7:10 AM-9:25 AM to 7:10 AM-8:40 AM, 45 min shorter\./
+  );
+  assert.match(mail.body, /not known to be the same day/);
+  assert.doesNotMatch(mail.body, /from —/);
+  assert.doesNotMatch(mail.body, /Clock time changed/);
+});
+
+test('changes that share a recorded date say they are the same day', () => {
+  const history = [
+    {
+      kind: 'initial',
+      date: '2026-08-31',
+      schedule: clocks('7:10-8:30', '13:35-15:35'),
+    },
+    {
+      kind: 'change',
+      date: '2026-09-29',
+      segment: 'PM',
+      schedule: clocks('7:10-8:30', '13:35-17:30'),
+    },
+    {
+      kind: 'change',
+      date: '2026-09-29',
+      segment: 'AM',
+      schedule: clocks('7:10-8:40', '13:35-17:30'),
+    },
+  ];
+  const mail = routeHistoryMail({
+    driverName: 'Charlie Lane',
+    routeName: 'S 20',
+    history,
+  });
+  assert.match(mail.body, /Tue, Sep 29, 2026\. PM changed from/);
+  assert.match(mail.body, /Tue, Sep 29, 2026, same day as the change above\. AM changed from/);
+  assert.doesNotMatch(mail.body, /Date not recorded/);
+  assert.doesNotMatch(mail.body, /entered together/);
 });
 
 test('sending a notice remembers that change id', () => {

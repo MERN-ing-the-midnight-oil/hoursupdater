@@ -4,6 +4,7 @@
  * the clock-ins that are already due, which stops the flash for those runs.
  */
 
+import { normalizePunchRun } from './timesheets.js';
 import { parseClockTime } from './timeUtils.js';
 
 export const LATE_FLASH_MAX_MINUTES = 240;
@@ -89,23 +90,25 @@ function windows(times) {
 }
 
 /**
- * @param {Array<{ action?: string, punched_at?: string, driver_name?: string }> | null | undefined} punches
+ * @param {Array<{ action?: string, punched_at?: string, driver_name?: string, run?: string }> | null | undefined} punches
  * @param {string} driverName
  * @param {string} date
+ * @returns {Array<{ minutes: number, run: ReturnType<typeof normalizePunchRun> }>}
  */
-function punchMinutesToday(punches, driverName, date) {
+function punchEventsToday(punches, driverName, date) {
   const wanted = String(driverName || '').trim().toLowerCase();
   if (!wanted) return [];
-  /** @type {number[]} */
+  /** @type {Array<{ minutes: number, run: ReturnType<typeof normalizePunchRun> }>} */
   const found = [];
   for (const punch of Array.isArray(punches) ? punches : []) {
+    if (punch?.removed === true) continue;
     if (punch?.action !== 'in') continue;
     if (String(punch.driver_name || '').trim().toLowerCase() !== wanted) continue;
     const when = new Date(punch.punched_at || '');
     if (Number.isNaN(when.getTime())) continue;
     const parts = localClockParts(when);
     if (parts.date !== date) continue;
-    found.push(parts.minutes);
+    found.push({ minutes: parts.minutes, run: normalizePunchRun(punch.run) });
   }
   return found;
 }
@@ -132,7 +135,8 @@ export function dueClockInKeys({ now, graceMinutes, clockIns }) {
  *   now: Date,
  *   graceMinutes: unknown,
  *   clockIns: unknown,
- *   punches?: Array<{ action?: string, punched_at?: string, driver_name?: string }> | null,
+ *   clockRuns?: string[] | null,
+ *   punches?: Array<{ action?: string, punched_at?: string, driver_name?: string, run?: string }> | null,
  *   driverName?: string,
  *   acknowledged?: string[] | null,
  * }} input
@@ -142,6 +146,7 @@ export function flashingClockInKeys({
   now,
   graceMinutes,
   clockIns,
+  clockRuns = [],
   punches = [],
   driverName = '',
   acknowledged = [],
@@ -152,8 +157,9 @@ export function flashingClockInKeys({
   if (!times.length) return [];
   const { date, minutes: nowMinutes } = localClockParts(now);
   const spans = windows(times);
-  const punchesToday = punchMinutesToday(punches, driverName, date);
+  const punchesToday = punchEventsToday(punches, driverName, date);
   const cleared = new Set(Array.isArray(acknowledged) ? acknowledged : []);
+  const runs = Array.isArray(clockRuns) ? clockRuns : [];
   /** @type {string[]} */
   const keys = [];
   for (let index = 0; index < times.length; index += 1) {
@@ -162,7 +168,12 @@ export function flashingClockInKeys({
     const key = clockInKey(date, clockIn);
     if (cleared.has(key)) continue;
     const span = spans[index];
-    const covered = punchesToday.some((minute) => minute >= span.start && minute < span.end);
+    const spanRun = normalizePunchRun(runs[index]);
+    const covered = punchesToday.some((event) => {
+      if (event.run === 'OTHER') return false;
+      if (event.run) return Boolean(spanRun) && event.run === spanRun;
+      return event.minutes >= span.start && event.minutes < span.end;
+    });
     if (!covered) keys.push(key);
   }
   return keys;

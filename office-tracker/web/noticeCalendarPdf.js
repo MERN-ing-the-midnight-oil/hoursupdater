@@ -24,7 +24,10 @@ export async function downloadCalendarPdf(filename) {
     'z-index:100000',
   ].join(';');
   host.appendChild(source.cloneNode(true));
-  host.querySelectorAll('.cal-hover').forEach((node) => node.remove());
+  host.querySelectorAll('details').forEach((node) => {
+    node.open = true;
+  });
+  host.querySelectorAll('.cal-hover, [data-pdf-skip]').forEach((node) => node.remove());
   document.body.appendChild(host);
   try {
     const canvas = await html2canvas(host, {

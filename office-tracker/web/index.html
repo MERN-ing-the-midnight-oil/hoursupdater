@@ -3,11 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Teamster Time Changes Dashboard</title>
+    <title>Teamster Tracker</title>
     <meta name="theme-color" content="#6428f0" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="Teamster Time" />
+    <meta name="apple-mobile-web-app-title" content="Teamster Tracker" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="icon" href="./favicon.ico" sizes="48x48" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
@@ -19,7 +19,9 @@
   <body class="is-booting">
     <main class="shell">
       <header class="topbar">
-        <nav class="app-switch" aria-label="Apps">
+        <div class="app-head">
+          <p class="app-name">Teamster Tracker</p>
+          <nav class="app-switch" aria-label="Sections">
           <button type="button" class="brand-block app-launch is-active" id="dashboard-app" aria-current="page">
             <svg class="brand-mark" viewBox="0 0 21 21" shape-rendering="crispEdges" aria-hidden="true">
               <g class="px-shadow">
@@ -45,9 +47,9 @@
               <rect class="px-orange" x="14" y="3" width="2" height="2" />
               <rect class="px-hot" x="14" y="3" width="1" height="1" />
             </svg>
-            <span class="brand">Teamster Time Changes Dashboard</span>
+            <span class="brand">Time Changes</span>
           </button>
-          <button type="button" class="brand-block app-launch app-launch-reader" id="clock-tab">
+          <button type="button" class="brand-block app-launch app-launch-reader" id="payroll-tab">
             <svg class="brand-mark" viewBox="0 0 21 21" shape-rendering="crispEdges" aria-hidden="true">
               <g class="px-reader-shadow">
                 <rect x="4" y="2" width="14" height="18" />
@@ -61,20 +63,52 @@
               <rect class="px-reader-case" x="14" y="5" width="1" height="1" />
               <rect class="px-reader-case" x="5" y="14" width="1" height="1" />
               <rect class="px-reader-case" x="14" y="14" width="1" height="1" />
-              <rect class="px-reader-ink" x="9" y="5" width="2" height="1" />
-              <rect class="px-reader-ink" x="9" y="14" width="2" height="1" />
-              <rect class="px-reader-ink" x="5" y="9" width="1" height="2" />
-              <rect class="px-reader-ink" x="14" y="9" width="1" height="2" />
-              <rect class="px-reader-ink" x="9" y="6" width="2" height="4" />
-              <rect class="px-reader-gold" x="10" y="9" width="2" height="2" />
-              <rect class="px-reader-gold" x="12" y="10" width="2" height="2" />
-              <rect class="px-reader-ink" x="9" y="9" width="2" height="2" />
-              <rect class="px-reader-gold" x="14" y="3" width="2" height="2" />
-              <rect class="px-reader-hot" x="14" y="3" width="1" height="1" />
+              <rect class="px-reader-ink" x="9" y="6" width="3" height="1" />
+              <rect class="px-reader-ink" x="8" y="7" width="1" height="2" />
+              <rect class="px-reader-ink" x="12" y="7" width="1" height="1" />
+              <rect class="px-reader-ink" x="9" y="9" width="3" height="1" />
+              <rect class="px-reader-ink" x="12" y="10" width="1" height="2" />
+              <rect class="px-reader-ink" x="8" y="11" width="1" height="1" />
+              <rect class="px-reader-ink" x="9" y="12" width="3" height="1" />
+              <rect class="px-reader-gold" x="10" y="6" width="1" height="8" />
+              <rect class="px-reader-gold" x="4" y="3" width="2" height="2" />
+              <rect class="px-reader-hot" x="5" y="3" width="1" height="1" />
             </svg>
-            <span class="brand">Timeclock</span>
+            <span class="brand">Payroll</span>
           </button>
-        </nav>
+          <button type="button" class="brand-block app-launch app-launch-clocking" id="clocking-tab">
+            <svg class="brand-mark" viewBox="0 0 21 21" shape-rendering="crispEdges" aria-hidden="true">
+              <g class="px-clocking-shadow">
+                <rect x="4" y="2" width="14" height="18" />
+                <rect x="2" y="4" width="18" height="14" />
+              </g>
+              <rect class="px-clocking-frame" x="3" y="1" width="14" height="18" />
+              <rect class="px-clocking-frame" x="1" y="3" width="18" height="14" />
+              <rect class="px-clocking-case" x="3" y="3" width="14" height="14" />
+              <rect class="px-clocking-face" x="5" y="5" width="10" height="10" />
+              <rect class="px-clocking-case" x="5" y="5" width="1" height="1" />
+              <rect class="px-clocking-case" x="14" y="5" width="1" height="1" />
+              <rect class="px-clocking-case" x="5" y="14" width="1" height="1" />
+              <rect class="px-clocking-case" x="14" y="14" width="1" height="1" />
+              <rect class="px-clocking-ink" x="6" y="6" width="6" height="1" />
+              <rect class="px-clocking-ink" x="6" y="7" width="1" height="6" />
+              <rect class="px-clocking-ink" x="13" y="8" width="1" height="5" />
+              <rect class="px-clocking-ink" x="6" y="13" width="8" height="1" />
+              <rect class="px-clocking-case" x="12" y="6" width="3" height="1" />
+              <rect class="px-clocking-case" x="13" y="7" width="2" height="1" />
+              <rect class="px-clocking-copper" x="8" y="8" width="1" height="2" />
+              <rect class="px-clocking-copper" x="10" y="8" width="1" height="2" />
+              <rect class="px-clocking-copper" x="12" y="8" width="1" height="2" />
+              <rect class="px-clocking-copper" x="7" y="11" width="1" height="2" />
+              <rect class="px-clocking-copper" x="9" y="11" width="1" height="2" />
+              <rect class="px-clocking-copper" x="11" y="11" width="1" height="2" />
+              <rect class="px-clocking-copper" x="14" y="3" width="2" height="2" />
+              <rect class="px-clocking-hot" x="14" y="3" width="1" height="1" />
+            </svg>
+            <span class="brand">Clocking</span>
+          </button>
+          </nav>
+        </div>
         <div class="topbar-side">
           <p class="account-chip" id="account-chip" hidden>
             <span id="account-who"></span>
@@ -176,51 +210,362 @@
 
       <div class="route-tabs" id="route-tabs" role="tablist" aria-label="Routes"></div>
 
-      <section id="clock-view" class="panel" hidden>
-        <h1 class="panel-title">Timeclock</h1>
-        <p class="lead">
-          Start Timeclock opens the driver screen on this tablet or laptop and keeps it there.
-          Click a driver to open that driver's Monthly Time Summary in a new window.
-        </p>
-        <div class="clock-launch">
-          <button type="button" id="start-timeclock">Start Timeclock</button>
-          <p class="field-hint">
-            The lock code is how the office gets back. Driver PINs do not open it. Both are in Timeclock settings.
-          </p>
-        </div>
-        <p id="clock-status" class="status" role="status" hidden></p>
-        <div class="timeclock-toolbar">
-          <button type="button" class="payroll-export" id="payroll-export-btn">
-            <span class="dash-ico dash-ico-sheet">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M6.2 3.2h8.1l4.5 4.5v12.1a1.8 1.8 0 0 1-1.8 1.8H6.2a1.8 1.8 0 0 1-1.8-1.8V5a1.8 1.8 0 0 1 1.8-1.8z" />
-                <path fill="currentColor" d="M14.1 3.4v3.7a1.2 1.2 0 0 0 1.2 1.2h3.5z" />
-                <path fill="currentColor" d="M7.4 11.2h9.2v1.5H7.4zm0 3.1h9.2v1.5H7.4zm0 3.1h6.2v1.5H7.4z" />
-              </svg>
-            </span>
-            Create Payroll Driver Times.xlsx
-          </button>
-          <p id="payroll-status" class="status" role="status" hidden></p>
-        </div>
-        <ul id="clock-driver-list" class="clock-driver-list"></ul>
-        <section id="clock-driver-sheet" hidden>
-          <div class="clock-driver-sheet-head">
-            <h2 id="clock-driver-sheet-title"></h2>
-            <button type="button" class="secondary" id="clock-driver-sheet-close">Close</button>
+      <section id="payroll-view" class="panel" hidden>
+        <div id="clock-hub" class="payroll-clock-layout">
+          <div class="payroll-clock-head">
+            <h1 class="panel-title">Payroll</h1>
+            <p class="lead">
+              Drivers opens the name list in its own window. Click a name there for that driver's clock record.
+            </p>
           </div>
+          <div class="payroll-clock-body">
+            <div class="timeclock-toolbar" hidden>
+              <button type="button" class="payroll-export" id="payroll-export-btn">
+                <span class="dash-ico dash-ico-sheet">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6.2 3.2h8.1l4.5 4.5v12.1a1.8 1.8 0 0 1-1.8 1.8H6.2a1.8 1.8 0 0 1-1.8-1.8V5a1.8 1.8 0 0 1 1.8-1.8z" />
+                    <path fill="currentColor" d="M14.1 3.4v3.7a1.2 1.2 0 0 0 1.2 1.2h3.5z" />
+                    <path fill="currentColor" d="M7.4 11.2h9.2v1.5H7.4zm0 3.1h9.2v1.5H7.4zm0 3.1h6.2v1.5H7.4z" />
+                  </svg>
+                </span>
+                Create Payroll Driver Times.xlsx
+              </button>
+              <p id="payroll-status" class="status" role="status" hidden></p>
+            </div>
+            <svg class="payroll-gear-sprite" aria-hidden="true">
+              <symbol id="payroll-gear" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" />
+                <path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" d="M19.4 15a1.7 1.7 0 0 0 .34 1.84l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.84-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.84.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.84 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.84l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.84.34H9a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.84-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.84V9c.26.6.86 1.02 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1.03z" />
+              </symbol>
+            </svg>
+            <div class="payroll-tools" id="payroll-tools" role="group" aria-label="Payroll tools">
+              <div class="payroll-drivers-feature">
+                <button type="button" class="secondary drivers-launch" id="open-drivers">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                    <circle cx="9" cy="7" r="4" />
+                    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                  </svg>
+                  Drivers
+                </button>
+                <p id="drivers-open-status" class="status is-error" role="alert" hidden></p>
+              </div>
+              <button type="button" class="secondary payroll-tool payroll-summary-launch" data-payroll-tool aria-expanded="false" aria-controls="summary-tool">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <path d="M3 9h18" />
+                  <path d="M3 14h18" />
+                  <path d="M9 9v11" />
+                  <path d="M15 9v11" />
+                </svg>
+                EX DRIVER TIME SUMMARIES
+              </button>
+              <div class="payroll-settings" role="group" aria-label="Payroll settings">
+              <button type="button" class="secondary payroll-tool" data-payroll-tool aria-expanded="false" aria-controls="pay-period-settings">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#payroll-gear"></use></svg>
+                Pay period dates
+              </button>
+              <button type="button" class="secondary payroll-tool" data-payroll-tool aria-expanded="false" aria-controls="pay-status-settings">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#payroll-gear"></use></svg>
+                Pay status categories
+              </button>
+              <button type="button" class="secondary payroll-tool" id="driver-records-open">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#payroll-gear"></use></svg>
+                Driver Records
+              </button>
+              <button type="button" class="secondary payroll-tool" data-payroll-tool aria-expanded="false" aria-controls="quarter-clock-payroll">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#payroll-gear"></use></svg>
+                Clock rounding
+              </button>
+              <button type="button" class="secondary payroll-tool" data-payroll-tool aria-expanded="false" aria-controls="overtime-rules-payroll">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#payroll-gear"></use></svg>
+                Overtime rules
+              </button>
+              </div>
+            </div>
+            <div id="summary-tool" class="payroll-tool-panel" hidden>
+              <h2 class="payroll-summary-heading">EX DRIVER TIME SUMMARIES</h2>
+              <p class="field-hint">
+                For a driver whose only pay status is EX DRIVER.
+                Choose that driver and a pay period.
+                See Time Summary Info opens the math table. Generate Monthly Time Summary opens the district sheet for that same driver and pay period.
+                The math table columns are the days in that period.
+                Each clock in and clock out pair has its own rows. Quarter-hour minutes show only when that rounding is selected. A pair that is partly or entirely overtime also shows actual overtime minutes, and the rounded overtime minutes when that rounding method applies. Contract hours sit just under the total billable clock hours. EX HOURS is the billable hours minus the contract hours and can be negative. Total OT is at the bottom.
+              </p>
+              <form id="math-maker-form" class="clock-form summary-maker" novalidate>
+                <div class="field">
+                  <label for="math-driver">EX DRIVER</label>
+                  <select id="math-driver" required></select>
+                </div>
+                <div class="field">
+                  <label for="math-month">Month</label>
+                  <input id="math-month" type="month" required />
+                </div>
+                <div class="field">
+                  <label for="math-period">Pay period</label>
+                  <select id="math-period" required></select>
+                </div>
+                <div class="actions">
+                  <button type="submit" id="summary-math">See Time Summary Info</button>
+                  <button type="submit" id="summary-generate">Generate Monthly Time Summary</button>
+                </div>
+                <p id="math-maker-status" class="status" role="status" hidden></p>
+              </form>
+            </div>
+            <div id="pay-period-settings" class="payroll-tool-panel" hidden>
+              <h2>Pay period dates</h2>
+              <p class="field-hint">
+                These calendar days are the columns on one sheet. The usual periods are days 1–15, or days 16 through the last day of the month.
+                A whole month is days 1 through 31. Day 31 means the last day that month has.
+              </p>
+              <form id="pay-period-form" class="clock-form" data-pay-period-form novalidate>
+                <div class="pay-period-presets">
+                  <button type="button" class="secondary" id="pay-period-split" data-pay-period-split>Use days 1–15 and 16–end</button>
+                  <button type="button" class="secondary" id="pay-period-month" data-pay-period-month>Use days 1–31</button>
+                </div>
+                <div id="pay-period-rows" data-pay-period-rows></div>
+                <div class="actions">
+                  <button type="button" class="secondary" id="pay-period-add" data-pay-period-add>Add a pay period</button>
+                  <button type="submit" class="secondary">Save pay period dates</button>
+                </div>
+                <p class="status" data-form-status role="status" hidden></p>
+              </form>
+            </div>
+            <div id="pay-status-settings" class="payroll-tool-panel" hidden>
+              <h2>Pay status categories</h2>
+              <p class="field-hint">
+                The sheet starts with REG DRIVER, OT DR TRAINER, EX DR TRAINER, and EX DRIVER.
+                Add any other pay status, then choose it when you make a Monthly Time Summary.
+              </p>
+              <ul id="pay-status-catalog" class="pay-status-catalog" data-pay-status-catalog></ul>
+              <form id="pay-status-form" class="clock-form" data-pay-status-form novalidate>
+                <div class="field">
+                  <label for="pay-status-label">Pay status name</label>
+                  <input id="pay-status-label" data-pay-status-label type="text" maxlength="40" required />
+                </div>
+                <div class="field">
+                  <label for="pay-status-ot">OT</label>
+                  <select id="pay-status-ot" data-pay-status-ot>
+                    <option value="0">0</option>
+                    <option value="1.5" data-ot-rate>1.5</option>
+                  </select>
+                </div>
+                <div class="actions">
+                  <button type="submit" class="secondary">Add pay status</button>
+                </div>
+                <p class="status" data-form-status role="status" hidden></p>
+              </form>
+            </div>
+            <div id="quarter-clock-payroll" class="payroll-tool-panel" hidden>
+              <h2>Clock rounding</h2>
+              <form id="payroll-quarter-clock-form" class="clock-form" data-quarter-clock-form novalidate>
+                <fieldset class="quarter-clock-options">
+                  <legend class="visually-hidden">Clock rounding</legend>
+                  <label class="quarter-clock-label">
+                    <input name="payroll-clock-rounding" value="snap" data-quarter-clocks type="radio" checked />
+                    <span class="quarter-clock-copy">
+                      <strong>SNAP ROUNDING</strong>
+                      <span class="quarter-clock-note">Clock in and clock out times are rounded to the nearest actual time that falls on a zero, 15, 30, or 45 minutes.</span>
+                    </span>
+                  </label>
+                  <label class="quarter-clock-label">
+                    <input name="payroll-clock-rounding" value="daily" data-quarter-clocks type="radio" />
+                    <span class="quarter-clock-copy">
+                      <strong>Only round daily total minutes to quarter hours</strong>
+                      <span class="quarter-clock-note">Unrounded clock minutes are added up, and then rounded to the quarter hour (for example, 5.0, 5.25, 5.5, or 5.75 hours).</span>
+                    </span>
+                  </label>
+                  <label class="quarter-clock-label">
+                    <input name="payroll-clock-rounding" value="separate" data-quarter-clocks type="radio" />
+                    <span class="quarter-clock-copy">
+                      <strong>Round clock time minutes separately to quarter hours</strong>
+                      <span class="quarter-clock-note">This is the same kind of rounding, done for each clock in separately, and then those rounded amounts are added.</span>
+                    </span>
+                  </label>
+                </fieldset>
+                <div class="actions">
+                  <button type="submit" class="secondary">Save clock rounding</button>
+                </div>
+                <p class="status" data-form-status role="status" hidden></p>
+              </form>
+            </div>
+            <div id="overtime-rules-payroll" class="payroll-tool-panel" hidden>
+              <h2>Overtime rules</h2>
+              <p class="field-hint">
+                These rules decide which clock minutes are overtime. The same rules are in Timeclock settings.
+                The starting rules match the Teamsters contract. Clear an hour or a time to turn that rule off.
+              </p>
+              <form class="clock-form" data-overtime-form novalidate>
+                <div class="field">
+                  <label>Daily overtime starts after
+                    <input data-ot-daily type="number" min="0.25" max="24" step="0.25" inputmode="decimal" value="8" aria-label="Daily overtime hours" />
+                    hours
+                  </label>
+                </div>
+                <div class="field">
+                  <label>Weekly overtime starts after
+                    <input data-ot-weekly type="number" min="0.25" max="80" step="0.25" inputmode="decimal" value="40" aria-label="Weekly overtime hours" />
+                    hours
+                  </label>
+                </div>
+                <div class="field">
+                  <label>Evening overtime starts at
+                    <input data-ot-evening type="time" step="60" value="17:30" aria-label="Evening overtime start" />
+                  </label>
+                </div>
+                <div class="field">
+                  <label>Early morning overtime is before
+                    <input data-ot-morning type="time" step="60" value="05:30" aria-label="Early morning overtime end" />
+                  </label>
+                </div>
+                <div class="field">
+                  <label>
+                    <input data-ot-weekend type="checkbox" checked />
+                    Saturday and Sunday are overtime
+                  </label>
+                </div>
+                <div class="field">
+                  <label>
+                    <input data-ot-holiday type="checkbox" checked />
+                    School-calendar holidays are overtime
+                  </label>
+                </div>
+                <div class="field">
+                  <label>OT multiplier
+                    <input data-ot-multiplier type="number" min="1" max="3" step="0.05" inputmode="decimal" value="1.5" aria-label="Overtime multiplier" />
+                  </label>
+                  <p class="field-hint">An OT pay status uses this multiplier. 1.5 is time and one-half.</p>
+                </div>
+                <div class="actions">
+                  <button type="submit" class="secondary">Save overtime rules</button>
+                </div>
+                <p class="status" data-form-status role="status" hidden></p>
+              </form>
+            </div>
+          </div>
+        </div>
+        <section id="clock-drivers" hidden>
+          <h1 class="panel-title" id="clock-driver-summary">Drivers</h1>
+          <p class="lead">Click a name to open that driver's clock record.</p>
+          <ul id="clock-driver-list" class="clock-driver-list"></ul>
+        </section>
+        <section id="clock-driver-sheet" hidden>
           <p class="field-hint">
-            These are the columns in Payroll Driver Times. A driver with no completed clock in and clock out
-            still uses the contracted clocks on their route.
+            <button type="button" class="route-jump" id="clock-driver-sheet-close">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M19 12H5" />
+                <path d="m11 6-6 6 6 6" />
+              </svg>
+              Drivers
+            </button>
           </p>
-          <div class="table-wrap">
-            <table class="schedule-history payroll-driver-sheet" id="clock-payroll-sheet">
+          <header class="clock-record-head">
+            <h1 class="panel-title" id="clock-driver-sheet-title"></h1>
+            <dl id="clock-driver-facts" class="clock-record-facts"></dl>
+            <p class="clock-record-history">
+              <button type="button" class="text-link" id="clock-driver-history">Time changes history</button>
+            </p>
+            <nav id="clock-record-periods" class="clock-record-jumps" aria-label="Pay periods"></nav>
+          </header>
+          <div class="clock-record-scroll" id="clock-record-scroll">
+            <table class="clock-record" id="clock-record-sheet">
               <thead>
                 <tr></tr>
               </thead>
               <tbody></tbody>
             </table>
           </div>
-          <h3>Clock records</h3>
+        </section>
+      </section>
+
+      <section id="clocking-view" class="panel" hidden>
+        <div id="clocking-hub" class="payroll-clock-layout">
+          <div class="payroll-clock-head">
+            <h1 class="panel-title">Clocking</h1>
+            <p class="lead">
+              Start Timeclock opens the driver screen on this tablet or laptop and keeps it there.
+              On another screen opens that same driver screen on a second monitor and leaves this window free.
+              Clock records opens the name list so you can add, change, or remove a clock in or clock out.
+            </p>
+          </div>
+          <div class="payroll-clock-side">
+            <div class="clock-launch">
+              <button type="button" id="start-timeclock">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="8" />
+                  <path d="M12 8v5l3 2" />
+                </svg>
+                Start Timeclock
+              </button>
+              <button type="button" class="secondary timeclock-screen-launch" id="start-timeclock-screen">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="2" y="3" width="20" height="14" rx="2" />
+                  <path d="M8 21h8" />
+                  <path d="M12 17v4" />
+                </svg>
+                On another screen
+              </button>
+              <div id="timeclock-screen-choices" class="timeclock-screen-choices" hidden>
+                <p class="field-hint">Which screen should show the timeclock?</p>
+                <div id="timeclock-screen-list" class="timeclock-screen-list"></div>
+              </div>
+              <p id="timeclock-screen-status" class="status" role="status" hidden></p>
+              <button type="button" class="secondary drivers-launch" id="open-clock-records">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="8" />
+                  <path d="M12 8v5l3 2" />
+                </svg>
+                Clock records
+              </button>
+              <p id="clock-records-open-status" class="status is-error" role="alert" hidden></p>
+              <button type="button" class="secondary timeclock-settings-launch" id="timeclock-settings-open">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.84l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.84-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.84.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.84 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.84l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.84.34H9a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.84-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.84V9c.26.6.86 1.02 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1.03z" />
+                </svg>
+                Timeclock settings
+              </button>
+            </div>
+          </div>
+        </div>
+        <section id="clocking-drivers" hidden>
+          <h1 class="panel-title" id="clocking-driver-summary">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="8" />
+              <path d="M12 8v5l3 2" />
+            </svg>
+            <span data-heading-label>Clock records</span>
+          </h1>
+          <p class="lead">Click a name to add, change, or remove a clock in or clock out.</p>
+          <ul id="clocking-driver-list" class="clock-driver-list"></ul>
+        </section>
+        <section id="clocking-driver-sheet" hidden>
+          <p class="field-hint">
+            <button type="button" class="route-jump" id="clocking-driver-sheet-close">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M19 12H5" />
+                <path d="m11 6-6 6 6 6" />
+              </svg>
+              Clock records
+            </button>
+          </p>
+          <h1 class="panel-title">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 21a8 8 0 0 0-16 0" />
+              <circle cx="12" cy="8" r="3.5" />
+            </svg>
+            <span id="clocking-driver-sheet-title"></span>
+          </h1>
+          <p class="lead" id="clocking-driver-sheet-routes"></p>
+          <div class="clock-record-entry">
+          <h3>
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="8" />
+              <path d="M12 8v5l3 2" />
+            </svg>
+            Clock records
+          </h3>
           <form id="clock-form" class="clock-form" novalidate>
             <div class="field" hidden>
               <label for="clock-driver">Driver</label>
@@ -234,6 +579,16 @@
               <label for="clock-note">Note</label>
               <input id="clock-note" type="text" maxlength="200" />
             </div>
+            <div class="field" id="clock-admin-name-field" hidden>
+              <label for="clock-admin-name">Your name</label>
+              <input id="clock-admin-name" type="text" maxlength="80" autocomplete="name" />
+            </div>
+            <div class="field">
+              <label for="clock-admin-note">Admin note</label>
+              <input id="clock-admin-note" type="text" maxlength="500" />
+              <p class="field-hint">Required. Your name is saved with this record.</p>
+            </div>
+            <p id="clock-admin-who" class="field-hint clock-admin-who" hidden></p>
             <div class="field">
               <label for="clock-reason">Reason code</label>
               <select id="clock-reason"></select>
@@ -243,11 +598,27 @@
             </div>
             <ul id="clock-reason-picks" class="reason-picks"></ul>
             <div class="actions">
-              <button type="button" id="clock-in">Clock in</button>
-              <button type="button" id="clock-out" class="secondary">Clock out</button>
+              <button type="button" id="clock-in">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                  <path d="m10 17 5-5-5-5" />
+                  <path d="M15 12H3" />
+                </svg>
+                Clock in
+              </button>
+              <button type="button" id="clock-out" class="secondary">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <path d="m16 17 5-5-5-5" />
+                  <path d="M21 12H9" />
+                </svg>
+                Clock out
+              </button>
             </div>
+            <p id="clock-status" class="status" role="status" hidden></p>
           </form>
-          <div class="table-wrap">
+          </div>
+          <div class="table-wrap clock-log">
             <table class="schedule-history" id="clock-records">
               <thead>
                 <tr>
@@ -255,6 +626,7 @@
                   <th>Kind</th>
                   <th>Note</th>
                   <th>Reason codes</th>
+                  <th>Office</th>
                   <th></th>
                 </tr>
               </thead>
@@ -262,11 +634,40 @@
             </table>
           </div>
         </section>
-        <details class="timeclock-settings">
-          <summary>Timeclock settings</summary>
+      </section>
+
+      <section id="timeclock-settings-view" class="panel" hidden>
+        <h1 class="panel-title">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.84l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.84-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.84.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.84 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.84l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.84.34H9a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.84-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.84V9c.26.6.86 1.02 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1.03z" />
+          </svg>
+          Timeclock settings
+        </h1>
+        <div class="actions">
+          <button type="button" class="secondary" id="timeclock-settings-back">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M19 12H5" />
+              <path d="m11 6-6 6 6 6" />
+            </svg>
+            Back to Clocking
+          </button>
+        </div>
+        <p id="timeclock-settings-status" class="status" role="status" hidden></p>
+        <div class="settings-stack">
+          <section class="settings-card">
+          <h2>
+            <span class="settings-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <rect x="5" y="11" width="14" height="10" rx="2" />
+                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+              </svg>
+            </span>
+            Admin lock code
+          </h2>
           <form id="lock-form" class="clock-form" novalidate>
             <div class="field">
-              <label for="lock-code">Lock code</label>
+              <label for="lock-code">Admin Lock Code</label>
               <input
                 id="lock-code"
                 type="text"
@@ -281,9 +682,20 @@
               <p class="field-hint">This is how the office leaves the driver screen. A driver PIN does not open it.</p>
             </div>
             <div class="actions">
-              <button type="submit" class="secondary">Save lock code</button>
+              <button type="submit" class="secondary">Save Admin Lock Code</button>
             </div>
           </form>
+          </section>
+          <section class="settings-card">
+          <h2>
+            <span class="settings-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <path d="M6 8a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9" />
+                <path d="M10 21a2 2 0 0 0 4 0" />
+              </svg>
+            </span>
+            Name flash
+          </h2>
           <form id="late-flash-form" class="clock-form" novalidate>
             <div class="field">
               <label for="late-flash-minutes">Minutes after a route clock-in before that name flashes</label>
@@ -299,6 +711,7 @@
               <p class="field-hint">
                 Leave this blank and names stay steady. A number is how long to wait after a driver's route clock-in.
                 When that time passes and they have not clocked in, their name flashes on the driver screen.
+                On an early release day, the PM clock-in is the time saved for that route's first school.
                 Open that name and return to all drivers to stop the flash for that clock-in.
               </p>
             </div>
@@ -306,21 +719,147 @@
               <button type="submit" class="secondary">Save flash time</button>
             </div>
           </form>
-          <form id="quarter-clock-form" class="clock-form" novalidate>
-            <div class="field">
-              <label class="quarter-clock-label" for="quarter-clocks">
-                <input id="quarter-clocks" type="checkbox" checked />
-                <span>Round each clock in and clock out to the nearest quarter hour</span>
-              </label>
-              <p class="field-hint">
-                On by default. 6:07 becomes 6:00 and 6:08 becomes 6:15. Payroll minutes are the time
-                between those rounded clocks. The quarter-hour clocks column shows the clocks used for that math.
-              </p>
+          </section>
+          <section class="settings-card">
+          <h2>
+            <span class="settings-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <path d="M3 20h18" />
+                <path d="M5 20V10l7-5 7 5v10" />
+                <path d="M10 20v-6h4v6" />
+              </svg>
+            </span>
+            Early release clock-in
+          </h2>
+          <p class="field-hint">
+            On every Thursday that school is in session, and on November 25, 2026, a driver's PM clock-in
+            is the early release time for the first school that route heads to. Route S10 heads to LOW first,
+            so that name flashes from LOW's time. School codes come from the route note, and the first code
+            before the slash is the school they head to first. Each school starts at 11:55 AM.
+          </p>
+          <form id="early-release-form" class="clock-form early-release-form" novalidate>
+            <div id="early-release-schools" class="early-release-schools"></div>
+            <p id="early-release-empty" class="field-hint" hidden>
+              No school codes are on the routes yet. A route note such as LOW, SHS/BHS, LOW adds LOW, SHS, and BHS here.
+            </p>
+            <div class="actions">
+              <button type="submit" class="secondary">Save early release times</button>
             </div>
+          </form>
+          </section>
+          <section class="settings-card">
+          <h2>
+            <span class="settings-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <path d="M21 12a9 9 0 1 1-2.6-6.3" />
+                <path d="M21 3v6h-6" />
+              </svg>
+            </span>
+            Clock rounding
+          </h2>
+          <form id="quarter-clock-form" class="clock-form" data-quarter-clock-form novalidate>
+            <fieldset class="quarter-clock-options">
+              <legend class="visually-hidden">Clock rounding</legend>
+              <label class="quarter-clock-label">
+                <input name="office-clock-rounding" value="snap" data-quarter-clocks type="radio" checked />
+                <span class="quarter-clock-copy">
+                  <strong>SNAP ROUNDING</strong>
+                  <span class="quarter-clock-note">Clock in and clock out times are rounded to the nearest actual time that falls on a zero, 15, 30, or 45 minutes.</span>
+                </span>
+              </label>
+              <label class="quarter-clock-label">
+                <input name="office-clock-rounding" value="daily" data-quarter-clocks type="radio" />
+                <span class="quarter-clock-copy">
+                  <strong>Only round daily total minutes to quarter hours</strong>
+                  <span class="quarter-clock-note">Unrounded clock minutes are added up, and then rounded to the quarter hour (for example, 5.0, 5.25, 5.5, or 5.75 hours).</span>
+                </span>
+              </label>
+              <label class="quarter-clock-label">
+                <input name="office-clock-rounding" value="separate" data-quarter-clocks type="radio" />
+                <span class="quarter-clock-copy">
+                  <strong>Round clock time minutes separately to quarter hours</strong>
+                  <span class="quarter-clock-note">This is the same kind of rounding, done for each clock in separately, and then those rounded amounts are added.</span>
+                </span>
+              </label>
+            </fieldset>
             <div class="actions">
               <button type="submit" class="secondary">Save clock rounding</button>
             </div>
+            <p class="status" data-form-status role="status" hidden></p>
           </form>
+          </section>
+          <section class="settings-card">
+          <h2>
+            <span class="settings-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="8" />
+                <path d="M12 8v5l3 2" />
+              </svg>
+            </span>
+            Overtime rules
+          </h2>
+          <p class="field-hint">
+            These rules decide which clock minutes are overtime. The same rules are on Payroll.
+            The starting rules match the Teamsters contract. Clear an hour or a time to turn that rule off.
+          </p>
+          <form id="overtime-rules-form" class="clock-form" data-overtime-form novalidate>
+            <div class="field">
+              <label>Daily overtime starts after
+                <input data-ot-daily type="number" min="0.25" max="24" step="0.25" inputmode="decimal" value="8" aria-label="Daily overtime hours" />
+                hours
+              </label>
+            </div>
+            <div class="field">
+              <label>Weekly overtime starts after
+                <input data-ot-weekly type="number" min="0.25" max="80" step="0.25" inputmode="decimal" value="40" aria-label="Weekly overtime hours" />
+                hours
+              </label>
+            </div>
+            <div class="field">
+              <label>Evening overtime starts at
+                <input data-ot-evening type="time" step="60" value="17:30" aria-label="Evening overtime start" />
+              </label>
+            </div>
+            <div class="field">
+              <label>Early morning overtime is before
+                <input data-ot-morning type="time" step="60" value="05:30" aria-label="Early morning overtime end" />
+              </label>
+            </div>
+            <div class="field">
+              <label>
+                <input data-ot-weekend type="checkbox" checked />
+                Saturday and Sunday are overtime
+              </label>
+            </div>
+            <div class="field">
+              <label>
+                <input data-ot-holiday type="checkbox" checked />
+                School-calendar holidays are overtime
+              </label>
+            </div>
+            <div class="field">
+              <label>OT multiplier
+                <input data-ot-multiplier type="number" min="1" max="3" step="0.05" inputmode="decimal" value="1.5" aria-label="Overtime multiplier" />
+              </label>
+              <p class="field-hint">An OT pay status uses this multiplier. 1.5 is time and one-half.</p>
+            </div>
+            <div class="actions">
+              <button type="submit" class="secondary">Save overtime rules</button>
+            </div>
+            <p class="status" data-form-status role="status" hidden></p>
+          </form>
+          </section>
+          <section class="settings-card">
+          <h2>
+            <span class="settings-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <rect x="4" y="3" width="16" height="18" rx="2" />
+                <circle cx="12" cy="9" r="2.5" />
+                <path d="M8 16.5a4 4 0 0 1 8 0" />
+              </svg>
+            </span>
+            Name badge size
+          </h2>
           <form id="name-size-form" class="clock-form" novalidate>
             <div class="field">
               <label for="name-size">Name badge size</label>
@@ -329,13 +868,71 @@
                 <option value="regular">Regular</option>
                 <option value="large">Large</option>
               </select>
-              <p class="field-hint">This is the size of each driver button on the Timeclock screen.</p>
+              <p class="field-hint">
+                This is the size of each driver button on the Timeclock screen.
+                On a laptop, every name still stays on the screen.
+              </p>
             </div>
             <div class="actions">
               <button type="submit" class="secondary">Save badge size</button>
             </div>
           </form>
-          <h2>Reason codes</h2>
+          </section>
+          <section class="settings-card">
+          <h2>
+            <span class="settings-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <path d="M11 5 6 9H3v6h3l5 4V5z" />
+                <path d="M16 9a4 4 0 0 1 0 6" />
+                <path d="M18.5 6.5a8 8 0 0 1 0 11" />
+              </svg>
+            </span>
+            Punch sounds
+          </h2>
+          <form id="punch-sound-form" class="clock-form" novalidate>
+            <div class="field">
+              <label for="punch-sound-in">Clock in sound</label>
+              <select id="punch-sound-in"></select>
+            </div>
+            <div class="field">
+              <label for="punch-sound-out">Clock out sound</label>
+              <select id="punch-sound-out"></select>
+            </div>
+            <p class="field-hint">
+              Clock In and Clock Out each play the sound you pick. The starting pair is a time-clock stamp and its release.
+              Sounds in the same group are similar. Choose Silent to leave that button quiet.
+            </p>
+            <div class="actions">
+              <button type="button" class="secondary" id="punch-sound-preview-in">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                  <path d="m10 17 5-5-5-5" />
+                  <path d="M15 12H3" />
+                </svg>
+                Hear clock in
+              </button>
+              <button type="button" class="secondary" id="punch-sound-preview-out">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <path d="m16 17 5-5-5-5" />
+                  <path d="M21 12H9" />
+                </svg>
+                Hear clock out
+              </button>
+              <button type="submit" class="secondary">Save punch sounds</button>
+            </div>
+          </form>
+          </section>
+          <section class="settings-card">
+          <h2>
+            <span class="settings-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z" />
+                <circle cx="7.5" cy="7.5" r="1" />
+              </svg>
+            </span>
+            Reason codes
+          </h2>
           <p class="field-hint">
             Drivers choose from this list on a clock in or clock out. They can add more than one code to a record.
           </p>
@@ -349,7 +946,23 @@
             </div>
           </form>
           <ul id="reason-list" class="pin-list"></ul>
-          <h2>Driver PINs</h2>
+          </section>
+          <section class="settings-card">
+          <h2>
+            <span class="settings-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <rect x="6" y="3" width="12" height="18" rx="2" />
+                <circle cx="9" cy="8" r="0.8" />
+                <circle cx="12" cy="8" r="0.8" />
+                <circle cx="15" cy="8" r="0.8" />
+                <circle cx="9" cy="12" r="0.8" />
+                <circle cx="12" cy="12" r="0.8" />
+                <circle cx="15" cy="12" r="0.8" />
+                <path d="M9 16h6" />
+              </svg>
+            </span>
+            Driver PINs
+          </h2>
           <p class="field-hint">
             Every driver starts with PIN 1234. Save a different number here when one driver needs it. The list is here so the office can look a PIN up.
           </p>
@@ -376,7 +989,118 @@
             </div>
           </form>
           <ul id="pin-list" class="pin-list"></ul>
-        </details>
+          </section>
+          <section class="settings-card">
+          <h2>
+            <span class="settings-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="3" />
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+            </span>
+            Substitute drivers
+          </h2>
+          <p class="field-hint">
+            People on this list can clock in for a route without that driver's PIN.
+            On the timeclock they choose Substitute Drivers, tap their name, then tap the driver whose route they are covering.
+          </p>
+          <form id="substitute-form" class="clock-form" novalidate>
+            <div class="field">
+              <label for="substitute-name">Name</label>
+              <input id="substitute-name" type="text" maxlength="80" autocomplete="off" required />
+            </div>
+            <div class="actions">
+              <button type="submit">Add substitute driver</button>
+            </div>
+          </form>
+          <ul id="substitute-list" class="pin-list"></ul>
+          </section>
+          <section class="settings-card">
+          <h2>
+            <span class="settings-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <rect x="3" y="5" width="18" height="16" rx="2" />
+                <path d="M3 10h18" />
+                <path d="M8 3v4" />
+                <path d="M16 3v4" />
+              </svg>
+            </span>
+            Pay period dates
+          </h2>
+          <p class="field-hint">
+            These calendar days are the columns on a payroll sheet. The usual periods are days 1–15, or days 16 through the last day of the month.
+            A whole month is days 1 through 31. Day 31 means the last day that month has.
+            Saving here changes the same dates on Payroll.
+          </p>
+          <form id="clocking-pay-period-form" class="clock-form" data-pay-period-form novalidate>
+            <div class="pay-period-presets">
+              <button type="button" class="secondary" data-pay-period-split>Use days 1–15 and 16–end</button>
+              <button type="button" class="secondary" data-pay-period-month>Use days 1–31</button>
+            </div>
+            <div data-pay-period-rows></div>
+            <div class="actions">
+              <button type="button" class="secondary" data-pay-period-add>Add a pay period</button>
+              <button type="submit" class="secondary">Save pay period dates</button>
+            </div>
+            <p class="status" data-form-status role="status" hidden></p>
+          </form>
+          </section>
+          <section class="settings-card">
+          <h2>
+            <span class="settings-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <path d="M8 6h13" />
+                <path d="M8 12h13" />
+                <path d="M8 18h13" />
+                <path d="M3 6h.01" />
+                <path d="M3 12h.01" />
+                <path d="M3 18h.01" />
+              </svg>
+            </span>
+            Pay status categories
+          </h2>
+          <p class="field-hint">
+            Drivers choose from these on the timeclock. The same list is used when you make a Monthly Time Summary.
+            The sheet starts with REG DRIVER, OT DR TRAINER, EX DR TRAINER, and EX DRIVER.
+          </p>
+          <ul class="pay-status-catalog" data-pay-status-catalog></ul>
+          <form id="clocking-pay-status-form" class="clock-form" data-pay-status-form novalidate>
+            <div class="field">
+              <label for="clocking-pay-status-label">Pay status name</label>
+              <input id="clocking-pay-status-label" data-pay-status-label type="text" maxlength="40" required />
+            </div>
+            <div class="field">
+              <label for="clocking-pay-status-ot">OT</label>
+              <select id="clocking-pay-status-ot" data-pay-status-ot>
+                <option value="0">0</option>
+                <option value="1.5" data-ot-rate>1.5</option>
+              </select>
+            </div>
+            <div class="actions">
+              <button type="submit" class="secondary">Add pay status</button>
+            </div>
+            <p class="status" data-form-status role="status" hidden></p>
+          </form>
+          </section>
+          <section class="settings-card">
+          <h2>
+            <span class="settings-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <rect x="4" y="4" width="16" height="16" rx="2" />
+                <path d="m8 12 3 3 5-6" />
+              </svg>
+            </span>
+            Driver pay statuses
+          </h2>
+          <p class="field-hint">
+            Check every pay status this driver can use. After the PIN, they choose one beside the route when more than one is checked.
+            One pay status is used automatically. The same checks are in Driver Records on Payroll.
+          </p>
+          <div id="clocking-driver-statuses" class="clocking-driver-statuses"></div>
+          </section>
+        </div>
       </section>
 
       <section id="all-routes-view" class="panel" hidden>
@@ -421,7 +1145,7 @@
               <path d="M19 12H5" />
               <path d="m11 6-6 6 6 6" />
             </svg>
-            All routes
+            <span data-back-label>All routes</span>
           </button>
         </p>
         <div class="panel">
@@ -507,44 +1231,29 @@
           Driver time-change notice
         </h1>
         <p class="lead">
-          Send notice emails the memorandum chosen below. The address comes from
-          the Driver Name List. The driver time-change notice can be downloaded
-          as a PDF to attach. A calendar PDF is downloaded as well. A created
-          notice is marked Yes. Send notice on a route can still create one by hand.
+          Send notice emails the memorandum you select. Click a memorandum to open
+          its template and edit the wording. The address comes from the Driver Name
+          List. Saving a clock-time change offers to send that email. Send notice
+          on the change can send it again, and warns you if a notice was already
+          sent. The complete time change history can be downloaded as a PDF to
+          attach. A calendar PDF is downloaded as well. A sent notice is marked
+          Yes.
         </p>
         <form id="driver-notice-form" novalidate>
-          <fieldset class="yes-no">
-            <legend>Notices for route time changes, right away</legend>
-            <label><input type="radio" name="notice_immediately" value="no" checked /> No</label>
-            <label><input type="radio" name="notice_immediately" value="yes" /> Yes</label>
+          <fieldset class="email-content">
+            <legend>Email content</legend>
             <p class="field-hint">
-              Yes opens the driver email as soon as a clock-time change is saved. No waits until you use Send notice, or until the day before the contract change if that is turned on.
+              Click a memorandum to open its template. Edit the subject and the message, then save. The selected memorandum is the email.
             </p>
+            <div id="driver-notice-memoranda" class="email-content-list"></div>
           </fieldset>
-          <fieldset class="yes-no">
-            <legend>Create a notice before the contract change</legend>
-            <label><input type="radio" name="notice_before" value="no" checked /> No</label>
-            <label><input type="radio" name="notice_before" value="yes" /> Yes</label>
-          </fieldset>
-          <div class="field">
-            <label for="driver-notice-days">School days before the contract change</label>
-            <input id="driver-notice-days" name="school_days_before" type="number" min="0" max="200" step="1" value="1" required />
-            <p class="field-hint">
-              Used when Yes is selected above. 1 creates the notice on the school day before the contract change. 0 creates it on the contract date.
-            </p>
-          </div>
-          <div class="field">
-            <label for="driver-notice-memorandum">Email content</label>
-            <select id="driver-notice-memorandum" name="memorandum" required></select>
-            <p class="field-hint">This memorandum is the body of the email.</p>
-          </div>
           <div class="template-preview" id="driver-notice-preview"></div>
           <fieldset class="yes-no">
-            <legend>Attach the driver time-change notice</legend>
+            <legend>Attach complete time change history</legend>
             <label><input type="radio" name="notice_attach" value="no" checked /> No</label>
             <label><input type="radio" name="notice_attach" value="yes" /> Yes</label>
             <p class="field-hint">
-              Yes downloads a PDF of the clock-time notice to attach. That PDF is the previous email: the opening below, then the original clock times and every change to date. The email itself stays the memorandum.
+              Yes downloads a PDF of this route’s original clock times and every change to date. A short opening can be edited below. The email itself stays the memorandum.
             </p>
           </fieldset>
           <div id="driver-notice-attachment-wording" hidden>
@@ -581,11 +1290,12 @@
         <p class="lead">
           Names on this sheet fill the driver column for each route. First name,
           last name, and email stay with the driver when they move between routes.
+          Serial number, hourly rate, pay status, and the payroll account number are in Driver Records on Payroll.
           Remove takes a name off this list. A route they still hold keeps that
           driver until you assign someone else.
           Send notice on a clock-time change uses this email. It opens the
-          memorandum and downloads a calendar PDF you can attach. The driver
-          time-change notice is included only when that attachment is turned on.
+          memorandum and downloads a calendar PDF you can attach. The complete
+          time change history is included only when that attachment is turned on.
         </p>
         <div class="table-wrap">
           <table class="schedule-history driver-sheet" id="driver-sheet">
@@ -674,10 +1384,12 @@
             total of the clock times on that row. Contracted is the date that
             schedule became the contract, or a predicted date. Contract Hours is
             the official total, which stays at the previous figure until that
-            date. Send notice opens an email with the chosen memorandum and
-            downloads a calendar PDF. Attach that PDF if you want the driver to
-            see the calendar. The driver time-change notice can be downloaded
-            too, when that attachment is turned on. Notice sent is marked Yes.
+            date. Saving a change offers to send the notice. Send notice on the
+            row can send it again. If that notice was already sent, you will be
+            warned first. The email uses the chosen memorandum and downloads a
+            calendar PDF. Attach that PDF if you want the driver to see the
+            calendar. The complete time change history can be downloaded too,
+            when that attachment is turned on. Notice sent is marked Yes.
           </p>
           <div class="table-wrap">
             <table class="schedule-history" id="schedule-history">
@@ -781,26 +1493,34 @@
           </form>
         </section>
 
-        <section class="panel">
-          <h2 class="panel-title">
-            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-              <rect x="3" y="5" width="18" height="16" rx="2" />
-              <path d="M3 10h18" />
-              <path d="M8 3v4" />
-              <path d="M16 3v4" />
-            </svg>
-            Route clock-time history
-          </h2>
-          <p class="lead">
-            Each color matches a row in your clock times. A square marks the
-            day those times were established. When a change counts 15 school
-            days, those days are filled and numbered. The day of the change
-            does not count: the next school day is 1. An arrow covers the days
-            still left before those times become contracted, and points at a
-            box around that day. Light shading marks each end-of-month bid period.
-          </p>
-          <ul id="history-legend" class="history-legend"></ul>
-          <div id="calendar-months" class="calendar-months"></div>
+        <section class="panel" id="route-history-panel">
+          <div class="history-heading">
+            <h2 class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="3" y="5" width="18" height="16" rx="2" />
+                <path d="M3 10h18" />
+                <path d="M8 3v4" />
+                <path d="M16 3v4" />
+              </svg>
+              Route clock-time history
+            </h2>
+            <button type="button" class="secondary" id="email-route-history" data-pdf-skip>
+              Email route clock-time history
+            </button>
+          </div>
+          <details id="route-history-details" class="route-history-details">
+            <summary data-pdf-skip>Show route clock-time history</summary>
+            <p class="lead">
+              Each color matches a row in your clock times. A square marks the
+              day those times were established. When a change counts 15 school
+              days, those days are filled and numbered. The day of the change
+              does not count: the next school day is 1. An arrow covers the days
+              still left before those times become contracted, and points at a
+              box around that day. Light shading marks each end-of-month bid period.
+            </p>
+            <ul id="history-legend" class="history-legend"></ul>
+            <div id="calendar-months" class="calendar-months"></div>
+          </details>
         </section>
 
         <section class="panel rules">
@@ -874,34 +1594,130 @@
     </main>
 
     <div id="timeclock-kiosk" class="timeclock-kiosk" hidden>
-      <p id="kiosk-now" class="kiosk-now"></p>
+      <div class="kiosk-top">
+        <p id="kiosk-now" class="kiosk-now"></p>
+        <div class="kiosk-top-tools">
+          <button type="button" class="secondary" id="kiosk-substitute">Substitute Drivers</button>
+          <button type="button" class="secondary" id="kiosk-fill-screen" hidden title="Fills the monitor this window is on">
+            Fill this screen
+          </button>
+          <form id="kiosk-leave" class="kiosk-leave" autocomplete="off">
+            <label>
+              Admin Lock Code
+              <input
+                id="kiosk-leave-code"
+                class="kiosk-secret"
+                type="text"
+                name="timeclock-lock"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+              />
+            </label>
+            <button type="submit" class="secondary">Leave</button>
+            <p id="kiosk-leave-error" class="status is-error" role="alert"></p>
+          </form>
+        </div>
+      </div>
       <section id="kiosk-list">
-        <label class="kiosk-search">
-          Find your name
-          <input id="kiosk-search" type="search" autocomplete="off" placeholder="Type a name" />
-        </label>
         <div id="kiosk-roster" class="kiosk-roster"></div>
         <p id="kiosk-list-status" class="status" role="status"></p>
       </section>
+      <section id="kiosk-substitutes" hidden>
+        <button type="button" class="secondary" id="kiosk-substitute-back">Go Back</button>
+        <p class="lead">Choose your name</p>
+        <div id="kiosk-substitute-list" class="kiosk-substitute-list"></div>
+        <p id="kiosk-substitute-empty" class="kiosk-empty" hidden>
+          No substitute drivers yet. The office adds names in Timeclock settings.
+        </p>
+      </section>
       <section id="kiosk-detail" hidden>
-        <button type="button" class="secondary" id="kiosk-back">All drivers</button>
+        <button type="button" class="secondary" id="kiosk-back">Go Back</button>
         <h2 id="kiosk-driver"></h2>
+        <img id="kiosk-driver-photo" alt="" hidden />
         <p id="kiosk-routes" class="lead"></p>
-        <form id="kiosk-pin-form">
+        <p id="kiosk-covering" class="lead" hidden></p>
+        <form id="kiosk-pin-form" autocomplete="off">
           <label>
             PIN
             <input
               id="kiosk-pin"
-              type="password"
+              class="kiosk-secret"
+              type="text"
+              name="timeclock-pin"
               inputmode="numeric"
               autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
               minlength="4"
               maxlength="4"
             />
           </label>
           <p id="kiosk-pin-error" class="status is-error" role="alert"></p>
         </form>
+        <p id="kiosk-substitute-who" class="lead" hidden></p>
         <div id="kiosk-actions" class="kiosk-actions" hidden>
+          <fieldset class="kiosk-run">
+            <legend>Which route is this?</legend>
+            <div class="kiosk-run-options">
+              <label class="kiosk-run-option">
+                <input type="radio" name="kiosk-run" value="AM" />
+                <span>AM route</span>
+              </label>
+              <label class="kiosk-run-option">
+                <input type="radio" name="kiosk-run" value="MIDDAY" />
+                <span>Mid day route</span>
+              </label>
+              <label class="kiosk-run-option">
+                <input type="radio" name="kiosk-run" value="PM" />
+                <span>PM route</span>
+              </label>
+              <label class="kiosk-run-option">
+                <input type="radio" name="kiosk-run" value="OTHER" />
+                <span>Other</span>
+              </label>
+            </div>
+            <p id="kiosk-run-error" class="status is-error" role="alert" hidden></p>
+          </fieldset>
+          <fieldset class="kiosk-run" id="kiosk-pay-status" hidden>
+            <legend>Pay status</legend>
+            <div id="kiosk-pay-status-options" class="kiosk-run-options"></div>
+            <p id="kiosk-pay-status-error" class="status is-error" role="alert" hidden></p>
+          </fieldset>
+          <div class="kiosk-punch-row">
+            <button type="button" id="kiosk-in">
+              <svg class="kiosk-punch-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                <polyline points="10 17 15 12 10 7" />
+                <line x1="15" x2="3" y1="12" y2="12" />
+              </svg>
+              Clock IN
+            </button>
+            <button type="button" id="kiosk-out">
+              <svg class="kiosk-punch-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" x2="9" y1="12" y2="12" />
+              </svg>
+              Clock OUT
+            </button>
+          </div>
+          <div class="kiosk-note">
+            <label for="kiosk-note">Note</label>
+            <textarea
+              id="kiosk-note"
+              name="timeclock-note"
+              maxlength="500"
+              rows="3"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+            ></textarea>
+            <p id="kiosk-note-count" class="kiosk-note-count">500 characters left</p>
+          </div>
           <div class="kiosk-reason-row">
             <label>
               Reason code
@@ -910,21 +1726,46 @@
             <button type="button" class="secondary" id="kiosk-add-reason">Add</button>
           </div>
           <ul id="kiosk-reason-picks" class="reason-picks"></ul>
-          <div class="kiosk-punch-row">
-            <button type="button" id="kiosk-in">Clock in</button>
-            <button type="button" id="kiosk-out" class="secondary">Clock out</button>
-          </div>
         </div>
       </section>
-      <form id="kiosk-leave" class="kiosk-leave">
-        <label>
-          Lock code
-          <input id="kiosk-leave-code" type="password" autocomplete="off" />
-        </label>
-        <button type="submit" class="secondary">Leave</button>
-        <p id="kiosk-leave-error" class="status is-error" role="alert"></p>
-      </form>
+      <div id="kiosk-confirm" class="kiosk-confirm" hidden>
+        <p id="kiosk-confirm-text" class="kiosk-confirm-card" role="status"></p>
+      </div>
     </div>
+
+    <dialog id="history-email-dialog" class="change-dialog" aria-labelledby="history-email-title">
+      <div class="change-dialog-header">
+        <h2 id="history-email-title">Email route clock-time history</h2>
+        <button type="button" class="secondary" id="history-email-close">Close</button>
+      </div>
+      <p class="lead" id="history-email-lead">Choose who receives this route’s clock-time history.</p>
+      <form id="history-email-form" novalidate>
+        <div class="field">
+          <label for="history-email-driver">Driver</label>
+          <select id="history-email-driver" required>
+            <option value="">Choose a driver</option>
+          </select>
+        </div>
+        <p class="field-hint">Any name on the Driver Name List. The email address on that row is where this history is sent.</p>
+        <div class="actions">
+          <button type="submit">Email history</button>
+        </div>
+        <div id="history-email-status" class="status" role="status" hidden></div>
+      </form>
+    </dialog>
+
+    <dialog id="send-notice-offer-dialog" class="change-dialog" aria-labelledby="send-notice-offer-title">
+      <div class="change-dialog-header">
+        <h2 id="send-notice-offer-title">Send a notice?</h2>
+        <button type="button" class="secondary" id="send-notice-offer-close">Close</button>
+      </div>
+      <p class="lead" id="send-notice-offer-message"></p>
+      <p id="send-notice-offer-warning" class="status is-error" hidden>This notice may have already been sent.</p>
+      <div class="actions">
+        <button type="button" id="send-notice-offer-send">Send notice</button>
+        <button type="button" class="secondary" id="send-notice-offer-skip">Not now</button>
+      </div>
+    </dialog>
 
     <dialog id="notice-download-dialog" class="change-dialog" aria-labelledby="notice-download-title">
       <div class="change-dialog-header">

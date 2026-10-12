@@ -1,27 +1,59 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMonthlyTimeSummary, renderMonthlyTimeSummaryHtml } from '../office-tracker/src/monthlyTimeSummary.js';
+import {
+  DEFAULT_PAY_PERIODS,
+  applyTimeSummaryEdit,
+  driverPayStatusChoices,
+  isExDriverOnly,
+  normalizeClockPayDefaults,
+  normalizeDriverPayStatuses,
+  payPeriodPreset,
+} from '../office-tracker/src/driverPay.js';
+import { buildMonthlySummaryMath, buildMonthlyTimeSummary, payPeriodsForClocks, renderMonthlyTimeSummaryHtml, summaryPdfBasename } from '../office-tracker/src/monthlyTimeSummary.js';
+import { mathPdfBasename, renderMonthlySummaryMathHtml } from '../office-tracker/src/summaryMath.js';
+import { listDrivers, saveDriver, saveTimeSummaryEdit } from '../office-tracker/web/store.js';
+import { computeDeltaMinutes } from '../src/logic/timeUtils.js';
 
-test('monthly time summary snaps a day into quarter-hour clocks and splits the month', () => {
+function memoryStorage() {
+  /** @type {Record<string, string>} */
+  const data = {};
+  return {
+    getItem(key) {
+      return Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null;
+    },
+    setItem(key, value) {
+      data[key] = String(value);
+    },
+  };
+}
+
+test('monthly time summary fills REG DRIVER from quarter-hour clocks', () => {
   const summary = buildMonthlyTimeSummary({
     driverName: 'Goofy Goof',
-    routes: ['D 21'],
+    driverId: 'driver-goofy-goof',
+    pay: { serial: '9001021', rate: '37.74', account: '8800-10-100' },
     roundClocks: true,
     now: new Date(2026, 9, 9, 12, 0),
+    edits: {
+      'driver-goofy-goof': {
+        '2026-10-1': {
+          'ot-trainer': { days: { 1: '1.50' }, comment: 'Practice hours' },
+          'ex-driver': { days: { 8: '0.75' } },
+        },
+      },
+    },
     punches: [
       {
         id: 'in',
         driver_name: 'Goofy Goof',
         action: 'in',
         punched_at: new Date(2026, 9, 8, 5, 54).toISOString(),
-        note: 'Practice',
       },
       {
         id: 'out',
         driver_name: 'Goofy Goof',
         action: 'out',
         punched_at: new Date(2026, 9, 8, 8, 40).toISOString(),
-        reason_codes: [{ id: 'traffic', label: 'Traffic' }],
       },
       {
         id: 'sep',
@@ -32,24 +64,986 @@ test('monthly time summary snaps a day into quarter-hour clocks and splits the m
     ],
   });
 
-  assert.equal(summary.defaultMonth, '2026-10');
-  const october = summary.months.find((month) => month.key === '2026-10');
-  const firstHalf = october.periods[0];
-  assert.equal(firstHalf.label, 'October 1–15, 2026');
-  assert.equal(firstHalf.rows.length, 1);
-  assert.equal(firstHalf.rows[0].run, 'AM');
-  assert.equal(firstHalf.rows[0].clockIn, '5:54 AM');
-  assert.equal(firstHalf.rows[0].clockOut, '8:40 AM');
-  assert.equal(firstHalf.rows[0].quarterClocks, '6:00 AM–8:45 AM');
-  assert.equal(firstHalf.rows[0].minutes, '165');
-  assert.equal(firstHalf.rows[0].quarterHours, '2.75');
-  assert.match(firstHalf.rows[0].note, /Practice/);
-  assert.match(firstHalf.rows[0].note, /Traffic/);
-  assert.equal(october.periods[1].rows.length, 0);
-  assert.equal(summary.months.find((month) => month.key === '2026-09').periods[0].rows[0].clockIn, '6:02 AM');
+  const october = summary.periods.find((period) => period.key === '2026-10-1');
+  assert.equal(summary.defaultPeriodKey, '2026-10-1');
+  assert.equal(october.label, 'October 1–15, 2026');
+  assert.equal(october.ending, '10/15/2026');
+  const regular = october.lines.find((line) => line.id === 'reg-driver');
+  const day = regular.cells.find((cell) => cell.day === 8);
+  assert.equal(day.value, '2.75');
+  assert.equal(day.calculated, '2.75');
+  assert.equal(regular.total, '2.75');
+  assert.equal(october.grandTotal, '2.75');
+  const trainer = october.lines.find((line) => line.id === 'ot-trainer');
+  assert.equal(trainer.cells.find((cell) => cell.day === 1).value, '1.50');
+  assert.equal(trainer.total, '1.50');
+  assert.equal(trainer.comment, 'Practice hours');
+  assert.equal(october.lines.find((line) => line.id === 'ex-driver').cells.find((cell) => cell.day === 8).value, '0.75');
+  assert.equal(summary.serial, '9001021');
+  assert.equal(summary.rate, '$37.74');
+  assert.equal(summary.account, '8800-10-100');
+  assert.equal(october.lines.every((line) => line.account == null), true);
+  assert.equal(october.contractedHours.every((hours) => hours === ''), true);
+  assert.equal(summary.jobTitle, 'Driver');
+  const september = summary.periods.find((period) => period.key === '2026-09-1');
+  assert.equal(september.lines.find((line) => line.id === 'reg-driver').total, '');
+  assert.equal(september.unpaired.length, 1);
+  assert.match(september.unpaired[0].when, /Sep/);
+  assert.equal(september.unpaired[0].action, 'Clock in');
 
   const html = renderMonthlyTimeSummaryHtml(summary);
   assert.match(html, /MONTHLY TIME SUMMARY/);
+  assert.match(html, /size: letter landscape/);
+  assert.match(html, /id="print"/);
+  assert.match(html, /id="email"/);
   assert.match(html, /Goofy Goof/);
-  assert.match(html, /6:00 AM–8:45 AM/);
+  assert.match(html, /9001021/);
+  assert.match(html, /\$37\.74/);
+  assert.match(html, /8800-<wbr>10-<wbr>100/);
+  assert.doesNotMatch(html, /9900-52-310/);
+  assert.match(html, /value="2\.75"/);
+  assert.match(html, /I certify that the above hours were worked as reported/);
+  assert.match(html, /class="grand-total">2\.75/);
+});
+
+test('each day shows the contracted hours in effect on that date', () => {
+  const previous = '6:00-8:00';
+  const next = '6:00-8:15';
+  const summary = buildMonthlyTimeSummary({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    roundClocks: true,
+    now: new Date(2026, 9, 20, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '2' },
+    officeState: {
+      profiles: {
+        route12: {
+          name: '12',
+          driver_name: 'Goofy Goof',
+          start_date: '2026-09-01',
+          changeLog: [
+            {
+              id: 'seed-am',
+              route_id: 'SELF',
+              segment: 'AM',
+              effective_date: '2026-09-01',
+              submitted_at: '2026-09-01T08:00:00.000Z',
+              previous_time: previous,
+              new_time: previous,
+              delta_minutes: 0,
+              computed_delta_minutes: 0,
+            },
+            {
+              id: 'seed-pm',
+              route_id: 'SELF',
+              segment: 'PM',
+              effective_date: '2026-09-01',
+              submitted_at: '2026-09-01T08:00:01.000Z',
+              previous_time: '14:00-16:00',
+              new_time: '14:00-16:00',
+              delta_minutes: 0,
+              computed_delta_minutes: 0,
+            },
+            {
+              id: 'change-am',
+              route_id: 'SELF',
+              segment: 'AM',
+              effective_date: '2026-10-01',
+              submitted_at: '2026-10-01T12:00:00.000Z',
+              previous_time: previous,
+              new_time: next,
+              delta_minutes: computeDeltaMinutes(previous, next),
+              computed_delta_minutes: computeDeltaMinutes(previous, next),
+            },
+          ],
+        },
+      },
+    },
+  });
+  const october = summary.periods.find((period) => period.key === '2026-10-2');
+  const hours = (day) => october.contractedHours[october.days.indexOf(day)];
+  assert.equal(hours(16), '4.00');
+  assert.equal(hours(25), '4.00');
+  assert.equal(hours(26), '4.25');
+  assert.equal(hours(31), '4.25');
+  const html = renderMonthlyTimeSummaryHtml(summary);
+  assert.match(html, /REG CONTR HRS/);
+  assert.equal(html.includes('<dt>REG CONTR HRS</dt>'), false);
+  assert.match(html, />4\.00</);
+  assert.match(html, />4\.25</);
+});
+
+test('a 30-minute decrease changes contract hours on that day', () => {
+  const previous = '14:00-16:00';
+  const next = '14:00-15:15';
+  const later = '14:00-15:35';
+  const summary = buildMonthlyTimeSummary({
+    driverName: 'Donald Duck',
+    driverId: 'driver-donald-duck',
+    roundClocks: true,
+    now: new Date(2026, 8, 30, 12, 0),
+    focus: { year: 2026, monthIndex: 8, periodId: '2' },
+    officeState: {
+      profiles: {
+        route7: {
+          name: 'D 07',
+          driver_name: 'Donald Duck',
+          start_date: '2026-09-08',
+          changeLog: [
+            {
+              id: 'seed-am',
+              route_id: 'SELF',
+              segment: 'AM',
+              effective_date: '2026-09-08',
+              submitted_at: '2026-09-08T08:00:00.000Z',
+              previous_time: '6:00-8:00',
+              new_time: '6:00-8:00',
+              delta_minutes: 0,
+              computed_delta_minutes: 0,
+            },
+            {
+              id: 'seed-pm',
+              route_id: 'SELF',
+              segment: 'PM',
+              effective_date: '2026-09-08',
+              submitted_at: '2026-09-08T08:00:01.000Z',
+              previous_time: previous,
+              new_time: previous,
+              delta_minutes: 0,
+              computed_delta_minutes: 0,
+            },
+            {
+              id: 'sept-21-cut',
+              route_id: 'SELF',
+              segment: 'PM',
+              effective_date: '2026-09-21',
+              submitted_at: '2026-09-21T15:00:00.000Z',
+              previous_time: previous,
+              new_time: next,
+              delta_minutes: computeDeltaMinutes(previous, next),
+              computed_delta_minutes: computeDeltaMinutes(previous, next),
+            },
+            {
+              id: 'later-increase',
+              route_id: 'SELF',
+              segment: 'PM',
+              effective_date: '2026-10-06',
+              submitted_at: '2026-10-06T15:00:00.000Z',
+              previous_time: next,
+              new_time: later,
+              delta_minutes: computeDeltaMinutes(next, later),
+              computed_delta_minutes: computeDeltaMinutes(next, later),
+            },
+          ],
+        },
+      },
+    },
+  });
+  const september = summary.periods.find((period) => period.key === '2026-09-2');
+  const hours = (day) => september.contractedHours[september.days.indexOf(day)];
+  assert.equal(hours(18), '4.00');
+  assert.equal(hours(21), '3.25');
+  assert.equal(hours(30), '3.25');
+});
+
+test('a typed REG DRIVER hour replaces the clock total for that day', () => {
+  const summary = buildMonthlyTimeSummary({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    roundClocks: true,
+    now: new Date(2026, 9, 9, 12, 0),
+    edits: {
+      'driver-goofy-goof': {
+        '2026-10-1': { 'reg-driver': { days: { 8: '1.00' } } },
+      },
+    },
+    punches: [
+      {
+        id: 'in',
+        driver_name: 'Goofy Goof',
+        action: 'in',
+        punched_at: new Date(2026, 9, 8, 5, 54).toISOString(),
+      },
+      {
+        id: 'out',
+        driver_name: 'Goofy Goof',
+        action: 'out',
+        punched_at: new Date(2026, 9, 8, 8, 40).toISOString(),
+      },
+    ],
+  });
+  const october = summary.periods.find((period) => period.key === '2026-10-1');
+  const day = october.lines.find((line) => line.id === 'reg-driver').cells.find((cell) => cell.day === 8);
+  assert.equal(day.calculated, '2.75');
+  assert.equal(day.value, '1.00');
+  assert.equal(october.grandTotal, '1.00');
+});
+
+test('clearing a typed hour drops it and leaves another driver untouched', () => {
+  const edits = applyTimeSummaryEdit(
+    {
+      'driver-goofy-goof': { '2026-10-1': { 'ot-trainer': { days: { 1: '1.50' } } } },
+      'driver-mickey-mouse': { '2026-10-1': { 'ex-driver': { days: { 4: '0.25' } } } },
+    },
+    { driverId: 'driver-goofy-goof', periodKey: '2026-10-1', lineId: 'ot-trainer', kind: 'day', day: 1, hours: '' }
+  );
+  assert.equal(edits['driver-goofy-goof'], undefined);
+  assert.equal(edits['driver-mickey-mouse']['2026-10-1']['ex-driver'].days['4'], '0.25');
+});
+
+test('clock hours follow the pay status on the clock in', () => {
+  const summary = buildMonthlyTimeSummary({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    roundClocks: true,
+    now: new Date(2026, 9, 10, 12, 0),
+    punches: [
+      {
+        id: 'in-train',
+        driver_name: 'Goofy Goof',
+        action: 'in',
+        punched_at: new Date(2026, 9, 8, 6, 0).toISOString(),
+        pay_status: 'ot-trainer',
+      },
+      {
+        id: 'out-train',
+        driver_name: 'Goofy Goof',
+        action: 'out',
+        punched_at: new Date(2026, 9, 8, 8, 0).toISOString(),
+        pay_status: 'reg-driver',
+      },
+      {
+        id: 'in-reg',
+        driver_name: 'Goofy Goof',
+        action: 'in',
+        punched_at: new Date(2026, 9, 9, 6, 0).toISOString(),
+      },
+      {
+        id: 'out-reg',
+        driver_name: 'Goofy Goof',
+        action: 'out',
+        punched_at: new Date(2026, 9, 9, 7, 0).toISOString(),
+      },
+    ],
+  });
+  const october = summary.periods.find((period) => period.key === '2026-10-1');
+  const trainer = october.lines.find((line) => line.id === 'ot-trainer').cells.find((cell) => cell.day === 8);
+  const regularSameDay = october.lines.find((line) => line.id === 'reg-driver').cells.find((cell) => cell.day === 8);
+  const regularNextDay = october.lines.find((line) => line.id === 'reg-driver').cells.find((cell) => cell.day === 9);
+  assert.equal(trainer.value, '2.00');
+  assert.equal(regularSameDay.value, '');
+  assert.equal(regularNextDay.value, '1.00');
+});
+
+test('a driver keeps the pay statuses the office assigns', () => {
+  assert.deepEqual(normalizeDriverPayStatuses(undefined), ['ex-driver']);
+  assert.deepEqual(normalizeDriverPayStatuses([]), ['ex-driver']);
+  assert.deepEqual(normalizeDriverPayStatuses(['nope']), ['ex-driver']);
+  assert.deepEqual(normalizeDriverPayStatuses(['ot-trainer', 'nope', 'ot-trainer', 'ex-driver']), [
+    'ot-trainer',
+    'ex-driver',
+  ]);
+  const lines = normalizeClockPayDefaults(undefined).lines;
+  assert.deepEqual(
+    driverPayStatusChoices(undefined, lines).map((line) => line.id),
+    ['ex-driver']
+  );
+  assert.deepEqual(
+    driverPayStatusChoices(['ot-trainer', 'ex-trainer'], lines).map((line) => line.id),
+    ['ot-trainer', 'ex-trainer']
+  );
+  assert.equal(isExDriverOnly(undefined, lines), true);
+  assert.equal(isExDriverOnly(['ex-driver'], lines), true);
+  assert.equal(isExDriverOnly(['reg-driver', 'ex-driver'], lines), false);
+  assert.equal(isExDriverOnly(['reg-driver'], lines), false);
+
+  const storage = memoryStorage();
+  saveDriver({ firstName: 'Mickey', lastName: 'Mouse', serial: '9001001', payStatuses: ['reg-driver', 'ex-driver'] }, storage);
+  saveDriver({ firstName: 'Mickey', lastName: 'Mouse', email: 'mickey@example.com' }, storage);
+  const mickey = listDrivers(storage).find((driver) => driver.name === 'Mickey Mouse');
+  assert.deepEqual(mickey.payStatuses, ['reg-driver', 'ex-driver']);
+  assert.equal(mickey.pay.serial, '9001001');
+  assert.equal(mickey.email, 'mickey@example.com');
+});
+
+test('each driver keeps one payroll account number, apart from pay status', () => {
+  const defaults = normalizeClockPayDefaults({
+    lines: [
+      { id: 'reg-driver', account: '9900-52-310-210-1210-0000' },
+      { id: 'pay-field-trip', label: 'FIELD TRIP', account: '9900-52-0000', otFactor: 1.5 },
+    ],
+  });
+  assert.equal(defaults.lines.every((line) => line.account == null), true);
+  assert.equal(defaults.lines.at(-1).otFactor, 1.5);
+
+  const storage = memoryStorage();
+  saveDriver({ firstName: 'Mickey', lastName: 'Mouse', account: '8800-10-100' }, storage);
+  saveDriver({ firstName: 'Mickey', lastName: 'Mouse', serial: '9001001' }, storage);
+  const mickey = listDrivers(storage).find((driver) => driver.name === 'Mickey Mouse');
+  assert.equal(mickey.pay.account, '8800-10-100');
+  assert.equal(mickey.pay.serial, '9001001');
+
+  const summary = buildMonthlyTimeSummary({
+    driverName: 'Mickey Mouse',
+    driverId: mickey.id,
+    pay: mickey.pay,
+    defaults,
+    now: new Date(2026, 9, 9, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1', lineIds: ['reg-driver', 'pay-field-trip'] },
+  });
+  const html = renderMonthlyTimeSummaryHtml(summary);
+  assert.equal(summary.account, '8800-10-100');
+  assert.equal(html.match(/8800-<wbr>10-<wbr>100/g).length, 2);
+  assert.doesNotMatch(html, /9900-52/);
+});
+
+test('saving one driver keeps another driver serial and rate', () => {
+  const storage = memoryStorage();
+  saveDriver({ firstName: 'Mickey', lastName: 'Mouse', serial: '9001001', rate: '37.74' }, storage);
+  saveDriver({ firstName: 'Alex', lastName: 'Driver', email: 'alex@example.com' }, storage);
+  const mickey = listDrivers(storage).find((driver) => driver.name === 'Mickey Mouse');
+  const alex = listDrivers(storage).find((driver) => driver.name === 'Alex Driver');
+  assert.equal(mickey.pay.serial, '9001001');
+  assert.equal(mickey.pay.rate, '37.74');
+  assert.equal(alex.pay, undefined);
+
+  saveDriver({ id: mickey.id, firstName: 'Mickey', lastName: 'Mouse', email: 'mickey.mouse@example.com' }, storage);
+  assert.equal(listDrivers(storage).find((driver) => driver.name === 'Mickey Mouse').pay.serial, '9001001');
+
+  saveTimeSummaryEdit(
+    {
+      driverId: 'driver-mickey-mouse',
+      periodKey: '2026-10-1',
+      lineId: 'ot-trainer',
+      kind: 'day',
+      day: 2,
+      hours: '1.5',
+    },
+    storage
+  );
+  const saved = saveTimeSummaryEdit(
+    {
+      driverId: 'driver-alex-driver',
+      periodKey: '2026-10-1',
+      lineId: 'reg-driver',
+      kind: 'day',
+      day: 2,
+      hours: 'nope',
+    },
+    storage
+  );
+  assert.equal(saved['driver-mickey-mouse']['2026-10-1']['ot-trainer'].days['2'], '1.50');
+  assert.equal(saved['driver-alex-driver'], undefined);
+});
+
+test('pay periods default to days 1–15 and 16 through the end, or the whole month', () => {
+  const defaults = normalizeClockPayDefaults({});
+  assert.equal(payPeriodPreset(defaults.periods), 'split');
+  assert.deepEqual(
+    defaults.periods.map((period) => [period.startDay, period.endDay]),
+    [
+      [1, 15],
+      [16, 31],
+    ]
+  );
+  assert.deepEqual(
+    defaults.lines.map((line) => line.label),
+    ['REG DRIVER', 'OT DR TRAINER', 'EX DR TRAINER', 'EX DRIVER']
+  );
+
+  const whole = normalizeClockPayDefaults({
+    periods: [{ id: '1', startDay: 1, endDay: 31 }],
+  });
+  assert.equal(payPeriodPreset(whole.periods), 'month');
+  const october = buildMonthlyTimeSummary({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    defaults: whole,
+    now: new Date(2026, 9, 9, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1', lineIds: ['reg-driver'] },
+    punches: [
+      {
+        id: 'in',
+        driver_name: 'Goofy Goof',
+        action: 'in',
+        punched_at: new Date(2026, 9, 20, 6, 0).toISOString(),
+      },
+      {
+        id: 'out',
+        driver_name: 'Goofy Goof',
+        action: 'out',
+        punched_at: new Date(2026, 9, 20, 8, 0).toISOString(),
+      },
+    ],
+  });
+  assert.equal(october.periods.length, 1);
+  assert.equal(october.periods[0].days.length, 31);
+  assert.equal(october.periods[0].days.at(-1), 31);
+  assert.equal(october.periods[0].lines.length, 1);
+  assert.equal(october.periods[0].lines[0].cells.find((cell) => cell.day === 20).value, '2.00');
+
+  const february = buildMonthlyTimeSummary({
+    driverName: 'Goofy Goof',
+    defaults: whole,
+    now: new Date(2026, 1, 2, 12, 0),
+    focus: { year: 2026, monthIndex: 1, periodId: '1' },
+  });
+  assert.equal(february.periods[0].days.length, 28);
+  assert.equal(february.periods[0].ending, '02/28/2026');
+});
+
+test('an added pay status can be chosen for one summary and keeps typed hours', () => {
+  const defaults = normalizeClockPayDefaults({
+    lines: [{ id: 'pay-field-trip', label: 'FIELD TRIP', account: '9900-52-0000', otFactor: 0 }],
+    periods: [{ startDay: 1, endDay: 4 }, { startDay: 3, endDay: 10 }],
+  });
+  assert.equal(defaults.lines.at(-1).label, 'FIELD TRIP');
+  assert.equal(defaults.lines.at(-1).custom, true);
+  assert.equal(defaults.lines.at(-1).account, undefined);
+  assert.deepEqual(
+    defaults.periods.map((period) => [period.startDay, period.endDay]),
+    [[1, 4]]
+  );
+
+  const summary = buildMonthlyTimeSummary({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    defaults,
+    now: new Date(2026, 9, 9, 12, 0),
+    focus: {
+      year: 2026,
+      monthIndex: 9,
+      periodId: defaults.periods[0].id,
+      lineIds: ['ex-driver', 'pay-field-trip'],
+    },
+    edits: {
+      'driver-goofy-goof': {
+        '2026-10-1': { 'pay-field-trip': { days: { 2: '3.25' }, comment: 'Band trip' } },
+      },
+    },
+  });
+  const lines = summary.periods[0].lines;
+  assert.deepEqual(
+    lines.map((line) => line.label),
+    ['EX DRIVER', 'FIELD TRIP']
+  );
+  assert.equal(summary.periods[0].days.length, 4);
+  assert.equal(lines[1].cells.find((cell) => cell.day === 2).value, '3.25');
+  assert.equal(lines[1].comment, 'Band trip');
+  assert.equal(summary.periods[0].grandTotal, '3.25');
+  const html = renderMonthlyTimeSummaryHtml(summary);
+  assert.match(html, /FIELD TRIP/);
+  assert.doesNotMatch(html, /REG DRIVER/);
+
+  const edits = applyTimeSummaryEdit(
+    {},
+    {
+      driverId: 'driver-goofy-goof',
+      periodKey: '2026-10-1',
+      lineId: 'pay-field-trip',
+      kind: 'day',
+      day: 2,
+      hours: '3.25',
+    }
+  );
+  assert.equal(edits['driver-goofy-goof']['2026-10-1']['pay-field-trip'].days['2'], '3.25');
+});
+
+test('the summary email uses the driver address and a landscape letter file name', () => {
+  assert.equal(summaryPdfBasename('Daisy Duck'), 'daisy-duck-monthly-time-summary');
+  assert.equal(summaryPdfBasename('Ann "Ace" Driver'), 'ann-ace-driver-monthly-time-summary');
+  assert.equal(summaryPdfBasename('   '), 'driver-monthly-time-summary');
+  const summary = buildMonthlyTimeSummary({
+    driverName: 'Daisy Duck',
+    driverId: 'driver-daisy-duck',
+    email: 'daisy.duck@example.com',
+    now: new Date(2026, 9, 10, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1' },
+  });
+  const html = renderMonthlyTimeSummaryHtml(summary);
+  assert.match(html, /data-driver-email="daisy.duck@example.com"/);
+  assert.match(html, /data-driver-name="Daisy Duck"/);
+  assert.match(html, /Add an email for /);
+  assert.match(html, /width: 11in/);
+  assert.match(html, /height: 8.5in/);
+});
+
+function contractedRoute(ranges) {
+  return {
+    profiles: {
+      route12: {
+        name: '12',
+        driver_name: 'Goofy Goof',
+        start_date: '2026-09-01',
+        changeLog: ranges.map(([segment, range], index) => ({
+          id: `seed-${segment}`,
+          route_id: 'SELF',
+          segment,
+          effective_date: '2026-09-01',
+          submitted_at: `2026-09-01T08:00:0${index}.000Z`,
+          previous_time: range,
+          new_time: range,
+          delta_minutes: computeDeltaMinutes(range, range),
+          computed_delta_minutes: computeDeltaMinutes(range, range),
+        })),
+      },
+    },
+  };
+}
+
+test('EX DRIVER is the clocked time beyond that day contract hours', () => {
+  const officeState = contractedRoute([
+    ['AM', '6:00-9:00'],
+    ['PM', '14:00-16:30'],
+  ]);
+  const summary = buildMonthlyTimeSummary({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    roundClocks: true,
+    now: new Date(2026, 9, 10, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1' },
+    officeState,
+    punches: [
+      {
+        id: 'in',
+        driver_name: 'Goofy Goof',
+        action: 'in',
+        punched_at: new Date(2026, 9, 8, 6, 7).toISOString(),
+        pay_status: 'ex-driver',
+      },
+      {
+        id: 'out',
+        driver_name: 'Goofy Goof',
+        action: 'out',
+        punched_at: new Date(2026, 9, 8, 12, 38).toISOString(),
+      },
+    ],
+  });
+  const october = summary.periods.find((period) => period.key === '2026-10-1');
+  const day = (id) => october.lines.find((line) => line.id === id).cells.find((cell) => cell.day === 8);
+  assert.equal(october.contractedHours[october.days.indexOf(8)], '5.50');
+  assert.equal(day('ex-driver').calculated, '1.25');
+  assert.equal(day('ex-driver').value, '1.25');
+  assert.equal(day('reg-driver').value, '');
+  assert.equal(day('ot-trainer').value, '');
+
+  const math = buildMonthlySummaryMath({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    email: 'goofy@example.com',
+    roundClocks: true,
+    now: new Date(2026, 9, 10, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1' },
+    officeState,
+    punches: [
+      {
+        id: 'in',
+        driver_name: 'Goofy Goof',
+        action: 'in',
+        punched_at: new Date(2026, 9, 8, 6, 7).toISOString(),
+        pay_status: 'ex-driver',
+      },
+      {
+        id: 'out',
+        driver_name: 'Goofy Goof',
+        action: 'out',
+        punched_at: new Date(2026, 9, 8, 12, 38).toISOString(),
+      },
+    ],
+  });
+  const eighth = math.periods[0].days.find((item) => item.day === 8);
+  assert.equal(eighth.contractHours, '5.50');
+  assert.equal(eighth.clockedHours, '6.75');
+  assert.equal(eighth.cell, '1.25');
+  const html = renderMonthlySummaryMathHtml(math);
+  assert.match(html, /EX DRIVER TIME SUMMARY MATH/);
+  assert.match(html, /Email copy to driver/);
+  assert.match(html, /data-driver-email="goofy@example.com"/);
+  assert.match(html, /table-layout:\s*fixed/);
+  assert.match(html, /overflow-x:\s*hidden/);
+  assert.doesNotMatch(html, /overflow-x:\s*auto/);
+  assert.equal(mathPdfBasename('Goofy Goof'), 'goofy-goof-ex-driver-time-summary-math');
+  assert.match(html, /<th scope="col">8<\/th>/);
+  assert.match(html, /<th scope="row">Clock In<\/th>/);
+  assert.match(html, /<th scope="row">Clock Out<\/th>/);
+  assert.doesNotMatch(html, /AM Route|PM Route/);
+  assert.match(html, /data-row="pair-0-in" data-day="8">6:07 AM</);
+  assert.match(html, /data-row="pair-0-out" data-day="8">12:38 PM</);
+  assert.match(html, /data-row="pair-0-actual" data-day="8">391</);
+  assert.doesNotMatch(html, /Quarter-hour minutes/);
+  assert.match(html, /<tr class="pair pair-a pair-start">[\s\S]*data-row="pair-0-in" data-day="8">6:07 AM</);
+  assert.match(html, /<tr class="[^"]*\bused\b[^"]*">[\s\S]*data-row="pair-0-snap" data-day="8">405</);
+  assert.match(html, /data-row="billable" data-day="8"[^>]*>6\.75</);
+  assert.match(html, /data-math="6\.75 is the sum of 405 minutes from that day\."/);
+  assert.match(html, /data-row="billable"[\s\S]*<th scope="row">Contract hours<\/th>[\s\S]*<th scope="row">EX HOURS<\/th>/);
+  assert.match(html, /<th scope="row">EX HOURS<\/th>/);
+  assert.match(html, /data-row="ex-hours" data-day="8"[^>]*>1\.25</);
+  assert.match(
+    html,
+    /data-math="1\.25 is the subtraction of 5\.50 \(contract hours\) from 6\.75 \(the total billable clock hours\)\."/
+  );
+  assert.match(html, /data-total="ex-hours">1\.25</);
+
+  const two = buildMonthlySummaryMath({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    roundClocks: true,
+    now: new Date(2026, 9, 10, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1' },
+    officeState,
+    punches: [
+      { id: 'in-1', driver_name: 'Goofy Goof', action: 'in', run: 'AM', punched_at: new Date(2026, 9, 8, 6, 7).toISOString(), pay_status: 'ex-driver' },
+      { id: 'out-1', driver_name: 'Goofy Goof', action: 'out', run: 'AM', punched_at: new Date(2026, 9, 8, 9, 0).toISOString() },
+      { id: 'in-2', driver_name: 'Goofy Goof', action: 'in', run: 'PM', punched_at: new Date(2026, 9, 8, 14, 8).toISOString(), pay_status: 'ex-driver' },
+      { id: 'out-2', driver_name: 'Goofy Goof', action: 'out', run: 'PM', punched_at: new Date(2026, 9, 8, 16, 40).toISOString() },
+    ],
+  });
+  const twoHtml = renderMonthlySummaryMathHtml(two);
+  assert.match(twoHtml, /<th scope="row">Clock In 1<\/th>/);
+  assert.match(twoHtml, /<th scope="row">Clock Out 1<\/th>/);
+  assert.match(twoHtml, /<th scope="row">Clock In 2<\/th>/);
+  assert.match(twoHtml, /<th scope="row">Clock Out 2<\/th>/);
+  assert.match(twoHtml, /data-row="pair-0-in" data-day="8">6:07 AM</);
+  assert.match(twoHtml, /data-row="pair-0-out" data-day="8">9:00 AM</);
+  assert.match(twoHtml, /data-row="pair-1-in" data-day="8">2:08 PM</);
+  assert.match(twoHtml, /data-row="pair-1-out" data-day="8">4:40 PM</);
+  assert.doesNotMatch(twoHtml, /AM Route|PM Route|Midday Route/);
+});
+
+test('daily rounding rounds the day once, and separate rounding rounds each clock span', () => {
+  const officeState = contractedRoute([
+    ['AM', '6:00-9:00'],
+    ['PM', '14:00-16:30'],
+  ]);
+  const punches = [
+    {
+      id: 'in-am',
+      driver_name: 'Goofy Goof',
+      action: 'in',
+      punched_at: new Date(2026, 9, 8, 6, 0).toISOString(),
+    },
+    {
+      id: 'out-am',
+      driver_name: 'Goofy Goof',
+      action: 'out',
+      punched_at: new Date(2026, 9, 8, 8, 7).toISOString(),
+    },
+    {
+      id: 'in-mid',
+      driver_name: 'Goofy Goof',
+      action: 'in',
+      punched_at: new Date(2026, 9, 8, 11, 0).toISOString(),
+    },
+    {
+      id: 'out-mid',
+      driver_name: 'Goofy Goof',
+      action: 'out',
+      punched_at: new Date(2026, 9, 8, 12, 7).toISOString(),
+    },
+  ];
+  const reg = (rounding) => {
+    const summary = buildMonthlyTimeSummary({
+      driverName: 'Goofy Goof',
+      driverId: 'driver-goofy-goof',
+      rounding,
+      now: new Date(2026, 9, 10, 12, 0),
+      focus: { year: 2026, monthIndex: 9, periodId: '1' },
+      officeState,
+      punches,
+    });
+    return summary.periods[0].lines.find((line) => line.id === 'reg-driver').cells.find((cell) => cell.day === 8).value;
+  };
+  assert.equal(reg('snap'), '3.00');
+  assert.equal(reg('separate'), '3.00');
+  assert.equal(reg('daily'), '3.25');
+
+  const math = buildMonthlySummaryMath({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    rounding: 'daily',
+    now: new Date(2026, 9, 10, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1' },
+    officeState,
+    punches,
+  });
+  const eighth = math.periods[0].days.find((item) => item.day === 8);
+  assert.equal(eighth.clockedHours, '3.25');
+  assert.equal(eighth.contractHours, '5.50');
+  const html = renderMonthlySummaryMathHtml(math);
+  assert.match(html, /<tr class="billable used">/);
+  assert.match(html, /data-row="billable" data-day="8"[^>]*>3\.25</);
+  assert.doesNotMatch(html, /Quarter-hour minutes/);
+  assert.match(
+    html,
+    /data-math="3\.25 is the sum of 127 and 67 minutes from that day, rounded to the nearest quarter hour\."/
+  );
+  assert.doesNotMatch(html, /<tr class="used">/);
+
+  const separateHtml = renderMonthlySummaryMathHtml(
+    buildMonthlySummaryMath({
+      driverName: 'Goofy Goof',
+      driverId: 'driver-goofy-goof',
+      rounding: 'separate',
+      now: new Date(2026, 9, 10, 12, 0),
+      focus: { year: 2026, monthIndex: 9, periodId: '1' },
+      officeState,
+      punches,
+    })
+  );
+  assert.match(separateHtml, /<th scope="row">Quarter-hour minutes 1<\/th>/);
+  assert.match(separateHtml, /<th scope="row">Quarter-hour minutes 2<\/th>/);
+  assert.match(separateHtml, /data-math="3\.00 is the sum of 120 and 60 minutes from that day\."/);
+});
+
+test('time under the contract, or clocks with no contract, leave EX DRIVER blank', () => {
+  const officeState = contractedRoute([
+    ['AM', '6:00-9:00'],
+    ['PM', '14:00-16:30'],
+  ]);
+  const under = buildMonthlyTimeSummary({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    roundClocks: true,
+    now: new Date(2026, 9, 10, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1' },
+    officeState,
+    punches: [
+      {
+        id: 'in-ot',
+        driver_name: 'Goofy Goof',
+        action: 'in',
+        punched_at: new Date(2026, 9, 8, 8, 0).toISOString(),
+        pay_status: 'ot-trainer',
+      },
+      {
+        id: 'out-ot',
+        driver_name: 'Goofy Goof',
+        action: 'out',
+        punched_at: new Date(2026, 9, 8, 10, 0).toISOString(),
+      },
+    ],
+  });
+  const october = under.periods[0];
+  const cell = (id) => october.lines.find((line) => line.id === id).cells.find((item) => item.day === 8);
+  assert.equal(cell('ot-trainer').value, '2.00');
+  assert.equal(cell('ex-driver').value, '');
+  assert.equal(cell('reg-driver').value, '');
+
+  const math = buildMonthlySummaryMath({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    roundClocks: true,
+    now: new Date(2026, 9, 10, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1' },
+    officeState,
+    punches: [
+      {
+        id: 'in',
+        driver_name: 'Goofy Goof',
+        action: 'in',
+        punched_at: new Date(2026, 9, 8, 8, 0).toISOString(),
+        pay_status: 'ex-driver',
+      },
+      {
+        id: 'out',
+        driver_name: 'Goofy Goof',
+        action: 'out',
+        punched_at: new Date(2026, 9, 8, 10, 0).toISOString(),
+      },
+    ],
+  });
+  const short = math.periods[0].days.find((item) => item.day === 8);
+  assert.equal(short.clockedHours, '2.00');
+  assert.equal(short.contractHours, '5.50');
+  assert.equal(short.residual, '-3.50');
+  const mathHtml = renderMonthlySummaryMathHtml(math);
+  assert.match(mathHtml, /data-row="billable"[\s\S]*data-row="contract" data-day="8">5\.50[\s\S]*data-row="ex-hours" data-day="8"[^>]*>-3\.50/);
+  assert.match(mathHtml, /data-total="ex-hours">-3\.50/);
+
+  const open = buildMonthlyTimeSummary({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    roundClocks: true,
+    now: new Date(2026, 9, 10, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1' },
+    punches: [
+      {
+        id: 'in',
+        driver_name: 'Goofy Goof',
+        action: 'in',
+        punched_at: new Date(2026, 9, 9, 6, 0).toISOString(),
+        pay_status: 'ex-driver',
+      },
+      {
+        id: 'out',
+        driver_name: 'Goofy Goof',
+        action: 'out',
+        punched_at: new Date(2026, 9, 9, 12, 30).toISOString(),
+      },
+    ],
+  });
+  const friday = open.periods[0].lines.find((line) => line.id === 'ex-driver').cells.find((item) => item.day === 9);
+  assert.equal(friday.value, '');
+  assert.equal(friday.calculated, '');
+});
+
+test('a typed EX DRIVER hour replaces the residual for that day', () => {
+  const officeState = contractedRoute([
+    ['AM', '6:00-9:00'],
+    ['PM', '14:00-16:30'],
+  ]);
+  const punches = [
+    {
+      id: 'in',
+      driver_name: 'Goofy Goof',
+      action: 'in',
+      punched_at: new Date(2026, 9, 8, 6, 7).toISOString(),
+      pay_status: 'ex-driver',
+    },
+    {
+      id: 'out',
+      driver_name: 'Goofy Goof',
+      action: 'out',
+      punched_at: new Date(2026, 9, 8, 12, 38).toISOString(),
+    },
+  ];
+  const summary = buildMonthlyTimeSummary({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    roundClocks: true,
+    now: new Date(2026, 9, 10, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1' },
+    officeState,
+    punches,
+    edits: {
+      'driver-goofy-goof': { '2026-10-1': { 'ex-driver': { days: { 8: '0.50' } } } },
+    },
+  });
+  const day = summary.periods[0].lines.find((line) => line.id === 'ex-driver').cells.find((cell) => cell.day === 8);
+  assert.equal(day.calculated, '1.25');
+  assert.equal(day.value, '0.50');
+  const html = renderMonthlySummaryMathHtml(
+    buildMonthlySummaryMath({
+      driverName: 'Goofy Goof',
+      driverId: 'driver-goofy-goof',
+      roundClocks: true,
+      now: new Date(2026, 9, 10, 12, 0),
+      focus: { year: 2026, monthIndex: 9, periodId: '1' },
+      officeState,
+      punches,
+      edits: {
+        'driver-goofy-goof': { '2026-10-1': { 'ex-driver': { days: { 8: '0.50' } } } },
+      },
+    })
+  );
+  assert.match(html, /data-row="ex-hours" data-day="8"[^>]*>1\.25</);
+});
+
+test('clocks from an earlier month list more than the current two pay periods', () => {
+  const now = new Date(2026, 9, 10, 12, 0);
+  const empty = payPeriodsForClocks([], DEFAULT_PAY_PERIODS, now);
+  assert.deepEqual(empty.map((period) => period.key), ['2026-10-2', '2026-10-1']);
+
+  const covered = payPeriodsForClocks(
+    [
+      { punched_at: '2026-08-04T13:00:00.000Z' },
+      { punched_at: '2026-09-18T13:00:00.000Z' },
+      { punched_at: 'not-a-date' },
+    ],
+    DEFAULT_PAY_PERIODS,
+    now
+  );
+  assert.deepEqual(covered.map((period) => period.key), [
+    '2026-10-2',
+    '2026-10-1',
+    '2026-09-2',
+    '2026-09-1',
+    '2026-08-2',
+    '2026-08-1',
+  ]);
+});
+
+test('weekend, evening, and over-eight clocks add overtime rows and a total', () => {
+  const officeState = contractedRoute([['AM', '6:00-9:00']]);
+  const punches = [
+    { id: 'thu-in', driver_name: 'Mickey Mouse', action: 'in', punched_at: new Date(2026, 9, 8, 14, 7).toISOString(), pay_status: 'ex-driver' },
+    { id: 'thu-out', driver_name: 'Mickey Mouse', action: 'out', punched_at: new Date(2026, 9, 8, 18, 38).toISOString() },
+    { id: 'sat-in', driver_name: 'Mickey Mouse', action: 'in', punched_at: new Date(2026, 9, 10, 8, 4).toISOString(), pay_status: 'ex-driver' },
+    { id: 'sat-out', driver_name: 'Mickey Mouse', action: 'out', punched_at: new Date(2026, 9, 10, 12, 19).toISOString() },
+    { id: 'goof-am-in', driver_name: 'Goofy Goof', action: 'in', punched_at: new Date(2026, 9, 5, 6, 4).toISOString(), pay_status: 'ex-driver' },
+    { id: 'goof-am-out', driver_name: 'Goofy Goof', action: 'out', punched_at: new Date(2026, 9, 5, 9, 11).toISOString() },
+    { id: 'goof-mid-in', driver_name: 'Goofy Goof', action: 'in', punched_at: new Date(2026, 9, 5, 10, 58).toISOString(), pay_status: 'ex-driver' },
+    { id: 'goof-mid-out', driver_name: 'Goofy Goof', action: 'out', punched_at: new Date(2026, 9, 5, 12, 22).toISOString() },
+    { id: 'goof-pm-in', driver_name: 'Goofy Goof', action: 'in', punched_at: new Date(2026, 9, 5, 13, 36).toISOString(), pay_status: 'ex-driver' },
+    { id: 'goof-pm-out', driver_name: 'Goofy Goof', action: 'out', punched_at: new Date(2026, 9, 5, 18, 21).toISOString() },
+  ];
+  const math = buildMonthlySummaryMath({
+    driverName: 'Mickey Mouse',
+    driverId: 'driver-mickey-mouse',
+    rounding: 'snap',
+    now: new Date(2026, 9, 11, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1' },
+    officeState,
+    punches,
+  });
+  const thursday = math.periods[0].days.find((day) => day.day === 8).pairs[0];
+  const saturday = math.periods[0].days.find((day) => day.day === 10).pairs[0];
+  assert.equal(thursday.actualOvertimeMinutes, 68);
+  assert.equal(thursday.snapOvertimeMinutes, 75);
+  assert.deepEqual(thursday.overtimeReasons, ['at or after 5:30 PM']);
+  assert.equal(saturday.actualOvertimeMinutes, 255);
+  assert.equal(saturday.snapOvertimeMinutes, 255);
+  assert.deepEqual(saturday.overtimeReasons, ['Saturday']);
+  const html = renderMonthlySummaryMathHtml(math);
+  assert.match(html, /<th scope="row">Actual overtime minutes<\/th>/);
+  assert.match(html, /<th scope="row">Snap overtime minutes<\/th>/);
+  assert.match(html, /data-row="pair-0-actual-ot" data-day="8"[^>]*>68</);
+  assert.match(html, /data-row="pair-0-snap-ot" data-day="8"[^>]*>75</);
+  assert.match(html, /data-row="pair-0-actual-ot" data-day="10"[^>]*>255</);
+  assert.match(html, /data-total="overtime"[^>]*>5\.50 × 1\.5 = 8\.25</);
+  assert.doesNotMatch(html, /Quarter-hour overtime minutes/);
+
+  const goofy = buildMonthlySummaryMath({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    rounding: 'snap',
+    now: new Date(2026, 9, 11, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1' },
+    officeState,
+    punches,
+  });
+  const evening = goofy.periods[0].days.find((day) => day.day === 5).pairs[2];
+  assert.equal(evening.actualOvertimeMinutes, 76);
+  assert.ok(evening.overtimeReasons.includes('over 8 hours in the day'));
+  assert.ok(evening.overtimeReasons.includes('at or after 5:30 PM'));
+
+  const separate = renderMonthlySummaryMathHtml(
+    buildMonthlySummaryMath({
+      driverName: 'Mickey Mouse',
+      driverId: 'driver-mickey-mouse',
+      rounding: 'separate',
+      now: new Date(2026, 9, 11, 12, 0),
+      focus: { year: 2026, monthIndex: 9, periodId: '1' },
+      officeState,
+      punches,
+      overtimeRules: { multiplier: 2 },
+    })
+  );
+  assert.match(separate, /<th scope="row">Quarter-hour overtime minutes<\/th>/);
+  assert.doesNotMatch(separate, /Snap overtime minutes/);
+  assert.match(separate, /data-total="overtime"[^>]*>5\.50 × 2 = 11\.00</);
+
+  const daytime = buildMonthlySummaryMath({
+    driverName: 'Mickey Mouse',
+    driverId: 'driver-mickey-mouse',
+    rounding: 'snap',
+    now: new Date(2026, 9, 11, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1' },
+    officeState,
+    punches: punches.filter((punch) => punch.id.startsWith('thu')),
+    overtimeRules: { eveningStart: null, weekendOvertime: false, holidayOvertime: false },
+  });
+  const plain = daytime.periods[0].days.find((day) => day.day === 8).pairs[0];
+  assert.equal(plain.actualOvertimeMinutes, 0);
+  assert.doesNotMatch(renderMonthlySummaryMathHtml(daytime), /Actual overtime minutes/);
 });

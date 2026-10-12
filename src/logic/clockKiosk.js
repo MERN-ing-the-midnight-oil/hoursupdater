@@ -10,11 +10,11 @@ import { createId } from './createId.js';
 
 const PIN_PATTERN = /^\d{4}$/;
 const LOCK_CODE_PATTERN = /^[A-Za-z0-9]{4,64}$/;
-const NOTE_MAX = 500;
+export const NOTE_MAX = 500;
 const REASON_LABEL_MAX = 60;
 
 /** Lock code that leaves the driver clock screen. Not a driver PIN. */
-export const DEFAULT_KIOSK_CODE = 'TeamsterTracker2026';
+export const DEFAULT_KIOSK_CODE = 'TimeChanges2026';
 
 /** PIN every driver starts with. A saved 4-digit PIN replaces this. */
 export const DEFAULT_DRIVER_PIN = '1234';

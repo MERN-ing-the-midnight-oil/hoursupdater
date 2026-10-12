@@ -3,10 +3,23 @@ import { buildBps2026_2027Calendar } from '../../employee-tracker/src/bpsCalenda
 import { formatClockAmPm, formatClockMinutes, localDateString, normalizeClockTime } from '../../employee-tracker/src/clockTimes.js';
 import { describeSchedule, rebuildEmployeeRouteState } from '../../employee-tracker/src/snapshot.js';
 import { parseClockTime, roundClockToQuarterHour } from '../../src/logic/timeUtils.js';
-import { pairClockPunches, segmentForClock } from '../../src/logic/timesheets.js';
+import {
+  listPeriods,
+  pairClockPunches,
+  periodLabel,
+  runForClockPair,
+  semiMonthlyDates,
+} from '../../src/logic/timesheets.js';
 import { driverForDate } from './assignments.js';
 import { workbookFileBytes } from './downloadName.js';
-import { compareRouteNumbers, driversFromState, quarterHourClocksEnabled } from '../web/store.js';
+import {
+  CLOCK_ROUNDING_DAILY,
+  CLOCK_ROUNDING_SNAP,
+  clockRoundingMode,
+  driversFromState,
+  compareRouteNumbers,
+  normalizeClockRounding,
+} from '../web/store.js';
 
 export const PAYROLL_SHEET = 'Payroll Driver Times';
 
@@ -115,6 +128,16 @@ const COLUMN_RUN = [
   null,
 ];
 
+/**
+ * @param {string} header
+ * @returns {'AM' | 'MIDDAY' | 'PM' | null}
+ */
+export function payrollHeaderRun(header) {
+  const index = PAYROLL_HEADERS.indexOf(header);
+  if (index < 0) return null;
+  return COLUMN_RUN[index];
+}
+
 const RUNS = [
   { id: 'AM', inKey: 'amIn', outKey: 'amOut', quarterKey: 'amQuarterClocks', minutesKey: 'amTotalMinutes' },
   {
@@ -195,6 +218,18 @@ export function quarterHoursFromMinutes(minutes) {
   const number = Number(minutes);
   if (!Number.isFinite(number)) return null;
   return Math.round(number / 15) / 4;
+}
+
+/**
+ * Nearest quarter hour of one day's exact minutes, expressed in hours.
+ * 321 minutes is 5.25. A day with no minutes stays blank.
+ * @param {Array<number | null | undefined>} parts
+ * @returns {number | null}
+ */
+export function quarterHoursFromDailyMinutes(parts) {
+  const present = (parts ?? []).filter((value) => value != null && value !== '' && Number.isFinite(Number(value)));
+  if (!present.length) return null;
+  return quarterHoursFromMinutes(present.reduce((total, value) => total + Number(value), 0));
 }
 
 /**
@@ -814,7 +849,7 @@ function highlightChangedRow(row) {
 
 /**
  * @param {object} state
- * @param {{ asOf?: string, calendar?: import('../../src/logic/calendar.js').SchoolCalendar, roundClocks?: boolean }} [options]
+ * @param {{ asOf?: string, calendar?: import('../../src/logic/calendar.js').SchoolCalendar, roundClocks?: boolean | string, rounding?: string }} [options]
  */
 export function payrollDriverRows(state, options = {}) {
   const asOf = options.asOf || localDateString();
@@ -827,7 +862,7 @@ export function payrollDriverRows(state, options = {}) {
   /** @type {ReturnType<typeof rowForRoute>[]} */
   const rows = [];
 
-  const roundClocks = options.roundClocks ?? quarterHourClocksEnabled(state);
+  const rounding = roundingFromOptions(options, clockRoundingMode(state));
   const profiles = Object.values(state?.profiles ?? {}).sort((a, b) =>
     compareRouteNumbers(a?.name, b?.name)
   );
@@ -842,7 +877,7 @@ export function payrollDriverRows(state, options = {}) {
         startDate: profile.start_date,
         changeLog: profile.changeLog,
         punches: state?.punches,
-        roundClocks,
+        roundClocks: rounding,
       })
     );
   }
@@ -852,7 +887,7 @@ export function payrollDriverRows(state, options = {}) {
     rows.push(
       rowForRoute(driver.email, driver.name, '', null, {
         punches: state?.punches,
-        roundClocks,
+        roundClocks: rounding,
       })
     );
   }
@@ -882,18 +917,83 @@ export function payrollRowsForDriver(rows, name) {
 }
 
 /**
+ * Pay-period spreadsheets for one driver, newest period first.
+ * Each day with a completed clock pair is a Payroll Driver Times row.
+ * A period with no completed pair uses the contracted clocks.
+ * @param {object} state
+ * @param {string | null | undefined} driverName
+ * @param {{ asOf?: string, calendar?: import('../../src/logic/calendar.js').SchoolCalendar, roundClocks?: boolean | string, rounding?: string, now?: Date }} [options]
+ */
+export function payrollPeriodSheetsForDriver(state, driverName, options = {}) {
+  const wanted = String(driverName ?? '').trim();
+  if (!wanted) return [];
+  const now = options.now instanceof Date ? options.now : new Date();
+  const rowOptions = { ...options };
+  delete rowOptions.now;
+  const mine = (Array.isArray(state?.punches) ? state.punches : []).filter(
+    (punch) => String(punch?.driver_name || '').trim().toLowerCase() === wanted.toLowerCase()
+  );
+  const { pairs } = pairClockPunches(mine);
+  /** @type {Map<string, object[]>} */
+  const punchesByDay = new Map();
+  for (const pair of pairs) {
+    const key = localDateString(pair.start);
+    const list = punchesByDay.get(key) || [];
+    list.push(pair.clockIn, pair.clockOut);
+    punchesByDay.set(key, list);
+  }
+  return listPeriods(mine, now).map((period) => {
+    const dates = semiMonthlyDates(period.year, period.monthIndex, period.half);
+    /** @type {object[]} */
+    const rows = [];
+    for (const date of dates) {
+      const key = localDateString(date);
+      const dayPunches = punchesByDay.get(key);
+      if (!dayPunches?.length) continue;
+      for (const row of payrollRowsForDriver(
+        payrollDriverRows({ ...state, punches: dayPunches }, { ...rowOptions, asOf: key }),
+        wanted
+      )) {
+        rows.push({ ...row, workDate: key });
+      }
+    }
+    const contracted = rows.length === 0;
+    if (contracted) {
+      const today = localDateString(now);
+      let asOf = localDateString(dates[0]);
+      for (const date of dates) {
+        const key = localDateString(date);
+        if (key <= today) asOf = key;
+      }
+      for (const row of payrollRowsForDriver(
+        payrollDriverRows({ ...state, punches: [] }, { ...rowOptions, asOf }),
+        wanted
+      )) {
+        rows.push({ ...row, workDate: '' });
+      }
+    }
+    return {
+      key: `${period.year}-${String(period.monthIndex + 1).padStart(2, '0')}-${period.half}`,
+      label: periodLabel(period),
+      contracted,
+      rows,
+    };
+  });
+}
+
+/**
  * @param {string} email
  * @param {string} name
  * @param {string} route
  * @param {import('../../src/logic/stateMachine.js').RouteStateEntry | null} entry
- * @param {{ startDate?: string | null, changeLog?: object[], punches?: object[], roundClocks?: boolean }} [source]
+ * @param {{ startDate?: string | null, changeLog?: object[], punches?: object[], roundClocks?: boolean | string, rounding?: string }} [source]
  */
 function rowForRoute(email, name, route, entry, source = {}) {
   const { firstName, lastName } = splitDriverName(name);
   const punched = segmentsFromPunches(source.punches, name);
   const segments = punched || contractedSegments(entry);
   const schedule = describeSchedule(segments);
-  const roundClocks = source.roundClocks !== false;
+  const rounding = roundingFromOptions(source, CLOCK_ROUNDING_SNAP);
   /** @type {Record<string, string>} */
   const clocks = {};
   /** @type {Record<string, string>} */
@@ -906,13 +1006,14 @@ function rowForRoute(email, name, route, entry, source = {}) {
     const clockOut = piece?.clock_out ?? '';
     clocks[run.inKey] = clockIn;
     clocks[run.outKey] = clockOut;
-    const used = clocksUsedForMinutes(clockIn, clockOut, roundClocks);
+    const used = clocksUsedForMinutes(clockIn, clockOut, rounding);
     quarterClocks[run.quarterKey] = used.label;
     totals[run.minutesKey] = used.minutes;
   }
-  const amRoundedQuarterHours = quarterHoursFromMinutes(totals.amTotalMinutes);
-  const middayRoundedQuarterHours = quarterHoursFromMinutes(totals.middayTotalMinutes);
-  const pmRoundedQuarterHours = quarterHoursFromMinutes(totals.pmTotalMinutes);
+  const roundEachRun = rounding !== CLOCK_ROUNDING_DAILY;
+  const amRoundedQuarterHours = roundEachRun ? quarterHoursFromMinutes(totals.amTotalMinutes) : null;
+  const middayRoundedQuarterHours = roundEachRun ? quarterHoursFromMinutes(totals.middayTotalMinutes) : null;
+  const pmRoundedQuarterHours = roundEachRun ? quarterHoursFromMinutes(totals.pmTotalMinutes) : null;
   return {
     email: String(email ?? '').trim(),
     firstName,
@@ -927,25 +1028,45 @@ function rowForRoute(email, name, route, entry, source = {}) {
     middayRoundedQuarterHours,
     pmTotalMinutes: totals.pmTotalMinutes,
     pmRoundedQuarterHours,
-    fullDayRoundedQuarterHours: sumRoundedQuarterHours([
-      amRoundedQuarterHours,
-      middayRoundedQuarterHours,
-      pmRoundedQuarterHours,
-    ]),
+    fullDayRoundedQuarterHours:
+      rounding === CLOCK_ROUNDING_DAILY
+        ? quarterHoursFromDailyMinutes([
+            totals.amTotalMinutes,
+            totals.middayTotalMinutes,
+            totals.pmTotalMinutes,
+          ])
+        : sumRoundedQuarterHours([amRoundedQuarterHours, middayRoundedQuarterHours, pmRoundedQuarterHours]),
   };
 }
 
 /**
+ * A passed choice wins. `false` is the older off switch, which rounds each span.
+ * @param {{ rounding?: string, roundClocks?: boolean | string }} options
+ * @param {'snap' | 'daily' | 'separate'} fallback
+ */
+function roundingFromOptions(options, fallback) {
+  if (options && Object.prototype.hasOwnProperty.call(options, 'rounding')) {
+    return normalizeClockRounding(options.rounding);
+  }
+  if (options && Object.prototype.hasOwnProperty.call(options, 'roundClocks')) {
+    return normalizeClockRounding(options.roundClocks);
+  }
+  return fallback;
+}
+
+/**
  * The clocks the minute total is counted from, and that count.
- * Rounding snaps each clock to the nearest quarter hour first.
+ * Snapping moves each clock to the nearest quarter hour first.
+ * The other choices count from the clock as it was written.
  * @param {string} clockIn
  * @param {string} clockOut
- * @param {boolean} roundClocks
+ * @param {'snap' | 'daily' | 'separate'} rounding
  */
-function clocksUsedForMinutes(clockIn, clockOut, roundClocks) {
+function clocksUsedForMinutes(clockIn, clockOut, rounding) {
   if (!clockIn || !clockOut) return { label: '', minutes: null };
-  const start = roundClocks ? roundClockToQuarterHour(clockIn) : clockIn;
-  const end = roundClocks ? roundClockToQuarterHour(clockOut) : clockOut;
+  const snap = rounding === CLOCK_ROUNDING_SNAP;
+  const start = snap ? roundClockToQuarterHour(clockIn) : clockIn;
+  const end = snap ? roundClockToQuarterHour(clockOut) : clockOut;
   if (!start || !end) return { label: '', minutes: null };
   return {
     label: `${formatClockAmPm(start)}–${formatClockAmPm(end)}`,
@@ -967,8 +1088,10 @@ function clockMinutesApart(clockIn, clockOut) {
 
 /**
  * Latest completed clock-in and clock-out in each run.
- * The earlier stamp decides the run: before 8:00 is AM, until 1:00 is midday, and after that is PM.
- * A driver with no completed pair keeps the contracted clocks.
+ * The driver chooses the route. A record with no choice still uses the clock time:
+ * before 8:00 is AM, until 1:00 is midday, and after that is PM.
+ * Other is not an AM, midday, or PM payroll column.
+ * A driver with no completed pair on those routes keeps the contracted clocks.
  * @param {object[] | null | undefined} punches
  * @param {string} driverName
  * @returns {Record<'AM' | 'MIDDAY' | 'PM', string | null> | null}
@@ -984,12 +1107,12 @@ function segmentsFromPunches(punches, driverName) {
   /** @type {Record<string, { start: Date, end: Date }>} */
   const latest = {};
   for (const pair of pairs) {
-    const earlier = pair.start <= pair.end ? pair.start : pair.end;
-    const segment = segmentForClock(earlier);
-    const key = segment === 'am' ? 'AM' : segment === 'midday' ? 'MIDDAY' : 'PM';
-    const prev = latest[key];
-    if (!prev || pair.start.getTime() > prev.start.getTime()) latest[key] = pair;
+    const run = runForClockPair(pair);
+    if (run === 'OTHER') continue;
+    const prev = latest[run];
+    if (!prev || pair.start.getTime() > prev.start.getTime()) latest[run] = pair;
   }
+  if (!latest.AM && !latest.MIDDAY && !latest.PM) return null;
   const label = (date) => `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
   return {
     AM: latest.AM ? `${label(latest.AM.start)}-${label(latest.AM.end)}` : null,

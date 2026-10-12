@@ -1,5 +1,8 @@
-import { formatClockAmPm } from '../../employee-tracker/src/clockTimes.js';
-import { schoolDaysBeforeValue } from './contractReminder.js';
+import {
+  formatClockAmPm,
+  formatDurationLabel,
+  splitSegmentRange,
+} from '../../employee-tracker/src/clockTimes.js';
 import { prettyDate } from './historyMarkup.js';
 
 export const CHANGE_NOTICE_SENT_KEY = 'transportation-timechange.change-notice-sent.v1';
@@ -13,8 +16,9 @@ export const DEFAULT_MEMORANDUM_ID = 'student-route-time';
 
 /**
  * Email bodies an admin can choose. Add another object here to offer another memorandum.
- * `label` is the choice on the settings page. `subject` is the email subject.
- * `body` is the email, with {{driver_name}}, {{date}}, {{effective_date}}, and {{route_times}}.
+ * `label` is the choice on the settings page. `subject` and `body` are the usual template.
+ * The settings page lets each one be opened and edited. Placeholders:
+ * {{driver_name}}, {{route_name}}, {{date}}, {{effective_date}}, and {{route_times}}.
  */
 export const DRIVER_MEMORANDA = [
   {
@@ -71,9 +75,47 @@ function yesNo(value, fallback) {
 }
 
 /**
- * Timing for the driver email, which memorandum is that email, and whether the
- * older clock-time notice is also downloaded as a PDF to attach.
- * Automatic notices stay off until someone turns them on.
+ * Wording saved for each memorandum. A blank or unchanged template stays on the usual text.
+ * @param {unknown} raw
+ * @returns {Record<string, { subject: string, body: string }>}
+ */
+export function normalizeMemorandumTemplates(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  /** @type {Record<string, { subject: string, body: string }>} */
+  const templates = {};
+  for (const memo of DRIVER_MEMORANDA) {
+    const saved = source[memo.id];
+    if (!saved || typeof saved !== 'object') continue;
+    const subject = String(saved.subject ?? '').trim();
+    const body = String(saved.body ?? '').trim();
+    const usualSubject = memo.subject.trim();
+    const usualBody = memo.body.trim();
+    const nextSubject = subject || usualSubject;
+    const nextBody = body || usualBody;
+    if (nextSubject === usualSubject && nextBody === usualBody) continue;
+    templates[memo.id] = { subject: nextSubject, body: nextBody };
+  }
+  return templates;
+}
+
+/**
+ * Subject and body for one memorandum, using a saved template when there is one.
+ * @param {unknown} id
+ * @param {unknown} templates
+ */
+export function memorandumTemplate(id, templates) {
+  const memo = memorandumById(id);
+  const saved = normalizeMemorandumTemplates(templates)[memo.id];
+  return {
+    ...memo,
+    subject: saved?.subject || memo.subject,
+    body: saved?.body || memo.body,
+  };
+}
+
+/**
+ * Which memorandum is the driver email, and whether the older clock-time
+ * notice is also downloaded as a PDF to attach.
  * @param {unknown} raw
  */
 export function normalizeDriverNotice(raw) {
@@ -81,10 +123,8 @@ export function normalizeDriverNotice(raw) {
   const subject = String(source.subject ?? '').trim();
   const body = String(source.body ?? '').trim();
   return {
-    noticeImmediately: yesNo(source.noticeImmediately, false),
-    noticeBeforeContract: yesNo(source.noticeBeforeContract, false),
-    schoolDaysBefore: schoolDaysBeforeValue(source.schoolDaysBefore),
     memorandumId: memorandumById(source.memorandumId).id,
+    memorandumTemplates: normalizeMemorandumTemplates(source.memorandumTemplates),
     attachTimeChangeNotice: yesNo(source.attachTimeChangeNotice, false),
     subject: subject || DEFAULT_DRIVER_NOTICE_SUBJECT,
     body: body || DEFAULT_DRIVER_NOTICE_BODY,
@@ -159,26 +199,68 @@ export function noticeFromChange({ driverName, routeName, row }) {
 }
 
 /**
+ * A missing change date is a blank, not a time. "from —" reads as a missing clock.
+ * @param {object} notice
+ */
+function changeIntro(notice) {
+  const run = runLabel(notice.segment);
+  const route = `Route ${notice.routeName}: the ${run} change`;
+  if (!notice.establishedOn) return `${route}, date not recorded,`;
+  return `${route} from ${prettyDate(notice.establishedOn)}`;
+}
+
+/**
+ * @param {number | null | undefined} beforeMinutes
+ * @param {number | null | undefined} afterMinutes
+ */
+function lengthChangePhrase(beforeMinutes, afterMinutes) {
+  if (typeof beforeMinutes !== 'number' || typeof afterMinutes !== 'number') return '';
+  const delta = afterMinutes - beforeMinutes;
+  if (delta === 0) return 'same length';
+  const amount = formatDurationLabel(Math.abs(delta));
+  return delta > 0 ? `${amount} longer` : `${amount} shorter`;
+}
+
+/**
+ * The noticed run, with whether that span got longer or shorter.
+ * A row that covers more than one run has no single previous/new pair.
+ * @param {object} notice
+ */
+function noticedRunSentence(notice) {
+  if (notice.segment !== 'AM' && notice.segment !== 'PM' && notice.segment !== 'MIDDAY') {
+    return '';
+  }
+  const previousTime = formatClockAmPm(notice.previousTime);
+  const newTime = formatClockAmPm(notice.newTime);
+  if (!previousTime || !newTime || previousTime === newTime) return '';
+  const direction = lengthChangePhrase(
+    splitSegmentRange(notice.previousTime)?.duration_minutes,
+    splitSegmentRange(notice.newTime)?.duration_minutes
+  );
+  const run = notice.segment === 'MIDDAY' ? 'Midday' : notice.segment;
+  return ` ${run} changed from ${previousTime} to ${newTime}${direction ? `, ${direction}` : ''}.`;
+}
+
+/**
  * @param {object} notice
  */
 export function formatNoticeLine(notice) {
-  const run = runLabel(notice.segment);
-  const established = prettyDate(notice.establishedOn);
-  const route = `Route ${notice.routeName}: the ${run} change from ${established}`;
+  const route = changeIntro(notice);
+  const shift = noticedRunSentence(notice);
   if (notice.type === 'bid_eligible' && notice.resolvedOn) {
-    return `${route} will be up for bid on ${prettyDate(notice.resolvedOn)}.`;
+    return `${route} will be up for bid on ${prettyDate(notice.resolvedOn)}.${shift}`;
   }
   if (notice.phrase && notice.resolvedOn) {
-    return `${route} is ${notice.phrase} as of ${prettyDate(notice.resolvedOn)}.`;
+    return `${route} is ${notice.phrase} as of ${prettyDate(notice.resolvedOn)}.${shift}`;
   }
-  if (notice.phrase) return `${route} is ${notice.phrase}.`;
+  if (notice.phrase) return `${route} is ${notice.phrase}.${shift}`;
   const previousTime = formatClockAmPm(notice.previousTime);
   const newTime = formatClockAmPm(notice.newTime);
-  const shift =
+  const times =
     previousTime && newTime ? `, ${previousTime} to ${newTime}` : '';
   const delta = notice.deltaLabel ? ` (${notice.deltaLabel})` : '';
   const status = notice.statusLabel ? ` ${notice.statusLabel}.` : '';
-  return `${route}${shift}${delta}.${status}`;
+  return `${route}${times}${delta}.${status}`;
 }
 
 /**
@@ -217,6 +299,70 @@ function scheduleClockLines(schedule) {
     .filter(Boolean);
 }
 
+const HISTORY_RUNS = [
+  ['AM', 'AM'],
+  ['MIDDAY', 'Midday'],
+  ['PM', 'PM'],
+];
+
+/**
+ * @param {object | null | undefined} item
+ */
+function runRange(item) {
+  if (!item) return '';
+  if (item.range) return String(item.range);
+  if (item.clock_in && item.clock_out) return `${item.clock_in}-${item.clock_out}`;
+  return '';
+}
+
+/**
+ * @param {object | null | undefined} item
+ */
+function runDuration(item) {
+  if (typeof item?.duration_minutes === 'number') return item.duration_minutes;
+  return splitSegmentRange(runRange(item))?.duration_minutes ?? null;
+}
+
+/**
+ * @param {string} label
+ * @param {object | null | undefined} before
+ * @param {object | null | undefined} after
+ */
+function describeRunChange(label, before, after) {
+  const from = formatClockAmPm(runRange(before));
+  const to = formatClockAmPm(runRange(after));
+  if (from && to && from !== to) {
+    const direction = lengthChangePhrase(runDuration(before), runDuration(after));
+    return `${label} changed from ${from} to ${to}${direction ? `, ${direction}` : ''}.`;
+  }
+  if (!from && to) return `${label} was added at ${to}.`;
+  if (from && !to) return `${label} was removed. It had been ${from}.`;
+  return '';
+}
+
+/**
+ * Every run that moved on this row. A saved row can change AM and PM together;
+ * the row's own previous/new pair is only the last run and hides the other.
+ * @param {object | null | undefined} beforeSchedule
+ * @param {object} row
+ */
+function shiftsOnRow(beforeSchedule, row) {
+  const fromSchedule = HISTORY_RUNS.map(([segment, label]) =>
+    describeRunChange(label, beforeSchedule?.[segment], row.schedule?.[segment])
+  ).filter(Boolean);
+  if (fromSchedule.length) return fromSchedule;
+  const from = row.previous?.range || row.previous_time || '';
+  const to = row.next?.range || row.new_time || '';
+  const shift = changeClockShift(row);
+  if (!shift) return [];
+  const direction = lengthChangePhrase(
+    splitSegmentRange(from)?.duration_minutes,
+    splitSegmentRange(to)?.duration_minutes
+  );
+  const run = row.segment === 'MIDDAY' ? 'Midday' : row.segment || 'Clock time';
+  return [`${run} changed${shift}${direction ? `, ${direction}` : ''}.`];
+}
+
 /**
  * @param {object} row
  */
@@ -252,11 +398,34 @@ export function noticeHistoryText(routeName, history) {
     lines.push('No clock-time changes yet.');
     return lines.join('\n');
   }
+  let previousSchedule = initial.schedule;
+  /** @type {object | null} */
+  let previousChange = null;
   for (const row of changes) {
-    const run = row.segment === 'MIDDAY' ? 'Midday' : row.segment || 'Clock time';
+    const shifts = shiftsOnRow(previousSchedule, row);
     const note = String(row.note || '').trim();
+    const when = row.date ? prettyDate(row.date) : 'Date not recorded';
+    const sameDay =
+      row.date && previousChange?.date && row.date === previousChange.date
+        ? ', same day as the change above'
+        : '';
+    const heading = `${when}${sameDay}.`;
+    if (shifts.length > 1) {
+      lines.push(`${heading} These runs were entered together:`);
+      lines.push(...shifts);
+      if (note) lines.push(note);
+    } else if (shifts.length === 1) {
+      lines.push(`${heading} ${shifts[0]}${note ? ` ${note}` : ''}`);
+    } else {
+      lines.push(`${heading}${note ? ` ${note}` : ''}`);
+    }
+    lines.push('');
+    if (row.schedule) previousSchedule = row.schedule;
+    previousChange = row;
+  }
+  if (changes.length > 1 && changes.some((row) => !row.date)) {
     lines.push(
-      `${prettyDate(row.date)}. ${run} changed${changeClockShift(row)}.${note ? ` ${note}` : ''}`
+      'Each block is its own change. Runs in one block were entered together. Date not recorded means that date was left blank, so that change is not known to be the same day as any other.'
     );
   }
   return lines.join('\n');
@@ -289,10 +458,10 @@ export function routeTimesPhrase(routeName, schedule) {
 
 /**
  * The email opened from one clock-time change. The body is the chosen memorandum.
- * @param {{ memorandumId?: string, driverName: string, routeName: string, row: object, asOf?: string }} input
+ * @param {{ memorandumId?: string, templates?: unknown, driverName: string, routeName: string, row: object, asOf?: string }} input
  */
-export function memorandumMail({ memorandumId, driverName, routeName, row, asOf }) {
-  const memo = memorandumById(memorandumId);
+export function memorandumMail({ memorandumId, templates, driverName, routeName, row, asOf }) {
+  const memo = memorandumTemplate(memorandumId, templates);
   const values = {
     driver_name: driverName,
     route_name: String(routeName || '').trim(),
@@ -327,6 +496,27 @@ export function changeNoticeMail({ driverName, routeName, row, asOf, history, su
     subject: fillNoticeTemplate(settings.subject, values),
     body: `${opening}\n\n${story}\n`,
   };
+}
+
+/**
+ * Email whose body is one route’s clock-time history.
+ * @param {{ driverName: string, routeName: string, history?: object[] }} input
+ */
+export function routeHistoryMail({ driverName, routeName, history }) {
+  const route = String(routeName || '').trim() || 'this route';
+  return {
+    subject: `Route clock-time history for route ${route}`,
+    body: `Hi ${driverName},\n\n${noticeHistoryText(route, history)}\n`,
+  };
+}
+
+/**
+ * Calendar download for a route history email, named apart from a driver notice.
+ * @param {string} routeName
+ */
+export function routeHistoryFilename(routeName) {
+  const compact = String(routeName ?? '').replace(/[^A-Za-z0-9]+/g, '');
+  return `Route${compact || 'History'}-clock-history.pdf`;
 }
 
 /**

@@ -95,6 +95,20 @@ describe('timesheets from clock records', () => {
     assert.deepEqual(result.pairs[1].reason_codes, ['Traffic']);
   });
 
+  it('files hours under the route the driver chose', () => {
+    const punches = [
+      { ...punch('a', 'in', at(2026, 8, 8, 15, 0)), run: 'AM' },
+      { ...punch('b', 'out', at(2026, 8, 8, 16, 0)), run: 'AM' },
+      { ...punch('c', 'in', at(2026, 8, 8, 6, 0)), run: 'OTHER' },
+      { ...punch('d', 'out', at(2026, 8, 8, 7, 0)), run: 'OTHER' },
+    ];
+    const september8 = sheet(punches).days.find((day) => day.date === '2026-09-08');
+    assert.equal(september8.amHours, 1);
+    assert.equal(september8.middayHours, 0);
+    assert.equal(september8.pmHours, 0);
+    assert.equal(september8.clockHours, 2);
+  });
+
   it('counts a weekend as overtime and caps a weekday at 8 regular hours', () => {
     const punches = [
       punch('a', 'in', at(2026, 8, 6, 8, 0)),

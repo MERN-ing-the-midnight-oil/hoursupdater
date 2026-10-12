@@ -118,6 +118,7 @@ export function listPeriods(punches, now = new Date()) {
   const current = periodFromDate(now);
   let earliest = current;
   for (const punch of punches) {
+    if (punch?.removed === true) continue;
     const date = new Date(punch?.punched_at);
     if (Number.isNaN(date.getTime())) continue;
     const period = periodFromDate(date);
@@ -337,6 +338,7 @@ export function pairClockPunches(punches) {
   /** @type {object | null} */
   let open = null;
   for (const punch of sorted) {
+    if (punch?.removed === true) continue;
     if (punch.action === 'in') {
       if (open) unpaired.push({ punch: open, reason: 'in' });
       open = punch;
@@ -413,6 +415,7 @@ function combinedReasons(clockIn, clockOut) {
 /**
  * A pair counts as AM before 8:00, midday from 8:00 until 1:00, and PM after that.
  * The earlier stamp decides the run.
+ * Used only when a clock record has no route chosen by the driver.
  * @param {Date} date
  * @returns {'am' | 'midday' | 'pm'}
  */
@@ -421,6 +424,45 @@ export function segmentForClock(date) {
   if (minutes < 8 * 60) return 'am';
   if (minutes < 13 * 60) return 'midday';
   return 'pm';
+}
+
+/**
+ * The route a driver chose for a clock in or clock out.
+ * @param {unknown} value
+ * @returns {'AM' | 'MIDDAY' | 'PM' | 'OTHER' | ''}
+ */
+export function normalizePunchRun(value) {
+  const run = String(value ?? '').trim().toUpperCase().replace(/[\s_-]+/g, '');
+  if (run === 'AM') return 'AM';
+  if (run === 'MIDDAY') return 'MIDDAY';
+  if (run === 'PM') return 'PM';
+  if (run === 'OTHER') return 'OTHER';
+  return '';
+}
+
+/**
+ * @param {'AM' | 'MIDDAY' | 'PM' | 'OTHER' | ''} run
+ */
+export function punchRunLabel(run) {
+  if (run === 'AM') return 'AM route';
+  if (run === 'MIDDAY') return 'Mid day route';
+  if (run === 'PM') return 'PM route';
+  if (run === 'OTHER') return 'Other';
+  return '';
+}
+
+/**
+ * The driver's choice on the clock in, then the clock out.
+ * A record saved before that choice still uses the clock time.
+ * @param {{ clockIn?: { run?: string }, clockOut?: { run?: string }, start: Date, end: Date }} pair
+ * @returns {'AM' | 'MIDDAY' | 'PM' | 'OTHER'}
+ */
+export function runForClockPair(pair) {
+  const chosen = normalizePunchRun(pair?.clockIn?.run) || normalizePunchRun(pair?.clockOut?.run);
+  if (chosen) return chosen;
+  const earlier = pair.start <= pair.end ? pair.start : pair.end;
+  const segment = segmentForClock(earlier);
+  return segment === 'am' ? 'AM' : segment === 'midday' ? 'MIDDAY' : 'PM';
 }
 
 /**
@@ -525,9 +567,12 @@ export function buildTimesheet({ driver, punches, routes, calendar, period, extr
     }
     const key = localDateKey(pair.start);
     hoursByDay.set(key, roundHours((hoursByDay.get(key) ?? 0) + pair.hours));
-    const segment = segmentForClock(pair.start <= pair.end ? pair.start : pair.end);
-    const segmentKey = `${key}:${segment}`;
-    segmentHours.set(segmentKey, roundHours((segmentHours.get(segmentKey) ?? 0) + pair.hours));
+    const run = runForClockPair(pair);
+    if (run !== 'OTHER') {
+      const segment = run === 'AM' ? 'am' : run === 'MIDDAY' ? 'midday' : 'pm';
+      const segmentKey = `${key}:${segment}`;
+      segmentHours.set(segmentKey, roundHours((segmentHours.get(segmentKey) ?? 0) + pair.hours));
+    }
     rows.push({
       at: pair.start.getTime(),
       in_label: formatStamp(pair.start),
