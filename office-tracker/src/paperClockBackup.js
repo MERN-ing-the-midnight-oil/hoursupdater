@@ -145,24 +145,6 @@ export function formatPaperWhen(date) {
 }
 
 /**
- * Note, substitute, and reason codes on one short line.
- * @param {object} punch
- */
-export function paperDetail(punch) {
-  /** @type {string[]} */
-  const bits = [];
-  const note = String(punch?.note || '').trim();
-  if (note) bits.push(note);
-  const substitute = String(punch?.substitute_name || '').trim();
-  if (substitute) bits.push(`Sub ${substitute}`);
-  const reasons = (Array.isArray(punch?.reason_codes) ? punch.reason_codes : [])
-    .map((code) => String(code?.label || '').trim())
-    .filter(Boolean);
-  if (reasons.length) bits.push(reasons.join(', '));
-  return bits.join(' · ');
-}
-
-/**
  * Driver name, then oldest clock first inside that name.
  * @param {object[]} punches
  */
@@ -242,28 +224,67 @@ function escapeHtml(value) {
 }
 
 /**
- * Compact 10-point sheet. One table, a heading row for each driver.
+ * Split driver groups into two columns of similar length.
+ * @param {Array<{ name: string, punches: object[] }>} groups
+ */
+function paperColumns(groups) {
+  const weight = (group) => group.punches.length + 1;
+  const total = groups.reduce((sum, group) => sum + weight(group), 0);
+  /** @type {Array<{ name: string, punches: object[] }>} */
+  const left = [];
+  let used = 0;
+  let index = 0;
+  while (index < groups.length) {
+    if (left.length && used >= total / 2) break;
+    left.push(groups[index]);
+    used += weight(groups[index]);
+    index += 1;
+  }
+  return [left, groups.slice(index)];
+}
+
+/**
+ * When, and in or out. A run stays on the in/out cell so the row is two columns.
+ * @param {object} punch
+ */
+function paperPunchCells(punch) {
+  const at = new Date(punch.punched_at);
+  const when = Number.isNaN(at.getTime()) ? '' : formatPaperWhen(at);
+  const kind = punch.action === 'out' ? 'Out' : 'In';
+  const run = paperRunLabel(punch.run);
+  return { when, kind: run ? `${kind} ${run}` : kind };
+}
+
+/**
+ * @param {Array<{ name: string, punches: object[] }>} groups
+ */
+function paperColumnHtml(groups) {
+  return groups
+    .map((group) => {
+      const lines = group.punches
+        .map((punch) => {
+          const cells = paperPunchCells(punch);
+          return `<tr><td>${escapeHtml(cells.when)}</td><td>${escapeHtml(cells.kind)}</td></tr>`;
+        })
+        .join('');
+      return `<section class="paper-driver"><h2>${escapeHtml(group.name)}</h2><table><tbody>${lines}</tbody></table></section>`;
+    })
+    .join('');
+}
+
+/**
+ * Two columns of clock records. Each row is the time and the in or out.
+ * Notes, reason codes, and substitute status stay off the paper.
  * @param {Array<{ name: string, punches: object[] }>} groups
  * @param {{ hours: number, start: Date, end: Date }} range
  */
 export function paperBackupHtml(groups, range) {
   const hours = normalizeBackupHours(range.hours);
   const heading = `Last ${hours} hour${hours === 1 ? '' : 's'} · ${formatPaperWhen(range.start)} – ${formatPaperWhen(range.end)}`;
-  const rows = groups
-    .map((group) => {
-      const lines = group.punches
-        .map((punch) => {
-          const at = new Date(punch.punched_at);
-          const when = Number.isNaN(at.getTime()) ? '' : formatPaperWhen(at);
-          const kind = punch.action === 'out' ? 'Out' : 'In';
-          return `<tr><td>${escapeHtml(when)}</td><td>${kind}</td><td>${escapeHtml(paperRunLabel(punch.run))}</td><td>${escapeHtml(paperDetail(punch))}</td></tr>`;
-        })
-        .join('');
-      return `<tr class="driver"><th colspan="4">${escapeHtml(group.name)}</th></tr>${lines}`;
-    })
-    .join('');
-  const body = rows
-    ? `<table><thead><tr><th>When</th><th>In/Out</th><th>Run</th><th>Note</th></tr></thead><tbody>${rows}</tbody></table>`
+  const body = groups.length
+    ? `<div class="paper-columns">${paperColumns(groups)
+        .map((column) => `<div class="paper-col">${paperColumnHtml(column)}</div>`)
+        .join('')}</div>`
     : `<p class="paper-empty">No clock ins or clock outs in the last ${hours} hour${hours === 1 ? '' : 's'}.</p>`;
   return `<div class="paper-backup-print" style="font-size:10pt;line-height:1.15"><h1>Paper clock backup</h1><p>${escapeHtml(heading)}</p>${body}</div>`;
 }

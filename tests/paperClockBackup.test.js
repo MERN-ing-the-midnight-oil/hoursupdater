@@ -91,7 +91,7 @@ test('clock records group under each driver name', () => {
   );
 });
 
-test('the sheet is 10-point type and lists each driver once', () => {
+test('the sheet is two columns of time and in or out, without notes or substitutes', () => {
   const start = new Date(2026, 9, 11, 12, 0, 0);
   const end = new Date(2026, 9, 12, 12, 0, 0);
   const groups = groupPunchesByDriver([
@@ -106,18 +106,19 @@ test('the sheet is 10-point type and lists each driver once', () => {
   assert.match(html, /font-size:10pt/);
   assert.match(html, /<h1>Paper clock backup<\/h1>/);
   assert.match(html, /Last 24 hours/);
-  assert.match(html, /<th colspan="4">Ada Jones<\/th>/);
-  assert.match(html, /<th colspan="4">Ben Cole<\/th>/);
+  assert.match(html, /class="paper-columns"/);
+  assert.equal(html.match(/class="paper-col"/g)?.length, 2);
+  assert.match(html, /<h2>Ada Jones<\/h2>/);
+  assert.match(html, /<h2>Ben Cole<\/h2>/);
   assert.match(html, /10\/12\/2026 6:02 AM/);
-  assert.match(html, />In</);
-  assert.match(html, />AM</);
-  assert.match(html, /late bus · Weather/);
-  assert.match(html, /Sub Pat Lee/);
+  assert.match(html, />In AM</);
+  assert.match(html, />Out</);
+  assert.doesNotMatch(html, /late bus|Weather|Pat Lee|Note|Substitute/);
+  const left = html.indexOf('class="paper-col"');
+  const right = html.indexOf('class="paper-col"', left + 1);
   const ada = html.indexOf('Ada Jones');
   const ben = html.indexOf('Ben Cole');
-  const adaTime = html.indexOf('6:02 AM');
-  const benTime = html.indexOf('9:00 AM');
-  assert.ok(ada < adaTime && adaTime < ben && ben < benTime);
+  assert.ok(left < ada && ada < right && right < ben);
 });
 
 test('a reminder is due 24 hours after the last paper backup', () => {
