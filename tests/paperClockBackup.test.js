@@ -6,10 +6,15 @@ import {
   mergePaperBackup,
   normalizeBackupHours,
   normalizePaperBackup,
+  markPaperPagesPrinted,
+  mergePaperPages,
   paperBackupCsv,
   paperBackupHtml,
   paperBackupReminderDue,
   paperBackupReminderText,
+  paperPageSpan,
+  paperPagesHtml,
+  syncPaperPages,
   punchesInRange,
   yearToDateFilename,
   yearToDateRange,
@@ -121,55 +126,62 @@ test('the sheet is two columns of time and in or out, without notes or substitut
   assert.ok(left < ada && ada < right && right < ben);
 });
 
-test('a reminder is due 24 hours after the last paper backup', () => {
-  const now = new Date(2026, 9, 12, 12, 0, 0);
-  const punches = [punch('old', 'Ada Jones', 'in', new Date(2026, 9, 1, 8, 0, 0))];
+test('a full page joins the queue newest first, and a short page stays open', () => {
+  const punches = [0, 1, 2, 3, 4].map((hour) =>
+    punch(`p${hour}`, hour % 2 ? 'Ben Cole' : 'Ada Jones', hour % 2 ? 'out' : 'in', new Date(2026, 9, 13, 8 + hour, 0, 0), {
+      run: 'AM',
+      note: 'skip',
+    })
+  );
+  punches.push(punch('gone', 'Ada Jones', 'in', new Date(2026, 9, 13, 7, 0, 0), { removed: true }));
+  const first = syncPaperPages(punches, [], { pageSize: 4 });
+  assert.equal(first.pages.length, 1);
+  assert.deepEqual(
+    first.pages[0].rows.map((row) => row.id),
+    ['p3', 'p2', 'p1', 'p0']
+  );
+  assert.equal(first.pages[0].printedAt, '');
+  assert.deepEqual(
+    first.open.map((row) => row.id),
+    ['p4']
+  );
+  assert.doesNotMatch(JSON.stringify(first.pages[0].rows), /skip/);
+  const again = syncPaperPages(punches, first.pages, { pageSize: 4 });
+  assert.equal(again.pages.length, 1);
+  assert.equal(again.pages[0].id, first.pages[0].id);
+  const html = paperPagesHtml(
+    [{ title: 'Page 1', rows: first.pages[0].rows }],
+    { columnRows: 2 }
+  );
+  assert.match(html, /font-size:10pt/);
+  assert.match(html, /<h1>Page 1<\/h1>/);
+  assert.equal(paperPageSpan(first.pages[0].rows), '10/13/2026 11:00 AM – 10/13/2026 8:00 AM');
+  const columns = [...html.matchAll(/<div class="paper-col">([\s\S]*?)<\/div>/g)].map((match) => match[1]);
+  assert.match(columns[0], /11:00 AM[\s\S]*10:00 AM/);
+  assert.match(columns[1], /9:00 AM[\s\S]*8:00 AM/);
+  assert.match(html, /Ada Jones/);
+  assert.match(html, />In AM</);
+  assert.doesNotMatch(html, /skip/);
+});
+
+test('a reminder is due while pages are waiting to print', () => {
+  const waiting = [{ id: 'page-a-b', sealedAt: '2026-10-13T15:00:00.000Z', printedAt: '', rows: [{ id: 'b', driver_name: 'Ada Jones', action: 'in', punched_at: '2026-10-13T15:00:00.000Z' }] }];
+  assert.equal(paperBackupReminderDue({ reminders: true, pages: waiting }), true);
+  assert.equal(paperBackupReminderDue({ reminders: false, pages: waiting }), false);
   assert.equal(
     paperBackupReminderDue({
       reminders: true,
-      lastPrintedAt: new Date(2026, 9, 11, 12, 0, 0).toISOString(),
-      hours: 24,
-      punches,
-      now,
-    }),
-    true
-  );
-  assert.equal(
-    paperBackupReminderDue({
-      reminders: true,
-      lastPrintedAt: new Date(2026, 9, 11, 12, 1, 0).toISOString(),
-      hours: 24,
-      punches,
-      now,
+      pages: markPaperPagesPrinted(waiting, ['page-a-b'], '2026-10-13T16:00:00.000Z'),
     }),
     false
   );
-  assert.equal(
-    paperBackupReminderDue({
-      reminders: false,
-      lastPrintedAt: '',
-      hours: 24,
-      punches,
-      now,
-    }),
-    false
-  );
-  assert.equal(
-    paperBackupReminderDue({
-      reminders: true,
-      lastPrintedAt: '',
-      hours: 24,
-      punches: [punch('new', 'Ada Jones', 'in', new Date(2026, 9, 12, 8, 0, 0))],
-      now,
-    }),
-    false
-  );
-  assert.equal(
-    paperBackupReminderDue({ reminders: true, lastPrintedAt: '', hours: 24, punches: [], now }),
-    false
-  );
-  assert.match(paperBackupReminderText({ hours: 24, lastPrintedAt: '2026-10-11T19:00:00.000Z' }), /more than 24 hours/);
-  assert.match(paperBackupReminderText({ hours: 24, lastPrintedAt: '' }), /last 24 hours/);
+  assert.equal(paperBackupReminderText(1), '1 page of clock records is waiting to print.');
+  assert.equal(paperBackupReminderText(2), '2 pages of clock records are waiting to print.');
+  const merged = mergePaperPages(waiting, [
+    { ...waiting[0], printedAt: '2026-10-13T16:00:00.000Z' },
+  ]);
+  assert.equal(merged[0].printedAt, '2026-10-13T16:00:00.000Z');
+  assert.equal(merged[0].rows[0].driver_name, 'Ada Jones');
 });
 
 test('year-to-date download starts on January 1 and groups drivers', () => {
@@ -231,7 +243,7 @@ test('saved backup settings survive a reload, and the later print time is kept',
   assert.equal(mergeSharedDriverList(remote, localUnset).paperBackup.hours, 12);
   assert.deepEqual(
     mergePaperBackup(remote.paperBackup, { hours: 48, reminders: true, lastPrintedAt: '2026-10-10T12:00:00.000Z' }),
-    { hours: 48, reminders: true, lastPrintedAt: '2026-10-11T12:00:00.000Z' }
+    { hours: 48, reminders: true, lastPrintedAt: '2026-10-11T12:00:00.000Z', pages: [] }
   );
   assert.equal(
     mergeSharedDriverList(remote, {

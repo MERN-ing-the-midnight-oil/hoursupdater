@@ -2404,7 +2404,7 @@ function renderApp() {
     driverHistoryView.hidden = true;
     setupView.hidden = true;
     appView.hidden = true;
-    document.title = `Paper backup · ${APP_TITLE}`;
+    document.title = `Paper records · ${APP_TITLE}`;
     paperBackup.refresh();
     return;
   }
@@ -3480,12 +3480,15 @@ async function adoptStarterOffice() {
   });
 }
 
+let refreshPaperRecords = () => {};
+
 const clockDesk = mountClockDesk({
   readState: loadState,
   writePunches(punches) {
     const state = loadState();
     state.punches = punches;
     saveState(state);
+    refreshPaperRecords();
   },
   listNames() {
     return listDrivers().map((driver) => driver.name);
@@ -3544,6 +3547,7 @@ const timeclockDesk = mountTimeclock({
   writeState(state) {
     saveState(state);
     clockDesk.refresh();
+    refreshPaperRecords();
   },
   listPeople() {
     const state = loadState();
@@ -3594,12 +3598,14 @@ const timeclockDesk = mountTimeclock({
 });
 
 const paperBackup = mountPaperBackup({
+
   readState: loadState,
   writeState(state) {
     saveState(state);
     timeclockDesk.refresh();
   },
 });
+refreshPaperRecords = () => paperBackup.refresh();
 
 window.addEventListener('storage', (event) => {
   if (event.key !== STORAGE_KEY) return;

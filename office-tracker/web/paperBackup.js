@@ -1,18 +1,22 @@
 /**
- * Paper backup page on Clocking. The sheet is what prints.
- * Duration and the reminder choice are saved with the office.
+ * Paper records on Clock records. Full pages wait in a queue until they are printed.
+ * A printed page stays available to print again. Year-to-date is a separate download.
  */
 
 import {
-  backupRange,
   groupPunchesByDriver,
-  normalizeBackupHours,
+  markPaperPagesPrinted,
   normalizePaperBackup,
   paperBackupCsv,
-  paperBackupHtml,
   paperBackupReminderDue,
   paperBackupReminderText,
+  paperPageSpan,
+  PAPER_PAGE_SIZE,
+  paperPagesHtml,
+  printedPaperPages,
   punchesInRange,
+  syncPaperPages,
+  waitingPaperPages,
   yearToDateFilename,
   yearToDateRange,
 } from '../src/paperClockBackup.js';
@@ -25,19 +29,16 @@ import {
  */
 export function mountPaperBackup({ readState, writeState }) {
   const view = document.querySelector('#paper-backup-view');
-  const form = document.querySelector('#paper-backup-form');
-  const hoursInput = document.querySelector('#paper-backup-hours');
   const remindersInput = document.querySelector('#paper-backup-reminders');
   const sheet = document.querySelector('#paper-backup-sheet');
   const status = document.querySelector('#paper-backup-status');
   const reminder = document.querySelector('#paper-backup-reminder');
   const reminderText = document.querySelector('#paper-backup-reminder-text');
-  if (!(hoursInput instanceof HTMLInputElement) || !(remindersInput instanceof HTMLInputElement) || !sheet) {
+  const waitingList = document.querySelector('#paper-record-waiting');
+  const printedList = document.querySelector('#paper-record-printed');
+  const openNote = document.querySelector('#paper-record-open');
+  if (!(remindersInput instanceof HTMLInputElement) || !sheet) {
     return { refresh() {} };
-  }
-
-  function saved() {
-    return normalizePaperBackup(readState().paperBackup);
   }
 
   function punches() {
@@ -45,13 +46,27 @@ export function mountPaperBackup({ readState, writeState }) {
     return Array.isArray(list) ? list : [];
   }
 
-  /**
-   * @param {Partial<{ hours: number, reminders: boolean, lastPrintedAt: string }>} partial
-   */
-  function save(partial) {
+  function remember(pages, reminders = remindersInput.checked) {
     const next = readState();
-    next.paperBackup = { ...normalizePaperBackup(next.paperBackup), ...partial };
+    const current = normalizePaperBackup(next.paperBackup);
+    next.paperBackup = { ...current, reminders, pages };
     writeState(next);
+  }
+
+  /**
+   * Seal any new full pages into the shared queue.
+   */
+  function currentPages() {
+    const saved = normalizePaperBackup(readState().paperBackup);
+    const synced = syncPaperPages(punches(), saved.pages);
+    const before = saved.pages.map((page) => page.id).join('\n');
+    const after = synced.pages.map((page) => page.id).join('\n');
+    if (before !== after) remember(synced.pages, saved.reminders);
+    return {
+      prefs: normalizePaperBackup(readState().paperBackup),
+      pages: synced.pages,
+      open: synced.open,
+    };
   }
 
   function setStatus(message) {
@@ -60,71 +75,144 @@ export function mountPaperBackup({ readState, writeState }) {
     status.textContent = message || '';
   }
 
-  function fillForm() {
-    const prefs = saved();
-    if (document.activeElement !== hoursInput) hoursInput.value = String(prefs.hours);
-    if (document.activeElement !== remindersInput) remindersInput.checked = prefs.reminders;
+  /**
+   * @param {Array<{ title?: string, rows: object[] }>} pages
+   */
+  function showPages(pages) {
+    sheet.innerHTML = paperPagesHtml(pages);
   }
 
-  function commitForm() {
-    const hours = normalizeBackupHours(hoursInput.value);
-    hoursInput.value = String(hours);
-    save({ hours, reminders: remindersInput.checked });
-    return saved();
-  }
-
-  function renderSheet() {
-    const now = new Date();
-    const prefs = saved();
-    const range = backupRange(now, prefs.hours);
-    const groups = groupPunchesByDriver(punchesInRange(punches(), range.start, range.end));
-    sheet.innerHTML = paperBackupHtml(groups, { hours: prefs.hours, start: range.start, end: range.end });
-  }
-
-  function renderReminder() {
+  function renderReminder(pages) {
     if (!reminder) return;
-    const now = new Date();
-    const prefs = saved();
-    const due = paperBackupReminderDue({ ...prefs, punches: punches(), now });
+    const prefs = normalizePaperBackup(readState().paperBackup);
+    const waiting = waitingPaperPages(pages);
+    const due = paperBackupReminderDue({ reminders: prefs.reminders, pages });
     reminder.hidden = !due;
-    if (reminderText) reminderText.textContent = due ? paperBackupReminderText(prefs) : '';
+    if (reminderText) reminderText.textContent = due ? paperBackupReminderText(waiting.length) : '';
+  }
+
+  /**
+   * @param {HTMLElement | null} list
+   * @param {object[]} pages
+   * @param {string} emptyText
+   */
+  function fillPageList(list, pages, emptyText) {
+    if (!list) return;
+    list.replaceChildren();
+    if (!pages.length) {
+      const item = document.createElement('li');
+      item.textContent = emptyText;
+      list.append(item);
+      return;
+    }
+    pages.forEach((page, index) => {
+      const item = document.createElement('li');
+      const label = document.createElement('span');
+      const number = page.number || index + 1;
+      label.textContent = `Page ${number} · ${paperPageSpan(page.rows)}`;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary';
+      button.textContent = 'Print';
+      button.addEventListener('click', () => printPages([page], false));
+      item.append(label, button);
+      list.append(item);
+    });
+  }
+
+  function renderQueue() {
+    const { prefs, pages, open } = currentPages();
+    if (document.activeElement !== remindersInput) remindersInput.checked = prefs.reminders;
+    const waiting = waitingPaperPages(pages).map((page, index) => ({
+      ...page,
+      number: pages.findIndex((item) => item.id === page.id) + 1 || index + 1,
+      title: `Page ${pages.findIndex((item) => item.id === page.id) + 1}`,
+    }));
+    const printed = printedPaperPages(pages).map((page) => ({
+      ...page,
+      number: pages.findIndex((item) => item.id === page.id) + 1,
+      title: `Page ${pages.findIndex((item) => item.id === page.id) + 1}`,
+    }));
+    fillPageList(waitingList, waiting, 'No pages are waiting.');
+    fillPageList(printedList, printed, 'No pages have been printed yet.');
+    const printWaiting = document.querySelector('#paper-record-print-waiting');
+    if (printWaiting instanceof HTMLButtonElement) printWaiting.disabled = waiting.length === 0;
+    if (openNote) {
+      const remaining = PAPER_PAGE_SIZE - open.length;
+      openNote.textContent = open.length
+        ? `The current page has ${open.length} clock record${open.length === 1 ? '' : 's'}. ${remaining} more fill the next page.`
+        : 'The current page is empty. Clock records fill it until a whole page is ready.';
+    }
+    showPages(
+      waiting.length
+        ? waiting
+        : open.length
+          ? [{ title: 'Current page', rows: open }]
+          : []
+    );
+    renderReminder(pages);
+    return { waiting, printed, open, pages };
+  }
+
+  /**
+   * @param {object[]} selected
+   * @param {boolean} clearWaiting
+   */
+  function printPages(selected, clearWaiting) {
+    const { pages } = currentPages();
+    const printable = selected.filter((page) => page.rows?.length);
+    if (!printable.length) {
+      setStatus('There are no clock records to print.');
+      return;
+    }
+    showPages(printable);
+    if (clearWaiting) {
+      const ids = printable.map((page) => page.id).filter(Boolean);
+      remember(markPaperPagesPrinted(pages, ids, new Date().toISOString()));
+    } else {
+      const unprinted = printable.filter((page) => page.id && !page.printedAt).map((page) => page.id);
+      if (unprinted.length) remember(markPaperPagesPrinted(pages, unprinted, new Date().toISOString()));
+    }
+    renderQueue();
+    showPages(printable);
+    window.print();
+    const count = printable.length;
+    setStatus(
+      count === 1 ? '1 page was sent to the printer.' : `${count} pages were sent to the printer.`
+    );
   }
 
   function refresh() {
-    fillForm();
-    renderSheet();
-    renderReminder();
+    renderQueue();
   }
 
-  form?.addEventListener('submit', (event) => {
+  document.querySelector('#paper-backup-form')?.addEventListener('submit', (event) => {
     event.preventDefault();
-    commitForm();
-    refresh();
-    setStatus('Paper backup settings saved.');
-  });
-  hoursInput.addEventListener('change', () => {
-    commitForm();
-    renderSheet();
-    renderReminder();
-    setStatus('');
+    const { pages } = currentPages();
+    remember(pages, remindersInput.checked);
+    renderReminder(pages);
+    setStatus('Paper record reminder saved.');
   });
   remindersInput.addEventListener('change', () => {
-    commitForm();
-    renderReminder();
-    setStatus(remindersInput.checked ? 'Paper backup reminders are on.' : 'Paper backup reminders are off.');
+    const { pages } = currentPages();
+    remember(pages, remindersInput.checked);
+    renderReminder(pages);
+    setStatus(remindersInput.checked ? 'Paper record reminders are on.' : 'Paper record reminders are off.');
   });
 
-  document.querySelector('#paper-backup-print')?.addEventListener('click', () => {
-    const prefs = commitForm();
-    renderSheet();
-    save({ lastPrintedAt: new Date().toISOString() });
-    renderReminder();
+  document.querySelector('#paper-record-print-waiting')?.addEventListener('click', () => {
+    const { waiting } = renderQueue();
+    printPages(waiting, true);
+  });
+  document.querySelector('#paper-record-print-open')?.addEventListener('click', () => {
+    const { open } = currentPages();
+    if (!open.length) {
+      setStatus('The current page has no clock records yet.');
+      return;
+    }
+    showPages([{ title: 'Current page', rows: open }]);
     window.print();
-    setStatus(
-      prefs.reminders
-        ? `Paper backup sent to the printer. The next reminder is in ${prefs.hours} hours.`
-        : 'Paper backup sent to the printer.'
-    );
+    setStatus('The current page was sent to the printer. It stays open until it is full.');
   });
 
   document.querySelector('#paper-backup-ytd')?.addEventListener('click', () => {
@@ -148,8 +236,8 @@ export function mountPaperBackup({ readState, writeState }) {
   });
 
   window.setInterval(() => {
-    renderReminder();
-    if (view && !view.hidden) renderSheet();
+    if (view && !view.hidden) renderQueue();
+    else renderReminder(normalizePaperBackup(readState().paperBackup).pages);
   }, 60000);
 
   return { refresh };

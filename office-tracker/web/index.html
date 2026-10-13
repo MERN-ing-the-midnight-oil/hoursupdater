@@ -523,7 +523,7 @@
             <p class="lead">
               Start Timeclock opens the driver screen on this tablet or laptop and keeps it there.
               On another screen opens that same driver screen on a second monitor and leaves this window free.
-              Clock records opens the name list so you can add, change, or remove a clock in or clock out, and print a paper backup.
+              Clock records opens the name list so you can add, change, or remove a clock in or clock out, and print paper records.
             </p>
           </div>
           <div class="payroll-clock-side">
@@ -576,9 +576,9 @@
           </h1>
           <div id="paper-backup-reminder" class="paper-backup-reminder" hidden>
             <p id="paper-backup-reminder-text"></p>
-            <button type="button" id="paper-backup-reminder-open">Print paper backup</button>
+            <button type="button" id="paper-backup-reminder-open">Print paper records</button>
           </div>
-          <p class="lead">Click a name to add, change, or remove a clock in or clock out. Paper backup prints the recent clock ins and clock outs, grouped by driver.</p>
+          <p class="lead">Click a name to add, change, or remove a clock in or clock out. Paper records collects each full page, newest clock record first, until you print it.</p>
           <div class="clock-launch">
             <button type="button" class="secondary" id="open-paper-backup">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -586,7 +586,7 @@
                 <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
                 <rect x="6" y="14" width="12" height="7" />
               </svg>
-              Paper backup
+              Paper records
             </button>
           </div>
           <ul id="clocking-driver-list" class="clock-driver-list"></ul>
@@ -704,49 +704,35 @@
               <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
               <rect x="6" y="14" width="12" height="7" />
             </svg>
-            Paper backup
+            Paper records
           </h1>
           <p class="lead">
-            Print the clock ins and clock outs from the backup window. They are grouped by driver name, in two columns.
+            A full page of clock records is added to the queue, newest at the top of the page.
+            Print waiting pages clears the queue. Printed pages can be printed again.
             Download keeps every clock record from January 1 through today.
           </p>
           <form id="paper-backup-form" class="clock-form" novalidate>
             <div class="field">
-              <label for="paper-backup-hours">Backup duration</label>
-              <input
-                id="paper-backup-hours"
-                type="number"
-                min="1"
-                max="744"
-                step="1"
-                inputmode="numeric"
-                value="24"
-                required
-              />
-              <p class="field-hint">Hours. 24 prints every clock in and clock out from the last day. The longest window is 744 hours.</p>
-            </div>
-            <div class="field">
               <label>
                 <input id="paper-backup-reminders" type="checkbox" checked />
-                Remind me to print a paper backup
+                Remind me when pages are waiting to print
               </label>
               <p class="field-hint">
-                When this is on, Clock records reminds you after the backup duration passes.
+                When this is on, Clock records tells you how many pages are waiting.
                 The same choice is in Timeclock settings.
               </p>
             </div>
+            <h2>Waiting to print</h2>
+            <ul id="paper-record-waiting" class="paper-record-list"></ul>
+            <p id="paper-record-open" class="field-hint"></p>
             <div class="actions">
-              <button type="submit" class="secondary">Save backup settings</button>
-              <button type="button" id="paper-backup-print">
-                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M6 9V3h12v6" />
-                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-                  <rect x="6" y="14" width="12" height="7" />
-                </svg>
-                Print paper backup
-              </button>
+              <button type="submit" class="secondary">Save reminder</button>
+              <button type="button" id="paper-record-print-waiting">Print waiting pages</button>
+              <button type="button" class="secondary" id="paper-record-print-open">Print the current page</button>
               <button type="button" class="secondary" id="paper-backup-ytd">Download year-to-date</button>
             </div>
+            <h2>Printed pages</h2>
+            <ul id="paper-record-printed" class="paper-record-list"></ul>
           </form>
           <p id="paper-backup-status" class="status" role="status" hidden></p>
         </div>
@@ -812,17 +798,17 @@
                 <rect x="6" y="14" width="12" height="7" />
               </svg>
             </span>
-            Paper backup reminder
+            Paper records reminder
           </h2>
           <p class="field-hint">
-            Clock records reminds you to print a paper backup after the backup duration passes.
-            That duration starts at 24 hours and is changed on Paper backup.
+            Clock records reminds you when a full page is waiting to print.
+            Printing those pages clears them from the queue. Any printed page can be printed again.
           </p>
           <form id="paper-backup-reminder-form" class="clock-form" novalidate>
             <div class="field">
               <label>
                 <input id="paper-backup-reminders-setting" type="checkbox" checked />
-                Remind me to print a paper backup
+                Remind me when pages are waiting to print
               </label>
             </div>
             <div class="actions">

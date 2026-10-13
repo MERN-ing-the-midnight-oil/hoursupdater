@@ -8,6 +8,11 @@ export const DEFAULT_BACKUP_HOURS = 24;
 export const MIN_BACKUP_HOURS = 1;
 export const MAX_BACKUP_HOURS = 24 * 31;
 
+/** Rows down one column of a letter page at 10-point type, under a one-line heading. */
+export const PAPER_COLUMN_ROWS = 58;
+/** A sealed page is the left column, then the right column. */
+export const PAPER_PAGE_SIZE = PAPER_COLUMN_ROWS * 2;
+
 /**
  * Whole hours for the paper window. A blank or unusable value is 24 hours.
  * @param {unknown} raw
@@ -41,6 +46,7 @@ export function normalizePaperBackup(raw) {
     hours: normalizeBackupHours(source.hours),
     reminders: normalizePaperBackupReminders(source.reminders),
     lastPrintedAt: printed && !Number.isNaN(when.getTime()) ? when.toISOString() : '',
+    pages: normalizePaperPages(source.pages),
   };
 }
 
@@ -57,6 +63,7 @@ export function mergePaperBackup(remoteRaw, localRaw) {
     hours: local.hours,
     reminders: local.reminders,
     lastPrintedAt: laterStamp(remote.lastPrintedAt, local.lastPrintedAt),
+    pages: mergePaperPages(remote.pages, local.pages),
   };
 }
 
@@ -71,6 +78,159 @@ function laterStamp(left, right) {
   if (Number.isNaN(a)) return new Date(b).toISOString();
   if (Number.isNaN(b)) return new Date(a).toISOString();
   return new Date(Math.max(a, b)).toISOString();
+}
+
+/**
+ * @param {unknown} raw
+ */
+function isoStamp(raw) {
+  const text = String(raw || '').trim();
+  const when = new Date(text);
+  return text && !Number.isNaN(when.getTime()) ? when.toISOString() : '';
+}
+
+/**
+ * @param {unknown} raw
+ */
+function normalizePaperRow(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const at = isoStamp(raw.punched_at);
+  const id = String(raw.id || '').trim();
+  if (!at || !id) return null;
+  const run = raw.run === 'AM' || raw.run === 'MIDDAY' || raw.run === 'PM' || raw.run === 'OTHER' ? raw.run : '';
+  return {
+    id,
+    driver_name: String(raw.driver_name || '').trim() || 'Unknown',
+    action: raw.action === 'out' ? 'out' : 'in',
+    punched_at: at,
+    ...(run ? { run } : {}),
+  };
+}
+
+/**
+ * @param {unknown} raw
+ */
+export function normalizePaperPages(raw) {
+  if (!Array.isArray(raw)) return [];
+  /** @type {Array<{ id: string, sealedAt: string, printedAt: string, rows: object[] }>} */
+  const pages = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const id = String(item.id || '').trim();
+    const sealedAt = isoStamp(item.sealedAt);
+    const rows = (Array.isArray(item.rows) ? item.rows : []).map(normalizePaperRow).filter(Boolean);
+    if (!id || !sealedAt || !rows.length) continue;
+    pages.push({
+      id,
+      sealedAt,
+      printedAt: isoStamp(item.printedAt),
+      rows,
+    });
+  }
+  pages.sort((a, b) => a.sealedAt.localeCompare(b.sealedAt) || a.id.localeCompare(b.id));
+  return pages;
+}
+
+/**
+ * Same page id keeps one snapshot. A later print time wins.
+ * @param {unknown} remotePages
+ * @param {unknown} localPages
+ */
+export function mergePaperPages(remotePages, localPages) {
+  /** @type {Map<string, { id: string, sealedAt: string, printedAt: string, rows: object[] }>} */
+  const byId = new Map();
+  for (const page of [...normalizePaperPages(remotePages), ...normalizePaperPages(localPages)]) {
+    const current = byId.get(page.id);
+    if (!current) {
+      byId.set(page.id, page);
+      continue;
+    }
+    byId.set(page.id, {
+      ...current,
+      printedAt: laterStamp(current.printedAt, page.printedAt),
+    });
+  }
+  return [...byId.values()].sort((a, b) => a.sealedAt.localeCompare(b.sealedAt) || a.id.localeCompare(b.id));
+}
+
+/**
+ * @param {object} punch
+ */
+function paperRowId(punch) {
+  const id = String(punch?.id || '').trim();
+  if (id) return id;
+  const at = isoStamp(punch?.punched_at);
+  return at ? `at:${at}` : '';
+}
+
+/**
+ * @param {object} punch
+ */
+function paperRowFromPunch(punch) {
+  return normalizePaperRow({
+    id: paperRowId(punch),
+    driver_name: punch?.driver_name,
+    action: punch?.action,
+    punched_at: punch?.punched_at,
+    run: punch?.run,
+  });
+}
+
+/**
+ * @param {object[]} rows
+ */
+function newestFirst(rows) {
+  return [...rows].sort((a, b) => String(b.punched_at).localeCompare(String(a.punched_at)) || String(b.id).localeCompare(String(a.id)));
+}
+
+/**
+ * Seal every full page of clock records that is not already on a page.
+ * Rows on a page run newest to oldest. The open page is the remainder.
+ * @param {object[] | null | undefined} punches
+ * @param {unknown} savedPages
+ * @param {{ pageSize?: number }} [options]
+ */
+export function syncPaperPages(punches, savedPages, options = {}) {
+  const pageSize = options.pageSize || PAPER_PAGE_SIZE;
+  const pages = normalizePaperPages(savedPages);
+  const used = new Set(pages.flatMap((page) => page.rows.map((row) => row.id)));
+  const fresh = [];
+  for (const punch of Array.isArray(punches) ? punches : []) {
+    if (!punch || punch.removed === true) continue;
+    const row = paperRowFromPunch(punch);
+    if (!row || used.has(row.id)) continue;
+    used.add(row.id);
+    fresh.push(row);
+  }
+  fresh.sort((a, b) => a.punched_at.localeCompare(b.punched_at) || a.id.localeCompare(b.id));
+  const sealed = [...pages];
+  while (fresh.length >= pageSize) {
+    const batch = newestFirst(fresh.splice(0, pageSize));
+    const newest = batch[0];
+    const oldest = batch[batch.length - 1];
+    sealed.push({
+      id: `page-${oldest.id}-${newest.id}`,
+      sealedAt: newest.punched_at,
+      printedAt: '',
+      rows: batch,
+    });
+  }
+  sealed.sort((a, b) => a.sealedAt.localeCompare(b.sealedAt) || a.id.localeCompare(b.id));
+  return { pages: sealed, open: newestFirst(fresh) };
+}
+
+/**
+ * @param {Array<{ printedAt?: string }>} pages
+ */
+export function waitingPaperPages(pages) {
+  return normalizePaperPages(pages).filter((page) => !page.printedAt);
+}
+
+/**
+ * @param {Array<{ printedAt?: string }>} pages
+ */
+export function printedPaperPages(pages) {
+  return normalizePaperPages(pages).filter((page) => page.printedAt);
 }
 
 /**
@@ -180,36 +340,18 @@ export function groupPunchesByDriver(punches) {
  *   now: Date,
  * }} input
  */
-export function paperBackupReminderDue({ reminders, lastPrintedAt, hours, punches, now }) {
+export function paperBackupReminderDue({ reminders, pages }) {
   if (!normalizePaperBackupReminders(reminders)) return false;
-  const list = (Array.isArray(punches) ? punches : []).filter(
-    (punch) => punch && punch.removed !== true && punch.punched_at
-  );
-  if (!list.length) return false;
-  const span = normalizeBackupHours(hours) * 60 * 60 * 1000;
-  const at = now instanceof Date ? now : new Date(now);
-  const printed = String(lastPrintedAt || '').trim();
-  if (printed) {
-    const last = new Date(printed);
-    if (!Number.isNaN(last.getTime())) return at.getTime() - last.getTime() >= span;
-  }
-  let oldest = Infinity;
-  for (const punch of list) {
-    const time = new Date(punch.punched_at).getTime();
-    if (!Number.isNaN(time) && time < oldest) oldest = time;
-  }
-  return Number.isFinite(oldest) && at.getTime() - oldest >= span;
+  return waitingPaperPages(pages).length > 0;
 }
 
 /**
- * @param {{ hours?: unknown, lastPrintedAt?: unknown }} input
+ * @param {number} count
  */
-export function paperBackupReminderText({ hours, lastPrintedAt }) {
-  const span = normalizeBackupHours(hours);
-  if (String(lastPrintedAt || '').trim()) {
-    return `Print a paper backup. It has been more than ${span} hours since the last one.`;
-  }
-  return `Print a paper backup of the last ${span} hours of clock records.`;
+export function paperBackupReminderText(count) {
+  const pages = Math.max(0, Math.round(Number(count) || 0));
+  if (pages === 1) return '1 page of clock records is waiting to print.';
+  return `${pages} pages of clock records are waiting to print.`;
 }
 
 /**
@@ -253,6 +395,63 @@ function paperPunchCells(punch) {
   const kind = punch.action === 'out' ? 'Out' : 'In';
   const run = paperRunLabel(punch.run);
   return { when, kind: run ? `${kind} ${run}` : kind };
+}
+
+/**
+ * Newest time through oldest time, matching the order down the page.
+ * @param {object[]} rows
+ */
+export function paperPageSpan(rows) {
+  if (!rows?.length) return '';
+  const newest = new Date(rows[0].punched_at);
+  const oldest = new Date(rows[rows.length - 1].punched_at);
+  if (Number.isNaN(newest.getTime()) || Number.isNaN(oldest.getTime())) return '';
+  return `${formatPaperWhen(newest)} – ${formatPaperWhen(oldest)}`;
+}
+
+/**
+ * @param {object} row
+ */
+function paperRecordRowHtml(row) {
+  const cells = paperPunchCells(row);
+  return `<tr><td>${escapeHtml(cells.when)}</td><td>${escapeHtml(row.driver_name || '')}</td><td>${escapeHtml(cells.kind)}</td></tr>`;
+}
+
+/**
+ * One or more sealed pages. Each page reads newest to oldest down the left column, then the right.
+ * @param {Array<{ title?: string, rows: object[] }>} pages
+ * @param {{ columnRows?: number }} [options]
+ */
+export function paperPagesHtml(pages, options = {}) {
+  const columnRows = options.columnRows || PAPER_COLUMN_ROWS;
+  const list = Array.isArray(pages) ? pages : [];
+  if (!list.length) {
+    return '<div class="paper-backup-print" style="font-size:10pt;line-height:1.15"><p class="paper-empty">No paper records to print.</p></div>';
+  }
+  const body = list
+    .map((page, index) => {
+      const rows = Array.isArray(page.rows) ? page.rows : [];
+      const columns = [rows.slice(0, columnRows), rows.slice(columnRows)];
+      const title = page.title || `Page ${index + 1}`;
+      return `<section class="paper-page"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(paperPageSpan(rows))}</p><div class="paper-columns">${columns
+        .map((column) => `<div class="paper-col"><table><tbody>${column.map(paperRecordRowHtml).join('')}</tbody></table></div>`)
+        .join('')}</div></section>`;
+    })
+    .join('');
+  return `<div class="paper-backup-print" style="font-size:10pt;line-height:1.15">${body}</div>`;
+}
+
+/**
+ * @param {unknown} pages
+ * @param {string[]} ids
+ * @param {string} printedAt
+ */
+export function markPaperPagesPrinted(pages, ids, printedAt) {
+  const chosen = new Set(ids);
+  const at = isoStamp(printedAt) || new Date().toISOString();
+  return normalizePaperPages(pages).map((page) =>
+    chosen.has(page.id) && !page.printedAt ? { ...page, printedAt: at } : page
+  );
 }
 
 /**

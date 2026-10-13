@@ -432,7 +432,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     next.paperBackup = { ...current, reminders: input.checked };
     writeState(next);
     setOfficeStatus(
-      input.checked ? 'Paper backup reminders are on.' : 'Paper backup reminders are off.',
+      input.checked ? 'Paper record reminders are on.' : 'Paper record reminders are off.',
       'ok'
     );
   }
