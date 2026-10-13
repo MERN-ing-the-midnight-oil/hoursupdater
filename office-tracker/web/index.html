@@ -520,15 +520,10 @@
         <div id="clocking-hub" class="payroll-clock-layout">
           <div class="payroll-clock-head">
             <h1 class="panel-title">Clocking</h1>
-            <div id="paper-backup-reminder" class="paper-backup-reminder" hidden>
-              <p id="paper-backup-reminder-text"></p>
-              <button type="button" id="paper-backup-reminder-open">Print paper backup</button>
-            </div>
             <p class="lead">
               Start Timeclock opens the driver screen on this tablet or laptop and keeps it there.
               On another screen opens that same driver screen on a second monitor and leaves this window free.
-              Clock records opens the name list so you can add, change, or remove a clock in or clock out.
-              Paper backup prints the recent clock ins and clock outs, grouped by driver.
+              Clock records opens the name list so you can add, change, or remove a clock in or clock out, and print a paper backup.
             </p>
           </div>
           <div class="payroll-clock-side">
@@ -561,14 +556,6 @@
                 Clock records
               </button>
               <p id="clock-records-open-status" class="status is-error" role="alert" hidden></p>
-              <button type="button" class="secondary" id="open-paper-backup">
-                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M6 9V3h12v6" />
-                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-                  <rect x="6" y="14" width="12" height="7" />
-                </svg>
-                Paper backup
-              </button>
               <button type="button" class="secondary timeclock-settings-launch" id="timeclock-settings-open">
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
                   <circle cx="12" cy="12" r="3" />
@@ -587,7 +574,21 @@
             </svg>
             <span data-heading-label>Clock records</span>
           </h1>
-          <p class="lead">Click a name to add, change, or remove a clock in or clock out.</p>
+          <div id="paper-backup-reminder" class="paper-backup-reminder" hidden>
+            <p id="paper-backup-reminder-text"></p>
+            <button type="button" id="paper-backup-reminder-open">Print paper backup</button>
+          </div>
+          <p class="lead">Click a name to add, change, or remove a clock in or clock out. Paper backup prints the recent clock ins and clock outs, grouped by driver.</p>
+          <div class="clock-launch">
+            <button type="button" class="secondary" id="open-paper-backup">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 9V3h12v6" />
+                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                <rect x="6" y="14" width="12" height="7" />
+              </svg>
+              Paper backup
+            </button>
+          </div>
           <ul id="clocking-driver-list" class="clock-driver-list"></ul>
         </section>
         <section id="clocking-driver-sheet" hidden>
@@ -694,7 +695,7 @@
                 <path d="M19 12H5" />
                 <path d="m11 6-6 6 6 6" />
               </svg>
-              Back to Clocking
+              Back to Clock records
             </button>
           </div>
           <h1 class="panel-title">
@@ -730,7 +731,7 @@
                 Remind me to print a paper backup
               </label>
               <p class="field-hint">
-                When this is on, Clocking reminds you after the backup duration passes.
+                When this is on, Clock records reminds you after the backup duration passes.
                 The same choice is in Timeclock settings.
               </p>
             </div>
@@ -814,7 +815,7 @@
             Paper backup reminder
           </h2>
           <p class="field-hint">
-            Clocking reminds you to print a paper backup after the backup duration passes.
+            Clock records reminds you to print a paper backup after the backup duration passes.
             That duration starts at 24 hours and is changed on Paper backup.
           </p>
           <form id="paper-backup-reminder-form" class="clock-form" novalidate>
