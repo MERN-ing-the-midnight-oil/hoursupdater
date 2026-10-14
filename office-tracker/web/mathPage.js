@@ -20,10 +20,10 @@ if (raw) {
   } catch {
     const html = savedHtml();
     if (html) show(html);
-    else document.body.textContent = 'Open this page from EX DRIVER TIME SUMMARIES on Payroll.';
+    else document.body.textContent = 'Open this page from Driver Pay period info on Payroll.';
   }
 } else {
   const html = savedHtml();
   if (html) show(html);
-  else document.body.textContent = 'Open this page from EX DRIVER TIME SUMMARIES on Payroll.';
+  else document.body.textContent = 'Open this page from Driver Pay period info on Payroll.';
 }

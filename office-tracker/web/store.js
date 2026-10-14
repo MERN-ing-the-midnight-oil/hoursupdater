@@ -7,13 +7,18 @@ import {
   normalizeClockPayDefaults,
   normalizeDriverPay,
   normalizeDriverPayStatuses,
+  normalizePayStatusByRun,
+  normalizeStoredPayPortions,
   normalizeTimeSummaryEdits,
 } from '../src/driverPay.js';
-import { DEFAULT_REASON_CODES, validLockCode } from '../../src/logic/clockKiosk.js';
+import { DEFAULT_REASON_CODES, REASON_LABEL_MAX, TRIP_TICKET_REASON_ID, isPreviousCombinedReasonList, isRetiredDefaultReasonList, isTimecardReasonList, validLockCode } from '../../src/logic/clockKiosk.js';
 import { normalizeEarlyReleaseTimes } from '../../src/logic/earlyRelease.js';
 import { normalizeLateFlashMinutes } from '../../src/logic/lateClockFlash.js';
 import { normalizeOfficeEdits } from '../src/officePunches.js';
 import { normalizePunchRun } from '../../src/logic/timesheets.js';
+import { normalizeStoredWorkPortions, normalizeTripTicket, normalizeWorkType } from '../../src/logic/workTypes.js';
+import { normalizeTimecardEntries } from '../src/timecardEntries.js';
+import { applyLeaveRequests, normalizeLeaveRequests, officeLeaveRequests } from '../src/leaveRequests.js';
 import { normalizeDriverNotice } from '../src/noticeMail.js';
 import { normalizeOvertimeRules } from '../src/overtimeRules.js';
 import { mergePaperBackup, normalizePaperBackup } from '../src/paperClockBackup.js';
@@ -30,6 +35,7 @@ export function emptyState() {
     currentProfileId: null,
     profiles: {},
     punches: [],
+    leaveRequests: [],
     clockPins: {},
     clockLockCode: '',
     clockReasonCodes: defaultReasonCodes(),
@@ -56,11 +62,30 @@ export function normalizeClockReasonCodes(raw) {
     if (!item || typeof item !== 'object') continue;
     const id = String(item.id || '').trim();
     const label = String(item.label || '').trim();
-    if (!id || !label || label.length > 60 || seen.has(id)) continue;
+    if (!id || !label || label.length > REASON_LABEL_MAX || seen.has(id)) continue;
     seen.add(id);
     codes.push({ id, label });
   }
   return codes;
+}
+
+/**
+ * The office list. A saved copy of an older starter list becomes the current list.
+ * Trip Ticket Number is added at the top when the saved list still uses only built-in codes.
+ * An empty list, or one with a code the office added, stays as saved.
+ * @param {unknown} raw
+ */
+function officeReasonCodes(raw) {
+  const codes = normalizeClockReasonCodes(raw);
+  if (!codes.length) return codes;
+  if (isRetiredDefaultReasonList(codes) || isTimecardReasonList(codes) || isPreviousCombinedReasonList(codes)) {
+    return defaultReasonCodes();
+  }
+  if (codes.some((code) => code.id === TRIP_TICKET_REASON_ID)) return codes;
+  const known = new Set(defaultReasonCodes().map((code) => code.id));
+  if (!codes.every((code) => known.has(code.id))) return codes;
+  const ticket = defaultReasonCodes().find((code) => code.id === TRIP_TICKET_REASON_ID);
+  return ticket ? [ticket, ...codes] : codes;
 }
 
 /**
@@ -321,12 +346,21 @@ function driverPayField(driver) {
 }
 
 /**
- * @param {{ payStatuses?: unknown }} driver
+ * Pay statuses this driver can use, and which clock-in uses each one.
+ * @param {{ payStatuses?: unknown, payStatusByRun?: unknown }} driver
  */
 function driverPayStatusesField(driver) {
-  if (!Array.isArray(driver?.payStatuses)) return {};
-  const payStatuses = normalizeDriverPayStatuses(driver.payStatuses);
-  return payStatuses.length ? { payStatuses } : {};
+  /** @type {{ payStatuses?: string[], payStatusByRun?: Partial<Record<'AM' | 'MIDDAY' | 'PM' | 'OTHER', string>> }} */
+  const fields = {};
+  if (Array.isArray(driver?.payStatuses)) {
+    const payStatuses = normalizeDriverPayStatuses(driver.payStatuses);
+    if (payStatuses.length) fields.payStatuses = payStatuses;
+  }
+  if (driver?.payStatusByRun && typeof driver.payStatusByRun === 'object' && !Array.isArray(driver.payStatusByRun)) {
+    const payStatusByRun = normalizePayStatusByRun(driver.payStatusByRun, fields.payStatuses || []);
+    if (Object.keys(payStatusByRun).length) fields.payStatusByRun = payStatusByRun;
+  }
+  return fields;
 }
 
 /**
@@ -357,8 +391,26 @@ export function normalizeOfficePunches(raw) {
       reason_codes: normalizePunchReasons(item.reason_codes),
     };
     if (substitute_name && substitute_name.length <= 80) punch.substitute_name = substitute_name;
+    const tripTicket = normalizeTripTicket(item.trip_ticket);
+    if (tripTicket) punch.trip_ticket = tripTicket;
     if (run) punch.run = run;
+    if (run === 'OTHER') {
+      const workType = normalizeWorkType(item.work_type);
+      if (workType) punch.work_type = workType;
+    }
     if (isPayLineId(payStatus)) punch.pay_status = payStatus;
+    if (action === 'out') {
+      const timecardEntries = normalizeTimecardEntries(item.timecard_entries);
+      if (timecardEntries.length) punch.timecard_entries = timecardEntries;
+    }
+    if (action === 'in') {
+      const payPortions = normalizeStoredPayPortions(item.pay_portions);
+      if (payPortions.length) punch.pay_portions = payPortions;
+      if (run === 'AM' || run === 'MIDDAY' || run === 'PM') {
+        const workPortions = normalizeStoredWorkPortions(item.work_portions);
+        if (workPortions.length) punch.work_portions = workPortions;
+      }
+    }
     const office_edits = normalizeOfficeEdits(item.office_edits);
     if (office_edits.length) punch.office_edits = office_edits;
     if (item.removed === true) punch.removed = true;
@@ -381,15 +433,17 @@ export function loadState(storage = globalThis.localStorage) {
       return emptyState();
     }
     const omittedDrivers = omittedDriverKeys(parsed.omittedDrivers);
+    const leaveRequests = officeLeaveRequests(parsed);
     return {
       version: 1,
       currentProfileId: parsed.currentProfileId ?? null,
       profiles: parsed.profiles ?? {},
-      drivers: Array.isArray(parsed.drivers) ? parsed.drivers : [],
+      drivers: applyLeaveRequests(parsed.drivers, leaveRequests),
       punches: normalizeOfficePunches(parsed.punches),
+      leaveRequests,
       clockPins: normalizeClockPins(parsed.clockPins),
       clockLockCode: normalizeClockLockCode(parsed.clockLockCode),
-      clockReasonCodes: normalizeClockReasonCodes(parsed.clockReasonCodes),
+      clockReasonCodes: officeReasonCodes(parsed.clockReasonCodes),
       clockSubstituteDrivers: normalizeClockSubstituteDrivers(parsed.clockSubstituteDrivers),
       ...lateFlashField(parsed),
       ...earlyReleaseField(parsed),
@@ -586,7 +640,7 @@ export function omittedDriverKeys(raw) {
  */
 export function driversFromState(state) {
   const omitted = new Set(omittedDriverKeys(state?.omittedDrivers));
-  /** @type {Map<string, { id: string, name: string, firstName: string, lastName: string, phone: string, email: string, pay?: { serial: string, rate: string, account: string }, payStatuses?: string[] }>} */
+  /** @type {Map<string, { id: string, name: string, firstName: string, lastName: string, phone: string, email: string, pay?: { serial: string, rate: string, account: string }, payStatuses?: string[], payStatusByRun?: Partial<Record<'AM' | 'MIDDAY' | 'PM' | 'OTHER', string>> }>} */
   const byName = new Map();
   for (const driver of state?.drivers ?? []) {
     const parts = personNameParts(driver);
@@ -625,7 +679,7 @@ export function listDrivers(storage = globalThis.localStorage) {
 }
 
 /**
- * @param {{ id?: string, name?: string, firstName?: string, lastName?: string, phone?: string, email?: string, previousName?: string, serial?: string, rate?: string, account?: string, payStatuses?: string[] }} driver
+ * @param {{ id?: string, name?: string, firstName?: string, lastName?: string, phone?: string, email?: string, previousName?: string, serial?: string, rate?: string, account?: string, payStatuses?: string[], payStatusByRun?: object }} driver
  * @param {Storage} [storage]
  */
 export function saveDriver(driver, storage = globalThis.localStorage) {
@@ -654,6 +708,10 @@ export function saveDriver(driver, storage = globalThis.localStorage) {
   const payStatuses = Object.prototype.hasOwnProperty.call(driver, 'payStatuses')
     ? normalizeDriverPayStatuses(driver.payStatuses)
     : existing?.payStatuses;
+  const payStatusByRun = normalizePayStatusByRun(
+    Object.prototype.hasOwnProperty.call(driver, 'payStatusByRun') ? driver.payStatusByRun : existing?.payStatusByRun,
+    Array.isArray(payStatuses) ? payStatuses : []
+  );
   const next = {
     id,
     name,
@@ -669,10 +727,24 @@ export function saveDriver(driver, storage = globalThis.localStorage) {
       },
     }),
     ...(Array.isArray(payStatuses) ? { payStatuses } : {}),
+    ...(Object.keys(payStatusByRun).length ? { payStatusByRun } : {}),
   };
+  const storedLeave = (Array.isArray(state.drivers) ? state.drivers : []).find(
+    (item) => item?.id === id || sameDriver(item?.name, name) || (previous && sameDriver(item?.name, previous))
+  );
+  const keptLeave = normalizeLeaveRequests(storedLeave?.leaveRequests).map((row) =>
+    sameDriver(row.driver_name, name) ? row : { ...row, driver_name: name }
+  );
+  if (keptLeave.length) next.leaveRequests = keptLeave;
   const index = drivers.findIndex((item) => item.id === id);
   if (index >= 0) drivers[index] = next;
   else drivers.push(next);
+  const remembered = officeLeaveRequests(state).filter(
+    (row) => !previous || !sameDriver(row.driver_name, previous)
+  );
+  const leaveRequests = normalizeLeaveRequests([...remembered, ...keptLeave]);
+  state.leaveRequests = leaveRequests;
+  state.drivers = applyLeaveRequests(drivers, leaveRequests);
   if (previous && !sameDriver(previous, name)) {
     for (const profile of Object.values(state.profiles)) {
       const touched =
@@ -687,7 +759,6 @@ export function saveDriver(driver, storage = globalThis.localStorage) {
       if (sameDriver(profile?.driver_name, name)) noteSessionRoute(profile?.name);
     }
   }
-  state.drivers = drivers;
   const omitted = omittedDriverKeys(state.omittedDrivers).filter((item) => item !== name.toLowerCase());
   if (omitted.length) state.omittedDrivers = omitted;
   else delete state.omittedDrivers;
@@ -756,6 +827,15 @@ export function mergeSharedDriverList(remoteState, localState) {
     punches.set(punch.id, punch);
   }
   remote.punches = [...punches.values()];
+  const leaves = new Map();
+  for (const leave of [
+    ...normalizeLeaveRequests(remote.leaveRequests),
+    ...normalizeLeaveRequests(localState?.leaveRequests),
+  ]) {
+    leaves.set(leave.id, leave);
+  }
+  remote.leaveRequests = [...leaves.values()];
+  remote.drivers = applyLeaveRequests(remote.drivers, remote.leaveRequests);
   remote.clockPins = {
     ...normalizeClockPins(remote.clockPins),
     ...normalizeClockPins(localState?.clockPins),
@@ -764,8 +844,8 @@ export function mergeSharedDriverList(remoteState, localState) {
     normalizeClockLockCode(localState?.clockLockCode) ||
     normalizeClockLockCode(remote.clockLockCode);
   remote.clockReasonCodes = Array.isArray(localState?.clockReasonCodes)
-    ? normalizeClockReasonCodes(localState.clockReasonCodes)
-    : normalizeClockReasonCodes(remote.clockReasonCodes);
+    ? officeReasonCodes(localState.clockReasonCodes)
+    : officeReasonCodes(remote.clockReasonCodes);
   remote.clockSubstituteDrivers = Array.isArray(localState?.clockSubstituteDrivers)
     ? normalizeClockSubstituteDrivers(localState.clockSubstituteDrivers)
     : normalizeClockSubstituteDrivers(remote.clockSubstituteDrivers);
@@ -1073,15 +1153,17 @@ export function importState(json, storage = globalThis.localStorage) {
   if (!parsed || typeof parsed !== 'object' || !parsed.profiles) {
     throw new Error('That file is not a Teamster Tracker backup.');
   }
+  const leaveRequests = officeLeaveRequests(parsed);
   const next = {
     version: 1,
     currentProfileId: parsed.currentProfileId ?? null,
     profiles: parsed.profiles,
-    drivers: Array.isArray(parsed.drivers) ? parsed.drivers : [],
+    drivers: applyLeaveRequests(parsed.drivers, leaveRequests),
     punches: normalizeOfficePunches(parsed.punches),
+    leaveRequests,
     clockPins: normalizeClockPins(parsed.clockPins),
     clockLockCode: normalizeClockLockCode(parsed.clockLockCode),
-    clockReasonCodes: normalizeClockReasonCodes(parsed.clockReasonCodes),
+    clockReasonCodes: officeReasonCodes(parsed.clockReasonCodes),
     clockSubstituteDrivers: normalizeClockSubstituteDrivers(parsed.clockSubstituteDrivers),
     ...lateFlashField(parsed),
     ...earlyReleaseField(parsed),

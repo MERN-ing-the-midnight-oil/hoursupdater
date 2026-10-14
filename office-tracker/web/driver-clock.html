@@ -17,7 +17,7 @@
     <header class="driver-clock-head">
       <p class="app-name">Teamster Tracker</p>
       <h1 id="driver-clock-title">Clock records</h1>
-      <p class="driver-clock-note">Read only. These are your clock in and clock out times.</p>
+      <p class="driver-clock-note">Clock times stay as they were recorded. Timecard codes can be changed until the pay period ends.</p>
     </header>
     <p id="driver-clock-status" class="status" role="status">Loading your clock records…</p>
     <nav id="driver-clock-periods" class="clock-record-jumps" aria-label="Pay periods" hidden></nav>
@@ -29,6 +29,7 @@
         <tbody></tbody>
       </table>
     </div>
+    <section id="driver-clock-timecards" class="driver-clock-timecards" hidden></section>
     <div class="driver-clock-actions">
       <button type="button" id="driver-clock-download" disabled>Download</button>
       <button type="button" id="driver-clock-email" class="secondary" disabled>Email</button>

@@ -269,7 +269,7 @@
                   <path d="M9 9v11" />
                   <path d="M15 9v11" />
                 </svg>
-                EX DRIVER TIME SUMMARIES
+                Driver Pay period info
               </button>
               <div class="payroll-settings" role="group" aria-label="Payroll settings">
               <button type="button" class="secondary payroll-tool" data-payroll-tool aria-expanded="false" aria-controls="pay-period-settings">
@@ -298,6 +298,7 @@
               <h2 class="payroll-summary-heading">DRIVER INFO</h2>
               <p class="field-hint">
                 Each driver is one row. First name, last name, email, phone, serial number, hourly rate, payroll account, and pay status can be changed in the table.
+                A driver with one pay status uses it for every clock-in. With more than one, choose which clock-in uses each pay status.
                 Routes stay with the route assignments. A driver keeps at least one pay status.
               </p>
               <p id="driver-info-status" class="status" role="status" hidden></p>
@@ -321,13 +322,12 @@
               </div>
             </div>
             <div id="summary-tool" class="payroll-tool-panel" hidden>
-              <h2 class="payroll-summary-heading">EX DRIVER TIME SUMMARIES</h2>
+              <h2 class="payroll-summary-heading">Driver Pay period info</h2>
               <p class="field-hint">
                 For a driver whose only pay status is EX DRIVER.
                 Choose that driver and a pay period.
-                See Time Summary Info opens the math table. Generate Monthly Time Summary opens the district sheet for that same driver and pay period.
-                The math table columns are the days in that period.
-                Each clock in and clock out pair has its own rows. Quarter-hour minutes show only when that rounding is selected. A pair that is partly or entirely overtime also shows actual overtime minutes, and the rounded overtime minutes when that rounding method applies. Contract hours sit just under the total billable clock hours. EX HOURS is the billable hours minus the contract hours and can be negative. Total OT is at the bottom.
+                The columns are the days in that period.
+                Each clock in and clock out pair has its own rows. Quarter-hour minutes show only when that rounding is selected. A pair that is partly or entirely overtime also shows actual overtime minutes, and the rounded overtime minutes when that rounding method applies. Contract hours sit just under the total billable clock hours. EX HOURS is the billable hours minus the contract hours and can be negative. Total OT is at the bottom. Clock notes from that period are listed under the table.
               </p>
               <form id="math-maker-form" class="clock-form summary-maker" novalidate>
                 <div class="field">
@@ -343,8 +343,8 @@
                   <select id="math-period" required></select>
                 </div>
                 <div class="actions">
-                  <button type="submit" id="summary-math">See Time Summary Info</button>
-                  <button type="submit" id="summary-generate">Generate Monthly Time Summary</button>
+                  <button type="submit" id="summary-math">See pay period info</button>
+                  <button type="submit" id="summary-generate" hidden>Generate Monthly Time Summary</button>
                 </div>
                 <p id="math-maker-status" class="status" role="status" hidden></p>
               </form>
@@ -578,7 +578,7 @@
             <p id="paper-backup-reminder-text"></p>
             <button type="button" id="paper-backup-reminder-open">Print paper records</button>
           </div>
-          <p class="lead">Click a name to add, change, or remove a clock in or clock out. Paper records collects each full page, newest clock record first, until you print it.</p>
+          <p class="lead">Click a name to add, change, or remove a clock in or clock out. On a clock in, Pay status sets the pay status for the whole period or for part of it. Paper records collects each full page, newest clock record first, until you print it.</p>
           <div class="clock-launch">
             <button type="button" class="secondary" id="open-paper-backup">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -1069,7 +1069,7 @@
           <form id="reason-form" class="clock-form" novalidate>
             <div class="field">
               <label for="reason-label">New reason code</label>
-              <input id="reason-label" type="text" maxlength="60" required />
+              <input id="reason-label" type="text" maxlength="120" required />
             </div>
             <div class="actions">
               <button type="submit">Add reason code</button>
@@ -1192,7 +1192,7 @@
             Pay status categories
           </h2>
           <p class="field-hint">
-            Drivers choose from these on the timeclock. The same list is used when you make a Monthly Time Summary.
+            These are the pay statuses a clock-in can use. The same list is used when you make a Monthly Time Summary.
             The sheet starts with REG DRIVER, OT DR TRAINER, EX DR TRAINER, and EX DRIVER.
           </p>
           <ul class="pay-status-catalog" data-pay-status-catalog></ul>
@@ -1225,8 +1225,9 @@
             Driver pay statuses
           </h2>
           <p class="field-hint">
-            Check every pay status this driver can use. After the PIN, they choose one beside the route when more than one is checked.
-            One pay status is used automatically. The same checks are in Driver Records on Payroll.
+            Check every pay status this driver can use. When more than one is checked, choose the pay status for each clock-in.
+            One pay status is used for every clock-in. Drivers do not choose a pay status on the timeclock.
+            The same choices are on that driver's record in Drivers.
           </p>
           <div id="clocking-driver-statuses" class="clocking-driver-statuses"></div>
           </section>
@@ -1763,11 +1764,29 @@
         </p>
       </section>
       <section id="kiosk-detail" hidden>
-        <button type="button" class="secondary" id="kiosk-back">Go Back</button>
-        <h2 id="kiosk-driver"></h2>
-        <img id="kiosk-driver-photo" alt="" hidden />
-        <p id="kiosk-routes" class="lead"></p>
-        <p id="kiosk-covering" class="lead" hidden></p>
+        <div class="kiosk-detail-top">
+          <button type="button" class="secondary" id="kiosk-back">All drivers</button>
+        </div>
+        <div class="kiosk-driver-hero">
+          <img id="kiosk-driver-photo" alt="" hidden />
+          <div class="kiosk-driver-copy">
+            <h2 id="kiosk-driver"></h2>
+            <p id="kiosk-clock-state" class="kiosk-clock-state" role="status"></p>
+            <p id="kiosk-routes" class="kiosk-assigned"></p>
+            <p id="kiosk-covering" class="kiosk-covering" hidden></p>
+            <p id="kiosk-substitute-who" class="kiosk-covering" hidden></p>
+          </div>
+          <aside id="kiosk-clock-qr" class="kiosk-clock-qr" hidden>
+            <p>Your clock records</p>
+            <canvas
+              id="kiosk-clock-qr-code"
+              width="288"
+              height="288"
+              role="img"
+              aria-label="QR code. Scan with a phone to open this driver's clock records."
+            ></canvas>
+          </aside>
+        </div>
         <form id="kiosk-pin-form" autocomplete="off">
           <label>
             PIN
@@ -1787,75 +1806,184 @@
           </label>
           <p id="kiosk-pin-error" class="status is-error" role="alert"></p>
         </form>
-        <p id="kiosk-substitute-who" class="lead" hidden></p>
         <div id="kiosk-actions" class="kiosk-actions" hidden>
-          <fieldset class="kiosk-run">
-            <legend>Which route is this?</legend>
-            <div class="kiosk-run-options">
-              <label class="kiosk-run-option">
-                <input type="radio" name="kiosk-run" value="AM" />
-                <span>AM route</span>
+          <div class="kiosk-punch-layout">
+            <div id="kiosk-run-choice" class="kiosk-route-board">
+              <div class="kiosk-route-grid">
+                <article class="kiosk-route-card" data-run="AM">
+                  <h3>AM route</h3>
+                  <p class="kiosk-route-state"></p>
+                  <div class="kiosk-route-actions">
+                    <button type="button" class="kiosk-punch-in" data-punch="AM" data-action="in" aria-label="Clock in for the AM route">Clock in</button>
+                    <button type="button" class="kiosk-punch-out" data-punch="AM" data-action="out" aria-label="Clock out of the AM route">Clock out</button>
+                  </div>
+                </article>
+                <article class="kiosk-route-card" data-run="MIDDAY">
+                  <h3>Mid day route</h3>
+                  <p class="kiosk-route-state"></p>
+                  <div class="kiosk-route-actions">
+                    <button type="button" class="kiosk-punch-in" data-punch="MIDDAY" data-action="in" aria-label="Clock in for the Mid day route">Clock in</button>
+                    <button type="button" class="kiosk-punch-out" data-punch="MIDDAY" data-action="out" aria-label="Clock out of the Mid day route">Clock out</button>
+                  </div>
+                </article>
+                <article class="kiosk-route-card" data-run="PM">
+                  <h3>PM route</h3>
+                  <p class="kiosk-route-state"></p>
+                  <div class="kiosk-route-actions">
+                    <button type="button" class="kiosk-punch-in" data-punch="PM" data-action="in" aria-label="Clock in for the PM route">Clock in</button>
+                    <button type="button" class="kiosk-punch-out" data-punch="PM" data-action="out" aria-label="Clock out of the PM route">Clock out</button>
+                  </div>
+                </article>
+                <article class="kiosk-route-card" data-run="OTHER">
+                  <h3>Other</h3>
+                  <p class="kiosk-route-state">Trips and other paid time</p>
+                  <div class="kiosk-route-actions">
+                    <button type="button" class="kiosk-punch-in" data-punch="OTHER" data-action="in" aria-label="Clock in for other work">Clock in</button>
+                    <button type="button" class="kiosk-punch-out" data-punch="OTHER" data-action="out" aria-label="Clock out of other work">Clock out</button>
+                  </div>
+                </article>
+              </div>
+              <p id="kiosk-run-error" class="status is-error" role="alert" hidden></p>
+            </div>
+            <div class="kiosk-note">
+              <button type="button" class="secondary" id="kiosk-note-toggle" aria-expanded="false" aria-controls="kiosk-note-panel">Add a note</button>
+              <div id="kiosk-note-panel" hidden>
+                <label for="kiosk-note">Note</label>
+                <textarea
+                  id="kiosk-note"
+                  name="timeclock-note"
+                  maxlength="500"
+                  rows="2"
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                ></textarea>
+                <p id="kiosk-note-count" class="kiosk-note-count">500 characters left</p>
+              </div>
+            </div>
+            <div class="kiosk-tools">
+              <button type="button" id="kiosk-leave-request">Leave Requested</button>
+              <button type="button" class="secondary" id="kiosk-chunk-open">Mark part of a regular route</button>
+              <button type="button" class="secondary" id="kiosk-timecard-open" hidden>Timecard codes</button>
+            </div>
+          </div>
+          <div id="kiosk-work" class="kiosk-work" hidden>
+            <button type="button" class="secondary" id="kiosk-work-back">All routes</button>
+            <h3 id="kiosk-work-heading">Clock in for other work</h3>
+            <p id="kiosk-work-lead" class="kiosk-work-lead">Choose the kind of work, then clock in.</p>
+            <fieldset class="kiosk-run">
+              <legend>What kind of work is this?</legend>
+              <div id="kiosk-work-options" class="kiosk-run-options"></div>
+              <label id="kiosk-trip-ticket-field" class="kiosk-trip-ticket" hidden>
+                Trip ticket number
+                <input
+                  id="kiosk-trip-ticket"
+                  type="text"
+                  inputmode="text"
+                  maxlength="40"
+                  autocomplete="off"
+                  autocapitalize="characters"
+                  spellcheck="false"
+                />
               </label>
-              <label class="kiosk-run-option">
-                <input type="radio" name="kiosk-run" value="MIDDAY" />
-                <span>Mid day route</span>
+              <p id="kiosk-work-error" class="status is-error" role="alert" hidden></p>
+            </fieldset>
+            <button type="button" id="kiosk-work-punch">Clock in</button>
+          </div>
+          <div id="kiosk-chunk" class="kiosk-chunk">
+            <div id="kiosk-chunk-panel" hidden>
+              <button type="button" class="secondary" id="kiosk-chunk-back">Go back</button>
+              <p class="lead">Choose a regular route, then the part that was other work.</p>
+              <div id="kiosk-chunk-pairs" class="kiosk-chunk-pairs"></div>
+              <div class="kiosk-chunk-times">
+                <label>
+                  From
+                  <input id="kiosk-chunk-start" type="time" />
+                </label>
+                <label>
+                  To
+                  <input id="kiosk-chunk-end" type="time" />
+                </label>
+              </div>
+              <fieldset class="kiosk-run">
+                <legend>Kind of work</legend>
+                <div id="kiosk-chunk-types" class="kiosk-run-options"></div>
+              </fieldset>
+              <label id="kiosk-chunk-ticket-field" class="kiosk-trip-ticket" hidden>
+                Trip ticket number
+                <input
+                  id="kiosk-chunk-ticket"
+                  type="text"
+                  inputmode="text"
+                  maxlength="40"
+                  autocomplete="off"
+                  autocapitalize="characters"
+                  spellcheck="false"
+                />
               </label>
-              <label class="kiosk-run-option">
-                <input type="radio" name="kiosk-run" value="PM" />
-                <span>PM route</span>
+              <button type="button" id="kiosk-chunk-save">Save this part</button>
+              <p id="kiosk-chunk-error" class="status is-error" role="alert" hidden></p>
+            </div>
+          </div>
+          <div id="kiosk-leave-request-panel" class="kiosk-leave-request" hidden>
+            <button type="button" class="secondary" id="kiosk-leave-request-back">Go back</button>
+            <p id="kiosk-leave-request-lead" class="lead"></p>
+            <div class="kiosk-leave-request-fields">
+              <label>
+                Date
+                <input id="kiosk-leave-request-date" type="date" />
               </label>
-              <label class="kiosk-run-option">
-                <input type="radio" name="kiosk-run" value="OTHER" />
-                <span>Other</span>
+              <label>
+                Route
+                <select id="kiosk-leave-request-run">
+                  <option value="AM">AM</option>
+                  <option value="MIDDAY">MIDDAY</option>
+                  <option value="PM">PM</option>
+                </select>
               </label>
             </div>
-            <p id="kiosk-run-error" class="status is-error" role="alert" hidden></p>
-          </fieldset>
-          <fieldset class="kiosk-run" id="kiosk-pay-status" hidden>
-            <legend>Pay status</legend>
-            <div id="kiosk-pay-status-options" class="kiosk-run-options"></div>
-            <p id="kiosk-pay-status-error" class="status is-error" role="alert" hidden></p>
-          </fieldset>
-          <div class="kiosk-punch-row">
-            <button type="button" id="kiosk-in">
-              <svg class="kiosk-punch-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-                <polyline points="10 17 15 12 10 7" />
-                <line x1="15" x2="3" y1="12" y2="12" />
-              </svg>
-              Clock IN
-            </button>
-            <button type="button" id="kiosk-out">
-              <svg class="kiosk-punch-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" x2="9" y1="12" y2="12" />
-              </svg>
-              Clock OUT
-            </button>
+            <p class="kiosk-leave-request-hint">Choose a future date if you will not clock in.</p>
+            <div id="kiosk-leave-request-time" class="kiosk-timecard-time">
+              <label>
+                Hours
+                <input id="kiosk-leave-request-hours" type="number" inputmode="numeric" min="0" max="12" step="1" />
+              </label>
+              <label>
+                Minutes
+                <input id="kiosk-leave-request-minutes" type="number" inputmode="numeric" min="0" max="59" step="1" />
+              </label>
+            </div>
+            <p id="kiosk-leave-request-contract" class="lead"></p>
+            <button type="button" id="kiosk-leave-request-save">Leave Requested</button>
+            <p id="kiosk-leave-request-error" class="status is-error" role="alert" hidden></p>
           </div>
-          <div class="kiosk-note">
-            <label for="kiosk-note">Note</label>
-            <textarea
-              id="kiosk-note"
-              name="timeclock-note"
-              maxlength="500"
-              rows="3"
-              autocomplete="off"
-              autocorrect="off"
-              autocapitalize="off"
-              spellcheck="false"
-            ></textarea>
-            <p id="kiosk-note-count" class="kiosk-note-count">500 characters left</p>
-          </div>
-          <div class="kiosk-reason-row">
+          <div class="kiosk-reason-row" hidden>
             <label>
               Reason code
               <select id="kiosk-reason"></select>
             </label>
             <button type="button" class="secondary" id="kiosk-add-reason">Add</button>
           </div>
-          <ul id="kiosk-reason-picks" class="reason-picks"></ul>
+          <ul id="kiosk-reason-picks" class="reason-picks" hidden></ul>
+        </div>
+        <div id="kiosk-timecard" class="kiosk-timecard" hidden>
+          <button type="button" class="secondary" id="kiosk-timecard-back">Go back</button>
+          <div id="kiosk-timecard-choices" hidden>
+            <p class="lead">Clock-outs you can still change.</p>
+            <div id="kiosk-timecard-choice-list" class="kiosk-chunk-pairs"></div>
+          </div>
+          <form id="kiosk-timecard-form" hidden novalidate>
+            <h2 id="kiosk-timecard-title">Timecard codes</h2>
+            <p id="kiosk-timecard-lead" class="lead"></p>
+            <div id="kiosk-timecard-rows"></div>
+            <button type="button" class="secondary" id="kiosk-timecard-add">Add a code</button>
+            <p id="kiosk-timecard-error" class="status is-error" role="alert" hidden></p>
+            <div class="kiosk-punch-row">
+              <button type="submit" id="kiosk-timecard-save">Save codes</button>
+              <button type="button" class="secondary" id="kiosk-timecard-skip">Skip</button>
+            </div>
+          </form>
         </div>
       </section>
       <div id="kiosk-confirm" class="kiosk-confirm" hidden>

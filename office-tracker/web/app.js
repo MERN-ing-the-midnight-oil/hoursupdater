@@ -47,9 +47,12 @@ import {
 import {
   buildPayrollWorkbook,
   changedPayrollLabels,
+  contractedSegments,
   payrollBaselineRows,
   payrollDriverRows,
 } from '../src/payrollTimes.js';
+import { contractedRunMinutes } from '../src/leaveRequests.js';
+import { rebuildEmployeeRouteState } from '../../employee-tracker/src/snapshot.js';
 import { buildRouteWorkbook } from '../src/routeWorkbook.js';
 import {
   startAccounts,
@@ -66,7 +69,13 @@ import { ensureExampleRoutes, isSampleOffice } from './exampleRoutes.js';
 import { mountClockDesk } from './clockDesk.js';
 import { mountPaperBackup } from './paperBackup.js';
 import { mountTimeclock } from './timeclockKiosk.js';
-import { driverPayStatusChoices, normalizeClockPayDefaults, normalizeDriverPay } from '../src/driverPay.js';
+import {
+  CLOCK_IN_TYPES,
+  driverPayStatusChoices,
+  normalizeClockPayDefaults,
+  normalizeDriverPay,
+  normalizePayStatusByRun,
+} from '../src/driverPay.js';
 
 bindCalculatorStore({
   deleteProfile,
@@ -2018,6 +2027,26 @@ function infoInput(driver, field, value, type, label, extra = '') {
   return `<input class="entry-input" data-info-field="${field}" type="${type}" value="${escapeHtml(value)}" aria-label="${escapeHtml(label)} for ${escapeHtml(driver.name)}" ${extra} />`;
 }
 
+function driverInfoRunMarkup(driver, choices) {
+  if (choices.length < 2) {
+    return `<p class="field-hint">Every clock-in uses ${escapeHtml(choices[0]?.label || 'that pay status')}.</p>`;
+  }
+  const map = normalizePayStatusByRun(
+    driver.payStatusByRun,
+    choices.map((line) => line.id)
+  );
+  const fields = CLOCK_IN_TYPES.map((type) => {
+    const options = choices
+      .map(
+        (line) =>
+          `<option value="${escapeHtml(line.id)}"${map[type.id] === line.id ? ' selected' : ''}>${escapeHtml(line.label)}</option>`
+      )
+      .join('');
+    return `<label>${escapeHtml(type.label)}<select class="js-pay-status-run" data-pay-run="${type.id}" aria-label="${escapeHtml(type.label)} pay status for ${escapeHtml(driver.name)}">${options}</select></label>`;
+  }).join('');
+  return `<div class="pay-run-map">${fields}</div>`;
+}
+
 function driverInfoStatusMarkup(driver, lines) {
   const chosen = driverPayStatusChoices(driver.payStatuses, lines);
   const chosenIds = new Set(chosen.map((line) => line.id));
@@ -2038,6 +2067,7 @@ function driverInfoStatusMarkup(driver, lines) {
       ${options}
     </select>
     <button type="button" class="secondary" data-add-status="1"${options ? '' : ' disabled'}>Add</button>
+    ${driverInfoRunMarkup(driver, chosen)}
   </div>`;
 }
 
@@ -2171,10 +2201,10 @@ async function commitDriverInfoField(input) {
   );
 }
 
-async function finishInfoStatus(driver, payStatuses, message) {
+async function finishInfoStatus(driver, payStatuses, message, extra = {}) {
   const row = driverInfoSheet?.querySelector(`tr[data-driver-id="${CSS.escape(driver.id)}"]`);
   try {
-    const saved = await persistDriverInfo(driver, { payStatuses });
+    const saved = await persistDriverInfo(driver, { payStatuses, ...extra });
     const fresh = infoDriver(saved.id) || saved;
     const cell = row?.querySelector('[data-info-statuses]');
     if (cell) cell.innerHTML = driverInfoStatusMarkup(fresh, payLinesForInfo());
@@ -2224,9 +2254,36 @@ driverInfoSheet?.addEventListener('keydown', (event) => {
   input.blur();
 });
 
+async function saveDriverInfoRun(select) {
+  const driver = driverFromInfoControl(select);
+  const run = select.dataset.payRun || '';
+  if (!driver || !run) return;
+  const lines = payLinesForInfo();
+  const choices = driverPayStatusChoices(driver.payStatuses, lines);
+  const type = CLOCK_IN_TYPES.find((item) => item.id === run);
+  if (choices.length < 2 || !type || !choices.some((line) => line.id === select.value)) return;
+  const map = normalizePayStatusByRun(
+    driver.payStatusByRun,
+    choices.map((line) => line.id)
+  );
+  map[run] = select.value;
+  const line = choices.find((item) => item.id === select.value);
+  await finishInfoStatus(
+    driver,
+    choices.map((item) => item.id),
+    `${type.label} for ${driver.name} uses ${line?.label || 'that pay status'}.`,
+    { payStatusByRun: map }
+  );
+}
+
 driverInfoSheet?.addEventListener('change', (event) => {
   const select = event.target;
-  if (!(select instanceof HTMLSelectElement) || select.dataset.payStatusAdd !== '1') return;
+  if (!(select instanceof HTMLSelectElement)) return;
+  if (select.classList.contains('js-pay-status-run')) {
+    saveDriverInfoRun(select);
+    return;
+  }
+  if (select.dataset.payStatusAdd !== '1') return;
   if (select.value) addDriverInfoStatus(select);
 });
 
@@ -3427,6 +3484,7 @@ async function adoptStarterOffice() {
     profiles: next.profiles,
     drivers: Array.isArray(next.drivers) ? next.drivers : [],
     punches: Array.isArray(current.punches) ? current.punches : [],
+    leaveRequests: Array.isArray(current.leaveRequests) ? current.leaveRequests : [],
     clockPins: current.clockPins && typeof current.clockPins === 'object' ? current.clockPins : {},
     clockLockCode: current.clockLockCode || '',
     ...(Object.prototype.hasOwnProperty.call(current, 'clockLateMinutes')
@@ -3593,6 +3651,15 @@ const timeclockDesk = mountTimeclock({
         clockIns: ['AM', 'MIDDAY', 'PM'].flatMap((run) => (clocks[run] ? [clocks[run]] : [])),
         clockRuns: ['AM', 'MIDDAY', 'PM'].filter((run) => clocks[run]),
       };
+    });
+  },
+  contractedMinutes(driverName, dateKey) {
+    return contractedRunMinutes(loadState().profiles, driverName, dateKey, (profile, date) => {
+      try {
+        return contractedSegments(rebuildEmployeeRouteState(profile?.changeLog ?? [], calendarPayload(), date));
+      } catch {
+        return {};
+      }
     });
   },
 });

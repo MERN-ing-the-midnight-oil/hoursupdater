@@ -238,6 +238,222 @@ export function isExDriverOnly(saved, lines) {
   return ids.length === 1 && ids[0] === DEFAULT_DRIVER_PAY_STATUS;
 }
 
+/** Clock-in choices on the timeclock, in the order drivers see them. */
+export const CLOCK_IN_TYPES = [
+  { id: 'AM', label: 'AM route' },
+  { id: 'MIDDAY', label: 'Mid day route' },
+  { id: 'PM', label: 'PM route' },
+  { id: 'OTHER', label: 'Other' },
+];
+
+/**
+ * Pay status for each clock-in.
+ * One pay status needs no map. Several pay statuses use the first status wherever a clock-in is unset.
+ * @param {unknown} value
+ * @param {unknown} allowed
+ * @returns {Partial<Record<'AM' | 'MIDDAY' | 'PM' | 'OTHER', string>>}
+ */
+export function normalizePayStatusByRun(value, allowed) {
+  const ids = normalizeDriverPayStatuses(Array.isArray(allowed) ? allowed : []);
+  if (ids.length < 2) return {};
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  /** @type {Record<'AM' | 'MIDDAY' | 'PM' | 'OTHER', string>} */
+  const map = {};
+  for (const type of CLOCK_IN_TYPES) {
+    const picked = String(source[type.id] ?? '').trim();
+    map[type.id] = ids.includes(picked) ? picked : ids[0];
+  }
+  return map;
+}
+
+/**
+ * Pay status written on a clock in or clock out.
+ * A driver with one pay status uses it for every clock-in.
+ * @param {unknown} payStatuses
+ * @param {unknown} payStatusByRun
+ * @param {unknown} run
+ * @param {Array<{ id: string, label: string }>} [lines]
+ */
+export function payStatusForClockIn(payStatuses, payStatusByRun, run, lines) {
+  const choices = Array.isArray(lines)
+    ? driverPayStatusChoices(payStatuses, lines)
+    : normalizeDriverPayStatuses(payStatuses).map((id) => ({ id, label: id }));
+  const fallback = choices[0]?.id || DEFAULT_DRIVER_PAY_STATUS;
+  if (choices.length < 2) return fallback;
+  const key = String(run ?? '').trim().toUpperCase();
+  const map = normalizePayStatusByRun(
+    payStatusByRun,
+    choices.map((line) => line.id)
+  );
+  return map[key] || fallback;
+}
+
+const PAY_PORTION_LIMIT = 8;
+
+/**
+ * @param {Date} date
+ */
+function minuteStamp(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), date.getMinutes()).getTime();
+}
+
+/**
+ * Parts of a clock period saved on the clock in.
+ * Each part has its own pay status. Time outside the parts keeps the period's pay status.
+ * @param {unknown} value
+ * @returns {Array<{ start: string, end: string, pay_status: string }>}
+ */
+export function normalizeStoredPayPortions(value) {
+  if (!Array.isArray(value)) return [];
+  /** @type {Array<{ start: string, end: string, pay_status: string }>} */
+  const portions = [];
+  for (const item of value) {
+    if (portions.length >= PAY_PORTION_LIMIT) break;
+    const status = String(item?.pay_status ?? '').trim();
+    const start = new Date(item?.start);
+    const end = new Date(item?.end);
+    if (!isPayLineId(status) || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
+    if (end.getTime() - start.getTime() < 60000) continue;
+    portions.push({ start: start.toISOString(), end: end.toISOString(), pay_status: status });
+  }
+  portions.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+  /** @type {typeof portions} */
+  const kept = [];
+  let cursor = 0;
+  for (const portion of portions) {
+    const from = new Date(portion.start).getTime();
+    if (from < cursor) continue;
+    kept.push(portion);
+    cursor = new Date(portion.end).getTime();
+  }
+  return kept;
+}
+
+/**
+ * Keep only the parts that sit inside one clock period and use an allowed pay status.
+ * A start or end in the same minute as the period edge counts as that edge.
+ * @param {unknown} value
+ * @param {Date} periodStart
+ * @param {Date} periodEnd
+ * @param {string[]} [allowed]
+ */
+export function normalizePayPortions(value, periodStart, periodEnd, allowed) {
+  const startMs = periodStart?.getTime?.();
+  const endMs = periodEnd?.getTime?.();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return [];
+  const ids = Array.isArray(allowed) ? allowed.filter((id) => isPayLineId(id)) : null;
+  return normalizeStoredPayPortions(value).flatMap((portion) => {
+    if (ids && !ids.includes(portion.pay_status)) return [];
+    const fromDate = new Date(portion.start);
+    const toDate = new Date(portion.end);
+    const from = minuteStamp(fromDate) === minuteStamp(periodStart) ? startMs : fromDate.getTime();
+    const to = minuteStamp(toDate) === minuteStamp(periodEnd) ? endMs : toDate.getTime();
+    if (from < startMs || to > endMs || to - from < 60000) return [];
+    return [{ start: new Date(from).toISOString(), end: new Date(to).toISOString(), pay_status: portion.pay_status }];
+  });
+}
+
+/**
+ * Why a set of parts cannot be saved, or an empty string when they can.
+ * @param {unknown} portions
+ * @param {Date} periodStart
+ * @param {Date} periodEnd
+ * @param {string[]} [allowed]
+ */
+export function payPortionError(portions, periodStart, periodEnd, allowed) {
+  const list = Array.isArray(portions) ? portions : [];
+  if (!list.length) return '';
+  if (list.length > PAY_PORTION_LIMIT) return `A period can have ${PAY_PORTION_LIMIT} parts.`;
+  const startMs = periodStart?.getTime?.();
+  const endMs = periodEnd?.getTime?.();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    return 'Clock out before assigning part of the period.';
+  }
+  const ids = Array.isArray(allowed) ? new Set(allowed.filter((id) => isPayLineId(id))) : null;
+  /** @type {Array<{ from: number, to: number }>} */
+  const checked = [];
+  for (const portion of list) {
+    const status = String(portion?.pay_status ?? '').trim();
+    if (!isPayLineId(status) || (ids && !ids.has(status))) return 'Choose a pay status for each part.';
+    const fromDate = new Date(portion?.start);
+    const toDate = new Date(portion?.end);
+    if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) return 'Each part needs a start and an end.';
+    const from = minuteStamp(fromDate) === minuteStamp(periodStart) ? startMs : fromDate.getTime();
+    const to = minuteStamp(toDate) === minuteStamp(periodEnd) ? endMs : toDate.getTime();
+    if (to - from < 60000) return 'A part has to end after it starts.';
+    if (from < startMs || to > endMs) return 'Each part has to sit inside the clock period.';
+    checked.push({ from, to });
+  }
+  checked.sort((a, b) => a.from - b.from || a.to - b.to);
+  for (let index = 1; index < checked.length; index += 1) {
+    if (checked[index].from < checked[index - 1].to) return 'Those parts overlap.';
+  }
+  return '';
+}
+
+/**
+ * Pay-status slices of one clock in and clock out.
+ * Parts use their own status. The rest of the period uses the clock in's pay status.
+ * @param {{ start: Date, end: Date, clockIn?: { pay_status?: string, pay_portions?: unknown } }} pair
+ * @returns {Array<{ start: Date, end: Date, pay_status: string, minutes: number }>}
+ */
+export function paySlicesForPair(pair) {
+  const start = pair.start <= pair.end ? pair.start : pair.end;
+  const end = pair.start <= pair.end ? pair.end : pair.start;
+  const fallback = isPayLineId(pair.clockIn?.pay_status) ? String(pair.clockIn.pay_status) : 'reg-driver';
+  const elapsed = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+  const portions = normalizePayPortions(pair.clockIn?.pay_portions, start, end);
+  if (!portions.length || elapsed <= 0) {
+    return [{ start, end, pay_status: fallback, minutes: elapsed }];
+  }
+  /** @type {Array<{ start: Date, end: Date, pay_status: string, minutes: number }>} */
+  const slices = [];
+  let cursor = start.getTime();
+  for (const portion of portions) {
+    const from = new Date(portion.start).getTime();
+    const to = new Date(portion.end).getTime();
+    if (from > cursor) {
+      slices.push({
+        start: new Date(cursor),
+        end: new Date(from),
+        pay_status: fallback,
+        minutes: Math.round((from - cursor) / 60000),
+      });
+    }
+    slices.push({
+      start: new Date(Math.max(from, cursor)),
+      end: new Date(to),
+      pay_status: portion.pay_status,
+      minutes: Math.round((to - Math.max(from, cursor)) / 60000),
+    });
+    cursor = Math.max(cursor, to);
+  }
+  if (cursor < end.getTime()) {
+    slices.push({
+      start: new Date(cursor),
+      end,
+      pay_status: fallback,
+      minutes: Math.round((end.getTime() - cursor) / 60000),
+    });
+  }
+  /** @type {typeof slices} */
+  const merged = [];
+  for (const slice of slices) {
+    if (slice.minutes <= 0) continue;
+    const previous = merged[merged.length - 1];
+    if (previous && previous.pay_status === slice.pay_status) {
+      previous.end = slice.end;
+      previous.minutes += slice.minutes;
+      continue;
+    }
+    merged.push({ ...slice });
+  }
+  if (merged.length <= 1) {
+    return [{ start, end, pay_status: merged[0]?.pay_status || fallback, minutes: elapsed }];
+  }
+  return merged;
+}
+
 /**
  * @param {unknown} value
  */

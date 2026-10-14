@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   addOfficePunch,
+  assignClockPeriodPay,
   changeOfficePunch,
   normalizeOfficeEdits,
   officeEditor,
@@ -154,4 +155,87 @@ test('a removed clock does not pair, and the office note stays on the saved reco
   };
   const merged = mergeSharedDriverList(remote, loadState(storage));
   assert.equal(merged.punches.find((punch) => punch.id === 'punch-keep').removed, true);
+});
+
+test('an admin can assign a pay status to a whole clock period or to part of it', () => {
+  const punches = [
+    {
+      id: 'in',
+      driver_name: 'Alex Driver',
+      action: 'in',
+      punched_at: '2026-10-09T13:00:00.000Z',
+      pay_status: 'reg-driver',
+    },
+    {
+      id: 'out',
+      driver_name: 'Alex Driver',
+      action: 'out',
+      punched_at: '2026-10-09T16:00:00.000Z',
+    },
+  ];
+  const note = { account: rachel, note: 'Training for the first hour', at };
+  assert.throws(() => assignClockPeriodPay(punches, 'out', { ...note, pay_status: 'ot-trainer' }), /clock in/);
+  assert.throws(() => assignClockPeriodPay(punches, 'in', { pay_status: 'ot-trainer', account: rachel, note: '' }), /note/i);
+
+  const whole = assignClockPeriodPay(punches, 'in', { ...note, pay_status: 'ot-trainer' });
+  assert.equal(whole[0].pay_status, 'ot-trainer');
+  assert.equal(whole[0].pay_portions, undefined);
+  assert.equal(whole[0].office_edits[0].by, 'Rachel Smith');
+
+  const split = assignClockPeriodPay(punches, 'in', {
+    ...note,
+    pay_status: 'reg-driver',
+    allowed: ['reg-driver', 'ot-trainer'],
+    pay_portions: [{ start: '2026-10-09T13:00:00.000Z', end: '2026-10-09T14:00:00.000Z', pay_status: 'ot-trainer' }],
+  });
+  assert.equal(split[0].pay_status, 'reg-driver');
+  assert.equal(split[0].pay_portions.length, 1);
+  assert.equal(split[0].pay_portions[0].pay_status, 'ot-trainer');
+
+  assert.throws(
+    () =>
+      assignClockPeriodPay(punches, 'in', {
+        ...note,
+        pay_status: 'reg-driver',
+        pay_portions: [
+          { start: '2026-10-09T13:00:00.000Z', end: '2026-10-09T14:30:00.000Z', pay_status: 'ot-trainer' },
+          { start: '2026-10-09T14:00:00.000Z', end: '2026-10-09T15:00:00.000Z', pay_status: 'ex-driver' },
+        ],
+      }),
+    /overlap/i
+  );
+
+  const covered = assignClockPeriodPay(punches, 'in', {
+    ...note,
+    pay_status: 'reg-driver',
+    pay_portions: [{ start: '2026-10-09T13:00:00.000Z', end: '2026-10-09T16:00:00.000Z', pay_status: 'ex-driver' }],
+  });
+  assert.equal(covered[0].pay_status, 'ex-driver');
+  assert.equal(covered[0].pay_portions, undefined);
+
+  const edited = changeOfficePunch(split, 'in', {
+    action: 'in',
+    punched_at: '2026-10-09T13:05:00.000Z',
+    account: rachel,
+    note: 'Five minutes late',
+    at,
+  });
+  assert.equal(edited[0].pay_portions.length, 1);
+  const turnedOut = changeOfficePunch(split, 'in', {
+    action: 'out',
+    punched_at: '2026-10-09T13:05:00.000Z',
+    account: rachel,
+    note: 'That was a clock out',
+    at,
+  });
+  assert.equal(turnedOut[0].pay_portions, undefined);
+
+  const storage = memoryStorage();
+  const state = loadState(storage);
+  state.punches = split;
+  saveState(state, storage);
+  const loaded = loadState(storage).punches[0];
+  assert.equal(loaded.pay_status, 'reg-driver');
+  assert.equal(loaded.pay_portions[0].pay_status, 'ot-trainer');
+  assert.equal(loaded.pay_portions[0].end, '2026-10-09T14:00:00.000Z');
 });

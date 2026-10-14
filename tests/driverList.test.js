@@ -251,7 +251,13 @@ test('late clock-in flash minutes stay with the office until the office clears t
 
 test('a clock record keeps its reason codes and a missing list uses the starting codes', () => {
   const starting = normalizeClockReasonCodes(undefined);
-  assert.equal(starting.some((code) => code.label === 'Traffic'), true);
+  assert.equal(starting.some((code) => code.label === 'Traffic/Construction/Accident'), true);
+  assert.equal(starting.some((code) => code.label === 'New Student'), true);
+  assert.equal(starting.some((code) => code.label === 'Fueling Bus'), true);
+  assert.equal(starting[0].label, 'Trip Ticket Number');
+  assert.equal(starting.at(-1).label, 'Food service delivery');
+  assert.equal(starting.some((code) => code.label === 'Meeting'), true);
+  assert.equal(starting.some((code) => code.label === 'Bus cleaning'), true);
   assert.deepEqual(normalizeClockReasonCodes([]), []);
 
   const punches = normalizeOfficePunches([
@@ -287,10 +293,107 @@ test('a clock record keeps its reason codes and a missing list uses the starting
     ),
     false
   );
+  const withPart = normalizeOfficePunches([
+    {
+      ...punches[0],
+      id: 'punch-part',
+      pay_status: 'reg-driver',
+      pay_portions: [
+        { start: '2026-10-09T14:00:00.000Z', end: '2026-10-09T15:00:00.000Z', pay_status: 'ot-trainer' },
+        { start: '2026-10-09T14:30:00.000Z', end: '2026-10-09T16:00:00.000Z', pay_status: 'ex-driver' },
+      ],
+    },
+  ])[0];
+  assert.equal(withPart.pay_portions.length, 1);
+  assert.equal(withPart.pay_portions[0].pay_status, 'ot-trainer');
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      normalizeOfficePunches([{ ...punches[0], id: 'punch-out-part', action: 'out', pay_portions: withPart.pay_portions }])[0],
+      'pay_portions'
+    ),
+    false
+  );
+  const withWork = normalizeOfficePunches([
+    {
+      ...punches[0],
+      id: 'punch-work',
+      run: 'OTHER',
+      work_type: 'middle-school-sports',
+    },
+  ])[0];
+  assert.equal(withWork.work_type, 'middle-school-sports');
+  assert.equal(
+    normalizeOfficePunches([{ ...punches[0], id: 'punch-ticket', trip_ticket: '  4821 ' }])[0].trip_ticket,
+    '4821'
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      normalizeOfficePunches([{ ...punches[0], id: 'punch-ticket-blank', trip_ticket: '   ' }])[0],
+      'trip_ticket'
+    ),
+    false
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      normalizeOfficePunches([{ ...punches[0], id: 'punch-work-bad', run: 'OTHER', work_type: 'lunch' }])[0],
+      'work_type'
+    ),
+    false
+  );
+  const withChunk = normalizeOfficePunches([
+    {
+      ...punches[0],
+      id: 'punch-chunk',
+      run: 'AM',
+      work_portions: [
+        { start: '2026-10-09T14:15:00.000Z', end: '2026-10-09T15:00:00.000Z', work_type: 'field-trip' },
+      ],
+    },
+  ])[0];
+  assert.equal(withChunk.work_portions[0].work_type, 'field-trip');
 
   const storage = memoryStorage();
   const state = loadState(storage);
-  assert.equal(state.clockReasonCodes.some((code) => code.label === 'Meeting'), true);
+  assert.equal(state.clockReasonCodes.some((code) => code.label === 'Meetings / Trainings'), true);
+  state.clockReasonCodes = [
+    { id: 'reason-fueling-bus', label: 'Fueling Bus' },
+    { id: 'reason-traffic', label: 'Traffic' },
+    { id: 'reason-delay-at-stop-or-school', label: 'Delay at Stop or School' },
+    { id: 'reason-meeting', label: 'Meeting' },
+    { id: 'reason-paperwork', label: 'Paperwork' },
+  ];
+  saveState(state, storage);
+  assert.deepEqual(
+    loadState(storage).clockReasonCodes.map((code) => code.label),
+    starting.map((code) => code.label)
+  );
+  state.clockReasonCodes = starting.slice(1, 11);
+  saveState(state, storage);
+  assert.deepEqual(
+    loadState(storage).clockReasonCodes.map((code) => code.label),
+    starting.map((code) => code.label)
+  );
+  state.clockReasonCodes = starting.slice(1);
+  saveState(state, storage);
+  assert.deepEqual(
+    loadState(storage).clockReasonCodes.map((code) => code.label),
+    starting.map((code) => code.label)
+  );
+  state.clockReasonCodes = starting.filter((code) => code.id !== 'reason-paperwork' && code.id !== 'reason-trip-ticket');
+  saveState(state, storage);
+  assert.deepEqual(
+    loadState(storage).clockReasonCodes.map((code) => code.label),
+    ['Trip Ticket Number', ...starting.filter((code) => code.id !== 'reason-paperwork').slice(1).map((code) => code.label)]
+  );
+  state.clockReasonCodes = [
+    { id: 'reason-traffic', label: 'Traffic' },
+    { id: 'reason-weather', label: 'Weather' },
+  ];
+  saveState(state, storage);
+  assert.deepEqual(
+    loadState(storage).clockReasonCodes.map((code) => code.label),
+    ['Traffic', 'Weather']
+  );
   state.clockReasonCodes = [];
   saveState(state, storage);
   assert.deepEqual(loadState(storage).clockReasonCodes, []);

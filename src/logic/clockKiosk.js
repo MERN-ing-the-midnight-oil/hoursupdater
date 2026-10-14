@@ -11,7 +11,7 @@ import { createId } from './createId.js';
 const PIN_PATTERN = /^\d{4}$/;
 const LOCK_CODE_PATTERN = /^[A-Za-z0-9]{4,64}$/;
 export const NOTE_MAX = 500;
-const REASON_LABEL_MAX = 60;
+export const REASON_LABEL_MAX = 120;
 
 /** Lock code that leaves the driver clock screen. Not a driver PIN. */
 export const DEFAULT_KIOSK_CODE = 'TimeChanges2026';
@@ -211,14 +211,93 @@ export function selectReasonCodes(current, rawIds, catalog) {
   return next;
 }
 
+/** The timecard list, before other paid time from the contract was added. */
+const TIMECARD_REASON_CODES = [
+  { id: 'reason-new-student', label: 'New Student' },
+  { id: 'reason-traffic', label: 'Traffic/Construction/Accident' },
+  { id: 'reason-returned-student-to-school', label: 'Returned Student to School' },
+  { id: 'reason-extra-route', label: 'Extra Route(s) / Student(s)' },
+  { id: 'reason-delay-at-stop-or-school', label: 'Delay at Stop / School' },
+  { id: 'reason-bus-wash', label: 'Bus Wash' },
+  { id: 'reason-early-release', label: 'Early Release' },
+  { id: 'reason-meeting', label: 'Meetings / Trainings' },
+  {
+    id: 'reason-paperwork',
+    label: 'Paperwork - a. Bus Conduct, b. Stop Paddle Violation, c. Accident Form, d. etc.',
+  },
+  { id: 'reason-fueling-bus', label: 'Fueling Bus' },
+];
+
+/** Other paid time added beside the timecard codes, before trip tickets. */
+const OTHER_PAID_TIME_CODES = [
+  { id: 'reason-bus-cleaning', label: 'Bus cleaning' },
+  { id: 'reason-in-service', label: 'In-service' },
+  { id: 'reason-contract-meeting', label: 'Meeting' },
+  { id: 'reason-inclement-weather', label: 'Inclement weather' },
+  { id: 'reason-snow-detour-accident', label: 'Snow, detour, or accident' },
+  { id: 'reason-short-student', label: 'Student riding 3 days or fewer' },
+  { id: 'reason-counseling', label: 'Counseling' },
+  { id: 'reason-fifth-day', label: 'Fifth day of a 4-day run' },
+  { id: 'reason-training', label: 'Training' },
+  { id: 'reason-food-service', label: 'Food service delivery' },
+];
+
+/** The combined list from before Trip Ticket Number was added at the top. */
+const PREVIOUS_COMBINED_REASON_CODES = [...TIMECARD_REASON_CODES, ...OTHER_PAID_TIME_CODES];
+
+export const TRIP_TICKET_REASON_ID = 'reason-trip-ticket';
+
 /** Starting list for the door clock. The office can rename, add, or remove these. */
 export const DEFAULT_REASON_CODES = [
+  { id: TRIP_TICKET_REASON_ID, label: 'Trip Ticket Number' },
+  ...PREVIOUS_COMBINED_REASON_CODES,
+];
+
+/** The previous starter list, replaced by the timecard posted in the office. */
+const RETIRED_DEFAULT_REASON_CODES = [
   { id: 'reason-fueling-bus', label: 'Fueling Bus' },
   { id: 'reason-traffic', label: 'Traffic' },
   { id: 'reason-delay-at-stop-or-school', label: 'Delay at Stop or School' },
   { id: 'reason-meeting', label: 'Meeting' },
   { id: 'reason-paperwork', label: 'Paperwork' },
 ];
+
+/**
+ * True when the office still has the starter list from before the timecard codes.
+ * A renamed, added, or removed code means the office has edited the list.
+ * @param {Array<{ id?: string, label?: string }>} codes
+ */
+export function isRetiredDefaultReasonList(codes) {
+  return sameReasonList(codes, RETIRED_DEFAULT_REASON_CODES);
+}
+
+/**
+ * True when the office still has the timecard list from before other paid time was added.
+ * @param {Array<{ id?: string, label?: string }>} codes
+ */
+export function isTimecardReasonList(codes) {
+  return sameReasonList(codes, TIMECARD_REASON_CODES);
+}
+
+/**
+ * True when the office still has the combined list from before trip tickets.
+ * @param {Array<{ id?: string, label?: string }>} codes
+ */
+export function isPreviousCombinedReasonList(codes) {
+  return sameReasonList(codes, PREVIOUS_COMBINED_REASON_CODES);
+}
+
+/**
+ * @param {Array<{ id?: string, label?: string }>} codes
+ * @param {Array<{ id: string, label: string }>} expected
+ */
+function sameReasonList(codes, expected) {
+  if (!Array.isArray(codes) || codes.length !== expected.length) return false;
+  const key = (code) => `${code.id}\0${code.label}`;
+  const saved = codes.map(key).sort();
+  const starter = expected.map(key).sort();
+  return saved.every((item, index) => item === starter[index]);
+}
 
 /**
  * @param {ReasonCode[]} codes

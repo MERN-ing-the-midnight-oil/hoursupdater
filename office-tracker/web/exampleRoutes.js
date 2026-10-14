@@ -3,7 +3,7 @@ import { EMPLOYEE_ROUTE_ID } from '../../employee-tracker/src/snapshot.js';
 import { loadState, saveState } from './store.js';
 
 const START = '2026-09-08';
-const EXAMPLE_VERSION = 4;
+const EXAMPLE_VERSION = 5;
 
 const EXAMPLE_DRIVERS = [
   { id: 'driver-jean-luc-picard', name: 'Jean-Luc Picard', phone: '617-555-0101', email: 'jean-luc.picard@example.com' },
@@ -24,6 +24,7 @@ const EXAMPLE_IDS = new Set([
   'route-s6',
   'route-s7',
   'route-s8',
+  'route-s9',
   'route-12',
   'route-47',
   'route-76',
@@ -41,15 +42,15 @@ const EXAMPLE_IDS = new Set([
  * @param {string} range
  * @param {number} index
  */
-function seed(routeId, driver, segment, range, index) {
+function seed(routeId, driver, segment, range, index, date = START) {
   return change(routeId, driver, {
     id: `${routeId}-start-${segment.toLowerCase()}`,
     segment,
     previous: range,
     next: range,
-    date: START,
+    date,
     note: 'Starting schedule',
-    submitted_at: `2026-09-08T12:00:00.${String(index).padStart(3, '0')}Z`,
+    submitted_at: `${date}T12:00:00.${String(index).padStart(3, '0')}Z`,
   });
 }
 
@@ -86,16 +87,16 @@ function change(routeId, driver, input) {
  * @param {Array<[string, string]>} starts
  * @param {object[]} changes
  */
-function route(id, name, driver, starts, changes) {
+function route(id, name, driver, starts, changes, startDate = START) {
   return {
     id,
     name,
     driver_name: driver,
-    start_date: START,
-    setup_at: '2026-09-08T12:00:00.000Z',
-    created_at: '2026-09-08T12:00:00.000Z',
+    start_date: startDate,
+    setup_at: `${startDate}T12:00:00.000Z`,
+    created_at: `${startDate}T12:00:00.000Z`,
     changeLog: [
-      ...starts.map(([segment, range], index) => seed(id, driver, segment, range, index)),
+      ...starts.map(([segment, range], index) => seed(id, driver, segment, range, index, startDate)),
       ...changes.map((item) => change(id, driver, item)),
     ],
   };
@@ -365,6 +366,26 @@ export function exampleOfficeState() {
         },
       ]
     ),
+    route(
+      'route-s9',
+      'S9',
+      'Donald Duck',
+      [
+        ['AM', '6:15-8:45'],
+        ['MIDDAY', '11:00-12:15'],
+        ['PM', '14:00-16:45'],
+      ],
+      [
+        {
+          segment: 'PM',
+          previous: '14:00-16:45',
+          next: '14:00-16:00',
+          date: '2026-09-08',
+          note: 'PM ended 45 minutes earlier. One stop moved to another route.',
+        },
+      ],
+      '2026-09-01'
+    ),
   ];
   return {
     version: 1,
@@ -409,13 +430,71 @@ function samplePunch(id, driver, action, year, monthIndex, day, hour, minute, ex
 }
 
 /**
- * Weekend, holiday, early-morning, and evening clocks so overtime shows on the math sheet.
+ * Donald Duck works every weekday in the September 1–15 pay period except Labor Day.
+ * Contract hours drop on September 8, when the PM run loses 45 minutes.
+ * @param {{ pay_status: string }} pay
+ */
+function donaldSeptemberPunches(pay) {
+  /** @type {Array<[number, Array<['AM' | 'MIDDAY' | 'PM', number, number, number, number]>, Record<string, string>, Record<string, object>]>} */
+  const days = [
+    [1, [['AM', 6, 12, 8, 47], ['MIDDAY', 11, 2, 12, 18], ['PM', 14, 4, 16, 48]], { 'AM-in': 'First week back. Walked the AM stops with the monitor.' }, {}],
+    [2, [['AM', 6, 18, 8, 44], ['MIDDAY', 10, 58, 12, 20], ['PM', 13, 57, 16, 42]], { 'MIDDAY-out': 'Preschool student was not ready. Waited at the door.' }, {}],
+    [3, [['AM', 6, 14, 8, 46], ['MIDDAY', 11, 5, 12, 14], ['PM', 14, 2, 16, 50]], { 'PM-in': 'Yard fuel stop before the PM run.' }, {}],
+    [
+      4,
+      [['AM', 6, 20, 8, 52], ['MIDDAY', 11, 0, 12, 16], ['PM', 14, 8, 16, 46]],
+      { 'AM-out': 'Traffic on Blue Hill Ave added a few minutes.' },
+      {
+        'PM-out': {
+          office_edits: [
+            {
+              action: 'change',
+              note: 'Clock out corrected after the driver called from the yard.',
+              by: 'Office',
+              by_user_id: null,
+              at: '2026-09-04T21:10:00.000Z',
+            },
+          ],
+        },
+      },
+    ],
+    [8, [['AM', 6, 16, 8, 43], ['MIDDAY', 11, 3, 12, 17], ['PM', 14, 1, 16, 4]], { 'PM-in': 'PM run is shorter today. One stop moved to another route.' }, {}],
+    [9, [['AM', 6, 11, 8, 48], ['MIDDAY', 10, 57, 12, 13], ['PM', 13, 58, 15, 58]], {}, {}],
+    [10, [['AM', 6, 15, 8, 45], ['MIDDAY', 11, 0, 12, 40], ['PM', 14, 5, 16, 2]], { 'MIDDAY-in': 'Extra preschool pickup on this midday.' }, {}],
+    [11, [['AM', 6, 22, 8, 50], ['MIDDAY', 11, 4, 12, 19], ['PM', 14, 0, 16, 18]], { 'PM-out': 'Parent was late at the last stop.' }, {}],
+    [14, [['AM', 6, 28, 8, 49], ['MIDDAY', 11, 1, 12, 15], ['PM', 14, 3, 16, 1]], { 'AM-in': 'Left the yard a few minutes late.' }, {}],
+    [15, [['AM', 6, 13, 8, 44], ['MIDDAY', 11, 6, 12, 18], ['PM', 14, 2, 16, 35]], { 'PM-out': 'Covered one extra stop after the regular PM.' }, {}],
+  ];
+  return days.flatMap(([day, runs, notes, extras]) =>
+    runs.flatMap(([run, inHour, inMinute, outHour, outMinute]) => {
+      const slug = `${String(day).padStart(2, '0')}-${run.toLowerCase()}`;
+      return [
+        samplePunch(`disney-donald-09-${slug}-in`, 'Donald Duck', 'in', 2026, 8, day, inHour, inMinute, {
+          ...pay,
+          run,
+          note: notes[`${run}-in`] || '',
+          ...(extras[`${run}-in`] || {}),
+        }),
+        samplePunch(`disney-donald-09-${slug}-out`, 'Donald Duck', 'out', 2026, 8, day, outHour, outMinute, {
+          run,
+          note: notes[`${run}-out`] || '',
+          ...(extras[`${run}-out`] || {}),
+        }),
+      ];
+    })
+  );
+}
+
+/**
+ * Weekend, holiday, early-morning, and evening clocks so overtime shows on the pay period info.
  * October 2026: the 3rd and 10th are Saturdays, the 4th and 11th are Sundays,
  * and the 12th is a school holiday.
+ * Donald Duck instead has a full September 1–15 pay period, with a contract change on the 8th.
  */
 export function exampleOvertimePunches() {
   const pay = { pay_status: 'ex-driver' };
   return [
+    ...donaldSeptemberPunches(pay),
     samplePunch('disney-mickey-thu-in', 'Mickey Mouse', 'in', 2026, 9, 8, 14, 7, { ...pay, run: 'PM' }),
     samplePunch('disney-mickey-thu-out', 'Mickey Mouse', 'out', 2026, 9, 8, 18, 38, { run: 'PM' }),
     samplePunch('disney-mickey-sat-in', 'Mickey Mouse', 'in', 2026, 9, 10, 8, 4, { ...pay, run: 'OTHER' }),
@@ -424,10 +503,6 @@ export function exampleOvertimePunches() {
     samplePunch('disney-minnie-wed-out', 'Minnie Mouse', 'out', 2026, 9, 7, 8, 2, { run: 'AM' }),
     samplePunch('disney-minnie-sun-in', 'Minnie Mouse', 'in', 2026, 9, 11, 9, 2, { ...pay, run: 'OTHER' }),
     samplePunch('disney-minnie-sun-out', 'Minnie Mouse', 'out', 2026, 9, 11, 13, 33, { run: 'OTHER' }),
-    samplePunch('disney-donald-sun-in', 'Donald Duck', 'in', 2026, 9, 4, 7, 11, { ...pay, run: 'OTHER' }),
-    samplePunch('disney-donald-sun-out', 'Donald Duck', 'out', 2026, 9, 4, 11, 6, { run: 'OTHER' }),
-    samplePunch('disney-donald-fri-in', 'Donald Duck', 'in', 2026, 9, 9, 16, 48, { ...pay, run: 'PM' }),
-    samplePunch('disney-donald-fri-out', 'Donald Duck', 'out', 2026, 9, 9, 20, 16, { run: 'PM' }),
     samplePunch('disney-daisy-sat-in', 'Daisy Duck', 'in', 2026, 9, 3, 6, 16, { ...pay, run: 'OTHER' }),
     samplePunch('disney-daisy-sat-out', 'Daisy Duck', 'out', 2026, 9, 3, 9, 44, { run: 'OTHER' }),
     samplePunch('disney-daisy-hol-in', 'Daisy Duck', 'in', 2026, 9, 12, 8, 5, { ...pay, run: 'AM' }),

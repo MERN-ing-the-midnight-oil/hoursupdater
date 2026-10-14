@@ -58,6 +58,37 @@ describe('driver clock record', () => {
     assert.equal(periods[1].rows.at(-1).dateKey, '2026-09-16');
   });
 
+  it('names other work and a part marked inside a regular route', () => {
+    const punches = [
+      {
+        ...punch('sat-in', 'Alex Driver', 'in', new Date(2026, 9, 10, 9, 0), 'OTHER'),
+        work_type: 'field-trip',
+        trip_ticket: '4821',
+      },
+      {
+        ...punch('sat-out', 'Alex Driver', 'out', new Date(2026, 9, 10, 10, 0), 'OTHER'),
+        work_type: 'field-trip',
+      },
+      {
+        ...punch('fri-in', 'Alex Driver', 'in', new Date(2026, 9, 9, 14, 0), 'PM'),
+        work_portions: [
+          {
+            start: new Date(2026, 9, 9, 15, 0).toISOString(),
+            end: new Date(2026, 9, 9, 16, 0).toISOString(),
+            work_type: 'middle-school-sports',
+          },
+        ],
+      },
+      punch('fri-out', 'Alex Driver', 'out', new Date(2026, 9, 9, 17, 0), 'PM'),
+    ];
+    const periods = buildDriverClockRecord(punches, DEFAULT_PAY_PERIODS, 'Alex Driver', new Date(2026, 9, 11, 15));
+    const saturday = periods[0].rows.find((row) => row.dateKey === '2026-10-10');
+    const friday = periods[0].rows.find((row) => row.dateKey === '2026-10-09');
+    assert.equal(saturday.otherWork, 'Field trip 9:00 AM–10:00 AM\nTrip ticket 4821');
+    assert.equal(friday.otherWork, 'Middle school sports 3:00 PM–4:00 PM');
+    assert.equal(friday.pmIn, '2:00 PM');
+  });
+
   it('with no clocks, shows the current pay period through today', () => {
     const periods = buildDriverClockRecord([], DEFAULT_PAY_PERIODS, 'Alex Driver', new Date(2026, 9, 11, 12));
     assert.equal(periods.length, 1);
@@ -69,5 +100,36 @@ describe('driver clock record', () => {
 
   it('returns nothing without a driver name', () => {
     assert.deepEqual(buildDriverClockRecord([], DEFAULT_PAY_PERIODS, '  '), []);
+  });
+
+  it('shows Leave Requested and the hours, including a future day', () => {
+    const leaves = [
+      {
+        id: 'leave-am',
+        driver_name: 'Alex Driver',
+        date: '2026-10-09',
+        run: 'AM',
+        minutes: 140,
+        requested_at: '2026-10-09T15:00:00.000Z',
+      },
+      {
+        id: 'leave-pm',
+        driver_name: 'Alex Driver',
+        date: '2026-11-03',
+        run: 'PM',
+        minutes: 90,
+        requested_at: '2026-10-11T15:00:00.000Z',
+      },
+    ];
+    const periods = buildDriverClockRecord([], DEFAULT_PAY_PERIODS, 'Alex Driver', new Date(2026, 9, 11, 12), leaves);
+    const friday = periods.find((period) => period.key === '2026-10-1')?.rows.find((row) => row.dateKey === '2026-10-09');
+    const future = periods.find((period) => period.key === '2026-11-1')?.rows.find((row) => row.dateKey === '2026-11-03');
+    assert.equal(friday.amIn, 'Leave Requested');
+    assert.equal(friday.amOut, '2 hr 20 min');
+    assert.equal(future.pmIn, 'Leave Requested');
+    assert.equal(future.pmOut, '1 hr 30 min');
+    const october = periods.find((period) => period.key === '2026-10-1');
+    assert.equal(october.rows.some((row) => row.dateKey === '2026-10-11'), true);
+    assert.equal(october.rows.some((row) => row.dateKey === '2026-10-12'), false);
   });
 });

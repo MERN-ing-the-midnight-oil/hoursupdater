@@ -5,6 +5,14 @@
  */
 
 import { NOTE_MAX } from '../../src/logic/clockKiosk.js';
+import { pairClockPunches } from '../../src/logic/timesheets.js';
+import { isPayLineId, normalizePayPortions, payPortionError } from './driverPay.js';
+import {
+  normalizeTimecardEntries,
+  payPeriodStillOpen,
+  sessionForClockOut,
+  timecardEntryError,
+} from './timecardEntries.js';
 
 const NAME_MAX = 80;
 
@@ -165,7 +173,7 @@ export function changeOfficePunch(punches, id, input) {
   const entry = editEntry(input.account, input.typedName, input.note, 'change', input.at);
   const current = list[index];
   const next = list.slice();
-  next[index] = {
+  const punch = {
     ...current,
     action: punchAction(input.action),
     punched_at: punched.toISOString(),
@@ -173,6 +181,116 @@ export function changeOfficePunch(punches, id, input) {
     reason_codes: Array.isArray(input.reason_codes) ? input.reason_codes : current.reason_codes,
     office_edits: [...normalizeOfficeEdits(current.office_edits), entry],
   };
+  if (punch.action !== 'in') delete punch.pay_portions;
+  if (punch.action !== 'out') delete punch.timecard_entries;
+  next[index] = punch;
+  return next;
+}
+
+/**
+ * Timecard codes, times, and comments on a clock-out.
+ * A driver can save while the pay period is open.
+ * The office can save later, and that save records an admin note.
+ * @param {object[] | null | undefined} punches
+ * @param {string} id
+ * @param {{
+ *   entries?: object[],
+ *   catalog?: Array<{ id: string, label: string }>,
+ *   periods?: unknown,
+ *   now?: Date,
+ *   office?: boolean,
+ *   account?: { id?: string, name?: string } | null,
+ *   typedName?: unknown,
+ *   note?: unknown,
+ *   at?: string,
+ * }} input
+ */
+export function setTimecardEntries(punches, id, input) {
+  const { list, index } = findPunch(punches, id);
+  const current = list[index];
+  if (current.action !== 'out') throw new Error('Timecard codes go on the clock out.');
+  const session = sessionForClockOut(list, id);
+  if (!session) throw new Error('Clock in before adding timecard codes.');
+  const catalog = Array.isArray(input.catalog) ? input.catalog : [];
+  const requested = Array.isArray(input.entries) ? input.entries : [];
+  const error = timecardEntryError(requested, session.minutes, catalog);
+  if (error) throw new Error(error);
+  if (!input.office) {
+    const when = new Date(current.punched_at);
+    if (!payPeriodStillOpen(when, input.periods, input.now instanceof Date ? input.now : new Date())) {
+      throw new Error('That pay period is closed.');
+    }
+  }
+  const entries = normalizeTimecardEntries(requested, catalog);
+  const punch = { ...current };
+  if (entries.length) punch.timecard_entries = entries;
+  else delete punch.timecard_entries;
+  if (input.office) {
+    const entry = editEntry(input.account, input.typedName, input.note, 'change', input.at);
+    punch.office_edits = [...normalizeOfficeEdits(current.office_edits), entry];
+  }
+  const next = list.slice();
+  next[index] = punch;
+  return next;
+}
+
+/**
+ * The clock in's pay status covers the whole period.
+ * pay_portions, when present, covers only those parts.
+ * @param {object[] | null | undefined} punches
+ * @param {string} id
+ * @param {{
+ *   pay_status: unknown,
+ *   pay_portions?: object[],
+ *   allowed?: string[],
+ *   account?: { id?: string, name?: string } | null,
+ *   typedName?: unknown,
+ *   note: unknown,
+ *   at?: string,
+ * }} input
+ */
+export function assignClockPeriodPay(punches, id, input) {
+  const { list, index } = findPunch(punches, id);
+  const current = list[index];
+  if (current.action !== 'in') throw new Error('Set the pay status on the clock in.');
+  const status = String(input.pay_status || '').trim();
+  if (!isPayLineId(status)) throw new Error('Choose a pay status.');
+  const entry = editEntry(input.account, input.typedName, input.note, 'change', input.at);
+  const requested = Array.isArray(input.pay_portions) ? input.pay_portions : [];
+  /** @type {Array<{ start: string, end: string, pay_status: string }>} */
+  let portions = [];
+  let periodStatus = status;
+  if (requested.length) {
+    const driver = String(current.driver_name || '').trim().toLowerCase();
+    const { pairs } = pairClockPunches(
+      list.filter((punch) => String(punch?.driver_name || '').trim().toLowerCase() === driver)
+    );
+    const pair = pairs.find((item) => item.clockIn?.id === current.id);
+    if (!pair) throw new Error('Clock out before assigning part of the period.');
+    const start = pair.start <= pair.end ? pair.start : pair.end;
+    const end = pair.start <= pair.end ? pair.end : pair.start;
+    const error = payPortionError(requested, start, end, input.allowed);
+    if (error) throw new Error(error);
+    portions = normalizePayPortions(requested, start, end, input.allowed);
+    const only = portions.length === 1 ? portions[0] : null;
+    if (
+      only &&
+      new Date(only.start).getTime() <= start.getTime() &&
+      new Date(only.end).getTime() >= end.getTime()
+    ) {
+      periodStatus = only.pay_status;
+      portions = [];
+    }
+  }
+  const next = list.slice();
+  const punch = {
+    ...current,
+    pay_status: periodStatus,
+    office_edits: [...normalizeOfficeEdits(current.office_edits), entry],
+  };
+  if (portions.length) punch.pay_portions = portions;
+  else delete punch.pay_portions;
+  next[index] = punch;
   return next;
 }
 

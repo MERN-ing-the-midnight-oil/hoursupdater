@@ -305,7 +305,7 @@ app.post('/api/email-time-summary-math', async (req, res) => {
     res.status(400).json({ error: `${name} has no email on the Driver Name List.` });
     return;
   }
-  if (!html.includes('EX DRIVER TIME SUMMARY MATH') || !html.includes('letter landscape') || html.length > 500000) {
+  if (!html.includes('Driver Pay period info') || !html.includes('letter landscape') || html.length > 500000) {
     res.status(400).json({ error: 'That summary could not be prepared.' });
     return;
   }
@@ -322,11 +322,11 @@ app.post('/api/email-time-summary-math', async (req, res) => {
   const htmlPath = path.join(os.tmpdir(), `${base}-${id}.html`);
   const pdfPath = path.join(os.tmpdir(), `${base}-${id}.pdf`);
   const subject = period
-    ? `EX DRIVER TIME SUMMARY MATH — ${name} — ${period}`
-    : `EX DRIVER TIME SUMMARY MATH — ${name}`;
+    ? `Driver Pay period info — ${name} — ${period}`
+    : `Driver Pay period info — ${name}`;
   const body = period
-    ? `${name}'s EX DRIVER time summary math for ${period} is attached.`
-    : `${name}'s EX DRIVER time summary math is attached.`;
+    ? `${name}'s Driver Pay period info for ${period} is attached.`
+    : `${name}'s Driver Pay period info is attached.`;
   try {
     await writeFile(htmlPath, safe);
     await writeGuidePdf({

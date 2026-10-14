@@ -730,6 +730,41 @@ body {
   font-weight: 600;
 }
 
+.pay-run-map {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.55rem 0.75rem;
+  margin-top: 0.65rem;
+}
+
+.pay-run-map label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.2rem;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.pay-run-map select {
+  width: 100%;
+  padding: 0.3rem 0.4rem;
+}
+
+.driver-info-statuses .pay-run-map,
+.clock-record-facts .pay-run-map {
+  grid-template-columns: 1fr;
+}
+
+.clock-record-facts .pay-run-map {
+  display: grid;
+}
+
+.clock-record-statuses .pay-run-map,
+.clock-record-statuses > .field-hint {
+  flex: 1 1 100%;
+}
+
 .payroll-gear-sprite {
   position: absolute;
   width: 0;
@@ -1602,8 +1637,21 @@ h2.notification-section:first-of-type {
 
 .clock-record-edit .actions,
 .clock-record-edit .reason-picks,
-.clock-record-edit .field-hint {
+.clock-record-edit .field-hint,
+.clock-record-edit .pay-portion-block {
   grid-column: 1 / -1;
+}
+
+.pay-portion-block {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.pay-portion-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1rem;
+  align-items: end;
 }
 
 #clock-records tr.is-removed td {
@@ -1848,6 +1896,10 @@ form.early-release-form {
   display: none;
 }
 
+#summary-generate[hidden] {
+  display: none;
+}
+
 .payroll-clock-head .panel-title,
 .payroll-clock-head .lead:last-child {
   margin-bottom: 0;
@@ -1929,12 +1981,18 @@ form.early-release-form {
 .pin-list li {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 1rem;
-  max-width: 28rem;
+  max-width: 36rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   padding: 0.4rem 0.7rem;
   font-variant-numeric: tabular-nums;
+}
+
+.pin-list li > span {
+  flex: 1;
+  overflow-wrap: break-word;
 }
 
 .pin-list .pin-empty {
@@ -2058,33 +2116,96 @@ form.early-release-form {
   display: flex;
   flex-direction: column;
   align-items: center;
-  text-align: center;
-  gap: 0.35rem;
+  text-align: left;
+  gap: 0.65rem;
+  padding-bottom: 0.6rem;
+}
+
+.kiosk-detail-top,
+.kiosk-driver-hero,
+#kiosk-pin-form,
+#kiosk-detail > #kiosk-actions,
+#kiosk-detail > .kiosk-timecard {
+  width: min(68rem, 100%);
+}
+
+.kiosk-detail-top {
+  display: flex;
+  justify-content: flex-start;
+}
+
+#kiosk-back {
+  min-height: 2.8rem;
+  padding: 0.35rem 0.9rem;
+}
+
+.kiosk-driver-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.85rem 1.1rem;
+}
+
+.kiosk-driver-copy {
+  flex: 1 1 16rem;
+  min-width: 0;
+  display: grid;
+  justify-items: start;
+  gap: 0.28rem;
 }
 
 #kiosk-driver,
 #kiosk-routes,
 #kiosk-covering,
 #kiosk-substitute-who {
-  width: min(40rem, 100%);
+  width: auto;
   margin: 0;
 }
 
 #kiosk-driver {
-  margin-top: 0.35rem;
-  font-size: clamp(1.6rem, 3vw, 2.2rem);
-  line-height: 1.2;
+  font-size: clamp(1.8rem, 3.2vw, 2.5rem);
+  line-height: 1.1;
 }
 
 #kiosk-driver-photo {
-  width: min(11rem, 42vw);
+  width: 6.4rem;
   aspect-ratio: 4 / 5;
   object-fit: cover;
   object-position: center 18%;
   border-radius: var(--radius);
   border: 1px solid var(--line);
   background: var(--card);
-  margin: 0.15rem 0 0.2rem;
+}
+
+.kiosk-clock-state {
+  margin: 0;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  background: #f3eee6;
+  color: #5c4a32;
+  font-size: 1.05rem;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+.kiosk-clock-state.is-in {
+  background: #e5f4ec;
+  color: #174838;
+}
+
+.kiosk-clock-state:empty {
+  display: none;
+}
+
+.kiosk-assigned,
+.kiosk-covering {
+  color: var(--muted);
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.kiosk-covering:empty {
+  display: none;
 }
 
 #kiosk-driver-photo[hidden] {
@@ -2095,9 +2216,9 @@ form.early-release-form {
   display: flex;
   flex-direction: column;
   align-items: center;
+  text-align: center;
   gap: 0.35rem;
-  width: min(40rem, 100%);
-  margin-top: 0.45rem;
+  margin-top: 0.15rem;
 }
 
 #kiosk-pin-form label {
@@ -2123,6 +2244,10 @@ form.early-release-form {
 
 #kiosk-pin-error {
   margin: 0;
+}
+
+#kiosk-pin-error:empty {
+  display: none;
 }
 
 #kiosk-detail > #kiosk-substitute-panel,
@@ -2918,8 +3043,101 @@ button.kiosk-name.is-late:focus-visible {
   flex-direction: column;
   align-items: stretch;
   gap: 0.75rem;
-  width: 100%;
-  margin-top: 1rem;
+  margin-top: 0;
+}
+
+.kiosk-route-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.7rem;
+}
+
+.kiosk-route-card {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.7rem 0.75rem 0.75rem;
+  border: 1px solid var(--line);
+  border-top-width: 6px;
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.kiosk-route-card[data-run='AM'] {
+  border-top-color: #e2b93b;
+  background: #fffdf6;
+}
+
+.kiosk-route-card[data-run='MIDDAY'] {
+  border-top-color: #3d9a78;
+  background: #f7fcf9;
+}
+
+.kiosk-route-card[data-run='PM'] {
+  border-top-color: #3d7ab5;
+  background: #f5f9fd;
+}
+
+.kiosk-route-card[data-run='OTHER'] {
+  border-top-color: #8a6a3b;
+  background: #fcfaf6;
+}
+
+.kiosk-route-card.is-open {
+  box-shadow: 0 0 0 2px #1f5c4a;
+}
+
+.kiosk-route-card h3 {
+  margin: 0;
+  text-align: center;
+  font-size: 1.35rem;
+  line-height: 1.15;
+}
+
+.kiosk-route-state {
+  min-height: 1.25rem;
+  margin: 0;
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.kiosk-route-state:not(.is-in):not(.is-hint) {
+  color: transparent;
+}
+
+.kiosk-route-state.is-hint {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.kiosk-route-state.is-in {
+  color: #174838;
+}
+
+.kiosk-route-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+
+@media (max-width: 720px) {
+  .kiosk-route-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.kiosk-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.kiosk-tools button {
+  min-height: 3.15rem;
+  padding: 0.4rem 0.9rem;
+  font-size: 1.02rem;
 }
 
 .kiosk-reason-row {
@@ -3013,13 +3231,150 @@ button.kiosk-name.is-late:focus-visible {
   color: var(--ink);
 }
 
-.kiosk-pay-option {
-  line-height: 1.15;
-}
-
 .kiosk-run-option:focus-within {
   outline: 2px solid var(--reader);
   outline-offset: 2px;
+}
+
+.kiosk-work,
+.kiosk-chunk {
+  display: grid;
+  gap: 0.55rem;
+  width: 100%;
+}
+
+.kiosk-work-group {
+  grid-column: 1 / -1;
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 750;
+  text-align: left;
+}
+
+.kiosk-work-option {
+  min-height: 3.4rem;
+  padding: 0.65rem 0.75rem;
+  font-size: 1.05rem;
+  line-height: 1.2;
+}
+
+#kiosk-chunk-open,
+.kiosk-work > .secondary,
+.kiosk-chunk-panel > .secondary {
+  justify-self: start;
+}
+
+.kiosk-chunk-panel {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.kiosk-chunk-panel .lead {
+  margin: 0;
+}
+
+.kiosk-chunk-pairs {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.kiosk-chunk-pairs button {
+  min-height: 3.2rem;
+  font-size: 1.05rem;
+}
+
+.kiosk-chunk-pairs button.is-selected {
+  border-color: var(--reader);
+  background: var(--reader-case);
+  color: var(--reader-ink);
+}
+
+.kiosk-chunk-times {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+.kiosk-chunk-times label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 1.05rem;
+  font-weight: 750;
+  text-align: left;
+}
+
+.clock-timecard-rows {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.clock-timecard-row {
+  display: grid;
+  gap: 0.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line, #d7d2c8);
+}
+
+.kiosk-timecard {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.kiosk-timecard-row {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.65rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.kiosk-timecard-time {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.kiosk-timecard-time label {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.kiosk-timecard-time input {
+  width: 5.5rem;
+  font: inherit;
+}
+
+.kiosk-timecard-row select,
+.kiosk-timecard-row textarea {
+  width: 100%;
+  font: inherit;
+}
+
+.driver-clock-timecards {
+  display: grid;
+  gap: 0.85rem;
+  margin: 1.25rem 0 1.5rem;
+}
+
+.driver-clock-timecard {
+  display: grid;
+  gap: 0.55rem;
+  max-width: 36rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 0.9rem;
+}
+
+.driver-clock-timecard h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.kiosk-chunk-times input {
+  min-height: 3rem;
+  font: inherit;
+  font-size: 1.2rem;
 }
 
 #kiosk-run-error {
@@ -3028,7 +3383,25 @@ button.kiosk-name.is-late:focus-visible {
 
 .kiosk-note {
   display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+}
+
+#kiosk-note-panel {
+  display: grid;
   gap: 0.35rem;
+  width: 100%;
+}
+
+#kiosk-work-heading,
+.kiosk-work-lead {
+  margin: 0;
+  text-align: center;
+}
+
+.kiosk-work-lead {
+  color: var(--muted);
+  font-weight: 650;
 }
 
 .kiosk-note label {
@@ -3038,8 +3411,8 @@ button.kiosk-name.is-late:focus-visible {
 
 .kiosk-note textarea {
   width: 100%;
-  min-height: 5.5rem;
-  padding: 0.7rem 0.8rem;
+  min-height: 2.6rem;
+  padding: 0.45rem 0.6rem;
   border: 2px solid var(--line);
   border-radius: var(--radius-sm);
   background: #fff;
@@ -3050,6 +3423,27 @@ button.kiosk-name.is-late:focus-visible {
   resize: vertical;
 }
 
+.kiosk-trip-ticket {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+  font-size: 1.2rem;
+  font-weight: 750;
+}
+
+.kiosk-trip-ticket input {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.45rem 0.7rem;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 1.35rem;
+  font-weight: 650;
+}
+
 .kiosk-note-count {
   margin: 0;
   color: var(--muted);
@@ -3057,66 +3451,173 @@ button.kiosk-name.is-late:focus-visible {
   font-weight: 650;
 }
 
-#kiosk-in,
-#kiosk-out {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.8rem;
+#kiosk-leave-request {
+  border: 0;
+  background: #8a5a12;
+  color: #fff;
+  font-weight: 750;
+}
+
+#kiosk-leave-request:hover,
+#kiosk-leave-request:focus-visible {
+  background: #6e470d;
+  border-color: #6e470d;
+  color: #fff;
+}
+
+.kiosk-leave-request {
+  display: grid;
+  gap: 0.75rem;
   width: 100%;
-  min-height: 14rem;
-  padding: 1.2rem 1rem;
+}
+
+.kiosk-leave-request-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+.kiosk-leave-request-fields label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 1.05rem;
+  font-weight: 750;
+  text-align: left;
+}
+
+.kiosk-leave-request-fields input,
+.kiosk-leave-request-fields select {
+  min-height: 3.25rem;
+  font-size: 1.2rem;
+}
+
+.kiosk-leave-request-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+#kiosk-leave-request-save {
+  min-height: 4.25rem;
+  border: 0;
+  background: #8a5a12;
+  color: #fff;
+  font-size: 1.25rem;
+  font-weight: 750;
+}
+
+#kiosk-leave-request-save:hover,
+#kiosk-leave-request-save:focus-visible {
+  background: #6e470d;
+  color: #fff;
+}
+
+#kiosk-leave-request-save:disabled {
+  opacity: 0.55;
+}
+
+button.kiosk-punch-in,
+button.kiosk-punch-out,
+#kiosk-work-punch {
+  width: 100%;
+  min-width: 0;
+  min-height: 4.15rem;
+  padding: 0.55rem 0.4rem;
   border: 0;
   color: #fff;
-  font-size: 2.4rem;
+  font-size: 1.25rem;
   font-weight: 750;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
   line-height: 1.1;
 }
 
-#kiosk-in {
+button.kiosk-punch-in,
+#kiosk-work-punch {
   background: #1f5c4a;
 }
 
-#kiosk-in:hover,
-#kiosk-in:focus-visible {
+button.kiosk-punch-in:hover,
+button.kiosk-punch-in:focus-visible,
+#kiosk-work-punch:hover,
+#kiosk-work-punch:focus-visible {
   background: #174838;
   border-color: #174838;
   color: #fff;
 }
 
-#kiosk-out {
+button.kiosk-punch-out,
+#kiosk-work-punch.is-out {
   background: #8a4b12;
 }
 
-#kiosk-out:hover,
-#kiosk-out:focus-visible {
+button.kiosk-punch-out:hover,
+button.kiosk-punch-out:focus-visible,
+#kiosk-work-punch.is-out:hover,
+#kiosk-work-punch.is-out:focus-visible {
   background: #6e3b0e;
   border-color: #6e3b0e;
   color: #fff;
 }
 
-.kiosk-punch-icon {
-  width: 4.5rem;
-  height: 4.5rem;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+#kiosk-work-punch {
+  position: sticky;
+  bottom: 0.15rem;
+  z-index: 1;
+  min-height: 4.5rem;
+  font-size: 1.4rem;
+  box-shadow: 0 8px 18px rgba(16, 40, 36, 0.12);
 }
 
-@media (max-width: 720px) {
-  .kiosk-punch-row {
-    grid-template-columns: 1fr;
-  }
+.kiosk-punch-layout {
+  display: grid;
+  gap: 0.7rem;
+  width: 100%;
+  min-width: 0;
+}
 
-  #kiosk-in,
-  #kiosk-out {
-    min-height: 9rem;
-    font-size: 2rem;
-  }
+.kiosk-clock-qr {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  box-sizing: border-box;
+  width: 1.7in;
+  min-width: 1.7in;
+  max-width: 1.7in;
+  margin: 0 0 0 auto;
+  padding: 0.28rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(16, 40, 36, 0.16);
+  pointer-events: none;
+}
+
+.kiosk-clock-qr[hidden] {
+  display: none;
+}
+
+.kiosk-clock-qr p {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 750;
+  line-height: 1.15;
+  text-align: center;
+}
+
+#kiosk-clock-qr-code {
+  display: block;
+  box-sizing: content-box;
+  width: 1.5in;
+  height: 1.5in;
+  min-width: 1.5in;
+  min-height: 1.5in;
+  max-width: 1.5in;
+  max-height: 1.5in;
+  aspect-ratio: 1 / 1;
+  flex: 0 0 auto;
 }
 
 .kiosk-actions[hidden],
@@ -3124,7 +3625,25 @@ button.kiosk-name.is-late:focus-visible {
 #kiosk-substitute[hidden],
 #kiosk-substitute-panel[hidden],
 #kiosk-covering[hidden],
-#kiosk-substitute-who[hidden] {
+#kiosk-substitute-who[hidden],
+.kiosk-trip-ticket[hidden],
+#kiosk-work[hidden],
+#kiosk-chunk-panel[hidden],
+#kiosk-chunk-open[hidden],
+.kiosk-punch-layout[hidden],
+#kiosk-note-panel[hidden],
+#kiosk-run-choice[hidden],
+.kiosk-reason-row[hidden],
+#kiosk-reason-picks[hidden],
+#kiosk-leave-request-panel[hidden],
+#kiosk-leave-request-time[hidden],
+#kiosk-leave-request-contract[hidden],
+#kiosk-leave-request-error[hidden],
+#kiosk-timecard-open[hidden],
+.kiosk-timecard[hidden],
+#kiosk-timecard-choices[hidden],
+#kiosk-timecard-form[hidden],
+.driver-clock-timecards[hidden] {
   display: none;
 }
 

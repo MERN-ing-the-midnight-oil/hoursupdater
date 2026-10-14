@@ -90,6 +90,10 @@ describe('timeclock punch clock', () => {
     );
     assert.equal(clockedPhrase('in', { run: 'PM', punchedAt: at(14, 30).toISOString() }), 'is Clocked In for the PM route at 2:30 PM');
     assert.equal(clockedPhrase('in', { run: 'OTHER', punchedAt }), 'is Clocked In for Other at 6:07 AM');
+    assert.equal(
+      clockedPhrase('in', { run: 'OTHER', work_type: 'middle-school-sports', punchedAt }),
+      'is Clocked In for Middle school sports at 6:07 AM'
+    );
     assert.equal(clockedPhrase('in', { punchedAt }), 'is Clocked In at 6:07 AM');
   });
 });

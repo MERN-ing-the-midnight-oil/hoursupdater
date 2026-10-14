@@ -3,10 +3,19 @@
  * The records stay on the shared office and feed the payroll spreadsheet.
  */
 
-import { addOfficePunch, changeOfficePunch, removeOfficePunch } from '../src/officePunches.js';
-import { punchRunLabel } from '../../src/logic/timesheets.js';
+import { addOfficePunch, assignClockPeriodPay, changeOfficePunch, removeOfficePunch, setTimecardEntries } from '../src/officePunches.js';
+import { formatTimecardMinutes, normalizeTimecardEntries, sessionForClockOut, timecardSummary } from '../src/timecardEntries.js';
+import { pairClockPunches, punchRunLabel } from '../../src/logic/timesheets.js';
+import { clockNoteText, normalizeStoredWorkPortions, normalizeTripTicket, stampTripTicket, TRIP_TICKET_WORK_TYPE, workTypeLabel } from '../../src/logic/workTypes.js';
 import { buildDriverClockRecord, CLOCK_RECORD_COLUMNS } from '../src/driverClockRecord.js';
-import { driverPayStatusChoices, normalizeClockPayDefaults, normalizeDriverPay } from '../src/driverPay.js';
+import {
+  CLOCK_IN_TYPES,
+  driverPayStatusChoices,
+  normalizeClockPayDefaults,
+  normalizeDriverPay,
+  normalizePayStatusByRun,
+  paySlicesForPair,
+} from '../src/driverPay.js';
 import { compareRouteNumbers, driversFromState } from './store.js';
 
 /**
@@ -17,7 +26,7 @@ import { compareRouteNumbers, driversFromState } from './store.js';
  *   asOf?: () => string,
  *   readAccount?: () => { id?: string, name?: string } | null,
  *   onOpenHistory?: (name: string) => void,
- *   saveDriverPay?: (driver: object, fields: { serial?: string, rate?: string, payStatuses?: string[] }) => Promise<void> | void,
+ *   saveDriverPay?: (driver: object, fields: { serial?: string, rate?: string, payStatuses?: string[], payStatusByRun?: object }) => Promise<void> | void,
  * }} options
  */
 export function mountClockDesk({ readState, writePunches, listNames, asOf, readAccount, onOpenHistory, saveDriverPay }) {
@@ -66,8 +75,14 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
   let factsDriver = '';
   let editingId = '';
   let removingId = '';
+  let payEditingId = '';
+  let timecardEditingId = '';
   /** @type {{ time: string, action: string, note: string, reasonIds: string[], adminNote: string, adminName: string } | null} */
   let editDraft = null;
+  /** @type {{ payStatus: string, portions: Array<{ start: string, end: string, payStatus: string }>, adminNote: string, adminName: string } | null} */
+  let payDraft = null;
+  /** @type {{ rows: Array<{ id: string, hours: string, minutes: string, comment: string }>, adminNote: string, adminName: string } | null} */
+  let timecardDraft = null;
   /** @type {{ adminNote: string, adminName: string }} */
   let removeDraft = { adminNote: '', adminName: '' };
   let officeName = '';
@@ -121,7 +136,12 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
   });
   driverFacts?.addEventListener('change', (event) => {
     const select = event.target;
-    if (!(select instanceof HTMLSelectElement) || select.dataset.payStatusAdd !== '1') return;
+    if (!(select instanceof HTMLSelectElement)) return;
+    if (select.classList.contains('js-pay-status-run')) {
+      savePayStatusRun(select);
+      return;
+    }
+    if (select.dataset.payStatusAdd !== '1') return;
     if (select.value) addPayStatus();
   });
   driverFacts?.addEventListener('click', (event) => {
@@ -413,7 +433,71 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     add.textContent = 'Add';
     add.disabled = select.options.length < 2;
     statuses.append(heading, list, select, add);
+    if (driver) appendClockInPayMap(statuses, driver, chosen);
     driverFacts.append(statuses);
+  }
+
+  /**
+   * @param {HTMLElement} parent
+   * @param {NonNullable<ReturnType<typeof openPayDriver>>} driver
+   * @param {Array<{ id: string, label: string }>} choices
+   */
+  function appendClockInPayMap(parent, driver, choices) {
+    if (choices.length < 2) {
+      const note = document.createElement('p');
+      note.className = 'field-hint';
+      note.textContent = `Every clock-in uses ${choices[0]?.label || 'that pay status'}.`;
+      parent.append(note);
+      return;
+    }
+    const map = normalizePayStatusByRun(
+      driver.payStatusByRun,
+      choices.map((line) => line.id)
+    );
+    const grid = document.createElement('div');
+    grid.className = 'pay-run-map';
+    for (const type of CLOCK_IN_TYPES) {
+      const label = document.createElement('label');
+      label.append(document.createTextNode(type.label));
+      const select = document.createElement('select');
+      select.className = 'js-pay-status-run';
+      select.dataset.payRun = type.id;
+      select.setAttribute('aria-label', `${type.label} pay status for ${driver.name}`);
+      for (const line of choices) {
+        const option = document.createElement('option');
+        option.value = line.id;
+        option.textContent = line.label;
+        select.append(option);
+      }
+      select.value = map[type.id] || choices[0].id;
+      label.append(select);
+      grid.append(label);
+    }
+    parent.append(grid);
+  }
+
+  /**
+   * @param {HTMLSelectElement} select
+   */
+  function savePayStatusRun(select) {
+    const driver = openPayDriver();
+    if (!driver) return;
+    const lines = payLines();
+    const choices = driverPayStatusChoices(driver.payStatuses, lines);
+    const run = select.dataset.payRun || '';
+    const type = CLOCK_IN_TYPES.find((item) => item.id === run);
+    if (choices.length < 2 || !type || !choices.some((line) => line.id === select.value)) return;
+    const map = normalizePayStatusByRun(
+      driver.payStatusByRun,
+      choices.map((line) => line.id)
+    );
+    map[run] = select.value;
+    const line = choices.find((item) => item.id === select.value);
+    savePay(
+      driver,
+      { payStatusByRun: map },
+      `${type.label} for ${driver.name} uses ${line?.label || 'that pay status'}.`
+    );
   }
 
   /**
@@ -473,7 +557,7 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
 
   /**
    * @param {NonNullable<ReturnType<typeof openPayDriver>>} driver
-   * @param {{ serial?: string, rate?: string, payStatuses?: string[] }} fields
+   * @param {{ serial?: string, rate?: string, payStatuses?: string[], payStatusByRun?: object }} fields
    * @param {string} message
    * @param {boolean} [redraw]
    */
@@ -509,7 +593,8 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
       state.punches,
       normalizeClockPayDefaults(state.clockPayDefaults).periods,
       openDriver,
-      officeNow()
+      officeNow(),
+      state.leaveRequests
     );
     if (recordJumps) {
       recordJumps.replaceChildren();
@@ -560,10 +645,73 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
 
   function punchKind(punch) {
     const kind = punch.action === 'out' ? 'Clock out' : 'Clock in';
-    const route = punchRunLabel(punch.run);
+    const work = workTypeLabel(punch.work_type);
+    const route = work || punchRunLabel(punch.run);
     const label = route ? `${kind} · ${route}` : kind;
-    const covering = punch.substitute_name ? `${label} · ${punch.substitute_name}` : label;
-    return punch.removed ? `${covering} · Removed` : covering;
+    const portions = normalizeStoredWorkPortions(punch.work_portions)
+      .map((portion) => {
+        const name = workTypeLabel(portion.work_type);
+        return name ? `${name} ${clockTimeText(portion.start)}–${clockTimeText(portion.end)}` : '';
+      })
+      .filter(Boolean)
+      .join(', ');
+    const withPortions = portions ? `${label} · ${portions}` : label;
+    const covering = punch.substitute_name ? `${withPortions} · ${punch.substitute_name}` : withPortions;
+    const pay = punch.action === 'in' && !punch.removed ? payKindSuffix(punch) : '';
+    const shown = pay ? `${covering} · ${pay}` : covering;
+    return punch.removed ? `${covering} · Removed` : shown;
+  }
+
+  function payStatusName(id) {
+    return payLines().find((line) => line.id === id)?.label || '';
+  }
+
+  function clockTimeText(value) {
+    const when = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(when.getTime())) return '';
+    return when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function periodFor(punch) {
+    if (punch?.action !== 'in') return null;
+    const driver = String(punch.driver_name || '').trim().toLowerCase();
+    const { pairs } = pairClockPunches(
+      punchesFromState().filter((item) => String(item?.driver_name || '').trim().toLowerCase() === driver)
+    );
+    return pairs.find((pair) => pair.clockIn?.id === punch.id) || null;
+  }
+
+  function payChoicesFor(punch) {
+    const lines = payLines();
+    const driver = driversFromState(readState() || {}).find(
+      (item) => item.name.trim().toLowerCase() === String(punch.driver_name || '').trim().toLowerCase()
+    );
+    const chosen = driver ? driverPayStatusChoices(driver.payStatuses, lines) : [...lines];
+    const extras = [punch.pay_status];
+    for (const portion of Array.isArray(punch.pay_portions) ? punch.pay_portions : []) extras.push(portion.pay_status);
+    for (const id of extras) {
+      if (id && !chosen.some((line) => line.id === id)) {
+        const line = lines.find((item) => item.id === id);
+        if (line) chosen.push(line);
+      }
+    }
+    return chosen.length ? chosen : lines.slice(0, 1);
+  }
+
+  function payKindSuffix(punch) {
+    const name = payStatusName(punch.pay_status);
+    const pair = periodFor(punch);
+    const portions = Array.isArray(punch.pay_portions) ? punch.pay_portions : [];
+    if (!pair || !portions.length) return name;
+    const slices = paySlicesForPair(pair);
+    if (slices.length < 2) return payStatusName(slices[0]?.pay_status) || name;
+    return slices
+      .map((slice) => {
+        const label = payStatusName(slice.pay_status);
+        const range = `${clockTimeText(slice.start)}–${clockTimeText(slice.end)}`;
+        return label ? `${range} ${label}` : range;
+      })
+      .join(' · ');
   }
 
   function formatWhen(iso) {
@@ -593,12 +741,20 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
   function closeEditors() {
     editingId = '';
     removingId = '';
+    payEditingId = '';
+    timecardEditingId = '';
     editDraft = null;
+    payDraft = null;
+    timecardDraft = null;
   }
 
   function beginEdit(punch) {
     editingId = punch.id;
     removingId = '';
+    payEditingId = '';
+    timecardEditingId = '';
+    payDraft = null;
+    timecardDraft = null;
     editDraft = {
       time: localStamp(new Date(punch.punched_at)),
       action: punch.action === 'out' ? 'out' : 'in',
@@ -615,9 +771,37 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
   function beginRemove(punch) {
     removingId = punch.id;
     editingId = '';
+    payEditingId = '';
+    timecardEditingId = '';
     editDraft = null;
+    payDraft = null;
+    timecardDraft = null;
     removeDraft = { adminNote: '', adminName: rememberedName() };
     focusSelector = '[data-remove="admin-note"]';
+    setStatus('');
+    renderRows();
+  }
+
+  function beginPay(punch) {
+    const choices = payChoicesFor(punch);
+    const current = choices.some((line) => line.id === punch.pay_status) ? punch.pay_status : choices[0]?.id || '';
+    editingId = '';
+    removingId = '';
+    timecardEditingId = '';
+    timecardDraft = null;
+    editDraft = null;
+    payEditingId = punch.id;
+    payDraft = {
+      payStatus: current,
+      portions: (Array.isArray(punch.pay_portions) ? punch.pay_portions : []).map((portion) => ({
+        start: localStamp(new Date(portion.start)),
+        end: localStamp(new Date(portion.end)),
+        payStatus: portion.pay_status,
+      })),
+      adminNote: '',
+      adminName: rememberedName(),
+    };
+    focusSelector = '[data-pay="admin-note"]';
     setStatus('');
     renderRows();
   }
@@ -733,12 +917,15 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     const when = document.createElement('td');
     when.textContent = formatWhen(punch.punched_at);
     const note = document.createElement('td');
-    note.textContent = punch.note || '';
+    note.style.whiteSpace = 'pre-line';
+    note.textContent = clockNoteText(punch);
     const reasons = document.createElement('td');
-    reasons.textContent = (Array.isArray(punch.reason_codes) ? punch.reason_codes : [])
+    const coded = (Array.isArray(punch.reason_codes) ? punch.reason_codes : [])
       .map((code) => code.label)
-      .filter(Boolean)
-      .join(', ');
+      .filter(Boolean);
+    const timed = timecardSummary(normalizeTimecardEntries(punch.timecard_entries));
+    reasons.style.whiteSpace = 'pre-line';
+    reasons.textContent = [...coded, timed].filter(Boolean).join('\n');
     row.append(when, punchKindCell(punch), note, reasons, officeCell(punch));
     const action = document.createElement('td');
     if (!punch.removed) {
@@ -749,7 +936,27 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
           'Edit',
           '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
           () => beginEdit(punch)
-        ),
+        )
+      );
+      if (punch.action === 'in') {
+        wrap.append(
+          actionButton(
+            'Pay status',
+            '<path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+            () => beginPay(punch)
+          )
+        );
+      }
+      if (punch.action === 'out') {
+        wrap.append(
+          actionButton(
+            'Timecard',
+            '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
+            () => beginTimecard(punch)
+          )
+        );
+      }
+      wrap.append(
         actionButton(
           'Remove',
           '<path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M8 7l1 13h6l1-13"/>',
@@ -941,6 +1148,373 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     return row;
   }
 
+  function payStatusSelect(choices, value, dataset) {
+    const select = document.createElement('select');
+    select.dataset.pay = dataset;
+    for (const line of choices) {
+      const option = document.createElement('option');
+      option.value = line.id;
+      option.textContent = line.label;
+      select.append(option);
+    }
+    if (choices.some((line) => line.id === value)) select.value = value;
+    return select;
+  }
+
+  function syncPayDraft(form) {
+    if (!payDraft) return;
+    const status = form.querySelector('[data-pay="status"]');
+    if (status instanceof HTMLSelectElement) payDraft.payStatus = status.value;
+    for (const row of form.querySelectorAll('[data-pay-portion]')) {
+      const index = Number(row.getAttribute('data-pay-portion'));
+      const portion = payDraft.portions[index];
+      if (!portion) continue;
+      const start = row.querySelector('[data-pay="start"]');
+      const end = row.querySelector('[data-pay="end"]');
+      const pay = row.querySelector('[data-pay="portion-status"]');
+      if (start instanceof HTMLInputElement) portion.start = start.value;
+      if (end instanceof HTMLInputElement) portion.end = end.value;
+      if (pay instanceof HTMLSelectElement) portion.payStatus = pay.value;
+    }
+    const adminNote = form.querySelector('[data-pay="admin-note"]');
+    const adminName = form.querySelector('[data-pay="admin-name"]');
+    if (adminNote instanceof HTMLInputElement) payDraft.adminNote = adminNote.value;
+    if (adminName instanceof HTMLInputElement) {
+      payDraft.adminName = adminName.value;
+      officeName = adminName.value;
+    }
+  }
+
+  function payRow(punch) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 6;
+    const form = document.createElement('form');
+    form.className = 'clock-record-edit';
+    form.noValidate = true;
+    const grid = document.createElement('div');
+    grid.className = 'clock-edit-grid';
+    const choices = payChoicesFor(punch);
+    const pair = periodFor(punch);
+    const lead = document.createElement('p');
+    lead.className = 'field-hint';
+    const periodStart = pair ? (pair.start <= pair.end ? pair.start : pair.end) : null;
+    const periodEnd = pair ? (pair.start <= pair.end ? pair.end : pair.start) : null;
+    const range = periodStart && periodEnd ? `${formatWhen(periodStart)} – ${formatWhen(periodEnd)}` : formatWhen(punch.punched_at);
+    lead.textContent = `Pay status for ${range}.`;
+    const whole = payStatusSelect(choices, payDraft?.payStatus || '', 'status');
+    whole.id = 'pay-period-status';
+    const wholeField = labeledField(choices.length > 1 ? 'Whole period' : 'Pay status', whole);
+    if (choices.length < 2) {
+      const hint = document.createElement('p');
+      hint.className = 'field-hint';
+      hint.textContent = `${payStatusName(choices[0]?.id) || 'This pay status'} is used for the whole period.`;
+      wholeField.append(hint);
+    }
+    /** @type {HTMLElement[]} */
+    const portionNodes = [];
+    if (choices.length > 1 && pair) {
+      const block = document.createElement('div');
+      block.className = 'pay-portion-block';
+      const hint = document.createElement('p');
+      hint.className = 'field-hint';
+      hint.textContent = 'A part uses its own pay status. The rest of the period uses the whole-period pay status.';
+      block.append(hint);
+      (payDraft?.portions || []).forEach((portion, index) => {
+        const portionRow = document.createElement('div');
+        portionRow.className = 'pay-portion-row';
+        portionRow.dataset.payPortion = String(index);
+        const start = document.createElement('input');
+        start.type = 'datetime-local';
+        start.id = `pay-portion-${index}-start`;
+        start.dataset.pay = 'start';
+        start.value = portion.start;
+        const end = document.createElement('input');
+        end.type = 'datetime-local';
+        end.id = `pay-portion-${index}-end`;
+        end.dataset.pay = 'end';
+        end.value = portion.end;
+        const portionStatus = payStatusSelect(choices, portion.payStatus, 'portion-status');
+        portionStatus.id = `pay-portion-${index}-status`;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'secondary';
+        remove.textContent = 'Remove part';
+        remove.addEventListener('click', () => {
+          syncPayDraft(form);
+          if (payDraft) payDraft.portions.splice(index, 1);
+          renderRows();
+        });
+        portionRow.append(
+          labeledField('From', start),
+          labeledField('Until', end),
+          labeledField('Pay status', portionStatus),
+          remove
+        );
+        block.append(portionRow);
+      });
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'secondary';
+      add.textContent = 'Add a part';
+      add.addEventListener('click', () => {
+        syncPayDraft(form);
+        if (!payDraft || !periodStart || !periodEnd) return;
+        const other = choices.find((line) => line.id !== payDraft.payStatus) || choices[0];
+        const hourLater = new Date(periodStart.getTime() + 60 * 60000);
+        payDraft.portions.push({
+          start: localStamp(periodStart),
+          end: localStamp(hourLater < periodEnd ? hourLater : periodEnd),
+          payStatus: other?.id || payDraft.payStatus,
+        });
+        focusSelector = `[data-pay-portion="${payDraft.portions.length - 1}"] [data-pay="start"]`;
+        renderRows();
+      });
+      block.append(add);
+      portionNodes.push(block);
+    } else if (!pair) {
+      const hint = document.createElement('p');
+      hint.className = 'field-hint';
+      hint.textContent = 'This clock in has no clock out yet. The pay status covers the whole period once they clock out.';
+      portionNodes.push(hint);
+    }
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    const save = document.createElement('button');
+    save.type = 'submit';
+    save.textContent = 'Save pay status';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'secondary';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => {
+      closeEditors();
+      setStatus('');
+      renderRows();
+    });
+    actions.append(save, cancel);
+    grid.append(
+      lead,
+      wholeField,
+      ...portionNodes,
+      ...actorControls(payDraft || { adminNote: '', adminName: '' }, 'pay'),
+      actions
+    );
+    form.append(grid);
+    form.addEventListener('input', () => syncPayDraft(form));
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      syncPayDraft(form);
+      savePeriodPay(punch.id);
+    });
+    cell.append(form);
+    row.append(cell);
+    return row;
+  }
+
+  function beginTimecard(punch) {
+    editingId = '';
+    removingId = '';
+    payEditingId = '';
+    payDraft = null;
+    editDraft = null;
+    timecardEditingId = punch.id;
+    const rows = normalizeTimecardEntries(punch.timecard_entries).map((entry) => ({
+      id: entry.id,
+      hours: String(Math.floor(entry.minutes / 60)),
+      minutes: String(entry.minutes % 60),
+      comment: entry.comment,
+      ticket: '',
+    }));
+    if (normalizeTripTicket(punch.trip_ticket) && !rows.some((entry) => entry.id === TRIP_TICKET_WORK_TYPE)) {
+      rows.unshift({
+        id: TRIP_TICKET_WORK_TYPE,
+        hours: '',
+        minutes: '',
+        comment: '',
+        ticket: normalizeTripTicket(punch.trip_ticket),
+      });
+    }
+    timecardDraft = {
+      rows,
+      adminNote: '',
+      adminName: rememberedName(),
+    };
+    focusSelector = '[data-timecard="admin-note"]';
+    setStatus('');
+    renderRows();
+  }
+
+  function timecardCodeSelect(value) {
+    const select = document.createElement('select');
+    select.dataset.timecard = 'code';
+    const blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = 'Choose a code';
+    select.append(blank);
+    for (const code of reasonCodes()) {
+      const option = document.createElement('option');
+      option.value = code.id;
+      option.textContent = code.label;
+      select.append(option);
+    }
+    if (reasonCodes().some((code) => code.id === value)) select.value = value;
+    return select;
+  }
+
+  function timecardRow(punch) {
+    if (!timecardDraft) return document.createElement('tr');
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 6;
+    const form = document.createElement('form');
+    form.className = 'clock-pay-form';
+    const session = sessionForClockOut(punchesFromState(), punch.id);
+    const title = document.createElement('p');
+    title.className = 'lead';
+    title.textContent = session
+      ? `Timecard codes for this clock-out. The times can add up to ${formatTimecardMinutes(session.minutes)} or less.`
+      : 'Timecard codes for this clock-out.';
+    const list = document.createElement('div');
+    list.className = 'clock-timecard-rows';
+    timecardDraft.rows.forEach((entry, index) => {
+      const block = document.createElement('div');
+      block.className = 'clock-timecard-row';
+      block.dataset.timecardRow = String(index);
+      const code = timecardCodeSelect(entry.id);
+      code.addEventListener('change', () => {
+        timecardDraft.rows[index].id = code.value;
+        renderRows();
+      });
+      const hours = document.createElement('input');
+      hours.type = 'number';
+      hours.min = '0';
+      hours.max = '24';
+      hours.value = entry.hours;
+      hours.addEventListener('input', () => {
+        timecardDraft.rows[index].hours = hours.value;
+      });
+      const minutes = document.createElement('input');
+      minutes.type = 'number';
+      minutes.min = '0';
+      minutes.max = '59';
+      minutes.value = entry.minutes;
+      minutes.addEventListener('input', () => {
+        timecardDraft.rows[index].minutes = minutes.value;
+      });
+      const comment = document.createElement('input');
+      comment.type = 'text';
+      comment.maxLength = 200;
+      comment.value = entry.comment;
+      comment.placeholder = 'Comment';
+      comment.addEventListener('input', () => {
+        timecardDraft.rows[index].comment = comment.value;
+      });
+      const ticket = document.createElement('input');
+      ticket.type = 'text';
+      ticket.maxLength = 40;
+      ticket.value = entry.ticket || '';
+      ticket.autocomplete = 'off';
+      ticket.addEventListener('input', () => {
+        timecardDraft.rows[index].ticket = ticket.value;
+      });
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'secondary';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', () => {
+        timecardDraft.rows.splice(index, 1);
+        renderRows();
+      });
+      block.append(
+        code,
+        ...(entry.id === TRIP_TICKET_WORK_TYPE
+          ? [labeledField('Trip ticket number', ticket)]
+          : [labeledField('Hours', hours), labeledField('Minutes', minutes), labeledField('Comment', comment)]),
+        remove
+      );
+      list.append(block);
+    });
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'secondary';
+    add.textContent = 'Add a code';
+    add.addEventListener('click', () => {
+      timecardDraft.rows.push({ id: '', hours: '', minutes: '', comment: '', ticket: '' });
+      renderRows();
+    });
+    const actions = document.createElement('div');
+    actions.className = 'clock-edit-actions';
+    const save = document.createElement('button');
+    save.type = 'submit';
+    save.textContent = 'Save codes';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'secondary';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => {
+      closeEditors();
+      setStatus('');
+      renderRows();
+    });
+    actions.append(save, cancel);
+    form.append(title, list, add, ...actorControls(timecardDraft, 'timecard'), actions);
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      saveTimecard(punch.id);
+    });
+    cell.append(form);
+    row.append(cell);
+    return row;
+  }
+
+  function saveTimecard(id) {
+    if (!timecardDraft) return;
+    const entries = [];
+    let tripTicket = '';
+    for (const row of timecardDraft.rows) {
+      if (!row.id && !row.hours && !row.minutes && !row.comment.trim() && !String(row.ticket || '').trim()) continue;
+      if (row.id === TRIP_TICKET_WORK_TYPE) {
+        tripTicket = normalizeTripTicket(row.ticket);
+        if (!tripTicket) {
+          setStatus('Enter the trip ticket number.', 'error');
+          return;
+        }
+        continue;
+      }
+      const hours = Number(row.hours);
+      const minutes = Number(row.minutes);
+      const total = hours * 60 + minutes;
+      if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || minutes < 0 || minutes > 59 || total < 1) {
+        setStatus('Enter the time for each code.', 'error');
+        return;
+      }
+      entries.push({ id: row.id, minutes: total, comment: row.comment });
+    }
+    try {
+      const punches = stampTripTicket(
+        setTimecardEntries(punchesFromState(), id, {
+          entries,
+          catalog: reasonCodes(),
+          office: true,
+          account: editorAccount(),
+          typedName: timecardDraft.adminName,
+          note: timecardDraft.adminNote,
+        }),
+        id,
+        tripTicket
+      );
+      writePunches(punches);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Could not save those codes.', 'error');
+      return;
+    }
+    rememberTypedName(timecardDraft.adminName);
+    closeEditors();
+    setStatus('Timecard codes saved.', 'ok');
+    refresh();
+  }
+
   function renderRows() {
     const punches = visiblePunches();
     if (editingId && !punches.some((punch) => punch.id === editingId && !punch.removed)) {
@@ -949,6 +1523,14 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     }
     if (removingId && !punches.some((punch) => punch.id === removingId && !punch.removed)) {
       removingId = '';
+    }
+    if (payEditingId && !punches.some((punch) => punch.id === payEditingId && punch.action === 'in' && !punch.removed)) {
+      payEditingId = '';
+      payDraft = null;
+    }
+    if (timecardEditingId && !punches.some((punch) => punch.id === timecardEditingId && punch.action === 'out' && !punch.removed)) {
+      timecardEditingId = '';
+      timecardDraft = null;
     }
     table.replaceChildren();
     if (!punches.length) {
@@ -963,6 +1545,8 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     for (const punch of punches) {
       if (editingId === punch.id && editDraft && !punch.removed) table.append(editRow(punch));
       else if (removingId === punch.id && !punch.removed) table.append(removeRow(punch));
+      else if (payEditingId === punch.id && payDraft && !punch.removed) table.append(payRow(punch));
+      else if (timecardEditingId === punch.id && timecardDraft && !punch.removed) table.append(timecardRow(punch));
       else table.append(displayRow(punch));
     }
     if (focusSelector) {
@@ -1049,6 +1633,40 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     rememberTypedName(editDraft.adminName);
     closeEditors();
     setStatus('Record updated.', 'ok');
+    refresh();
+  }
+
+  function savePeriodPay(id) {
+    if (!payDraft) return;
+    const punch = punchesFromState().find((item) => item.id === id);
+    if (!punch) return;
+    const canSplit = payChoicesFor(punch).length > 1 && periodFor(punch);
+    const requested = canSplit
+      ? payDraft.portions
+          .filter((portion) => portion.start || portion.end || portion.payStatus)
+          .map((portion) => ({
+            start: portion.start ? new Date(portion.start).toISOString() : '',
+            end: portion.end ? new Date(portion.end).toISOString() : '',
+            pay_status: portion.payStatus,
+          }))
+      : [];
+    try {
+      const punches = assignClockPeriodPay(punchesFromState(), id, {
+        pay_status: payDraft.payStatus,
+        pay_portions: requested,
+        allowed: payChoicesFor(punch).map((line) => line.id),
+        account: editorAccount(),
+        typedName: payDraft.adminName,
+        note: payDraft.adminNote,
+      });
+      writePunches(punches);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Could not save that pay status.', 'error');
+      return;
+    }
+    rememberTypedName(payDraft.adminName);
+    closeEditors();
+    setStatus('Pay status updated.', 'ok');
     refresh();
   }
 

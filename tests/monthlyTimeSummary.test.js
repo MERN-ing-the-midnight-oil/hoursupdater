@@ -7,10 +7,15 @@ import {
   isExDriverOnly,
   normalizeClockPayDefaults,
   normalizeDriverPayStatuses,
+  normalizePayStatusByRun,
+  normalizeStoredPayPortions,
   payPeriodPreset,
+  paySlicesForPair,
+  payStatusForClockIn,
 } from '../office-tracker/src/driverPay.js';
 import { buildMonthlySummaryMath, buildMonthlyTimeSummary, payPeriodsForClocks, renderMonthlyTimeSummaryHtml, summaryPdfBasename } from '../office-tracker/src/monthlyTimeSummary.js';
 import { mathPdfBasename, renderMonthlySummaryMathHtml } from '../office-tracker/src/summaryMath.js';
+import { exampleOfficeState } from '../office-tracker/web/exampleRoutes.js';
 import { listDrivers, saveDriver, saveTimeSummaryEdit } from '../office-tracker/web/store.js';
 import { computeDeltaMinutes } from '../src/logic/timeUtils.js';
 
@@ -335,6 +340,66 @@ test('clock hours follow the pay status on the clock in', () => {
   assert.equal(regularNextDay.value, '1.00');
 });
 
+test('a part of a clock period uses its own pay status and the rest keeps the period status', () => {
+  const start = new Date(2026, 9, 8, 6, 0);
+  const middle = new Date(2026, 9, 8, 7, 0);
+  const end = new Date(2026, 9, 8, 8, 0);
+  const pair = {
+    start,
+    end,
+    clockIn: {
+      pay_status: 'reg-driver',
+      pay_portions: [
+        { start: start.toISOString(), end: middle.toISOString(), pay_status: 'ot-trainer' },
+        { start: '2026-10-08T12:00:00.000Z', end: '2026-10-08T12:30:00.000Z', pay_status: 'ex-trainer' },
+        { start: middle.toISOString(), end: new Date(2026, 9, 8, 7, 20).toISOString(), pay_status: 'not-a-status' },
+      ],
+    },
+  };
+  const slices = paySlicesForPair(pair);
+  assert.deepEqual(
+    slices.map((slice) => slice.pay_status),
+    ['ot-trainer', 'reg-driver']
+  );
+  assert.equal(slices.reduce((total, slice) => total + slice.minutes, 0), 120);
+
+  const summary = buildMonthlyTimeSummary({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    roundClocks: true,
+    now: new Date(2026, 9, 10, 12, 0),
+    punches: [
+      {
+        id: 'in-split',
+        driver_name: 'Goofy Goof',
+        action: 'in',
+        punched_at: start.toISOString(),
+        pay_status: 'reg-driver',
+        pay_portions: [{ start: start.toISOString(), end: middle.toISOString(), pay_status: 'ot-trainer' }],
+      },
+      {
+        id: 'out-split',
+        driver_name: 'Goofy Goof',
+        action: 'out',
+        punched_at: end.toISOString(),
+      },
+    ],
+  });
+  const october = summary.periods.find((period) => period.key === '2026-10-1');
+  const trainer = october.lines.find((line) => line.id === 'ot-trainer').cells.find((cell) => cell.day === 8);
+  const regular = october.lines.find((line) => line.id === 'reg-driver').cells.find((cell) => cell.day === 8);
+  assert.equal(trainer.value, '1.00');
+  assert.equal(regular.value, '1.00');
+  assert.equal(
+    normalizeStoredPayPortions([
+      { start: middle.toISOString(), end: end.toISOString(), pay_status: 'ex-driver' },
+      { start: start.toISOString(), end: middle.toISOString(), pay_status: 'ot-trainer' },
+      { start: start.toISOString(), end: new Date(2026, 9, 8, 6, 30).toISOString(), pay_status: 'ex-trainer' },
+    ]).map((portion) => portion.pay_status).join(','),
+    'ex-trainer,ex-driver'
+  );
+});
+
 test('a driver keeps the pay statuses the office assigns', () => {
   assert.deepEqual(normalizeDriverPayStatuses(undefined), ['ex-driver']);
   assert.deepEqual(normalizeDriverPayStatuses([]), ['ex-driver']);
@@ -364,6 +429,50 @@ test('a driver keeps the pay statuses the office assigns', () => {
   assert.deepEqual(mickey.payStatuses, ['reg-driver', 'ex-driver']);
   assert.equal(mickey.pay.serial, '9001001');
   assert.equal(mickey.email, 'mickey@example.com');
+  assert.deepEqual(mickey.payStatusByRun, {
+    AM: 'reg-driver',
+    MIDDAY: 'reg-driver',
+    PM: 'reg-driver',
+    OTHER: 'reg-driver',
+  });
+});
+
+test('a clock in uses the pay status the office assigned to that route', () => {
+  const lines = normalizeClockPayDefaults(undefined).lines;
+  assert.equal(payStatusForClockIn(['ex-driver'], { AM: 'reg-driver' }, 'AM', lines), 'ex-driver');
+  assert.equal(payStatusForClockIn(undefined, undefined, 'PM', lines), 'ex-driver');
+  assert.equal(
+    payStatusForClockIn(['reg-driver', 'ot-trainer'], { PM: 'ot-trainer', OTHER: 'nope' }, 'PM', lines),
+    'ot-trainer'
+  );
+  assert.equal(payStatusForClockIn(['reg-driver', 'ot-trainer'], {}, 'AM', lines), 'reg-driver');
+  assert.deepEqual(normalizePayStatusByRun({ AM: 'ot-trainer', LUNCH: 'ex-driver' }, ['reg-driver', 'ot-trainer']), {
+    AM: 'ot-trainer',
+    MIDDAY: 'reg-driver',
+    PM: 'reg-driver',
+    OTHER: 'reg-driver',
+  });
+  assert.deepEqual(normalizePayStatusByRun({ AM: 'ot-trainer' }, ['ex-driver']), {});
+
+  const storage = memoryStorage();
+  saveDriver(
+    {
+      firstName: 'Mickey',
+      lastName: 'Mouse',
+      payStatuses: ['reg-driver', 'ex-driver'],
+      payStatusByRun: { AM: 'ex-driver', PM: 'lunch' },
+    },
+    storage
+  );
+  saveDriver({ firstName: 'Mickey', lastName: 'Mouse', email: 'mickey@example.com' }, storage);
+  const mickey = listDrivers(storage).find((driver) => driver.name === 'Mickey Mouse');
+  assert.equal(mickey.payStatusByRun.AM, 'ex-driver');
+  assert.equal(mickey.payStatusByRun.PM, 'reg-driver');
+  assert.equal(mickey.email, 'mickey@example.com');
+  saveDriver({ firstName: 'Mickey', lastName: 'Mouse', payStatuses: ['ex-driver'] }, storage);
+  const only = listDrivers(storage).find((driver) => driver.name === 'Mickey Mouse');
+  assert.equal(only.payStatusByRun, undefined);
+  assert.deepEqual(only.payStatuses, ['ex-driver']);
 });
 
 test('each driver keeps one payroll account number, apart from pay status', () => {
@@ -656,13 +765,14 @@ test('EX DRIVER is the clocked time beyond that day contract hours', () => {
   assert.equal(eighth.clockedHours, '6.75');
   assert.equal(eighth.cell, '1.25');
   const html = renderMonthlySummaryMathHtml(math);
-  assert.match(html, /EX DRIVER TIME SUMMARY MATH/);
+  assert.match(html, /Driver Pay period info/);
+  assert.doesNotMatch(html, /EX DRIVER TIME SUMMARY MATH/);
   assert.match(html, /Email copy to driver/);
   assert.match(html, /data-driver-email="goofy@example.com"/);
   assert.match(html, /table-layout:\s*fixed/);
   assert.match(html, /overflow-x:\s*hidden/);
   assert.doesNotMatch(html, /overflow-x:\s*auto/);
-  assert.equal(mathPdfBasename('Goofy Goof'), 'goofy-goof-ex-driver-time-summary-math');
+  assert.equal(mathPdfBasename('Goofy Goof'), 'goofy-goof-driver-pay-period-info');
   assert.match(html, /<th scope="col">8<\/th>/);
   assert.match(html, /<th scope="row">Clock In<\/th>/);
   assert.match(html, /<th scope="row">Clock Out<\/th>/);
@@ -1046,4 +1156,89 @@ test('weekend, evening, and over-eight clocks add overtime rows and a total', ()
   const plain = daytime.periods[0].days.find((day) => day.day === 8).pairs[0];
   assert.equal(plain.actualOvertimeMinutes, 0);
   assert.doesNotMatch(renderMonthlySummaryMathHtml(daytime), /Actual overtime minutes/);
+});
+
+test('driver pay period info lists clock notes and office notes', () => {
+  const math = buildMonthlySummaryMath({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    roundClocks: true,
+    now: new Date(2026, 9, 10, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1' },
+    punches: [
+      {
+        id: 'in',
+        driver_name: 'Goofy Goof',
+        action: 'in',
+        punched_at: new Date(2026, 9, 8, 6, 7).toISOString(),
+        pay_status: 'ex-driver',
+        note: 'Left the yard late.',
+      },
+      {
+        id: 'out',
+        driver_name: 'Goofy Goof',
+        action: 'out',
+        punched_at: new Date(2026, 9, 8, 9, 0).toISOString(),
+        note: 'Traffic on the way back.',
+        office_edits: [
+          {
+            action: 'change',
+            note: 'Clock out corrected after a call from the yard.',
+            by: 'Office',
+            by_user_id: null,
+            at: '2026-10-08T20:00:00.000Z',
+          },
+        ],
+      },
+    ],
+  });
+  const html = renderMonthlySummaryMathHtml(math);
+  assert.match(html, /<h2>Clock notes<\/h2>/);
+  assert.match(html, /Clock in 6:07 AM/);
+  assert.match(html, /Left the yard late/);
+  assert.match(html, /Clock out 9:00 AM/);
+  assert.match(html, /Traffic on the way back/);
+  assert.match(html, /Changed by Office/);
+  assert.match(html, /Clock out corrected after a call from the yard/);
+});
+
+test('Donald Duck has a full September 1–15 example with a mid-period contract change and notes', () => {
+  const state = exampleOfficeState();
+  const math = buildMonthlySummaryMath({
+    driverName: 'Donald Duck',
+    driverId: 'driver-donald-duck',
+    rounding: 'snap',
+    now: new Date(2026, 8, 20, 12, 0),
+    focus: { year: 2026, monthIndex: 8, periodId: '1' },
+    officeState: state,
+    punches: state.punches,
+  });
+  const days = math.periods[0].days;
+  const first = days.find((day) => day.day === 1);
+  const seventh = days.find((day) => day.day === 7);
+  const eighth = days.find((day) => day.day === 8);
+  const fifteenth = days.find((day) => day.day === 15);
+  assert.equal(first.pairs.length, 3);
+  assert.equal(eighth.pairs.length, 3);
+  assert.equal(fifteenth.pairs.length, 3);
+  assert.equal(seventh.pairs.length, 0);
+  assert.equal(first.contractHours, '6.50');
+  assert.equal(eighth.contractHours, '5.75');
+  assert.equal(fifteenth.contractHours, '5.75');
+  const html = renderMonthlySummaryMathHtml(math);
+  assert.match(html, /Driver Pay period info/);
+  assert.match(html, /First week back\. Walked the AM stops with the monitor\./);
+  assert.match(html, /Preschool student was not ready\. Waited at the door\./);
+  assert.match(html, /Yard fuel stop before the PM run\./);
+  assert.match(html, /Traffic on Blue Hill Ave added a few minutes\./);
+  assert.match(html, /Clock out corrected after the driver called from the yard\./);
+  assert.match(html, /Changed by Office/);
+  assert.match(html, /PM run is shorter today\. One stop moved to another route\./);
+  assert.match(html, /PM ended 45 minutes earlier\. One stop moved to another route\./);
+  assert.match(html, /Contract hours/);
+  assert.match(html, /Extra preschool pickup on this midday\./);
+  assert.match(html, /Parent was late at the last stop\./);
+  assert.match(html, /Left the yard a few minutes late\./);
+  assert.match(html, /Covered one extra stop after the regular PM\./);
+  assert.doesNotMatch(html, />math</i);
 });

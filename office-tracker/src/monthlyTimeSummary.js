@@ -3,7 +3,8 @@
  * The usual periods are the 1st–15th and the 16th through the end
  * of the month. The office can set different calendar days, including
  * one sheet for the whole month. Completed clock pairs fill the pay
- * status recorded on the clock in. A pair with no status fills REG DRIVER.
+ * status recorded on the clock in. A part of that period can use another
+ * pay status. A pair with no status fills REG DRIVER.
  * EX DRIVER is the clocked quarter hours beyond that day's contract hours.
  * Other pay-status rows keep their existing calculation.
  * Each day column shows the regular contracted hours in effect that day.
@@ -14,7 +15,8 @@
 import { formatClockAmPm } from '../../employee-tracker/src/clockTimes.js';
 import { roundClockToQuarterHour } from '../../src/logic/timeUtils.js';
 import { localDateKey, pairClockPunches, runForClockPair } from '../../src/logic/timesheets.js';
-import { isPayLineId, normalizeClockPayDefaults, normalizeDriverPay, normalizeTimeSummaryEdits } from './driverPay.js';
+import { clockNoteText } from '../../src/logic/workTypes.js';
+import { normalizeClockPayDefaults, normalizeDriverPay, normalizeTimeSummaryEdits, paySlicesForPair } from './driverPay.js';
 import { payrollDriverRows, payrollRowsForDriver, quarterHoursFromDailyMinutes, sumRoundedQuarterHours } from './payrollTimes.js';
 import { overtimeForPairs, pairOvertimeKey } from './overtimeRules.js';
 import { clockQuarterStep, exDriverDayHours, exHoursDifference, formatQuarterHourText } from './summaryMath.js';
@@ -338,6 +340,35 @@ function pairCountedMinutes(pair, rounding) {
   return step ? step.minutes : null;
 }
 
+/**
+ * Split one period's already-counted amount across its pay-status slices.
+ * The last slice keeps the remainder, so the pieces add back to the period.
+ * @param {number | null} amount
+ * @param {Array<{ minutes: number }>} slices
+ * @param {'snap' | 'daily' | 'separate'} rounding
+ */
+function splitCountedAmount(amount, slices, rounding) {
+  if (amount == null || !slices.length) return slices.map(() => null);
+  if (slices.length === 1) return [amount];
+  const total = slices.reduce((sum, slice) => sum + Math.max(0, slice.minutes), 0);
+  if (!(total > 0)) return [amount, ...slices.slice(1).map(() => 0)];
+  const daily = rounding === CLOCK_ROUNDING_DAILY;
+  const units = daily ? Math.round(amount) : Math.round(amount * 4);
+  /** @type {number[]} */
+  const shares = [];
+  let used = 0;
+  for (let index = 0; index < slices.length - 1; index += 1) {
+    let share = Math.round((units * Math.max(0, slices[index].minutes)) / total);
+    if (used + share > units) share = units - used;
+    if (share < 0) share = 0;
+    shares.push(daily ? share : share / 4);
+    used += share;
+  }
+  const last = units - used;
+  shares.push(daily ? last : last / 4);
+  return shares;
+}
+
 const CONTRACT_RUNS = [
   { label: 'AM', inKey: 'amIn', outKey: 'amOut' },
   { label: 'Midday', inKey: 'middayIn', outKey: 'middayOut' },
@@ -348,6 +379,65 @@ const CONTRACT_RUNS = [
  * @param {ReturnType<typeof clockQuarterStep>} step
  * @param {string} label
  */
+/**
+ * Notes an admin should see with one clock: the clock note, a trip ticket, and office notes.
+ * @param {object | null | undefined} punch
+ * @param {string} side
+ * @param {string} clock
+ * @returns {Array<{ when: string, text: string }>}
+ */
+function clockTimeNotes(punch, side, clock) {
+  /** @type {Array<{ when: string, text: string }>} */
+  const notes = [];
+  const when = [side, clock].filter(Boolean).join(' ');
+  const text = clockNoteText(punch);
+  if (text) {
+    for (const line of text.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed) notes.push({ when, text: trimmed });
+    }
+  }
+  const edits = Array.isArray(punch?.office_edits) ? punch.office_edits : [];
+  for (const edit of edits) {
+    const note = String(edit?.note || '').trim();
+    if (!note) continue;
+    const who = String(edit?.by || '').trim();
+    const verb = edit?.action === 'delete' ? 'Removed' : edit?.action === 'change' ? 'Changed' : 'Added';
+    const label = who ? `${verb} by ${who}` : verb;
+    notes.push({ when: when ? `${when} · ${label}` : label, text: note });
+  }
+  return notes;
+}
+
+/**
+ * Notes on contract-hour changes that take effect on this date.
+ * A starting schedule, with no change in the times, is left out.
+ * @param {object | null | undefined} officeState
+ * @param {string} driverName
+ * @param {Date} date
+ * @returns {Array<{ when: string, text: string }>}
+ */
+function contractChangeNotes(officeState, driverName, date) {
+  const key = localDateKey(date);
+  const wanted = String(driverName || '').trim().toLowerCase();
+  if (!wanted || !officeState?.profiles) return [];
+  /** @type {Array<{ when: string, text: string }>} */
+  const notes = [];
+  for (const profile of Object.values(officeState.profiles)) {
+    if (String(profile?.driver_name || '').trim().toLowerCase() !== wanted) continue;
+    for (const event of profile?.changeLog ?? []) {
+      const dated = String(event?.effective_date || '').slice(0, 10);
+      if (dated !== key) continue;
+      const same = String(event?.previous_time || '') === String(event?.new_time || '');
+      if (same && Number(event?.delta_minutes) === 0) continue;
+      const note = String(event?.note || '').trim();
+      if (!note) continue;
+      notes.push({ when: 'Contract hours', text: note });
+    }
+  }
+  return notes;
+}
+
 function stepRow(step, label) {
   return {
     label,
@@ -428,18 +518,23 @@ export function buildMonthlyTimeSummary(options) {
   /** @type {Map<string, Array<number | null>>} */
   const clockedByDay = new Map();
   for (const pair of pairs) {
-    const status = isPayLineId(pair.clockIn?.pay_status) ? String(pair.clockIn.pay_status) : 'reg-driver';
+    const slices = paySlicesForPair(pair);
     const key = localDateKey(pair.start);
     const amount =
       rounding === CLOCK_ROUNDING_DAILY ? pairCountedMinutes(pair, rounding) : pairQuarterHours(pair, rounding);
-    const byDay = hoursByLine.get(status) || new Map();
-    const list = byDay.get(key) || [];
-    list.push(amount);
-    byDay.set(key, list);
-    hoursByLine.set(status, byDay);
-    const clocked = clockedByDay.get(key) || [];
-    clocked.push(amount);
-    clockedByDay.set(key, clocked);
+    const shares = splitCountedAmount(amount, slices, rounding);
+    slices.forEach((slice, index) => {
+      const share = shares[index];
+      if (share == null || share === 0) return;
+      const byDay = hoursByLine.get(slice.pay_status) || new Map();
+      const list = byDay.get(key) || [];
+      list.push(share);
+      byDay.set(key, list);
+      hoursByLine.set(slice.pay_status, byDay);
+      const clocked = clockedByDay.get(key) || [];
+      clocked.push(share);
+      clockedByDay.set(key, clocked);
+    });
   }
   const ranges = defaults.periods;
   const focus = options.focus;
@@ -585,6 +680,10 @@ export function buildMonthlySummaryMath(options) {
           snapOvertimeMinutes: overtime?.snap ?? 0,
           overtimeReasons: overtime?.reasons || [],
           snapOvertimeReasons: overtime?.snapReasons || [],
+          notes: [
+            ...clockTimeNotes(pair.clockIn, 'Clock in', formatClockAmPm(rawIn)),
+            ...clockTimeNotes(pair.clockOut, 'Clock out', formatClockAmPm(rawOut)),
+          ],
         };
       });
       const clockedNumber =
@@ -611,24 +710,32 @@ export function buildMonthlySummaryMath(options) {
               snapped = '';
             }
           }
+          const side = punch.action === 'out' ? 'Clock out' : 'Clock in';
           return {
             when: punched.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }),
-            action: punch.action === 'out' ? 'Clock out' : 'Clock in',
+            action: side,
             clock,
             snapped,
+            notes: clockTimeNotes(punch, side, clock),
           };
         });
+      const shownPairs = pairRows.filter((row) => row.writtenIn || row.writtenOut);
       return {
         day,
         dateLabel: date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }),
         routes: contractRoutesForDay(options.officeState, driverName, date, rounding),
         contractHours,
-        pairs: pairRows.filter((row) => row.writtenIn || row.writtenOut),
+        pairs: shownPairs,
         clockedHours: formatQuarterHourText(clockedNumber),
         residual,
         typed,
         cell: typed || residual,
         unpaired: open,
+        notes: [
+          ...shownPairs.flatMap((row) => row.notes || []),
+          ...open.flatMap((item) => item.notes || []),
+          ...contractChangeNotes(options.officeState, driverName, date),
+        ],
       };
     }),
   }));

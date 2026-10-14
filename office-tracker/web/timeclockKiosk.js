@@ -4,7 +4,7 @@
  */
 
 import QRCode from 'qrcode';
-import { formatClockAmPm, localDateString, toTimeInputValue } from '../../employee-tracker/src/clockTimes.js';
+import { formatClockAmPm, formatDurationLabel, localDateString, toTimeInputValue } from '../../employee-tracker/src/clockTimes.js';
 import { addReasonCode, assertNote, DEFAULT_KIOSK_CODE, driverClockPin, NOTE_MAX, removeReasonCode } from '../../src/logic/clockKiosk.js';
 import {
   EARLY_RELEASE_DEFAULT_CLOCK,
@@ -12,9 +12,42 @@ import {
   normalizeEarlyReleaseTimes,
 } from '../../src/logic/earlyRelease.js';
 import { dueClockInKeys, flashingClockInKeys, normalizeLateFlashMinutes } from '../../src/logic/lateClockFlash.js';
-import { normalizePunchRun, punchRunLabel } from '../../src/logic/timesheets.js';
+import { normalizePunchRun, punchRunLabel, segmentForClock } from '../../src/logic/timesheets.js';
 import {
-  DEFAULT_DRIVER_PAY_STATUS,
+  applyLeaveRequests,
+  dropLeaveForClockIn,
+  driverClockedIn,
+  leaveContractLead,
+  leaveDateLabel,
+  leaveFor,
+  leaveMinuteLimit,
+  leaveMinutesFromParts,
+  leaveRequestLead,
+  leaveTimeParts,
+  runsAwaitingLeave,
+  saveLeaveRequest,
+} from '../src/leaveRequests.js';
+import { setTimecardEntries } from '../src/officePunches.js';
+import {
+  formatTimecardMinutes,
+  normalizeTimecardEntries,
+  payPeriodStillOpen,
+  sessionForClockOut,
+  timecardSummary,
+} from '../src/timecardEntries.js';
+import {
+  IRREGULAR_WORK_TYPES,
+  TRIP_TICKET_WORK_TYPE,
+  applyWorkChunk,
+  normalizeStoredWorkPortions,
+  normalizeTripTicket,
+  regularPairsForMarking,
+  stampTripTicket,
+  tripTicketLine,
+  workTypeLabel,
+} from '../../src/logic/workTypes.js';
+import {
+  CLOCK_IN_TYPES,
   DEFAULT_PAY_PERIODS,
   WHOLE_MONTH_PAY_PERIODS,
   driverPayStatusChoices,
@@ -22,6 +55,8 @@ import {
   normalizeClockPayDefaults,
   normalizeDriverPay,
   normalizePayPeriods,
+  normalizePayStatusByRun,
+  payStatusForClockIn,
 } from '../src/driverPay.js';
 import { buildMonthlyTimeSummary, buildMonthlySummaryMath, describePayPeriod, mathPeriodsWithPunches, payPeriodsForClocks, renderMonthlyTimeSummaryHtml } from '../src/monthlyTimeSummary.js';
 import { normalizeOvertimeRules } from '../src/overtimeRules.js';
@@ -79,14 +114,15 @@ export function punchDisplayClock(date) {
  * A clock-in names the route they chose and the minute they punched.
  * A clock-out does not.
  * @param {'in' | 'out'} status
- * @param {{ run?: string, punched_at?: string, punchedAt?: string }} [punch]
+ * @param {{ run?: string, work_type?: string, punched_at?: string, punchedAt?: string }} [punch]
  */
 export function clockedPhrase(status, punch = {}) {
   if (status !== 'in') return 'is Clocked Out';
   const run = normalizePunchRun(punch.run);
   const route = punchRunLabel(run);
+  const work = run === 'OTHER' ? workTypeLabel(punch.work_type) : '';
   const when = clockedAtText(punch.punchedAt || punch.punched_at);
-  const routeBit = run === 'OTHER' ? ' for Other' : route ? ` for the ${route}` : '';
+  const routeBit = work ? ` for ${work}` : run === 'OTHER' ? ' for Other' : route ? ` for the ${route}` : '';
   const timeBit = when ? ` at ${when}` : '';
   return `is Clocked In${routeBit}${timeBit}`;
 }
@@ -143,9 +179,10 @@ export function kioskRosterLayout({ count, width, height, gap = ROSTER_GAP_PX, s
  *   },
  *   writeState: (state: object) => void,
  *   listPeople: () => Array<{ id: string, name: string, routes: string[], clockIns?: string[], clockRuns?: string[] }>,
+ *   contractedMinutes?: (driverName: string, dateKey: string) => Record<string, number | null>,
  * }} options
  */
-export function mountTimeclock({ readState, writeState, listPeople }) {
+export function mountTimeclock({ readState, writeState, listPeople, contractedMinutes }) {
   const startButton = document.querySelector('#start-timeclock');
   const screenButton = document.querySelector('#start-timeclock-screen');
   const screenChoices = document.querySelector('#timeclock-screen-choices');
@@ -180,6 +217,25 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
   const kioskCovering = document.querySelector('#kiosk-covering');
   const kioskSubstituteWho = document.querySelector('#kiosk-substitute-who');
   const kioskActions = document.querySelector('#kiosk-actions');
+  const kioskRunChoice = document.querySelector('#kiosk-run-choice');
+  const kioskWork = document.querySelector('#kiosk-work');
+  const kioskWorkOptions = document.querySelector('#kiosk-work-options');
+  const kioskWorkBack = document.querySelector('#kiosk-work-back');
+  const kioskTripTicketField = document.querySelector('#kiosk-trip-ticket-field');
+  const kioskTripTicket = document.querySelector('#kiosk-trip-ticket');
+  const kioskChunk = document.querySelector('#kiosk-chunk');
+  const kioskChunkOpen = document.querySelector('#kiosk-chunk-open');
+  const kioskChunkPanel = document.querySelector('#kiosk-chunk-panel');
+  const kioskChunkBack = document.querySelector('#kiosk-chunk-back');
+  const kioskChunkPairs = document.querySelector('#kiosk-chunk-pairs');
+  const kioskChunkStart = document.querySelector('#kiosk-chunk-start');
+  const kioskChunkEnd = document.querySelector('#kiosk-chunk-end');
+  const kioskChunkTypes = document.querySelector('#kiosk-chunk-types');
+  const kioskChunkTicketField = document.querySelector('#kiosk-chunk-ticket-field');
+  const kioskChunkTicket = document.querySelector('#kiosk-chunk-ticket');
+  const kioskChunkSave = document.querySelector('#kiosk-chunk-save');
+  const kioskChunkError = document.querySelector('#kiosk-chunk-error');
+  const kioskPunchLayout = document.querySelector('.kiosk-punch-layout');
   const kioskLeave = document.querySelector('#kiosk-leave');
   const kioskLeaveCode = document.querySelector('#kiosk-leave-code');
   const kioskLeaveError = document.querySelector('#kiosk-leave-error');
@@ -215,8 +271,22 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
   /** The open driver is who this substitute is covering. Otherwise they still pick a name. */
   let substituteCoversSelected = false;
   let unlocked = false;
+  /** Clock in whose regular route is being marked as other work. */
+  let chunkClockInId = '';
   /** @type {string[]} */
   let kioskReasonIds = [];
+  /** Clock-out whose timecard codes are on screen. */
+  let timecardPunchId = '';
+  /** @type {'roster' | 'choices'} */
+  let timecardReturn = 'roster';
+  let timecardDoneMessage = '';
+  /** @type {Array<{ id: string, hours: string, minutes: string, comment: string }>} */
+  let timecardDraft = [];
+  /** The missed-route prompt stays closed after Go back until this driver opens Leave Requested. */
+  let leavePromptDismissed = false;
+  /** Route and action chosen from a card. Other waits until the kind of work is chosen. */
+  let pendingAction = '';
+  let pendingRun = '';
   const reasonForm = document.querySelector('#reason-form');
   const reasonLabel = document.querySelector('#reason-label');
   const reasonList = document.querySelector('#reason-list');
@@ -296,8 +366,41 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     checkPin(pinDigits(kioskPin.value));
   });
   kioskConfirm?.addEventListener('click', hidePunchConfirm);
-  document.querySelector('#kiosk-in')?.addEventListener('click', () => punch('in'));
-  document.querySelector('#kiosk-out')?.addEventListener('click', () => punch('out'));
+  kioskRunChoice?.addEventListener('click', (event) => {
+    const button = event.target instanceof Element ? event.target.closest('[data-punch]') : null;
+    if (!(button instanceof HTMLButtonElement)) return;
+    beginPunch(button.dataset.action || '', button.dataset.punch || '');
+  });
+  document.querySelector('#kiosk-work-punch')?.addEventListener('click', () => {
+    if (pendingRun !== 'OTHER') return;
+    punch(pendingAction, 'OTHER');
+  });
+  document.querySelector('#kiosk-note-toggle')?.addEventListener('click', () => {
+    const panel = document.querySelector('#kiosk-note-panel');
+    setNoteOpen(panel?.hidden !== false);
+  });
+  document.querySelector('#kiosk-leave-request')?.addEventListener('click', () => openLeaveRequest(''));
+  document.querySelector('#kiosk-leave-request-back')?.addEventListener('click', () => {
+    leavePromptDismissed = true;
+    closeLeaveRequest();
+  });
+  document.querySelector('#kiosk-leave-request-date')?.addEventListener('change', refreshLeaveForm);
+  document.querySelector('#kiosk-leave-request-run')?.addEventListener('change', refreshLeaveForm);
+  document.querySelector('#kiosk-leave-request-save')?.addEventListener('click', saveLeaveFromKiosk);
+  document.querySelector('#kiosk-timecard-open')?.addEventListener('click', showTimecardChoices);
+  document.querySelector('#kiosk-timecard-back')?.addEventListener('click', leaveTimecard);
+  document.querySelector('#kiosk-timecard-add')?.addEventListener('click', addTimecardRow);
+  document.querySelector('#kiosk-timecard-skip')?.addEventListener('click', skipTimecard);
+  document.querySelector('#kiosk-timecard-form')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    saveTimecard();
+  });
+  kioskWorkBack?.addEventListener('click', hideWorkTypes);
+  kioskChunkOpen?.addEventListener('click', () => showChunkPanel(true));
+  kioskChunkBack?.addEventListener('click', () => showChunkPanel(false));
+  kioskChunkPairs?.addEventListener('click', onChunkPairClick);
+  kioskChunkSave?.addEventListener('click', saveWorkChunk);
+  fillWorkTypeChoices();
   kioskNote?.addEventListener('input', () => {
     if (!(kioskNote instanceof HTMLTextAreaElement)) return;
     if (kioskNote.value.length > NOTE_MAX) kioskNote.value = kioskNote.value.slice(0, NOTE_MAX);
@@ -306,13 +409,15 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
   kioskActions?.addEventListener('change', (event) => {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
-    const errorId =
-      target.name === 'kiosk-run'
-        ? '#kiosk-run-error'
-        : target.name === 'kiosk-pay-status'
-          ? '#kiosk-pay-status-error'
-          : '';
-    const error = errorId ? document.querySelector(errorId) : null;
+    const errorId = target.name === 'kiosk-work' || target.name === 'kiosk-chunk-work' ? '#kiosk-work-error' : '';
+    const error = target.name === 'kiosk-chunk-work' ? kioskChunkError : errorId ? document.querySelector(errorId) : null;
+    if (target.name === 'kiosk-work' || target.name === 'kiosk-chunk-work') {
+      syncTripTicketFields();
+      if (target.value === TRIP_TICKET_WORK_TYPE) {
+        const field = target.name === 'kiosk-chunk-work' ? kioskChunkTicket : kioskTripTicket;
+        if (field instanceof HTMLInputElement) field.focus();
+      }
+    }
     if (!error) return;
     error.hidden = true;
     error.textContent = '';
@@ -682,7 +787,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
 
   /**
    * @param {ReturnType<typeof payDrivers>[number]} driver
-   * @param {{ serial?: string, rate?: string, account?: string, payStatuses?: string[] }} fields
+   * @param {{ serial?: string, rate?: string, account?: string, payStatuses?: string[], payStatusByRun?: object }} fields
    */
   function savePayIdentity(driver, fields) {
     saveDriver({
@@ -851,7 +956,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     const statusNote = document.createElement('p');
     statusNote.className = 'field-hint';
     statusNote.textContent =
-      'Check every pay status this driver can use. After the PIN, they choose one beside the route when more than one is checked. One pay status is used automatically.';
+      'Check every pay status this driver can use. When more than one is checked, choose the pay status for each clock-in. One pay status is used for every clock-in.';
     const statusList = document.createElement('div');
     statusList.className = 'summary-statuses';
     const lines = payLineDefaults().lines;
@@ -868,6 +973,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
       statusList.append(label);
     }
     statuses.append(statusHeading, statusNote, statusList);
+    appendClockInPayMap(statuses, driver, driverPayStatusChoices(driver.payStatuses, lines));
     const account = document.createElement('div');
     account.className = 'pay-fact';
     const accountHeading = document.createElement('h3');
@@ -1137,6 +1243,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
 
   payBrowser?.addEventListener('change', (event) => {
     const target = event.target;
+    if (target instanceof HTMLSelectElement && savePayStatusRun(target)) return;
     if (!(target instanceof HTMLInputElement) || !target.classList.contains('js-driver-pay-status')) return;
     const driver = payDrivers().find((item) => item.id === target.dataset.driverId);
     if (!driver) return;
@@ -1158,16 +1265,13 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
       return;
     }
     const labels = lines.filter((line) => next.includes(line.id)).map((line) => line.label);
-    setOfficeStatus(
-      labels.length === 1
-        ? `${driver.name} uses ${labels[0]}. The timeclock will not ask them to choose.`
-        : `${driver.name} can clock ${labels.join(', ')}.`,
-      'ok'
-    );
-    renderClockingDriverStatuses();
+    setOfficeStatus(payStatusSavedMessage(driver.name, labels), 'ok');
+    renderPayBrowser(true);
+    renderClockingDriverStatuses(true);
   });
   document.querySelector('#clocking-driver-statuses')?.addEventListener('change', (event) => {
     const target = event.target;
+    if (target instanceof HTMLSelectElement && savePayStatusRun(target)) return;
     if (!(target instanceof HTMLInputElement) || !target.classList.contains('js-driver-pay-status')) return;
     const driver = payDrivers().find((item) => item.id === target.dataset.driverId);
     if (!driver) return;
@@ -1190,13 +1294,9 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
       return;
     }
     const labels = lines.filter((line) => next.includes(line.id)).map((line) => line.label);
-    setOfficeStatus(
-      labels.length === 1
-        ? `${driver.name} uses ${labels[0]}. The timeclock will not ask them to choose.`
-        : `${driver.name} can clock ${labels.join(', ')}.`,
-      'ok'
-    );
+    setOfficeStatus(payStatusSavedMessage(driver.name, labels), 'ok');
     renderPayBrowser(true);
+    renderClockingDriverStatuses(true);
   });
 
   const summaryForm = document.querySelector('#summary-maker-form');
@@ -1265,7 +1365,86 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
    */
   function skipHost(host, force) {
     const active = document.activeElement;
-    return !force && active instanceof HTMLInputElement && host.contains(active);
+    return !force && (active instanceof HTMLInputElement || active instanceof HTMLSelectElement) && host.contains(active);
+  }
+
+  /**
+   * @param {string} name
+   * @param {string[]} labels
+   */
+  function payStatusSavedMessage(name, labels) {
+    if (labels.length === 1) return `${name} uses ${labels[0]} for every clock-in.`;
+    return `${name} can use ${labels.join(', ')}. Choose which clock-in uses each one.`;
+  }
+
+  /**
+   * @param {HTMLElement} parent
+   * @param {{ id: string, name: string, payStatusByRun?: object }} driver
+   * @param {Array<{ id: string, label: string }>} choices
+   */
+  function appendClockInPayMap(parent, driver, choices) {
+    if (choices.length < 2) {
+      const note = document.createElement('p');
+      note.className = 'field-hint';
+      note.textContent = `Every clock-in uses ${choices[0]?.label || 'that pay status'}.`;
+      parent.append(note);
+      return;
+    }
+    const map = normalizePayStatusByRun(
+      driver.payStatusByRun,
+      choices.map((line) => line.id)
+    );
+    const grid = document.createElement('div');
+    grid.className = 'pay-run-map';
+    for (const type of CLOCK_IN_TYPES) {
+      const label = document.createElement('label');
+      label.append(document.createTextNode(type.label));
+      const select = document.createElement('select');
+      select.className = 'js-pay-status-run';
+      select.dataset.driverId = driver.id;
+      select.dataset.payRun = type.id;
+      select.setAttribute('aria-label', `${type.label} pay status for ${driver.name}`);
+      for (const line of choices) {
+        const option = document.createElement('option');
+        option.value = line.id;
+        option.textContent = line.label;
+        select.append(option);
+      }
+      select.value = map[type.id] || choices[0].id;
+      label.append(select);
+      grid.append(label);
+    }
+    parent.append(grid);
+  }
+
+  /**
+   * @param {HTMLSelectElement} select
+   */
+  function savePayStatusRun(select) {
+    if (!select.classList.contains('js-pay-status-run')) return false;
+    const driver = payDrivers().find((item) => item.id === select.dataset.driverId);
+    if (!driver) return true;
+    const lines = payLineDefaults().lines;
+    const choices = driverPayStatusChoices(driver.payStatuses, lines);
+    const run = select.dataset.payRun || '';
+    const type = CLOCK_IN_TYPES.find((item) => item.id === run);
+    if (choices.length < 2 || !type || !choices.some((line) => line.id === select.value)) return true;
+    const map = normalizePayStatusByRun(
+      driver.payStatusByRun,
+      choices.map((line) => line.id)
+    );
+    map[run] = select.value;
+    try {
+      savePayIdentity(driver, { payStatusByRun: map });
+    } catch (error) {
+      setOfficeStatus(error instanceof Error ? error.message : 'Could not save that pay status.', 'error');
+      renderPayBrowser(true);
+      renderClockingDriverStatuses(true);
+      return true;
+    }
+    const line = choices.find((item) => item.id === select.value);
+    setOfficeStatus(`${type.label} for ${driver.name} uses ${line?.label || 'that pay status'}.`, 'ok');
+    return true;
   }
 
   /**
@@ -1603,6 +1782,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
         list.append(label);
       }
       block.append(heading, list);
+      appendClockInPayMap(block, driver, driverPayStatusChoices(driver.payStatuses, lines));
       host.append(block);
     }
   }
@@ -1765,7 +1945,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
       setMathStatus(
         drivers.length
           ? 'Choose a driver whose only pay status is EX DRIVER.'
-          : 'EX DRIVER TIME SUMMARIES is only for a driver whose only pay status is EX DRIVER.',
+          : 'Driver Pay period info is only for a driver whose only pay status is EX DRIVER.',
         'error'
       );
       return null;
@@ -1803,10 +1983,10 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
       'teamster-monthly-summary-math'
     );
     if (!opened) {
-      setMathStatus('Allow pop-up windows for this site, then open the math again.', 'error');
+      setMathStatus('Allow pop-up windows for this site, then open Driver Pay period info again.', 'error');
       return;
     }
-    setMathStatus(`Opened the EX DRIVER time summary math for ${selection.driver.name}.`, 'ok');
+    setMathStatus(`Opened Driver Pay period info for ${selection.driver.name}.`, 'ok');
   }
 
   function onGenerateSummary(event) {
@@ -2446,6 +2626,8 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     kioskReasonIds = [];
     clearKioskRun();
     clearKioskNote();
+    closeChunkPanel();
+    closeLeaveRequest();
     renderKioskReasons();
     if (kioskPinError) kioskPinError.textContent = '';
     if (kioskListStatus) kioskListStatus.textContent = message;
@@ -2646,9 +2828,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     kioskList.hidden = true;
     kioskDetail.hidden = false;
     if (kioskSubstitutes) kioskSubstitutes.hidden = true;
-    const latest = latestPunch(person.name);
-    const status = latest?.action === 'in' ? 'in' : 'out';
-    if (kioskDriver) kioskDriver.textContent = `${person.name} ${clockedPhrase(status, latest || {})}`;
+    paintDriverHeading(person);
     paintDriverPhoto(person.name);
     const routes = sortedRoutes(person.routes);
     if (kioskRoutes) {
@@ -2771,84 +2951,381 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     }
     kioskReasonIds = [];
     clearKioskRun();
-    renderKioskPayStatuses();
     clearKioskNote();
+    closeChunkPanel();
     fillKioskReasons();
     renderKioskReasons();
     kioskActions.hidden = false;
+    hideTimecard();
+    closeLeaveRequest();
+    refreshTimecardButton();
     syncSubstituteHeader();
     if (selected) paintClockQr(selected);
-    document.querySelector('#kiosk-in')?.focus();
+    leavePromptDismissed = false;
+    const awaiting = substituteName
+      ? []
+      : runsAwaitingLeave({
+          clockByRun: clockByRunFor(selected),
+          punches: Array.isArray(state().punches) ? state().punches : [],
+          requests: state().leaveRequests,
+          driverName: selected?.name || '',
+          now: new Date(),
+        });
+    if (!leavePromptDismissed && awaiting.length) {
+      openLeaveRequest(awaiting[0]);
+      return;
+    }
+    paintRouteCards();
+    focusNextPunch();
   }
 
-  function payChoicesForSelected() {
-    if (!selected) return [];
-    const driver = driversFromState(state()).find((item) => item.id === selected.id);
-    return driverPayStatusChoices(driver?.payStatuses, payLineDefaults().lines);
+  function paintDriverHeading(person) {
+    const latest = latestPunch(person.name);
+    const status = latest?.action === 'in' ? 'in' : 'out';
+    if (kioskDriver) kioskDriver.textContent = person.name;
+    const stateLine = document.querySelector('#kiosk-clock-state');
+    if (stateLine) {
+      const phrase = clockedPhrase(status, latest || {});
+      stateLine.textContent = status === 'in' ? phrase.replace(/^is /, '') : 'Clocked out';
+      stateLine.className = `kiosk-clock-state is-${status}`;
+    }
   }
 
-  function renderKioskPayStatuses() {
-    const field = document.querySelector('#kiosk-pay-status');
-    const options = document.querySelector('#kiosk-pay-status-options');
-    const error = document.querySelector('#kiosk-pay-status-error');
-    if (error) {
-      error.hidden = true;
-      error.textContent = '';
+  function openClock() {
+    if (!selected) return null;
+    const latest = latestPunch(selected.name);
+    if (latest?.action !== 'in') return null;
+    const run = normalizePunchRun(latest.run);
+    if (!run) return null;
+    return {
+      run,
+      when: clockedAtText(latest.punched_at),
+      work: run === 'OTHER' ? workTypeLabel(latest.work_type) : '',
+    };
+  }
+
+  function paintRouteCards() {
+    const open = openClock();
+    for (const card of document.querySelectorAll('#kiosk-run-choice .kiosk-route-card')) {
+      if (!(card instanceof HTMLElement)) continue;
+      const run = card.dataset.run || '';
+      const isOpen = open?.run === run;
+      card.classList.toggle('is-open', isOpen);
+      const stateLine = card.querySelector('.kiosk-route-state');
+      if (!stateLine) continue;
+      stateLine.classList.toggle('is-in', isOpen);
+      stateLine.classList.toggle('is-hint', !isOpen && run === 'OTHER');
+      if (isOpen) {
+        const detail = [open.work, open.when].filter(Boolean).join(' · ');
+        stateLine.textContent = detail ? `In now · ${detail}` : 'In now';
+      } else {
+        stateLine.textContent = run === 'OTHER' ? 'Trips and other paid time' : '';
+      }
     }
-    if (!field || !options) return;
-    const choices = payChoicesForSelected();
-    options.replaceChildren();
-    field.hidden = choices.length < 2;
-    for (const line of choices) {
-      const label = document.createElement('label');
-      label.className = 'kiosk-run-option kiosk-pay-option';
-      const input = document.createElement('input');
-      input.type = 'radio';
-      input.name = 'kiosk-pay-status';
-      input.value = line.id;
-      const text = document.createElement('span');
-      text.textContent = line.label;
-      label.append(input, text);
-      options.append(label);
+  }
+
+  function focusNextPunch() {
+    if (!selected || !unlocked || kioskPunchLayout?.hidden) return;
+    const open = openClock();
+    let run = open?.run || '';
+    let action = 'out';
+    if (!run) {
+      const segment = segmentForClock(new Date());
+      run = segment === 'am' ? 'AM' : segment === 'midday' ? 'MIDDAY' : 'PM';
+      action = 'in';
     }
+    const button = kioskRunChoice?.querySelector(`[data-punch="${run}"][data-action="${action}"]`);
+    if (button instanceof HTMLElement) button.focus();
   }
 
   /**
-   * @param {Array<{ id: string }>} choices
+   * @param {string} action
+   * @param {string} run
    */
-  function chosenPayStatus(choices) {
-    if (choices.length < 2) return choices[0]?.id || DEFAULT_DRIVER_PAY_STATUS;
-    const checked = [...document.querySelectorAll('input[name="kiosk-pay-status"]')].find(
-      (input) => input instanceof HTMLInputElement && input.checked
-    );
-    const id = checked instanceof HTMLInputElement ? checked.value : '';
-    return choices.some((line) => line.id === id) ? id : '';
+  function beginPunch(action, run) {
+    if (!selected || !unlocked) return;
+    const chosen = normalizePunchRun(run);
+    if ((action !== 'in' && action !== 'out') || !chosen) return;
+    if (chosen === 'OTHER') {
+      pendingAction = action;
+      pendingRun = 'OTHER';
+      clearWorkType();
+      syncPunchPanels();
+      const first = kioskWorkOptions?.querySelector('input');
+      if (first instanceof HTMLElement) first.focus();
+      return;
+    }
+    punch(action, chosen);
   }
 
-  function kioskRunInputs() {
-    return [...document.querySelectorAll('input[name="kiosk-run"]')];
+  function payStatusForSelected(run) {
+    if (!selected) return '';
+    const driver = driversFromState(state()).find((item) => item.id === selected.id);
+    return payStatusForClockIn(driver?.payStatuses, driver?.payStatusByRun, run, payLineDefaults().lines);
   }
 
   function clearKioskRun() {
-    for (const input of kioskRunInputs()) {
-      if (input instanceof HTMLInputElement) input.checked = false;
-    }
+    pendingAction = '';
+    pendingRun = '';
+    clearWorkType();
     const error = document.querySelector('#kiosk-run-error');
     if (error) {
       error.hidden = true;
       error.textContent = '';
     }
+    syncPunchPanels();
   }
 
-  function chosenKioskRun() {
-    const checked = kioskRunInputs().find((input) => input instanceof HTMLInputElement && input.checked);
-    return normalizePunchRun(checked instanceof HTMLInputElement ? checked.value : '');
+  function workTypeInputs(name) {
+    return [...document.querySelectorAll(`input[name="${name}"]`)];
+  }
+
+  function chosenWorkType(name = 'kiosk-work') {
+    const checked = workTypeInputs(name).find((input) => input instanceof HTMLInputElement && input.checked);
+    return checked instanceof HTMLInputElement ? checked.value : '';
+  }
+
+  function clearWorkType() {
+    for (const input of workTypeInputs('kiosk-work')) {
+      if (input instanceof HTMLInputElement) input.checked = false;
+    }
+    const error = document.querySelector('#kiosk-work-error');
+    if (error) {
+      error.hidden = true;
+      error.textContent = '';
+    }
+    if (kioskTripTicket instanceof HTMLInputElement) kioskTripTicket.value = '';
+    syncTripTicketFields();
+  }
+
+  function syncTripTicketFields() {
+    if (kioskTripTicketField) kioskTripTicketField.hidden = chosenWorkType('kiosk-work') !== TRIP_TICKET_WORK_TYPE;
+    if (kioskChunkTicketField) {
+      kioskChunkTicketField.hidden = chosenWorkType('kiosk-chunk-work') !== TRIP_TICKET_WORK_TYPE;
+    }
+  }
+
+  function fillWorkTypeChoices() {
+    fillWorkTypeGroup(kioskWorkOptions, 'kiosk-work');
+    fillWorkTypeGroup(kioskChunkTypes, 'kiosk-chunk-work');
+  }
+
+  /**
+   * @param {Element | null} container
+   * @param {string} name
+   */
+  function fillWorkTypeGroup(container, name) {
+    if (!container) return;
+    container.replaceChildren();
+    let group = '';
+    for (const type of IRREGULAR_WORK_TYPES) {
+      if (type.group !== group) {
+        group = type.group;
+        const heading = document.createElement('p');
+        heading.className = 'kiosk-work-group';
+        heading.textContent = group;
+        container.append(heading);
+      }
+      const label = document.createElement('label');
+      label.className = 'kiosk-run-option kiosk-work-option';
+      const input = document.createElement('input');
+      input.type = 'radio';
+      input.name = name;
+      input.value = type.id;
+      const text = document.createElement('span');
+      text.textContent = type.label;
+      label.append(input, text);
+      container.append(label);
+    }
+  }
+
+  function hideWorkTypes() {
+    clearKioskRun();
+    paintRouteCards();
+    focusNextPunch();
+  }
+
+  function syncPunchPanels() {
+    const chunkOpen = kioskChunkPanel?.hidden === false;
+    const leaveOpen = leaveRequestPanel()?.hidden === false;
+    const otherOpen = pendingRun === 'OTHER' && !chunkOpen && !leaveOpen;
+    if (kioskWork) kioskWork.hidden = !otherOpen;
+    if (kioskPunchLayout) kioskPunchLayout.hidden = chunkOpen || leaveOpen || otherOpen;
+    const confirm = document.querySelector('#kiosk-work-punch');
+    if (confirm) {
+      const clockingOut = pendingAction === 'out';
+      confirm.textContent = clockingOut ? 'Clock out' : 'Clock in';
+      confirm.classList.toggle('is-out', clockingOut);
+    }
+    const heading = document.querySelector('#kiosk-work-heading');
+    if (heading) {
+      heading.textContent = pendingAction === 'out' ? 'Clock out of other work' : 'Clock in for other work';
+    }
+    const lead = document.querySelector('#kiosk-work-lead');
+    if (lead) {
+      lead.textContent = pendingAction === 'out'
+        ? 'Choose the kind of work, then clock out.'
+        : 'Choose the kind of work, then clock in.';
+    }
+    if (!kioskPunchLayout?.hidden) paintRouteCards();
+    syncChunkButton();
+  }
+
+  function timeInputFromDate(date) {
+    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  }
+
+  function markingPairs() {
+    if (!selected) return [];
+    return regularPairsForMarking(Array.isArray(state().punches) ? state().punches : [], selected.name);
+  }
+
+  function syncChunkButton() {
+    if (!(kioskChunkOpen instanceof HTMLButtonElement)) return;
+    const open = kioskChunkPanel?.hidden === false;
+    const leaveOpen = leaveRequestPanel()?.hidden === false;
+    kioskChunkOpen.hidden = leaveOpen || open || markingPairs().length === 0;
+  }
+
+  function closeChunkPanel() {
+    const wasOpen = kioskChunkPanel?.hidden === false;
+    chunkClockInId = '';
+    if (kioskChunkPanel) kioskChunkPanel.hidden = true;
+    document.querySelector('.kiosk-reason-row')?.setAttribute('hidden', '');
+    document.querySelector('#kiosk-reason-picks')?.setAttribute('hidden', '');
+    if (kioskChunkError) {
+      kioskChunkError.hidden = true;
+      kioskChunkError.textContent = '';
+    }
+    if (kioskChunkTicket instanceof HTMLInputElement) kioskChunkTicket.value = '';
+    syncTripTicketFields();
+    syncPunchPanels();
+    if (wasOpen) focusNextPunch();
+  }
+
+  /**
+   * @param {boolean} open
+   */
+  function showChunkPanel(open) {
+    if (!open) {
+      closeChunkPanel();
+      return;
+    }
+    pendingAction = '';
+    pendingRun = '';
+    if (kioskWork) kioskWork.hidden = true;
+    document.querySelector('.kiosk-reason-row')?.setAttribute('hidden', '');
+    document.querySelector('#kiosk-reason-picks')?.setAttribute('hidden', '');
+    if (kioskChunkPanel) kioskChunkPanel.hidden = false;
+    syncPunchPanels();
+    renderChunkPairs();
+  }
+
+  function renderChunkPairs() {
+    if (!kioskChunkPairs) return;
+    const pairs = markingPairs();
+    if (!pairs.some((pair) => pair.clockIn?.id === chunkClockInId)) {
+      chunkClockInId = pairs[0]?.clockIn?.id || '';
+    }
+    kioskChunkPairs.replaceChildren();
+    for (const pair of pairs) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.chunkIn = pair.clockIn.id;
+      const run = punchRunLabel(normalizePunchRun(pair.clockIn.run));
+      const day = pair.start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+      const portions = normalizeStoredWorkPortions(pair.clockIn.work_portions)
+        .map((portion) => workTypeLabel(portion.work_type))
+        .filter(Boolean);
+      const marked = portions.length ? ` · already ${portions.join(', ')}` : '';
+      button.textContent = `${day} · ${run} · ${punchDisplayClock(pair.start)}–${punchDisplayClock(pair.end)}${marked}`;
+      if (pair.clockIn.id === chunkClockInId) button.classList.add('is-selected');
+      kioskChunkPairs.append(button);
+    }
+    const chosen = pairs.find((pair) => pair.clockIn?.id === chunkClockInId);
+    if (chosen && kioskChunkStart instanceof HTMLInputElement && kioskChunkEnd instanceof HTMLInputElement) {
+      kioskChunkStart.value = timeInputFromDate(chosen.start);
+      kioskChunkEnd.value = timeInputFromDate(chosen.end);
+    }
+  }
+
+  /**
+   * @param {Event} event
+   */
+  function onChunkPairClick(event) {
+    const button = event.target instanceof Element ? event.target.closest('button') : null;
+    const id = button instanceof HTMLButtonElement ? button.dataset.chunkIn || '' : '';
+    if (!id) return;
+    chunkClockInId = id;
+    renderChunkPairs();
+  }
+
+  function saveWorkChunk() {
+    if (!selected || !chunkClockInId) return;
+    if (kioskChunkError) {
+      kioskChunkError.hidden = true;
+      kioskChunkError.textContent = '';
+    }
+    const workType = chosenWorkType('kiosk-chunk-work');
+    const startClock = kioskChunkStart instanceof HTMLInputElement ? kioskChunkStart.value : '';
+    const endClock = kioskChunkEnd instanceof HTMLInputElement ? kioskChunkEnd.value : '';
+    const tripTicket = normalizeTripTicket(kioskChunkTicket instanceof HTMLInputElement ? kioskChunkTicket.value : '');
+    const name = selected.name;
+    try {
+      const next = state();
+      next.punches = applyWorkChunk(Array.isArray(next.punches) ? next.punches : [], chunkClockInId, {
+        workType,
+        startClock,
+        endClock,
+        tripTicket,
+      });
+      writeState(next);
+      const label = workTypeLabel(workType);
+      const ticket = tripTicketLine(tripTicket);
+      showList();
+      showPunchConfirm(
+        name,
+        `Marked ${label}, ${punchDisplayClock(clockFromInput(startClock))}–${punchDisplayClock(clockFromInput(endClock))}${ticket ? ` · ${ticket}` : ''}`
+      );
+    } catch (error) {
+      if (!kioskChunkError) return;
+      kioskChunkError.hidden = false;
+      kioskChunkError.textContent = error instanceof Error ? error.message : 'That part could not be saved.';
+    }
+  }
+
+  /**
+   * @param {string} clock
+   */
+  function clockFromInput(clock) {
+    const [hours, minutes] = clock.split(':').map(Number);
+    return new Date(2026, 0, 1, hours || 0, minutes || 0);
   }
 
   function syncNoteCount() {
     if (!kioskNoteCount || !(kioskNote instanceof HTMLTextAreaElement)) return;
     const left = NOTE_MAX - kioskNote.value.length;
     kioskNoteCount.textContent = left === 1 ? '1 character left' : `${left} characters left`;
+    const toggle = document.querySelector('#kiosk-note-toggle');
+    const panel = document.querySelector('#kiosk-note-panel');
+    if (!(toggle instanceof HTMLButtonElement) || panel?.hidden === false) return;
+    const hasNote = kioskNote.value.trim().length > 0;
+    toggle.textContent = hasNote ? 'Edit note' : 'Add a note';
+  }
+
+  /**
+   * @param {boolean} open
+   */
+  function setNoteOpen(open) {
+    const panel = document.querySelector('#kiosk-note-panel');
+    const toggle = document.querySelector('#kiosk-note-toggle');
+    if (panel) panel.hidden = !open;
+    if (toggle instanceof HTMLButtonElement) {
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      const hasNote = kioskNote instanceof HTMLTextAreaElement && kioskNote.value.trim().length > 0;
+      toggle.textContent = open ? 'Hide note' : hasNote ? 'Edit note' : 'Add a note';
+    }
+    if (open && kioskNote instanceof HTMLTextAreaElement) kioskNote.focus();
   }
 
   function clearKioskNote() {
@@ -2857,6 +3334,7 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
       kioskNote.value = '';
     }
     syncNoteCount();
+    setNoteOpen(false);
   }
 
   function kioskNoteText() {
@@ -2886,30 +3364,517 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     showPunchStep();
   }
 
+  function payPeriods() {
+    return normalizeClockPayDefaults(state().clockPayDefaults).periods;
+  }
+
+  function timecardPanel() {
+    return document.querySelector('#kiosk-timecard');
+  }
+
+  function hideTimecard() {
+    timecardPunchId = '';
+    timecardDraft = [];
+    const panel = timecardPanel();
+    if (panel) panel.hidden = true;
+    const choices = document.querySelector('#kiosk-timecard-choices');
+    const form = document.querySelector('#kiosk-timecard-form');
+    if (choices) choices.hidden = true;
+    if (form) form.hidden = true;
+    if (kioskActions) kioskActions.hidden = false;
+  }
+
+  function openClockOuts() {
+    if (!selected) return [];
+    const punches = Array.isArray(state().punches) ? state().punches : [];
+    const driver = selected.name.trim().toLowerCase();
+    const now = new Date();
+    return punches
+      .filter((punch) => {
+        if (punch?.action !== 'out' || punch.removed === true) return false;
+        if (String(punch.driver_name || '').trim().toLowerCase() !== driver) return false;
+        const when = new Date(punch.punched_at);
+        return payPeriodStillOpen(when, payPeriods(), now) && sessionForClockOut(punches, punch.id);
+      })
+      .sort((a, b) => String(b.punched_at).localeCompare(String(a.punched_at)));
+  }
+
+  function refreshTimecardButton() {
+    const button = document.querySelector('#kiosk-timecard-open');
+    if (!(button instanceof HTMLButtonElement)) return;
+    button.hidden = openClockOuts().length === 0;
+  }
+
+  function showTimecardChoices() {
+    const panel = timecardPanel();
+    const choices = document.querySelector('#kiosk-timecard-choices');
+    const form = document.querySelector('#kiosk-timecard-form');
+    const list = document.querySelector('#kiosk-timecard-choice-list');
+    if (!panel || !choices || !list) return;
+    timecardReturn = 'choices';
+    if (kioskActions) kioskActions.hidden = true;
+    panel.hidden = false;
+    choices.hidden = false;
+    if (form) form.hidden = true;
+    list.replaceChildren();
+    const punches = Array.isArray(state().punches) ? state().punches : [];
+    for (const punch of openClockOuts()) {
+      const session = sessionForClockOut(punches, punch.id);
+      const button = document.createElement('button');
+      button.type = 'button';
+      const when = new Date(punch.punched_at);
+      const day = when.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+      const range = session
+        ? `${punchDisplayClock(session.start)}–${punchDisplayClock(session.end)}`
+        : punchDisplayClock(when);
+      const codes = normalizeTimecardEntries(punch.timecard_entries);
+      const marked = codes.length ? ` · ${codes.map((entry) => entry.label).join(', ')}` : ' · No codes';
+      button.textContent = `${day} · ${range}${marked}`;
+      button.addEventListener('click', () => openTimecardForm(punch.id, 'choices'));
+      list.append(button);
+    }
+  }
+
+  /**
+   * @param {string} punchId
+   * @param {'roster' | 'choices'} back
+   */
+  function openTimecardForm(punchId, back) {
+    const punches = Array.isArray(state().punches) ? state().punches : [];
+    const punch = punches.find((item) => item?.id === punchId);
+    const session = sessionForClockOut(punches, punchId);
+    const panel = timecardPanel();
+    const form = document.querySelector('#kiosk-timecard-form');
+    const choices = document.querySelector('#kiosk-timecard-choices');
+    const lead = document.querySelector('#kiosk-timecard-lead');
+    const skip = document.querySelector('#kiosk-timecard-skip');
+    if (!punch || !session || !panel || !form) return;
+    timecardPunchId = punchId;
+    timecardReturn = back;
+    timecardDraft = normalizeTimecardEntries(punch.timecard_entries).map((entry) => ({
+      id: entry.id,
+      hours: String(Math.floor(entry.minutes / 60)),
+      minutes: String(entry.minutes % 60),
+      comment: entry.comment,
+      ticket: '',
+    }));
+    const savedTicket = normalizeTripTicket(punch.trip_ticket);
+    if (savedTicket && !timecardDraft.some((entry) => entry.id === TRIP_TICKET_WORK_TYPE)) {
+      timecardDraft.unshift({
+        id: TRIP_TICKET_WORK_TYPE,
+        hours: '',
+        minutes: '',
+        comment: '',
+        ticket: savedTicket,
+      });
+    }
+    if (kioskActions) kioskActions.hidden = true;
+    panel.hidden = false;
+    form.hidden = false;
+    if (choices) choices.hidden = true;
+    if (skip instanceof HTMLButtonElement) skip.hidden = back !== 'roster';
+    if (lead) {
+      lead.textContent = `${punchDisplayClock(session.start)}–${punchDisplayClock(session.end)}. Optional. The times can add up to ${formatTimecardMinutes(session.minutes)} or less.`;
+    }
+    const error = document.querySelector('#kiosk-timecard-error');
+    if (error) {
+      error.hidden = true;
+      error.textContent = '';
+    }
+    renderTimecardRows();
+  }
+
+  function renderTimecardRows() {
+    const host = document.querySelector('#kiosk-timecard-rows');
+    if (!host) return;
+    host.replaceChildren();
+    const codes = catalog();
+    timecardDraft.forEach((row, index) => {
+      const block = document.createElement('div');
+      block.className = 'kiosk-timecard-row';
+      const select = document.createElement('select');
+      const blank = document.createElement('option');
+      blank.value = '';
+      blank.textContent = 'Choose a code';
+      select.append(blank);
+      for (const code of codes) {
+        const option = document.createElement('option');
+        option.value = code.id;
+        option.textContent = code.label;
+        select.append(option);
+      }
+      if (codes.some((code) => code.id === row.id)) select.value = row.id;
+      select.addEventListener('change', () => {
+        timecardDraft[index].id = select.value;
+        renderTimecardRows();
+      });
+      const hours = document.createElement('input');
+      hours.type = 'number';
+      hours.min = '0';
+      hours.max = '24';
+      hours.inputMode = 'numeric';
+      hours.value = row.hours;
+      hours.addEventListener('input', () => {
+        timecardDraft[index].hours = hours.value;
+      });
+      const minutes = document.createElement('input');
+      minutes.type = 'number';
+      minutes.min = '0';
+      minutes.max = '59';
+      minutes.inputMode = 'numeric';
+      minutes.value = row.minutes;
+      minutes.addEventListener('input', () => {
+        timecardDraft[index].minutes = minutes.value;
+      });
+      const time = document.createElement('div');
+      time.className = 'kiosk-timecard-time';
+      const hoursLabel = document.createElement('label');
+      hoursLabel.append('Hours', hours);
+      const minutesLabel = document.createElement('label');
+      minutesLabel.append('Minutes', minutes);
+      time.append(hoursLabel, minutesLabel);
+      const comment = document.createElement('textarea');
+      comment.rows = 2;
+      comment.maxLength = 200;
+      comment.placeholder = 'Comment, if you want one';
+      comment.value = row.comment;
+      comment.addEventListener('input', () => {
+        timecardDraft[index].comment = comment.value;
+      });
+      const ticket = document.createElement('input');
+      ticket.type = 'text';
+      ticket.maxLength = 40;
+      ticket.placeholder = 'Trip ticket number';
+      ticket.autocomplete = 'off';
+      ticket.value = row.ticket || '';
+      ticket.addEventListener('input', () => {
+        timecardDraft[index].ticket = ticket.value;
+      });
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'secondary';
+      remove.textContent = 'Remove code';
+      remove.addEventListener('click', () => {
+        timecardDraft.splice(index, 1);
+        renderTimecardRows();
+      });
+      if (row.id === TRIP_TICKET_WORK_TYPE) {
+        const ticketLabel = document.createElement('label');
+        ticketLabel.append('Trip ticket number', ticket);
+        block.append(select, ticketLabel, remove);
+      } else {
+        block.append(select, time, comment, remove);
+      }
+      host.append(block);
+    });
+  }
+
+  function addTimecardRow() {
+    timecardDraft.push({ id: '', hours: '', minutes: '', comment: '', ticket: '' });
+    renderTimecardRows();
+  }
+
+  function timecardMinutes(row) {
+    const hours = Number(row.hours);
+    const minutes = Number(row.minutes);
+    if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || minutes < 0 || minutes > 59) {
+      return null;
+    }
+    return hours * 60 + minutes;
+  }
+
+  function setTimecardError(message) {
+    const error = document.querySelector('#kiosk-timecard-error');
+    if (!error) return;
+    error.hidden = !message;
+    error.textContent = message || '';
+  }
+
+  function finishTimecard(message) {
+    const name = substituteName || selected?.name || '';
+    hideTimecard();
+    showList();
+    if (message) showPunchConfirm(name, message);
+  }
+
+  function leaveTimecard() {
+    if (timecardReturn === 'choices' && document.querySelector('#kiosk-timecard-form')?.hidden === false) {
+      showTimecardChoices();
+      return;
+    }
+    const message = timecardDoneMessage;
+    const name = substituteName || selected?.name || '';
+    hideTimecard();
+    if (timecardReturn === 'roster') {
+      showList();
+      if (name) showPunchConfirm(name, message || 'Clocked out');
+    }
+  }
+
+  function skipTimecard() {
+    const message = timecardDoneMessage;
+    const name = substituteName || selected?.name || '';
+    hideTimecard();
+    showList();
+    if (name) showPunchConfirm(name, message || 'Clocked out');
+  }
+
+  function saveTimecard() {
+    if (!timecardPunchId) return;
+    const entries = [];
+    let tripTicket = '';
+    for (const row of timecardDraft) {
+      if (!row.id && !row.hours && !row.minutes && !row.comment.trim() && !String(row.ticket || '').trim()) continue;
+      if (row.id === TRIP_TICKET_WORK_TYPE) {
+        tripTicket = normalizeTripTicket(row.ticket);
+        if (!tripTicket) {
+          setTimecardError('Enter the trip ticket number.');
+          return;
+        }
+        continue;
+      }
+      const minutes = timecardMinutes(row);
+      if (minutes == null || minutes < 1) {
+        setTimecardError('Enter the time for each code.');
+        return;
+      }
+      entries.push({ id: row.id, minutes, comment: row.comment });
+    }
+    try {
+      const next = state();
+      next.punches = stampTripTicket(
+        setTimecardEntries(Array.isArray(next.punches) ? next.punches : [], timecardPunchId, {
+          entries,
+          catalog: catalog(),
+          periods: payPeriods(),
+        }),
+        timecardPunchId,
+        tripTicket
+      );
+      writeState(next);
+    } catch (error) {
+      setTimecardError(error instanceof Error ? error.message : 'Could not save those codes.');
+      return;
+    }
+    const summary = timecardSummary(normalizeTimecardEntries(entries, catalog()));
+    const ticket = tripTicketLine(tripTicket);
+    finishTimecard([summary, ticket].filter(Boolean).join('\n') || 'Timecard codes cleared.');
+  }
+
+  function leaveRequestPanel() {
+    return document.querySelector('#kiosk-leave-request-panel');
+  }
+
+  /**
+   * @param {{ clockRuns?: string[], clockIns?: string[] } | null | undefined} person
+   */
+  function clockByRunFor(person) {
+    /** @type {Record<string, string>} */
+    const clocks = {};
+    const runs = Array.isArray(person?.clockRuns) ? person.clockRuns : [];
+    const times = Array.isArray(person?.clockIns) ? person.clockIns : [];
+    runs.forEach((run, index) => {
+      const clock = String(times[index] || '').trim();
+      if (run && clock) clocks[run] = clock;
+    });
+    return clocks;
+  }
+
+  /**
+   * @param {string} dateKey
+   * @returns {Record<'AM' | 'MIDDAY' | 'PM', number | null>}
+   */
+  function contractedFor(dateKey) {
+    /** @type {Record<'AM' | 'MIDDAY' | 'PM', number | null>} */
+    const empty = { AM: null, MIDDAY: null, PM: null };
+    if (!selected || typeof contractedMinutes !== 'function') return empty;
+    try {
+      const result = contractedMinutes(selected.name, dateKey) || {};
+      for (const run of ['AM', 'MIDDAY', 'PM']) {
+        const minutes = Number(result[run]);
+        empty[run] = Number.isInteger(minutes) && minutes > 0 ? minutes : null;
+      }
+    } catch {
+      return { AM: null, MIDDAY: null, PM: null };
+    }
+    return empty;
+  }
+
+  /**
+   * @param {string} message
+   */
+  function setLeaveRequestError(message) {
+    const error = document.querySelector('#kiosk-leave-request-error');
+    if (!error) return;
+    error.hidden = !message;
+    error.textContent = message || '';
+  }
+
+  /**
+   * @param {number} minutes
+   */
+  function fillLeaveHours(minutes) {
+    const parts = leaveTimeParts(minutes);
+    const hours = document.querySelector('#kiosk-leave-request-hours');
+    const mins = document.querySelector('#kiosk-leave-request-minutes');
+    if (hours instanceof HTMLInputElement) hours.value = parts.hours ? String(parts.hours) : minutes ? '0' : '';
+    if (mins instanceof HTMLInputElement) mins.value = minutes ? String(parts.minutes) : '';
+  }
+
+  function leaveSelection() {
+    const date = document.querySelector('#kiosk-leave-request-date');
+    const run = document.querySelector('#kiosk-leave-request-run');
+    return {
+      date: date instanceof HTMLInputElement ? date.value : '',
+      run: run instanceof HTMLSelectElement ? run.value : '',
+    };
+  }
+
+  function refreshLeaveForm() {
+    if (!selected) return;
+    const { date, run } = leaveSelection();
+    const today = localDateString();
+    const punches = Array.isArray(state().punches) ? state().punches : [];
+    const clockedIn = Boolean(date && run && driverClockedIn(punches, selected.name, date, run));
+    const contracted = date && (run === 'AM' || run === 'MIDDAY' || run === 'PM') ? contractedFor(date)[run] : null;
+    const existing = date && run ? leaveFor(state().leaveRequests, selected.name, date, run) : null;
+    const lead = document.querySelector('#kiosk-leave-request-lead');
+    if (lead) lead.textContent = leaveRequestLead({ run, date, today, clockedIn });
+    const contract = document.querySelector('#kiosk-leave-request-contract');
+    const contractText = clockedIn ? '' : leaveContractLead(contracted);
+    if (contract) {
+      contract.hidden = !contractText;
+      contract.textContent = contractText;
+    }
+    const time = document.querySelector('#kiosk-leave-request-time');
+    if (time) time.hidden = clockedIn;
+    const save = document.querySelector('#kiosk-leave-request-save');
+    if (save instanceof HTMLButtonElement) save.disabled = clockedIn;
+    const limit = leaveMinuteLimit(contracted);
+    const hours = document.querySelector('#kiosk-leave-request-hours');
+    if (hours instanceof HTMLInputElement) hours.max = String(Math.max(0, Math.floor(limit / 60)));
+    fillLeaveHours(existing?.minutes || contracted || 0);
+    setLeaveRequestError('');
+  }
+
+  function closeLeaveRequest() {
+    const panel = leaveRequestPanel();
+    const wasOpen = panel?.hidden === false;
+    if (panel) panel.hidden = true;
+    setLeaveRequestError('');
+    syncPunchPanels();
+    refreshTimecardButton();
+    if (wasOpen) focusNextPunch();
+  }
+
+  /**
+   * @param {string} [run]
+   */
+  function openLeaveRequest(run) {
+    const panel = leaveRequestPanel();
+    if (!panel || !selected) return;
+    closeChunkPanel();
+    if (kioskWork) kioskWork.hidden = true;
+    pendingAction = '';
+    pendingRun = '';
+    const timecardOpen = document.querySelector('#kiosk-timecard-open');
+    if (timecardOpen) timecardOpen.hidden = true;
+    panel.hidden = false;
+    syncPunchPanels();
+    const date = document.querySelector('#kiosk-leave-request-date');
+    const select = document.querySelector('#kiosk-leave-request-run');
+    const open = openClock();
+    const fromOpen = open?.run === 'AM' || open?.run === 'MIDDAY' || open?.run === 'PM' ? open.run : '';
+    const initialRun = run || fromOpen || 'AM';
+    if (date instanceof HTMLInputElement) date.value = localDateString();
+    if (select instanceof HTMLSelectElement) select.value = initialRun;
+    refreshLeaveForm();
+    const hours = document.querySelector('#kiosk-leave-request-hours');
+    if (hours instanceof HTMLElement) hours.focus();
+  }
+
+  function saveLeaveFromKiosk() {
+    if (!selected) return;
+    const { date, run } = leaveSelection();
+    const hours = document.querySelector('#kiosk-leave-request-hours');
+    const mins = document.querySelector('#kiosk-leave-request-minutes');
+    const minutes = leaveMinutesFromParts(
+      hours instanceof HTMLInputElement ? hours.value : '',
+      mins instanceof HTMLInputElement ? mins.value : ''
+    );
+    const contracted = run === 'AM' || run === 'MIDDAY' || run === 'PM' ? contractedFor(date)[run] : null;
+    const next = state();
+    try {
+      next.leaveRequests = saveLeaveRequest(next.leaveRequests, {
+        driver_name: selected.name,
+        date,
+        run,
+        minutes: minutes || 0,
+        contractedMinutes: contracted,
+        punches: next.punches,
+        substitute_name: substituteName,
+      });
+    } catch (error) {
+      setLeaveRequestError(error instanceof Error ? error.message : 'Could not save that leave request.');
+      return;
+    }
+    next.drivers = applyLeaveRequests(next.drivers, next.leaveRequests);
+    writeState(next);
+    const detail = `Leave requested for the ${punchRunLabel(run)} on ${leaveDateLabel(date)} · ${formatDurationLabel(minutes || 0)}`;
+    const awaiting = runsAwaitingLeave({
+      clockByRun: clockByRunFor(selected),
+      punches: next.punches,
+      requests: next.leaveRequests,
+      driverName: selected.name,
+      now: new Date(),
+    });
+    const name = substituteName || selected.name;
+    if (date === localDateString() && awaiting.length) {
+      const select = document.querySelector('#kiosk-leave-request-run');
+      if (select instanceof HTMLSelectElement) select.value = awaiting[0];
+      refreshLeaveForm();
+      showPunchConfirm(name, detail);
+      return;
+    }
+    showList();
+    showPunchConfirm(name, detail);
+  }
+
   /**
    * @param {'in' | 'out'} action
    */
-  function punch(action) {
+  function punch(action, run) {
     if (!selected || !unlocked) return;
-    const run = chosenKioskRun();
+    const chosen = normalizePunchRun(run);
     const error = document.querySelector('#kiosk-run-error');
-    if (!run) {
+    const workError = document.querySelector('#kiosk-work-error');
+    if (!chosen) {
       if (error) {
         error.hidden = false;
         error.textContent = 'Choose AM route, Mid day route, PM route, or Other.';
       }
       return;
     }
-    const choices = payChoicesForSelected();
-    const payStatus = chosenPayStatus(choices);
-    const payError = document.querySelector('#kiosk-pay-status-error');
-    if (choices.length > 1 && !payStatus) {
-      if (payError) {
-        payError.hidden = false;
-        payError.textContent = 'Choose a pay status.';
+    const workType = chosen === 'OTHER' ? chosenWorkType() : '';
+    if (chosen === 'OTHER' && !workType) {
+      if (workError) {
+        workError.hidden = false;
+        workError.textContent = 'Choose the kind of work.';
       }
       return;
     }
+    const tripTicket = workType === TRIP_TICKET_WORK_TYPE
+      ? normalizeTripTicket(kioskTripTicket instanceof HTMLInputElement ? kioskTripTicket.value : '')
+      : '';
+    if (workType === TRIP_TICKET_WORK_TYPE && !tripTicket) {
+      if (workError) {
+        workError.hidden = false;
+        workError.textContent = 'Enter the trip ticket number.';
+      }
+      if (kioskTripTicket instanceof HTMLInputElement) kioskTripTicket.focus();
+      return;
+    }
+    const payStatus = payStatusForSelected(chosen);
     const next = state();
     const punches = Array.isArray(next.punches) ? next.punches : [];
     /** @type {{ id: string, driver_name: string, action: 'in' | 'out', punched_at: string, note: string, reason_codes: object[], run: 'AM' | 'MIDDAY' | 'PM' | 'OTHER', pay_status?: string, substitute_name?: string }} */
@@ -2919,12 +3884,22 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
       action,
       punched_at: new Date().toISOString(),
       note: kioskNoteText(),
-      reason_codes: catalog().filter((code) => kioskReasonIds.includes(code.id)),
-      run,
+      reason_codes: [],
+      run: chosen,
     };
+    if (workType) record.work_type = workType;
+    if (tripTicket) record.trip_ticket = tripTicket;
     if (payStatus) record.pay_status = payStatus;
     if (substituteName) record.substitute_name = substituteName;
     next.punches = [...punches, record];
+    if (action === 'in' && (chosen === 'AM' || chosen === 'MIDDAY' || chosen === 'PM')) {
+      next.leaveRequests = dropLeaveForClockIn(next.leaveRequests, {
+        driver_name: selected.name,
+        date: localDateString(new Date(record.punched_at)),
+        run: chosen,
+      });
+      next.drivers = applyLeaveRequests(next.drivers, next.leaveRequests);
+    }
     writeState(next);
     playPunchSound(
       punchSoundFor(
@@ -2935,12 +3910,17 @@ export function mountTimeclock({ readState, writeState, listPeople }) {
     const displayName = substituteName || selected.name;
     const verb = action === 'in' ? 'Clocked in' : 'Clocked out';
     const when = punchDisplayClock(new Date(record.punched_at));
-    const routeLabel = punchRunLabel(run);
-    const statusLabel = choices.length > 1 ? choices.find((line) => line.id === payStatus)?.label || '' : '';
-    const detailParts = [routeLabel, statusLabel].filter(Boolean).join(' · ');
+    const routeLabel = workType ? workTypeLabel(workType) : punchRunLabel(chosen);
+    const ticketNote = tripTicketLine(tripTicket);
+    const detailParts = ticketNote ? `${routeLabel} · ${ticketNote}` : routeLabel;
     const detail = substituteName
       ? `${verb} at ${when} for ${selected.name} · ${detailParts}`
       : `${verb} at ${when} · ${detailParts}`;
+    if (action === 'out' && sessionForClockOut(next.punches, record.id)) {
+      timecardDoneMessage = detail;
+      openTimecardForm(record.id, 'roster');
+      return;
+    }
     showList();
     showPunchConfirm(displayName, detail);
   }

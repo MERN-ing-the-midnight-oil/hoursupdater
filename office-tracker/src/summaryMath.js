@@ -1,7 +1,7 @@
 /**
- * Quarter-hour steps behind a Monthly Time Summary day cell.
+ * Quarter-hour steps behind a Driver Pay period info day cell.
  * EX DRIVER is the clocked quarter hours beyond that day's contract hours.
- * The math table shows contract hours, the clocks, the snap, and EX HOURS.
+ * The table shows contract hours, the clocks, the snap, EX HOURS, and clock notes.
  * Other pay-status rows are not calculated here.
  */
 
@@ -109,7 +109,7 @@ export function mathPdfBasename(driverName) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
-  return `${slug || 'driver'}-ex-driver-time-summary-math`;
+  return `${slug || 'driver'}-driver-pay-period-info`;
 }
 
 function escapeHtml(value) {
@@ -363,7 +363,7 @@ export function renderMonthlySummaryMathHtml(model) {
   const periods = Array.isArray(model?.periods) ? model.periods : [];
   const periodLabel = periods.map((period) => period.label).filter(Boolean).join('; ');
   const sheets = periods.map((period) => periodTable(driverName, period, rounding, overtimeRules)).join('');
-  const title = `EX DRIVER TIME SUMMARY MATH — ${driverName}`;
+  const title = `Driver Pay period info — ${driverName}`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -402,6 +402,11 @@ export function renderMonthlySummaryMathHtml(model) {
     #math-hover { position: fixed; z-index: 5; max-width: 18rem; padding: 0.45rem 0.6rem; background: #1c1e22; color: #fff; border-radius: 6px; font-size: 13px; line-height: 1.35; pointer-events: none; box-shadow: 0 8px 20px rgba(0,0,0,0.2); }
     #math-hover[hidden] { display: none; }
     tfoot th, tfoot td { background: #e7e7e7; font-weight: 700; text-align: left; }
+    .clock-notes { flex: none; max-height: 32vh; margin-top: 0.55rem; padding-top: 0.4rem; border-top: 2px solid #222; overflow: auto; text-align: left; }
+    .clock-notes h2 { margin: 0 0 0.3rem; font-size: 14px; letter-spacing: 0.04em; }
+    .clock-notes ul { margin: 0; padding: 0; list-style: none; }
+    .clock-notes li { margin: 0.18rem 0; }
+    .clock-notes .note-when { font-weight: 650; }
     @page { size: letter landscape; margin: 0.4in; }
     @media print {
       html, body { height: auto; display: block; overflow: visible; background: #fff; }
@@ -413,6 +418,7 @@ export function renderMonthlySummaryMathHtml(model) {
       tr.pair-start th, tr.pair-start td { border-top-width: 2px; padding-top: 0.35rem; }
       tr.pair-end th, tr.pair-end td { border-bottom-width: 2px; padding-bottom: 0.35rem; }
       #math-hover { display: none !important; }
+      .clock-notes { max-height: none; overflow: visible; }
     }
   </style>
 </head>
@@ -505,6 +511,30 @@ export function renderMonthlySummaryMathHtml(model) {
  * @param {'snap' | 'daily' | 'separate'} rounding
  * @param {ReturnType<typeof normalizeOvertimeRules>} overtimeRules
  */
+/**
+ * Clock notes and contract-change notes for the admin, in day order.
+ * @param {Array<{ day: number, dateLabel?: string, notes?: Array<{ when?: string, text?: string }> }>} days
+ */
+function clockNotesSection(days) {
+  const items = [];
+  for (const day of days) {
+    const label = String(day.dateLabel || day.day);
+    for (const note of day.notes || []) {
+      const text = String(note?.text || '').trim();
+      if (!text) continue;
+      items.push({ label, when: String(note.when || '').trim(), text });
+    }
+  }
+  if (!items.length) return '';
+  const rows = items
+    .map((item) => {
+      const when = item.when ? `<span class="note-when">${escapeHtml(item.label)} · ${escapeHtml(item.when)}</span> ` : `<span class="note-when">${escapeHtml(item.label)}</span> `;
+      return `<li>${when}${escapeHtml(item.text)}</li>`;
+    })
+    .join('');
+  return `<section class="clock-notes"><h2>Clock notes</h2><ul>${rows}</ul></section>`;
+}
+
 function periodTable(driverName, period, rounding, overtimeRules) {
   const days = Array.isArray(period.days) ? period.days : [];
   const head = days.map((day) => `<th scope="col">${day.day}</th>`).join('');
@@ -570,7 +600,7 @@ function periodTable(driverName, period, rounding, overtimeRules) {
   const overtimeLabel = overtimeTotalText(overtimeTotal, overtimeRules.multiplier);
   const who = [driverName, period.label].filter(Boolean).join(' · ');
   return `<article>
-    <h1>EX DRIVER TIME SUMMARY MATH</h1>
+    <h1>Driver Pay period info</h1>
     <p class="who">${escapeHtml(who)}</p>
     <div class="table-scroll">
       <table>
@@ -598,5 +628,6 @@ function periodTable(driverName, period, rounding, overtimeRules) {
         </tfoot>
       </table>
     </div>
+    ${clockNotesSection(days)}
   </article>`;
 }

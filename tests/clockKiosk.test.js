@@ -308,7 +308,29 @@ describe('clock kiosk', () => {
   it('starts the reason code list with the office defaults', async () => {
     assert.deepEqual(
       DEFAULT_REASON_CODES.map((code) => code.label),
-      ['Fueling Bus', 'Traffic', 'Delay at Stop or School', 'Meeting', 'Paperwork']
+      [
+        'Trip Ticket Number',
+        'New Student',
+        'Traffic/Construction/Accident',
+        'Returned Student to School',
+        'Extra Route(s) / Student(s)',
+        'Delay at Stop / School',
+        'Bus Wash',
+        'Early Release',
+        'Meetings / Trainings',
+        'Paperwork - a. Bus Conduct, b. Stop Paddle Violation, c. Accident Form, d. etc.',
+        'Fueling Bus',
+        'Bus cleaning',
+        'In-service',
+        'Meeting',
+        'Inclement weather',
+        'Snow, detour, or accident',
+        'Student riding 3 days or fewer',
+        'Counseling',
+        'Fifth day of a 4-day run',
+        'Training',
+        'Food service delivery',
+      ]
     );
     const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'clock-reasons-'));
     const first = await readClockReasonCodes(dataDir);
