@@ -31,15 +31,10 @@ import {
   runsAwaitingLeave,
   saveLeaveRequest,
 } from '../src/leaveRequests.js';
-import { setTimecardEntries } from '../src/officePunches.js';
 import {
-  formatTimecardMinutes,
-  normalizeTimecardEntries,
   reasonNoteLine,
   payPeriodDeadline,
   payPeriodStillOpen,
-  sessionForClockOut,
-  timecardSummary,
 } from '../src/timecardEntries.js';
 import {
   IRREGULAR_WORK_TYPES,
@@ -48,7 +43,6 @@ import {
   normalizeStoredWorkPortions,
   normalizeTripTicket,
   regularPairsForMarking,
-  stampTripTicket,
   tripTicketLine,
   workTypeLabel,
 } from '../../src/logic/workTypes.js';
@@ -98,6 +92,8 @@ import {
   timeclockWindowUrl,
 } from './timeclockScreen.js';
 
+/** Set this to true when drivers should enter a PIN before the clock card opens. */
+const DRIVER_PINS_ENABLED = false;
 const LOCK_KEY = 'teamster-timeclock-lock';
 const LATE_ACK_KEY = 'teamster-timeclock-late-ack';
 const NAME_COLOR_KEY = 'teamster-timeclock-name-colors';
@@ -106,6 +102,11 @@ const NAME_BUTTON_MIN_PX = 96;
 const ROSTER_GAP_PX = 6;
 /** A name button is this many times as wide as it is tall. Taller than that is extra space. */
 const NAME_BUTTON_RATIO = 1.9;
+/**
+ * After leaving a driver, ignore name taps this long.
+ * The same finger can otherwise land on the name that appears where I'm done was.
+ */
+const ROSTER_SETTLE_MS = 600;
 
 /**
  * Clock shown on the Timeclock right after a clock in or clock out.
@@ -418,6 +419,9 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   const kioskClockQrCode = document.querySelector('#kiosk-clock-qr-code');
   const kioskDayQr = document.querySelector('#kiosk-day-qr');
   const kioskDayQrCode = document.querySelector('#kiosk-day-qr-code');
+  const driverPinsCard = document.querySelector('#driver-pins-card');
+  if (driverPinsCard) driverPinsCard.hidden = !DRIVER_PINS_ENABLED;
+  if (!DRIVER_PINS_ENABLED && kioskPinForm) kioskPinForm.hidden = true;
   if (
     !startButton ||
     !lockForm ||
@@ -450,13 +454,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   let chunkClockInId = '';
   /** @type {string[]} */
   let kioskReasonIds = [];
-  /** Clock-out whose timecard codes are on screen. */
-  let timecardPunchId = '';
-  /** @type {'roster' | 'choices'} */
-  let timecardReturn = 'roster';
-  let timecardDoneMessage = '';
-  /** @type {Array<{ id: string, hours: string, minutes: string, comment: string }>} */
-  let timecardDraft = [];
   /** The missed-route prompt stays closed after Go back until this driver opens Leave Requested. */
   let leavePromptDismissed = false;
   /** Route and action chosen from a card. Other waits until the kind of work is chosen. */
@@ -551,9 +548,10 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     kioskReasonIds.push(id);
     renderKioskReasons();
   });
-  kioskBack?.addEventListener('click', () => showList());
-  document.querySelector('#kiosk-done')?.addEventListener('click', () => showList());
-  document.querySelector('#kiosk-substitute-back')?.addEventListener('click', () => showList());
+  kioskBack?.addEventListener('click', onLeaveDriver);
+  document.querySelector('#kiosk-done')?.addEventListener('click', onLeaveDriver);
+  document.querySelector('#kiosk-substitute-back')?.addEventListener('click', onLeaveDriver);
+  kiosk.addEventListener('click', swallowSettlingRosterClick, true);
   kioskSubstitute?.addEventListener('click', onSubstituteHeader);
   kioskPin.addEventListener('input', onPinInput);
   kioskPinForm?.addEventListener('submit', (event) => {
@@ -592,14 +590,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   document.querySelector('#kiosk-leave-request-date')?.addEventListener('change', refreshLeaveForm);
   document.querySelector('#kiosk-leave-request-run')?.addEventListener('change', refreshLeaveForm);
   document.querySelector('#kiosk-leave-request-save')?.addEventListener('click', saveLeaveFromKiosk);
-  document.querySelector('#kiosk-timecard-open')?.addEventListener('click', showTimecardChoices);
-  document.querySelector('#kiosk-timecard-back')?.addEventListener('click', leaveTimecard);
-  document.querySelector('#kiosk-timecard-add')?.addEventListener('click', addTimecardRow);
-  document.querySelector('#kiosk-timecard-skip')?.addEventListener('click', skipTimecard);
-  document.querySelector('#kiosk-timecard-form')?.addEventListener('submit', (event) => {
-    event.preventDefault();
-    saveTimecard();
-  });
   kioskWorkBack?.addEventListener('click', hideWorkTypes);
   kioskChunkOpen?.addEventListener('click', () => showChunkPanel(true));
   kioskChunkBack?.addEventListener('click', () => showChunkPanel(false));
@@ -2851,15 +2841,55 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     kioskClockQr.hidden = false;
   }
 
+  /** Name taps are ignored until this time so a closing tap cannot open whoever appears underneath. */
+  let blockRosterOpenUntil = 0;
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let rosterSettleTimer;
+
+  function settleRosterClicks() {
+    blockRosterOpenUntil = Date.now() + ROSTER_SETTLE_MS;
+    kioskRoster.classList.add('is-settling');
+    window.clearTimeout(rosterSettleTimer);
+    rosterSettleTimer = window.setTimeout(() => {
+      if (Date.now() < blockRosterOpenUntil) return;
+      kioskRoster.classList.remove('is-settling');
+    }, ROSTER_SETTLE_MS);
+  }
+
+  /**
+   * @param {Event} event
+   */
+  function swallowSettlingRosterClick(event) {
+    if (Date.now() >= blockRosterOpenUntil) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target?.closest('#kiosk-roster .kiosk-name')) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  /**
+   * @param {Event} event
+   */
+  function onLeaveDriver(event) {
+    event.preventDefault();
+    showList();
+  }
+
   function showList(message = '') {
+    const coveringRoster = kioskDetail.hidden === false || Boolean(kioskSubstitutes && !kioskSubstitutes.hidden);
     closeReplaceConfirm();
     if (selected) rememberLateVisit(selected);
+    if (coveringRoster) {
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && kiosk.contains(focused)) focused.blur();
+      settleRosterClicks();
+    }
     selected = null;
     substituteName = '';
     unlocked = false;
     kiosk.classList.remove('is-detail');
-    kioskList.hidden = false;
     kioskDetail.hidden = true;
+    kioskList.hidden = false;
     kioskActions.hidden = true;
     hideClockQr();
     if (kioskCovering) kioskCovering.hidden = true;
@@ -2919,7 +2949,14 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       badge.textContent = status === 'in' ? 'IN' : 'OUT';
       button.append(label, badge);
       paintLate(button, person);
-      button.addEventListener('click', () => openDriver(person));
+      button.addEventListener('click', (event) => {
+        if (Date.now() < blockRosterOpenUntil) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+        openDriver(person);
+      });
       kioskRoster.append(button);
     }
     fitRoster();
@@ -3085,8 +3122,8 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     kioskReasonIds = [];
     renderKioskReasons();
     if (kioskPinError) kioskPinError.textContent = '';
-    if (coveringAs) {
-      substituteName = coveringAs;
+    if (coveringAs) substituteName = coveringAs;
+    if (coveringAs || !DRIVER_PINS_ENABLED) {
       showPunchStep();
       return;
     }
@@ -3198,9 +3235,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     fillKioskReasons();
     renderKioskReasons();
     kioskActions.hidden = false;
-    hideTimecard();
     closeLeaveRequest();
-    refreshTimecardButton();
     syncSubstituteHeader();
     if (selected) paintClockQr(selected);
     paintLeaveNote();
@@ -4459,241 +4494,11 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     showPunchStep();
   }
 
-  function payPeriods() {
-    return normalizeClockPayDefaults(state().clockPayDefaults).periods;
-  }
-
-  function timecardPanel() {
-    return document.querySelector('#kiosk-timecard');
-  }
-
-  function hideTimecard() {
-    timecardPunchId = '';
-    timecardDraft = [];
-    const panel = timecardPanel();
-    if (panel) panel.hidden = true;
-    const choices = document.querySelector('#kiosk-timecard-choices');
-    const form = document.querySelector('#kiosk-timecard-form');
-    if (choices) choices.hidden = true;
-    if (form) form.hidden = true;
-    if (kioskActions) kioskActions.hidden = false;
-  }
-
-  function openClockOuts() {
-    if (!selected) return [];
-    const punches = Array.isArray(state().punches) ? state().punches : [];
-    const driver = selected.name.trim().toLowerCase();
-    const now = new Date();
-    return punches
-      .filter((punch) => {
-        if (punch?.action !== 'out' || punch.removed === true) return false;
-        if (String(punch.driver_name || '').trim().toLowerCase() !== driver) return false;
-        const when = new Date(punch.punched_at);
-        return (
-          payPeriodStillOpen(when, payPeriods(), now, payLineDefaults().periodEndsAt) &&
-          sessionForClockOut(punches, punch.id)
-        );
-      })
-      .sort((a, b) => String(b.punched_at).localeCompare(String(a.punched_at)));
-  }
-
-  function refreshTimecardButton() {
-    const button = document.querySelector('#kiosk-timecard-open');
-    if (!(button instanceof HTMLButtonElement)) return;
-    button.hidden = openClockOuts().length === 0;
-  }
-
-  function showTimecardChoices() {
-    const panel = timecardPanel();
-    const choices = document.querySelector('#kiosk-timecard-choices');
-    const form = document.querySelector('#kiosk-timecard-form');
-    const list = document.querySelector('#kiosk-timecard-choice-list');
-    if (!panel || !choices || !list) return;
-    timecardReturn = 'choices';
-    if (kioskActions) kioskActions.hidden = true;
-    panel.hidden = false;
-    choices.hidden = false;
-    if (form) form.hidden = true;
-    list.replaceChildren();
-    const punches = Array.isArray(state().punches) ? state().punches : [];
-    for (const punch of openClockOuts()) {
-      const session = sessionForClockOut(punches, punch.id);
-      const button = document.createElement('button');
-      button.type = 'button';
-      const when = new Date(punch.punched_at);
-      const day = when.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-      const range = session
-        ? `${punchDisplayClock(session.start)}–${punchDisplayClock(session.end)}`
-        : punchDisplayClock(when);
-      const codes = normalizeTimecardEntries(punch.timecard_entries);
-      const marked = codes.length ? ` · ${codes.map((entry) => entry.label).join(', ')}` : ' · No codes';
-      button.textContent = `${day} · ${range}${marked}`;
-      button.addEventListener('click', () => openTimecardForm(punch.id, 'choices'));
-      list.append(button);
-    }
-  }
-
   /**
-   * @param {string} punchId
-   * @param {'roster' | 'choices'} back
-   */
-  function openTimecardForm(punchId, back) {
-    const punches = Array.isArray(state().punches) ? state().punches : [];
-    const punch = punches.find((item) => item?.id === punchId);
-    const session = sessionForClockOut(punches, punchId);
-    const panel = timecardPanel();
-    const form = document.querySelector('#kiosk-timecard-form');
-    const choices = document.querySelector('#kiosk-timecard-choices');
-    const lead = document.querySelector('#kiosk-timecard-lead');
-    const skip = document.querySelector('#kiosk-timecard-skip');
-    if (!punch || !session || !panel || !form) return;
-    timecardPunchId = punchId;
-    timecardReturn = back;
-    timecardDraft = normalizeTimecardEntries(punch.timecard_entries).map((entry) => ({
-      id: entry.id,
-      hours: String(Math.floor(entry.minutes / 60)),
-      minutes: String(entry.minutes % 60),
-      comment: entry.comment,
-      ticket: '',
-    }));
-    const savedTicket = normalizeTripTicket(punch.trip_ticket);
-    if (savedTicket && !timecardDraft.some((entry) => entry.id === TRIP_TICKET_WORK_TYPE)) {
-      timecardDraft.unshift({
-        id: TRIP_TICKET_WORK_TYPE,
-        hours: '',
-        minutes: '',
-        comment: '',
-        ticket: savedTicket,
-      });
-    }
-    if (kioskActions) kioskActions.hidden = true;
-    panel.hidden = false;
-    form.hidden = false;
-    if (choices) choices.hidden = true;
-    if (skip instanceof HTMLButtonElement) skip.hidden = back !== 'roster';
-    if (lead) {
-      lead.textContent = `${punchDisplayClock(session.start)}–${punchDisplayClock(session.end)}. Optional. The times can add up to ${formatTimecardMinutes(session.minutes)} or less.`;
-    }
-    const error = document.querySelector('#kiosk-timecard-error');
-    if (error) {
-      error.hidden = true;
-      error.textContent = '';
-    }
-    renderTimecardRows();
-  }
-
-  function renderTimecardRows() {
-    const host = document.querySelector('#kiosk-timecard-rows');
-    if (!host) return;
-    host.replaceChildren();
-    const codes = catalog();
-    timecardDraft.forEach((row, index) => {
-      const block = document.createElement('div');
-      block.className = 'kiosk-timecard-row';
-      const select = document.createElement('select');
-      const blank = document.createElement('option');
-      blank.value = '';
-      blank.textContent = 'Choose a code';
-      select.append(blank);
-      for (const code of codes) {
-        const option = document.createElement('option');
-        option.value = code.id;
-        option.textContent = code.label;
-        select.append(option);
-      }
-      if (codes.some((code) => code.id === row.id)) select.value = row.id;
-      select.addEventListener('change', () => {
-        timecardDraft[index].id = select.value;
-        renderTimecardRows();
-      });
-      const hours = document.createElement('input');
-      hours.type = 'number';
-      hours.min = '0';
-      hours.max = '24';
-      hours.inputMode = 'numeric';
-      hours.value = row.hours;
-      hours.addEventListener('input', () => {
-        timecardDraft[index].hours = hours.value;
-      });
-      const minutes = document.createElement('input');
-      minutes.type = 'number';
-      minutes.min = '0';
-      minutes.max = '59';
-      minutes.inputMode = 'numeric';
-      minutes.value = row.minutes;
-      minutes.addEventListener('input', () => {
-        timecardDraft[index].minutes = minutes.value;
-      });
-      const time = document.createElement('div');
-      time.className = 'kiosk-timecard-time';
-      const hoursLabel = document.createElement('label');
-      hoursLabel.append('Hours', hours);
-      const minutesLabel = document.createElement('label');
-      minutesLabel.append('Minutes', minutes);
-      time.append(hoursLabel, minutesLabel);
-      const comment = document.createElement('textarea');
-      comment.rows = 2;
-      comment.maxLength = 200;
-      comment.placeholder = 'Comment, if you want one';
-      comment.value = row.comment;
-      comment.addEventListener('input', () => {
-        timecardDraft[index].comment = comment.value;
-      });
-      const ticket = document.createElement('input');
-      ticket.type = 'text';
-      ticket.maxLength = 40;
-      ticket.placeholder = 'Trip ticket number';
-      ticket.autocomplete = 'off';
-      ticket.value = row.ticket || '';
-      ticket.addEventListener('input', () => {
-        timecardDraft[index].ticket = ticket.value;
-      });
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'secondary';
-      remove.textContent = 'Remove code';
-      remove.addEventListener('click', () => {
-        timecardDraft.splice(index, 1);
-        renderTimecardRows();
-      });
-      if (row.id === TRIP_TICKET_WORK_TYPE) {
-        const ticketLabel = document.createElement('label');
-        ticketLabel.append('Trip ticket number', ticket);
-        block.append(select, ticketLabel, remove);
-      } else {
-        block.append(select, time, comment, remove);
-      }
-      host.append(block);
-    });
-  }
-
-  function addTimecardRow() {
-    timecardDraft.push({ id: '', hours: '', minutes: '', comment: '', ticket: '' });
-    renderTimecardRows();
-  }
-
-  function timecardMinutes(row) {
-    const hours = Number(row.hours);
-    const minutes = Number(row.minutes);
-    if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || minutes < 0 || minutes > 59) {
-      return null;
-    }
-    return hours * 60 + minutes;
-  }
-
-  function setTimecardError(message) {
-    const error = document.querySelector('#kiosk-timecard-error');
-    if (!error) return;
-    error.hidden = !message;
-    error.textContent = message || '';
-  }
-
-  /**
-   * Stay on this driver's punch card after a punch or timecard.
+   * Stay on this driver's punch card after a punch.
    * @param {string} [message]
    */
   function returnToPunchCard(message) {
-    hideTimecard();
     if (!selected) {
       showList();
       if (message) showPunchConfirm(substituteName, message);
@@ -4701,73 +4506,9 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
     clearKioskRun();
     paintLeaveNote();
-    refreshTimecardButton();
     paintDriverHeading(selected);
     if (message) showPunchConfirm(substituteName || selected.name, message);
     focusNextPunch();
-  }
-
-  function finishTimecard(message) {
-    returnToPunchCard(message);
-  }
-
-  function leaveTimecard() {
-    if (timecardReturn === 'choices' && document.querySelector('#kiosk-timecard-form')?.hidden === false) {
-      showTimecardChoices();
-      return;
-    }
-    if (timecardReturn === 'roster') {
-      returnToPunchCard(timecardDoneMessage || 'Clocked out');
-      return;
-    }
-    hideTimecard();
-  }
-
-  function skipTimecard() {
-    returnToPunchCard(timecardDoneMessage || 'Clocked out');
-  }
-
-  function saveTimecard() {
-    if (!timecardPunchId) return;
-    const entries = [];
-    let tripTicket = '';
-    for (const row of timecardDraft) {
-      if (!row.id && !row.hours && !row.minutes && !row.comment.trim() && !String(row.ticket || '').trim()) continue;
-      if (row.id === TRIP_TICKET_WORK_TYPE) {
-        tripTicket = normalizeTripTicket(row.ticket);
-        if (!tripTicket) {
-          setTimecardError('Enter the trip ticket number.');
-          return;
-        }
-        continue;
-      }
-      const minutes = timecardMinutes(row);
-      if (minutes == null || minutes < 1) {
-        setTimecardError('Enter the time for each code.');
-        return;
-      }
-      entries.push({ id: row.id, minutes, comment: row.comment });
-    }
-    try {
-      const next = state();
-      next.punches = stampTripTicket(
-        setTimecardEntries(Array.isArray(next.punches) ? next.punches : [], timecardPunchId, {
-          entries,
-          catalog: catalog(),
-          periods: payPeriods(),
-          periodEndsAt: payLineDefaults().periodEndsAt,
-        }),
-        timecardPunchId,
-        tripTicket
-      );
-      writeState(next);
-    } catch (error) {
-      setTimecardError(error instanceof Error ? error.message : 'Could not save those codes.');
-      return;
-    }
-    const summary = timecardSummary(normalizeTimecardEntries(entries, catalog()));
-    const ticket = tripTicketLine(tripTicket);
-    finishTimecard([summary, ticket].filter(Boolean).join('\n') || 'Timecard codes cleared.');
   }
 
   function leaveRequestPanel() {
@@ -4872,7 +4613,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     if (panel) panel.hidden = true;
     setLeaveRequestError('');
     syncPunchPanels();
-    refreshTimecardButton();
     paintLeaveNote();
     if (wasOpen) focusNextPunch();
   }
@@ -4888,8 +4628,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     if (kioskWork) kioskWork.hidden = true;
     pendingAction = '';
     pendingRun = '';
-    const timecardOpen = document.querySelector('#kiosk-timecard-open');
-    if (timecardOpen) timecardOpen.hidden = true;
     panel.hidden = false;
     syncPunchPanels();
     const date = document.querySelector('#kiosk-leave-request-date');
@@ -5043,11 +4781,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     const detail = substituteName
       ? `${verb} at ${when} for ${selected.name} · ${detailParts}`
       : `${verb} at ${when} · ${detailParts}`;
-    if (action === 'out' && sessionForClockOut(next.punches, record.id)) {
-      timecardDoneMessage = detail;
-      openTimecardForm(record.id, 'roster');
-      return;
-    }
     returnToPunchCard(detail);
   }
 

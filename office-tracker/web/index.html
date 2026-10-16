@@ -1080,7 +1080,7 @@
           </form>
           <ul id="reason-list" class="pin-list"></ul>
           </section>
-          <section class="settings-card">
+          <section class="settings-card" id="driver-pins-card" hidden>
           <h2>
             <span class="settings-ico" aria-hidden="true">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1136,7 +1136,6 @@
             Substitute drivers
           </h2>
           <p class="field-hint">
-            People on this list can clock in for a route without that driver's PIN.
             On the timeclock they choose Substitute Drivers, tap their name, then tap the driver whose route they are covering.
           </p>
           <form id="substitute-form" class="clock-form" novalidate>
@@ -1815,7 +1814,7 @@
             <button type="button" id="kiosk-done" class="kiosk-done">I'm done</button>
           </div>
         </div>
-        <form id="kiosk-pin-form" autocomplete="off">
+        <form id="kiosk-pin-form" autocomplete="off" hidden>
           <label>
             PIN
             <input
@@ -1949,24 +1948,6 @@
             <button type="button" class="secondary" id="kiosk-add-reason">Add</button>
           </div>
           <ul id="kiosk-reason-picks" class="reason-picks" hidden></ul>
-        </div>
-        <div id="kiosk-timecard" class="kiosk-timecard" hidden>
-          <button type="button" class="secondary" id="kiosk-timecard-back">Go back</button>
-          <div id="kiosk-timecard-choices" hidden>
-            <p class="lead">Clock-outs you can still change.</p>
-            <div id="kiosk-timecard-choice-list" class="kiosk-chunk-pairs"></div>
-          </div>
-          <form id="kiosk-timecard-form" hidden novalidate>
-            <h2 id="kiosk-timecard-title">Timecard codes</h2>
-            <p id="kiosk-timecard-lead" class="lead"></p>
-            <div id="kiosk-timecard-rows"></div>
-            <button type="button" class="secondary" id="kiosk-timecard-add">Add a code</button>
-            <p id="kiosk-timecard-error" class="status is-error" role="alert" hidden></p>
-            <div class="kiosk-punch-row">
-              <button type="submit" id="kiosk-timecard-save">Save codes</button>
-              <button type="button" class="secondary" id="kiosk-timecard-skip">Skip</button>
-            </div>
-          </form>
         </div>
       </section>
       <div id="kiosk-confirm" class="kiosk-confirm" hidden>

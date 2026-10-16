@@ -3,10 +3,10 @@
  * The records stay on the shared office and feed the payroll spreadsheet.
  */
 
-import { addOfficePunch, assignClockPeriodPay, changeOfficePunch, removeOfficePunch, setTimecardEntries } from '../src/officePunches.js';
-import { formatTimecardMinutes, normalizeTimecardEntries, sessionForClockOut, timecardSummary } from '../src/timecardEntries.js';
+import { addOfficePunch, assignClockPeriodPay, changeOfficePunch, removeOfficePunch } from '../src/officePunches.js';
+import { formatTimecardMinutes, normalizeTimecardEntries, timecardSummary } from '../src/timecardEntries.js';
 import { pairClockPunches, punchRunLabel, replacedClockPunchIds } from '../../src/logic/timesheets.js';
-import { clockNoteText, normalizeStoredWorkPortions, normalizeTripTicket, stampTripTicket, TRIP_TICKET_WORK_TYPE, workTypeLabel } from '../../src/logic/workTypes.js';
+import { clockNoteText, normalizeStoredWorkPortions, workTypeLabel } from '../../src/logic/workTypes.js';
 import { buildDriverClockRecord, CLOCK_RECORD_COLUMNS } from '../src/driverClockRecord.js';
 import { LEAVE_REQUESTS_ENABLED } from '../src/leaveRequests.js';
 import {
@@ -77,13 +77,10 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
   let editingId = '';
   let removingId = '';
   let payEditingId = '';
-  let timecardEditingId = '';
   /** @type {{ time: string, action: string, note: string, reasonIds: string[], adminNote: string, adminName: string } | null} */
   let editDraft = null;
   /** @type {{ payStatus: string, portions: Array<{ start: string, end: string, payStatus: string }>, adminNote: string, adminName: string } | null} */
   let payDraft = null;
-  /** @type {{ rows: Array<{ id: string, hours: string, minutes: string, comment: string }>, adminNote: string, adminName: string } | null} */
-  let timecardDraft = null;
   /** @type {{ adminNote: string, adminName: string }} */
   let removeDraft = { adminNote: '', adminName: '' };
   let officeName = '';
@@ -743,19 +740,15 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     editingId = '';
     removingId = '';
     payEditingId = '';
-    timecardEditingId = '';
     editDraft = null;
     payDraft = null;
-    timecardDraft = null;
   }
 
   function beginEdit(punch) {
     editingId = punch.id;
     removingId = '';
     payEditingId = '';
-    timecardEditingId = '';
     payDraft = null;
-    timecardDraft = null;
     editDraft = {
       time: localStamp(new Date(punch.punched_at)),
       action: punch.action === 'out' ? 'out' : 'in',
@@ -773,10 +766,8 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     removingId = punch.id;
     editingId = '';
     payEditingId = '';
-    timecardEditingId = '';
     editDraft = null;
     payDraft = null;
-    timecardDraft = null;
     removeDraft = { adminNote: '', adminName: rememberedName() };
     focusSelector = '[data-remove="admin-note"]';
     setStatus('');
@@ -788,8 +779,6 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     const current = choices.some((line) => line.id === punch.pay_status) ? punch.pay_status : choices[0]?.id || '';
     editingId = '';
     removingId = '';
-    timecardEditingId = '';
-    timecardDraft = null;
     editDraft = null;
     payEditingId = punch.id;
     payDraft = {
@@ -951,15 +940,6 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
             'Pay status',
             '<path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
             () => beginPay(punch)
-          )
-        );
-      }
-      if (punch.action === 'out') {
-        wrap.append(
-          actionButton(
-            'Timecard',
-            '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
-            () => beginTimecard(punch)
           )
         );
       }
@@ -1319,209 +1299,6 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     return row;
   }
 
-  function beginTimecard(punch) {
-    editingId = '';
-    removingId = '';
-    payEditingId = '';
-    payDraft = null;
-    editDraft = null;
-    timecardEditingId = punch.id;
-    const rows = normalizeTimecardEntries(punch.timecard_entries).map((entry) => ({
-      id: entry.id,
-      hours: String(Math.floor(entry.minutes / 60)),
-      minutes: String(entry.minutes % 60),
-      comment: entry.comment,
-      ticket: '',
-    }));
-    if (normalizeTripTicket(punch.trip_ticket) && !rows.some((entry) => entry.id === TRIP_TICKET_WORK_TYPE)) {
-      rows.unshift({
-        id: TRIP_TICKET_WORK_TYPE,
-        hours: '',
-        minutes: '',
-        comment: '',
-        ticket: normalizeTripTicket(punch.trip_ticket),
-      });
-    }
-    timecardDraft = {
-      rows,
-      adminNote: '',
-      adminName: rememberedName(),
-    };
-    focusSelector = '[data-timecard="admin-note"]';
-    setStatus('');
-    renderRows();
-  }
-
-  function timecardCodeSelect(value) {
-    const select = document.createElement('select');
-    select.dataset.timecard = 'code';
-    const blank = document.createElement('option');
-    blank.value = '';
-    blank.textContent = 'Choose a code';
-    select.append(blank);
-    for (const code of reasonCodes()) {
-      const option = document.createElement('option');
-      option.value = code.id;
-      option.textContent = code.label;
-      select.append(option);
-    }
-    if (reasonCodes().some((code) => code.id === value)) select.value = value;
-    return select;
-  }
-
-  function timecardRow(punch) {
-    if (!timecardDraft) return document.createElement('tr');
-    const row = document.createElement('tr');
-    const cell = document.createElement('td');
-    cell.colSpan = 6;
-    const form = document.createElement('form');
-    form.className = 'clock-pay-form';
-    const session = sessionForClockOut(punchesFromState(), punch.id);
-    const title = document.createElement('p');
-    title.className = 'lead';
-    title.textContent = session
-      ? `Timecard codes for this clock-out. The times can add up to ${formatTimecardMinutes(session.minutes)} or less.`
-      : 'Timecard codes for this clock-out.';
-    const list = document.createElement('div');
-    list.className = 'clock-timecard-rows';
-    timecardDraft.rows.forEach((entry, index) => {
-      const block = document.createElement('div');
-      block.className = 'clock-timecard-row';
-      block.dataset.timecardRow = String(index);
-      const code = timecardCodeSelect(entry.id);
-      code.addEventListener('change', () => {
-        timecardDraft.rows[index].id = code.value;
-        renderRows();
-      });
-      const hours = document.createElement('input');
-      hours.type = 'number';
-      hours.min = '0';
-      hours.max = '24';
-      hours.value = entry.hours;
-      hours.addEventListener('input', () => {
-        timecardDraft.rows[index].hours = hours.value;
-      });
-      const minutes = document.createElement('input');
-      minutes.type = 'number';
-      minutes.min = '0';
-      minutes.max = '59';
-      minutes.value = entry.minutes;
-      minutes.addEventListener('input', () => {
-        timecardDraft.rows[index].minutes = minutes.value;
-      });
-      const comment = document.createElement('input');
-      comment.type = 'text';
-      comment.maxLength = 200;
-      comment.value = entry.comment;
-      comment.placeholder = 'Comment';
-      comment.addEventListener('input', () => {
-        timecardDraft.rows[index].comment = comment.value;
-      });
-      const ticket = document.createElement('input');
-      ticket.type = 'text';
-      ticket.maxLength = 40;
-      ticket.value = entry.ticket || '';
-      ticket.autocomplete = 'off';
-      ticket.addEventListener('input', () => {
-        timecardDraft.rows[index].ticket = ticket.value;
-      });
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'secondary';
-      remove.textContent = 'Remove';
-      remove.addEventListener('click', () => {
-        timecardDraft.rows.splice(index, 1);
-        renderRows();
-      });
-      block.append(
-        code,
-        ...(entry.id === TRIP_TICKET_WORK_TYPE
-          ? [labeledField('Trip ticket number', ticket)]
-          : [labeledField('Hours', hours), labeledField('Minutes', minutes), labeledField('Comment', comment)]),
-        remove
-      );
-      list.append(block);
-    });
-    const add = document.createElement('button');
-    add.type = 'button';
-    add.className = 'secondary';
-    add.textContent = 'Add a code';
-    add.addEventListener('click', () => {
-      timecardDraft.rows.push({ id: '', hours: '', minutes: '', comment: '', ticket: '' });
-      renderRows();
-    });
-    const actions = document.createElement('div');
-    actions.className = 'clock-edit-actions';
-    const save = document.createElement('button');
-    save.type = 'submit';
-    save.textContent = 'Save codes';
-    const cancel = document.createElement('button');
-    cancel.type = 'button';
-    cancel.className = 'secondary';
-    cancel.textContent = 'Cancel';
-    cancel.addEventListener('click', () => {
-      closeEditors();
-      setStatus('');
-      renderRows();
-    });
-    actions.append(save, cancel);
-    form.append(title, list, add, ...actorControls(timecardDraft, 'timecard'), actions);
-    form.addEventListener('submit', (event) => {
-      event.preventDefault();
-      saveTimecard(punch.id);
-    });
-    cell.append(form);
-    row.append(cell);
-    return row;
-  }
-
-  function saveTimecard(id) {
-    if (!timecardDraft) return;
-    const entries = [];
-    let tripTicket = '';
-    for (const row of timecardDraft.rows) {
-      if (!row.id && !row.hours && !row.minutes && !row.comment.trim() && !String(row.ticket || '').trim()) continue;
-      if (row.id === TRIP_TICKET_WORK_TYPE) {
-        tripTicket = normalizeTripTicket(row.ticket);
-        if (!tripTicket) {
-          setStatus('Enter the trip ticket number.', 'error');
-          return;
-        }
-        continue;
-      }
-      const hours = Number(row.hours);
-      const minutes = Number(row.minutes);
-      const total = hours * 60 + minutes;
-      if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || minutes < 0 || minutes > 59 || total < 1) {
-        setStatus('Enter the time for each code.', 'error');
-        return;
-      }
-      entries.push({ id: row.id, minutes: total, comment: row.comment });
-    }
-    try {
-      const punches = stampTripTicket(
-        setTimecardEntries(punchesFromState(), id, {
-          entries,
-          catalog: reasonCodes(),
-          office: true,
-          account: editorAccount(),
-          typedName: timecardDraft.adminName,
-          note: timecardDraft.adminNote,
-        }),
-        id,
-        tripTicket
-      );
-      writePunches(punches);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Could not save those codes.', 'error');
-      return;
-    }
-    rememberTypedName(timecardDraft.adminName);
-    closeEditors();
-    setStatus('Timecard codes saved.', 'ok');
-    refresh();
-  }
-
   function renderRows() {
     const punches = visiblePunches();
     if (editingId && !punches.some((punch) => punch.id === editingId && !punch.removed)) {
@@ -1534,10 +1311,6 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     if (payEditingId && !punches.some((punch) => punch.id === payEditingId && punch.action === 'in' && !punch.removed)) {
       payEditingId = '';
       payDraft = null;
-    }
-    if (timecardEditingId && !punches.some((punch) => punch.id === timecardEditingId && punch.action === 'out' && !punch.removed)) {
-      timecardEditingId = '';
-      timecardDraft = null;
     }
     table.replaceChildren();
     if (!punches.length) {
@@ -1554,7 +1327,6 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
       if (editingId === punch.id && editDraft && !punch.removed) table.append(editRow(punch));
       else if (removingId === punch.id && !punch.removed) table.append(removeRow(punch));
       else if (payEditingId === punch.id && payDraft && !punch.removed) table.append(payRow(punch));
-      else if (timecardEditingId === punch.id && timecardDraft && !punch.removed) table.append(timecardRow(punch));
       else table.append(displayRow(punch, replaced.has(String(punch.id || ''))));
     }
     if (focusSelector) {

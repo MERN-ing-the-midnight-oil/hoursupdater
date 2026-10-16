@@ -2245,8 +2245,7 @@ form.early-release-form {
 
 .kiosk-driver-hero,
 #kiosk-pin-form,
-#kiosk-detail > #kiosk-actions,
-#kiosk-detail > .kiosk-timecard {
+#kiosk-detail > #kiosk-actions {
   width: min(68rem, 100%);
 }
 
@@ -2446,6 +2445,11 @@ form.early-release-form {
 .kiosk-roster.is-scroll {
   overflow: auto;
   align-content: start;
+}
+
+/* The roster replaces the driver screen under the same tap. Keep names quiet until that tap is over. */
+.kiosk-roster.is-settling button.kiosk-name {
+  pointer-events: none;
 }
 
 button.kiosk-name {
@@ -3775,31 +3779,6 @@ button.kiosk-card-stamp:focus-visible {
   text-align: left;
 }
 
-.clock-timecard-rows {
-  display: grid;
-  gap: 0.75rem;
-  margin: 0.75rem 0;
-}
-
-.clock-timecard-row {
-  display: grid;
-  gap: 0.5rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--line, #d7d2c8);
-}
-
-.kiosk-timecard {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.kiosk-timecard-row {
-  display: grid;
-  gap: 0.45rem;
-  padding: 0.65rem 0;
-  border-top: 1px solid var(--line);
-}
-
 .kiosk-timecard-time {
   display: flex;
   flex-wrap: wrap;
@@ -3813,12 +3792,6 @@ button.kiosk-card-stamp:focus-visible {
 
 .kiosk-timecard-time input {
   width: 5.5rem;
-  font: inherit;
-}
-
-.kiosk-timecard-row select,
-.kiosk-timecard-row textarea {
-  width: 100%;
   font: inherit;
 }
 
@@ -3957,26 +3930,6 @@ button.kiosk-card-stamp:focus-visible {
   margin: 0.4rem 0 0;
   color: #8a2b2b;
   font-weight: 700;
-}
-
-.driver-clock-timecards {
-  display: grid;
-  gap: 0.85rem;
-  margin: 1.25rem 0 1.5rem;
-}
-
-.driver-clock-timecard {
-  display: grid;
-  gap: 0.55rem;
-  max-width: 36rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 0.75rem 0.9rem;
-}
-
-.driver-clock-timecard h3 {
-  margin: 0;
-  font-size: 1rem;
 }
 
 .kiosk-chunk-times input {
@@ -4291,12 +4244,7 @@ button.kiosk-punch-out:focus-visible,
 #kiosk-leave-request-panel[hidden],
 #kiosk-leave-request-time[hidden],
 #kiosk-leave-request-contract[hidden],
-#kiosk-leave-request-error[hidden],
-#kiosk-timecard-open[hidden],
-.kiosk-timecard[hidden],
-#kiosk-timecard-choices[hidden],
-#kiosk-timecard-form[hidden],
-.driver-clock-timecards[hidden] {
+#kiosk-leave-request-error[hidden] {
   display: none;
 }
 
