@@ -5,7 +5,7 @@
  */
 
 import { pairClockPunches } from '../../src/logic/timesheets.js';
-import { normalizePayPeriods } from './driverPay.js';
+import { normalizePayPeriods, normalizePeriodEndsAt } from './driverPay.js';
 
 export const TIMECARD_COMMENT_MAX = 200;
 export const TIMECARD_ENTRY_LIMIT = 10;
@@ -96,13 +96,15 @@ export function timecardEntryError(entries, sessionMinutes, catalog) {
 }
 
 /**
- * Last moment of the pay period that contains this clock-out.
+ * Last moment notes and reasons can change for the pay period that contains this clock.
  * The office periods are used. Day 31 means the last day that month has.
+ * `endsAt` is the time of day on that last day. The chosen minute is still open.
  * @param {Date} clockOut
  * @param {unknown} periods
+ * @param {unknown} [endsAt]
  * @returns {Date | null}
  */
-export function payPeriodDeadline(clockOut, periods) {
+export function payPeriodDeadline(clockOut, periods, endsAt = '23:59') {
   if (!(clockOut instanceof Date) || Number.isNaN(clockOut.getTime())) return null;
   const rows = normalizePayPeriods(periods);
   const day = clockOut.getDate();
@@ -110,17 +112,19 @@ export function payPeriodDeadline(clockOut, periods) {
   const period = rows.find((item) => day >= item.startDay && day <= Math.min(item.endDay, lastOfMonth));
   if (!period) return null;
   const endDay = Math.min(period.endDay, lastOfMonth);
-  return new Date(clockOut.getFullYear(), clockOut.getMonth(), endDay, 23, 59, 59, 999);
+  const [hours, minutes] = normalizePeriodEndsAt(endsAt).split(':').map(Number);
+  return new Date(clockOut.getFullYear(), clockOut.getMonth(), endDay, hours, minutes, 59, 999);
 }
 
 /**
- * A driver can change codes through the end of that pay period.
+ * A driver can change notes, reasons, and timecard codes until the pay period ends.
  * @param {Date} clockOut
  * @param {unknown} periods
  * @param {Date} [now]
+ * @param {unknown} [endsAt]
  */
-export function payPeriodStillOpen(clockOut, periods, now = new Date()) {
-  const deadline = payPeriodDeadline(clockOut, periods);
+export function payPeriodStillOpen(clockOut, periods, now = new Date(), endsAt = '23:59') {
+  const deadline = payPeriodDeadline(clockOut, periods, endsAt);
   if (!deadline) return false;
   return now.getTime() <= deadline.getTime();
 }
@@ -134,6 +138,18 @@ export function formatTimecardMinutes(minutes) {
   const hourText = hours === 1 ? '1 hour' : hours ? `${hours} hours` : '';
   const minuteText = rest === 1 ? '1 minute' : rest ? `${rest} minutes` : '';
   return [hourText, minuteText].filter(Boolean).join(' ') || '0 minutes';
+}
+
+/**
+ * One clock-note line for a reason that already has a length of time.
+ * A reason with no time is not a note yet.
+ * @param {{ label?: string, minutes?: number } | null | undefined} code
+ */
+export function reasonNoteLine(code) {
+  const label = String(code?.label || '').trim();
+  const minutes = Number(code?.minutes);
+  if (!label || !Number.isInteger(minutes) || minutes < 1 || minutes > 24 * 60) return '';
+  return `${label} · ${formatTimecardMinutes(minutes)}`;
 }
 
 /**

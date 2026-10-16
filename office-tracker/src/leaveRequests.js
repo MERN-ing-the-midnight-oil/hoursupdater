@@ -11,6 +11,9 @@ import { assignmentOnDate, sameDriver } from './assignments.js';
 
 export const LEAVE_RUNS = ['AM', 'MIDDAY', 'PM'];
 
+/** Off until leave requests are ready for drivers. The kiosk button and clock-sheet labels stay hidden. */
+export const LEAVE_REQUESTS_ENABLED = false;
+
 /** Used when the route has no contracted time to compare against. */
 export const LEAVE_MINUTES_CAP = 12 * 60;
 
@@ -265,6 +268,29 @@ export function leaveRequestLead(input) {
     return `Enter the hours of leave requested for the ${route}.`;
   }
   return `You did not clock in for the ${route}. Enter the hours of leave requested.`;
+}
+
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * A quiet reminder for routes whose clock-in has passed. It does not replace clocking in.
+ * @param {Array<'AM' | 'MIDDAY' | 'PM'>} runs
+ * @param {Date} when
+ */
+export function missedClockInNote(runs, when) {
+  const list = (Array.isArray(runs) ? runs : []).filter(
+    (run) => run === 'AM' || run === 'MIDDAY' || run === 'PM'
+  );
+  if (!list.length || !(when instanceof Date) || Number.isNaN(when.getTime())) return '';
+  const day = WEEKDAY_NAMES[when.getDay()];
+  const phrases = list.map((run) => `your ${day} ${punchRunLabel(run)}`);
+  const missed =
+    phrases.length === 1
+      ? phrases[0]
+      : phrases.length === 2
+        ? `${phrases[0]} or ${phrases[1]}`
+        : `${phrases.slice(0, -1).join(', ')}, or ${phrases[phrases.length - 1]}`;
+  return `You did not clock in for ${missed}. Please record your leave hours or write an explanation.`;
 }
 
 /**

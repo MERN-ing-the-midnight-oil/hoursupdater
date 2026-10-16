@@ -217,7 +217,14 @@ export function setTimecardEntries(punches, id, input) {
   if (error) throw new Error(error);
   if (!input.office) {
     const when = new Date(current.punched_at);
-    if (!payPeriodStillOpen(when, input.periods, input.now instanceof Date ? input.now : new Date())) {
+    if (
+      !payPeriodStillOpen(
+        when,
+        input.periods,
+        input.now instanceof Date ? input.now : new Date(),
+        input.periodEndsAt
+      )
+    ) {
       throw new Error('That pay period is closed.');
     }
   }

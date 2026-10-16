@@ -790,27 +790,6 @@ body {
   color: var(--purple-deep);
 }
 
-button.secondary.payroll-summary-launch {
-  background: var(--reader);
-  border-color: var(--reader-deep);
-  color: #fff;
-}
-
-button.secondary.payroll-summary-launch .icon {
-  color: var(--reader-gold);
-}
-
-button.secondary.payroll-summary-launch:hover,
-button.secondary.payroll-summary-launch[aria-expanded='true'] {
-  background: var(--reader-deep);
-  border-color: var(--reader-gold);
-  color: #fff;
-}
-
-button.secondary.payroll-summary-launch[aria-expanded='true'] {
-  box-shadow: inset 0 -3px 0 var(--reader-gold);
-}
-
 button.secondary.payroll-info-launch {
   background: #0c665c;
   border-color: #0c665c;
@@ -1061,6 +1040,117 @@ button.secondary#open-drivers:focus-visible {
   margin-top: 0.15rem;
 }
 
+.pay-period-info {
+  margin-top: 1rem;
+  overflow-x: auto;
+}
+
+.pay-period-info article h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+  letter-spacing: 0.03em;
+  text-align: center;
+}
+
+.pay-period-info .who {
+  margin: 0 0 0.6rem;
+  text-align: center;
+}
+
+.pay-period-info table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+
+.pay-period-info th,
+.pay-period-info td {
+  border: 1px solid #222;
+  padding: 0.28rem 0.35rem;
+  text-align: center;
+  vertical-align: middle;
+  white-space: nowrap;
+  font-size: 0.82rem;
+}
+
+.pay-period-info thead th:first-child,
+.pay-period-info tbody th,
+.pay-period-info tfoot th {
+  text-align: left;
+  white-space: normal;
+  min-width: 11rem;
+  background: #fafafa;
+}
+
+.pay-period-info thead th {
+  background: #f4f4f4;
+}
+
+.pay-period-info tr.pair-a th,
+.pay-period-info tr.pair-a td {
+  background: #d7e4f4;
+}
+
+.pay-period-info tr.pair-b th,
+.pay-period-info tr.pair-b td {
+  background: #f6e4c8;
+}
+
+.pay-period-info tr.contract td {
+  background: #f7f4ea;
+  font-weight: 650;
+}
+
+.pay-period-info tr.used th,
+.pay-period-info tr.used td,
+.pay-period-info tr.ot.used th,
+.pay-period-info tr.ot.used td {
+  background: #ffe08a;
+  font-weight: 700;
+}
+
+.pay-period-info tr.ex th,
+.pay-period-info tr.ex td {
+  font-weight: 700;
+  background: #f3f3f3;
+}
+
+.pay-period-info tr.ot th,
+.pay-period-info tr.ot td {
+  background: #fde8ea;
+}
+
+.pay-period-info tfoot th,
+.pay-period-info tfoot td {
+  background: #e7e7e7;
+  font-weight: 700;
+  text-align: left;
+}
+
+.pay-period-info .clock-notes {
+  margin-top: 0.8rem;
+  text-align: left;
+}
+
+.pay-period-info .clock-notes h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.pay-period-info .clock-notes ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pay-period-info .clock-notes li {
+  margin: 0.2rem 0;
+}
+
+.pay-period-info .clock-notes .note-when {
+  font-weight: 650;
+}
+
 .pay-period-presets,
 .pay-period-row {
   display: flex;
@@ -1072,6 +1162,20 @@ button.secondary#open-drivers:focus-visible {
 
 .pay-period-row input {
   width: 4.5rem;
+}
+
+.pay-period-end-time {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  margin: 0.35rem 0 0.6rem;
+  font-weight: 700;
+}
+
+.pay-period-end-time input {
+  font: inherit;
+  font-weight: 500;
 }
 
 .pay-status-catalog {
@@ -1757,6 +1861,10 @@ h2.notification-section:first-of-type {
   box-shadow: inset 3px 0 0 var(--line);
 }
 
+#clock-records tr.is-replaced-clock td:first-child {
+  text-decoration: line-through;
+}
+
 .office-log p {
   padding-left: 0.55rem;
   border-left: 3px solid var(--accent-line);
@@ -2027,10 +2135,22 @@ form.early-release-form {
 }
 
 .kiosk-now {
+  display: grid;
+  gap: 0.18rem;
   margin: 0;
   flex: 0 1 auto;
   min-width: 0;
   text-align: left;
+  line-height: 1.05;
+}
+
+.kiosk-now-date {
+  font-size: clamp(0.95rem, 1.7vw, 1.4rem);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.kiosk-now-time {
   font-size: clamp(2.15rem, 4vw, 3.6rem);
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -2121,7 +2241,6 @@ form.early-release-form {
   padding-bottom: 0.6rem;
 }
 
-.kiosk-detail-top,
 .kiosk-driver-hero,
 #kiosk-pin-form,
 #kiosk-detail > #kiosk-actions,
@@ -2129,14 +2248,12 @@ form.early-release-form {
   width: min(68rem, 100%);
 }
 
-.kiosk-detail-top {
-  display: flex;
-  justify-content: flex-start;
-}
-
 #kiosk-back {
-  min-height: 2.8rem;
-  padding: 0.35rem 0.9rem;
+  flex: 0 0 auto;
+  align-self: center;
+  min-height: 2.15rem;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.9rem;
 }
 
 .kiosk-driver-hero {
@@ -2144,6 +2261,36 @@ form.early-release-form {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.85rem 1.1rem;
+}
+
+.kiosk-hero-side {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.75rem;
+  margin-left: auto;
+}
+
+.kiosk-done {
+  min-width: 8.75rem;
+  min-height: 5.6rem;
+  padding: 0.85rem 1.15rem;
+  border: 0;
+  border-radius: 14px;
+  background: #e06a00;
+  color: #fff;
+  font-family: "American Typewriter", "Courier New", Courier, monospace;
+  font-size: 1.7rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.05;
+  box-shadow: 0 8px 18px rgba(176, 72, 0, 0.28);
+}
+
+.kiosk-done:hover,
+.kiosk-done:focus-visible {
+  background: #c45c00;
+  color: #fff;
 }
 
 .kiosk-driver-copy {
@@ -2183,8 +2330,9 @@ form.early-release-form {
   border-radius: 999px;
   background: #f3eee6;
   color: #5c4a32;
+  font-family: "American Typewriter", "Courier New", Courier, monospace;
   font-size: 1.05rem;
-  font-weight: 750;
+  font-weight: 600;
   line-height: 1.3;
 }
 
@@ -2202,6 +2350,15 @@ form.early-release-form {
   color: var(--muted);
   font-size: 1.05rem;
   font-weight: 650;
+}
+
+.kiosk-leave-note {
+  margin: 0.15rem 0 0;
+  max-width: 42rem;
+  color: #6d5a32;
+  font-size: 0.98rem;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 .kiosk-covering:empty {
@@ -2394,7 +2551,7 @@ button.kiosk-name[data-frame='conic']:focus-visible {
   min-width: 0;
   max-height: 100%;
   overflow: hidden;
-  padding: 0.12em 2.85em 0.08em 0.2em;
+  padding: 0.12em 3.2em 0.08em 0.2em;
   text-align: center;
 }
 
@@ -2461,8 +2618,8 @@ button.kiosk-name[data-frame='conic']:focus-visible {
 }
 
 .kiosk-roster.is-scroll button.kiosk-name {
-  min-height: 1in;
-  height: auto;
+  min-height: 0.72in;
+  height: 100%;
 }
 
 .clock-driver-list {
@@ -2987,8 +3144,65 @@ button.kiosk-name.is-late:focus-visible {
   background: rgba(16, 40, 36, 0.45);
 }
 
-.kiosk-confirm[hidden] {
+.kiosk-confirm[hidden],
+.kiosk-replace-confirm[hidden] {
   display: none;
+}
+
+.kiosk-replace-confirm {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(16, 40, 36, 0.45);
+}
+
+.kiosk-replace-card {
+  display: grid;
+  gap: 1rem;
+  width: min(36rem, 100%);
+  margin: 0;
+  padding: 1.6rem 1.4rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(16, 40, 36, 0.18);
+  font-family: "American Typewriter", "Courier New", Courier, monospace;
+}
+
+.kiosk-replace-card p {
+  margin: 0;
+  font-size: clamp(1.2rem, 2.4vw, 1.7rem);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.kiosk-replace-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.kiosk-replace-actions button {
+  min-height: 3.2rem;
+  font-family: "American Typewriter", "Courier New", Courier, monospace;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+#kiosk-replace-yes {
+  border: 0;
+  background: #1f5c4a;
+  color: #fff;
+}
+
+#kiosk-replace-yes:hover,
+#kiosk-replace-yes:focus-visible {
+  background: #174838;
+  color: #fff;
 }
 
 .kiosk-confirm-card {
@@ -3046,84 +3260,305 @@ button.kiosk-name.is-late:focus-visible {
   margin-top: 0;
 }
 
-.kiosk-route-grid {
+.kiosk-card {
+  background: #d7f3fc;
+  border: 2px solid #3aa4d4;
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgba(28, 110, 158, 0.14);
+  overflow: hidden;
+}
+
+.kiosk-card:empty {
+  display: none;
+}
+
+.kiosk-card-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) 13rem 6.25rem 8.5rem;
   gap: 0.7rem;
-}
-
-.kiosk-route-card {
-  display: grid;
-  gap: 0.4rem;
+  align-items: stretch;
   margin: 0;
-  padding: 0.7rem 0.75rem 0.75rem;
-  border: 1px solid var(--line);
-  border-top-width: 6px;
-  border-radius: var(--radius-sm);
-  background: #fff;
+  padding: 0.65rem 0.75rem;
+  overflow: hidden;
+  border-bottom: 1px solid #7ec8e8;
+  background: transparent;
+  font-family: "American Typewriter", "Courier New", Courier, monospace;
 }
 
-.kiosk-route-card[data-run='AM'] {
-  border-top-color: #e2b93b;
-  background: #fffdf6;
+.kiosk-card-notes-col {
+  display: grid;
+  align-content: start;
+  gap: 0.35rem;
+  min-width: 0;
 }
 
-.kiosk-route-card[data-run='MIDDAY'] {
-  border-top-color: #3d9a78;
-  background: #f7fcf9;
+.kiosk-card-note-line {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
 }
 
-.kiosk-route-card[data-run='PM'] {
-  border-top-color: #3d7ab5;
-  background: #f5f9fd;
+.kiosk-card-row:last-child {
+  border-bottom: 0;
 }
 
-.kiosk-route-card[data-run='OTHER'] {
-  border-top-color: #8a6a3b;
-  background: #fcfaf6;
+.kiosk-card-row.is-open {
+  background: rgba(255, 255, 255, 0.42);
 }
 
-.kiosk-route-card.is-open {
-  box-shadow: 0 0 0 2px #1f5c4a;
+.kiosk-card-comment {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 0.25rem;
+  min-width: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-.kiosk-route-card h3 {
+.kiosk-card-notes {
+  list-style: none;
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+  padding: 0;
+}
+
+.kiosk-card-notes[hidden] {
+  display: none;
+}
+
+.kiosk-card-notes li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1.3;
+  text-transform: none;
+}
+
+.kiosk-card-notes li span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kiosk-card-notes button {
+  flex: none;
+  min-height: 1.65rem;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.78rem;
+}
+
+.kiosk-card-comment textarea,
+.kiosk-work-comment textarea {
+  width: 100%;
+  min-height: 4.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #8ecae6;
+  border-radius: 4px;
+  background: #f5fcff;
+  color: #102033;
+  font-family: "American Typewriter", "Courier New", Courier, monospace;
+  font-size: 1.05rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.35;
+  text-transform: none;
+  resize: vertical;
+}
+
+.kiosk-card-kind {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
   margin: 0;
   text-align: center;
-  font-size: 1.35rem;
+  font-size: 1.15rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
   line-height: 1.15;
 }
 
-.kiosk-route-state {
-  min-height: 1.25rem;
+.kiosk-card-kind span {
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+}
+
+button.kiosk-card-punch,
+button.kiosk-card-stamp {
+  width: 100%;
+  min-height: 4.75rem;
+  padding: 0.45rem 0.4rem;
+  font-family: "American Typewriter", "Courier New", Courier, monospace;
+}
+
+button.kiosk-card-punch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.12rem;
+  line-height: 1.05;
+}
+
+button.kiosk-card-punch,
+button.kiosk-card-punch:hover,
+button.kiosk-card-punch:focus-visible {
+  border: 0;
+  background: #1780b8;
+  color: #fff;
+  font-size: 1.35rem;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+}
+
+button.kiosk-card-punch:hover,
+button.kiosk-card-punch:focus-visible {
+  background: #136a99;
+}
+
+.kiosk-punch-live {
+  font-size: 1.02rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.kiosk-card-reason {
+  display: grid;
+  align-content: start;
+  gap: 0.25rem;
+  min-width: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.kiosk-card-reason select,
+.kiosk-card-reason input,
+.kiosk-card-reason button {
+  font-family: "American Typewriter", "Courier New", Courier, monospace;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.kiosk-card-reason select {
+  width: 100%;
+  min-width: 0;
+  padding: 0.4rem 0.45rem;
+  border: 1px solid #8ecae6;
+  border-radius: 4px;
+  background: #f5fcff;
+  color: #102033;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.kiosk-card-reason-time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.35rem;
+}
+
+.kiosk-card-reason-time label {
+  display: grid;
+  gap: 0.12rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.kiosk-card-reason-time input {
+  width: 4.6rem;
+  padding: 0.28rem 0.35rem;
+  border: 1px solid #8ecae6;
+  border-radius: 4px;
+  background: #fff;
+  color: #102033;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.kiosk-card-reason-time button {
+  min-height: 2.15rem;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.95rem;
+}
+
+.kiosk-card-reason-hint {
   margin: 0;
-  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1.3;
+  text-transform: none;
+  color: #8a2b2b;
+}
+
+button.kiosk-card-stamp,
+button.kiosk-card-stamp:hover,
+button.kiosk-card-stamp:focus-visible {
+  border: 0;
+  background: transparent;
+  color: #102033;
+  box-shadow: none;
+  font-size: 1.35rem;
+  font-weight: 750;
+}
+
+button.kiosk-card-stamp:hover,
+button.kiosk-card-stamp:focus-visible {
+  background: rgba(255, 255, 255, 0.55);
+  color: #102033;
+}
+
+.kiosk-card-stamp .kiosk-punch-time {
+  font-size: 1.2rem;
+  font-weight: 750;
+}
+
+.kiosk-work-comment {
+  display: grid;
+  gap: 0.3rem;
   font-size: 0.95rem;
   font-weight: 700;
 }
 
-.kiosk-route-state:not(.is-in):not(.is-hint) {
-  color: transparent;
-}
-
-.kiosk-route-state.is-hint {
-  color: var(--muted);
-  font-weight: 650;
-}
-
-.kiosk-route-state.is-in {
-  color: #174838;
-}
-
-.kiosk-route-actions {
+.kiosk-work-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.45rem;
+  gap: 0.75rem;
+  position: sticky;
+  bottom: 0.15rem;
+  z-index: 1;
+}
+
+.kiosk-work-actions button {
+  min-height: 4.5rem;
+  font-size: 1.35rem;
 }
 
 @media (max-width: 720px) {
-  .kiosk-route-grid {
-    grid-template-columns: 1fr;
+  .kiosk-card-row {
+    grid-template-columns: 1fr auto;
+  }
+
+  .kiosk-card-notes-col,
+  .kiosk-card-reason {
+    grid-column: 1 / -1;
   }
 }
 
@@ -3132,6 +3567,10 @@ button.kiosk-name.is-late:focus-visible {
   flex-wrap: wrap;
   justify-content: center;
   gap: 0.5rem;
+}
+
+.kiosk-tools:not(:has(button:not([hidden]))) {
+  display: none;
 }
 
 .kiosk-tools button {
@@ -3351,6 +3790,143 @@ button.kiosk-name.is-late:focus-visible {
   font: inherit;
 }
 
+.driver-note-page {
+  margin: 0;
+  padding: 1.1rem 1rem 2rem;
+  background: #f4f7f8;
+  color: #172433;
+}
+
+.driver-note-head {
+  margin: 0 0 0.8rem;
+}
+
+.driver-note-head h1 {
+  margin: 0.15rem 0;
+  font-size: 1.45rem;
+  line-height: 1.2;
+}
+
+.driver-note-lead {
+  margin: 0;
+  max-width: 36rem;
+}
+
+.driver-note-back {
+  margin: 0 0 0.75rem;
+}
+
+.driver-note-rows {
+  list-style: none;
+  display: grid;
+  gap: 0.65rem;
+  max-width: 36rem;
+  margin: 0;
+  padding: 0;
+}
+
+.driver-note-rows li {
+  margin: 0;
+}
+
+.driver-note-rows button {
+  display: grid;
+  gap: 0.2rem;
+  width: 100%;
+  padding: 0.85rem 0.95rem;
+  text-align: left;
+}
+
+.driver-note-row-label {
+  font-size: 1.15rem;
+  font-weight: 750;
+}
+
+.driver-note-row-note,
+.driver-note-row-reasons {
+  color: #3d4d5c;
+  line-height: 1.35;
+}
+
+.driver-note-page form {
+  display: grid;
+  gap: 1rem;
+  max-width: 36rem;
+}
+
+.driver-note-field,
+.driver-note-add label {
+  display: grid;
+  gap: 0.3rem;
+  font-weight: 700;
+}
+
+.driver-note-field textarea,
+.driver-note-add select,
+.driver-note-add input,
+.driver-note-reasons input {
+  width: 100%;
+  font: inherit;
+  font-weight: 500;
+}
+
+.driver-note-reasons h2 {
+  margin: 0 0 0.45rem;
+  font-size: 1rem;
+}
+
+.driver-note-reasons ul {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0 0 0.7rem;
+  padding: 0;
+  list-style: none;
+}
+
+.driver-note-reasons li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 6.5rem auto;
+  gap: 0.25rem 0.5rem;
+  align-items: center;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid #d5e4ea;
+}
+
+.driver-note-reasons li > span:first-child {
+  grid-column: 1 / 3;
+  font-weight: 750;
+}
+
+.driver-note-reasons li input {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.driver-note-reason-time {
+  grid-column: 1;
+  grid-row: 2;
+  color: #3d4d5c;
+  font-weight: 650;
+}
+
+.driver-note-reasons li button {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+}
+
+.driver-note-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 6.5rem auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.driver-note-hint {
+  margin: 0.4rem 0 0;
+  color: #8a2b2b;
+  font-weight: 700;
+}
+
 .driver-clock-timecards {
   display: grid;
   gap: 0.85rem;
@@ -3517,7 +4093,40 @@ button.kiosk-name.is-late:focus-visible {
 }
 
 button.kiosk-punch-in,
-button.kiosk-punch-out,
+button.kiosk-punch-out {
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.85rem 0.8rem;
+  border: 0;
+  color: #fff;
+  font-family: "American Typewriter", "Courier New", Courier, monospace;
+  font-size: 1.02rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+}
+
+.kiosk-punch-time {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.12rem;
+  font-size: 0.92rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+}
+
+.kiosk-punch-time s {
+  text-decoration: line-through;
+}
+
+.kiosk-punch-time[hidden] {
+  display: none;
+}
+
 #kiosk-work-punch {
   width: 100%;
   min-width: 0;
@@ -3560,11 +4169,9 @@ button.kiosk-punch-out:focus-visible,
 }
 
 #kiosk-work-punch {
-  position: sticky;
-  bottom: 0.15rem;
-  z-index: 1;
-  min-height: 4.5rem;
-  font-size: 1.4rem;
+  border: 0;
+  background: #1f5c4a;
+  color: #fff;
   box-shadow: 0 8px 18px rgba(16, 40, 36, 0.12);
 }
 
@@ -3586,7 +4193,7 @@ button.kiosk-punch-out:focus-visible,
   width: 1.7in;
   min-width: 1.7in;
   max-width: 1.7in;
-  margin: 0 0 0 auto;
+  margin: 0;
   padding: 0.28rem;
   background: #fff;
   border: 1px solid var(--line);
@@ -3596,6 +4203,17 @@ button.kiosk-punch-out:focus-visible,
 }
 
 .kiosk-clock-qr[hidden] {
+  display: none;
+}
+
+.kiosk-header-codes {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.kiosk-header-codes:not(:has(.kiosk-clock-qr:not([hidden]))) {
   display: none;
 }
 
@@ -3632,9 +4250,12 @@ button.kiosk-punch-out:focus-visible,
 #kiosk-chunk-open[hidden],
 .kiosk-punch-layout[hidden],
 #kiosk-note-panel[hidden],
+.kiosk-route-note-panel[hidden],
+#kiosk-leave-note[hidden],
 #kiosk-run-choice[hidden],
 .kiosk-reason-row[hidden],
 #kiosk-reason-picks[hidden],
+#kiosk-leave-request[hidden],
 #kiosk-leave-request-panel[hidden],
 #kiosk-leave-request-time[hidden],
 #kiosk-leave-request-contract[hidden],
@@ -3713,6 +4334,140 @@ button.kiosk-punch-out:focus-visible,
 .kiosk-empty {
   margin: 0;
   color: var(--muted);
+}
+
+/* The records code sits at the top right of the header. The date and name use the height beside it. */
+.timeclock-kiosk.is-detail {
+  gap: 0.45rem;
+  padding: 0.45rem 0.6rem 0.4rem;
+}
+
+.timeclock-kiosk.is-detail .kiosk-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 1rem;
+  row-gap: 0.35rem;
+}
+
+.timeclock-kiosk.is-detail .kiosk-now {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 0.85rem;
+}
+
+.timeclock-kiosk.is-detail .kiosk-now-date {
+  font-size: clamp(1.2rem, 2.1vw, 1.7rem);
+}
+
+.timeclock-kiosk.is-detail .kiosk-now-time {
+  font-size: clamp(2.8rem, 5.2vw, 4.2rem);
+}
+
+.timeclock-kiosk.is-detail .kiosk-top-tools {
+  grid-column: 1;
+  grid-row: 2;
+  justify-content: flex-start;
+  margin-left: 0;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.9rem;
+}
+
+.timeclock-kiosk.is-detail .kiosk-header-codes {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: start;
+  justify-self: end;
+}
+
+.timeclock-kiosk.is-detail .kiosk-header-codes .kiosk-clock-qr {
+  width: 2.15in;
+  min-width: 2.15in;
+  max-width: 2.15in;
+}
+
+.timeclock-kiosk.is-detail .kiosk-clock-qr p {
+  font-size: 0.95rem;
+}
+
+.timeclock-kiosk.is-detail #kiosk-day-qr-code,
+.timeclock-kiosk.is-detail #kiosk-clock-qr-code {
+  width: 1.85in;
+  height: 1.85in;
+  min-width: 0;
+  min-height: 0;
+  max-width: 1.85in;
+  max-height: 1.85in;
+}
+
+.timeclock-kiosk.is-detail .kiosk-leave input {
+  width: 5.4rem;
+  padding: 0.2rem 0.4rem;
+}
+
+.timeclock-kiosk.is-detail #kiosk-detail {
+  gap: 0.3rem;
+  overflow: auto;
+  padding-bottom: 0;
+}
+
+.timeclock-kiosk.is-detail .kiosk-driver-hero {
+  flex-wrap: nowrap;
+  gap: 0.7rem 1rem;
+}
+
+.timeclock-kiosk.is-detail .kiosk-driver-copy {
+  gap: 0.2rem;
+}
+
+.timeclock-kiosk.is-detail #kiosk-driver {
+  width: 100%;
+  overflow: hidden;
+  font-size: clamp(2.1rem, 3.8vw, 3rem);
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeclock-kiosk.is-detail #kiosk-driver-photo {
+  width: 6.2rem;
+}
+
+.timeclock-kiosk.is-detail .kiosk-clock-state {
+  padding: 0.15rem 0.7rem;
+  font-size: 1.05rem;
+}
+
+.timeclock-kiosk.is-detail .kiosk-assigned,
+.timeclock-kiosk.is-detail .kiosk-covering,
+.timeclock-kiosk.is-detail .kiosk-leave-note {
+  font-size: 1.05rem;
+  line-height: 1.25;
+}
+
+.timeclock-kiosk.is-detail .kiosk-done {
+  min-width: 8rem;
+  min-height: 4.6rem;
+  padding: 0.55rem 1.1rem;
+  border-radius: 10px;
+  font-size: 1.55rem;
+}
+
+.timeclock-kiosk.is-detail #kiosk-actions,
+.timeclock-kiosk.is-detail .kiosk-punch-layout,
+.timeclock-kiosk.is-detail #kiosk-run-choice {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+}
+
+.timeclock-kiosk.is-detail .kiosk-punch-layout {
+  gap: 0;
 }
 
 body.is-timeclock {

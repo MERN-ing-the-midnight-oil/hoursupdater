@@ -305,6 +305,31 @@ describe('clock kiosk', () => {
     assert.deepEqual(legacy[0].reason_codes, []);
   });
 
+  it('keeps the minutes recorded with a reason', () => {
+    const timed = normalizePunchLog([
+      {
+        id: 'p-time',
+        driver_id: 'drv-jane',
+        driver_name: 'Jane Driver',
+        action: 'in',
+        punched_at: NOW,
+        note: '',
+        reason_codes: [
+          { id: 'reason-traffic', label: 'Traffic', minutes: 90 },
+          { id: 'reason-bad', label: 'Nope', minutes: 24 * 60 + 1 },
+        ],
+      },
+    ]);
+    assert.deepEqual(timed[0].reason_codes, [
+      { id: 'reason-traffic', label: 'Traffic', minutes: 90 },
+      { id: 'reason-bad', label: 'Nope' },
+    ]);
+    const kept = selectReasonCodes(timed[0].reason_codes, ['reason-traffic'], [
+      { id: 'reason-traffic', label: 'Traffic' },
+    ]);
+    assert.deepEqual(kept, [{ id: 'reason-traffic', label: 'Traffic', minutes: 90 }]);
+  });
+
   it('starts the reason code list with the office defaults', async () => {
     assert.deepEqual(
       DEFAULT_REASON_CODES.map((code) => code.label),

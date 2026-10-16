@@ -28,6 +28,7 @@ import { buildPayrollWorkbook, rowsFromPayrollWorkbook } from './payrollTimes.js
 import { buildRouteWorkbook, stateFromRouteWorkbook } from './routeWorkbook.js';
 import { handleTimesheetExtract } from './timesheetExtract.js';
 import { clockShareOrigin } from './clockShare.js';
+import { createNoteShare } from './noteShare.js';
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -437,6 +438,59 @@ function lanAddresses() {
   }
   return found;
 }
+
+const noteShare = createNoteShare();
+
+app.post('/api/clock-note', express.json({ limit: '64kb' }), (req, res) => {
+  try {
+    res.json(noteShare.open(req.body ?? {}));
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'That notes link is not valid.' });
+  }
+});
+
+app.get('/api/clock-note/:token', (req, res) => {
+  const slot = noteShare.read(req.params.token);
+  if (!slot) {
+    res.status(404).json({ error: 'This notes link is not valid.' });
+    return;
+  }
+  res.json(slot);
+});
+
+app.put('/api/clock-note/:token', express.json({ limit: '64kb' }), (req, res) => {
+  try {
+    const saved = noteShare.save(req.params.token, req.body ?? {});
+    if (!saved) {
+      res.status(404).json({ error: 'This notes link is not valid.' });
+      return;
+    }
+    if (saved.conflict) {
+      res.status(409).json(saved.slot);
+      return;
+    }
+    res.json(saved.slot);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'That note could not be saved.' });
+  }
+});
+
+app.post('/api/clock-note-day', express.json({ limit: '64kb' }), (req, res) => {
+  try {
+    res.json(noteShare.openDay(req.body ?? {}));
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'That notes link is not valid.' });
+  }
+});
+
+app.get('/api/clock-note-day/:token', (req, res) => {
+  const day = noteShare.readDay(req.params.token);
+  if (!day) {
+    res.status(404).json({ error: 'This notes link is not valid.' });
+    return;
+  }
+  res.json(day);
+});
 
 app.get('/api/clock-share-origin', (req, res) => {
   res.json({

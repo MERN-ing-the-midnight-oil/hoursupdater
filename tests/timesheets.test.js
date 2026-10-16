@@ -8,6 +8,7 @@ import {
   extraDateInPeriod,
   listPeriods,
   pairClockPunches,
+  replacedClockPunchIds,
   payPeriodCalculatorsCsv,
   payPeriodExportFilename,
   payrollVarianceClipboard,
@@ -33,6 +34,7 @@ function punch(id, action, when, extra = {}) {
     note: extra.note || '',
     note_at: extra.note ? when.toISOString() : null,
     reason_codes: extra.reason_codes || [],
+    run: extra.run || '',
   };
 }
 
@@ -60,7 +62,7 @@ describe('timesheets from clock records', () => {
       punch('b', 'out', at(2026, 8, 8, 8, 0)),
       punch('c', 'in', at(2026, 8, 8, 11, 0), { note: 'Late school' }),
       punch('d', 'out', at(2026, 8, 8, 12, 0), {
-        reason_codes: [{ id: 'reason-traffic', label: 'Traffic' }],
+        reason_codes: [{ id: 'reason-traffic', label: 'Traffic', minutes: 75 }],
       }),
       punch('e', 'in', at(2026, 8, 8, 14, 0)),
       punch('f', 'out', at(2026, 8, 8, 16, 15)),
@@ -92,7 +94,7 @@ describe('timesheets from clock records', () => {
     assert.equal(result.heading, 'Alex Driver · route 104');
     assert.equal(result.pairs.length, 3);
     assert.equal(result.pairs[1].note, 'Late school');
-    assert.deepEqual(result.pairs[1].reason_codes, ['Traffic']);
+    assert.deepEqual(result.pairs[1].reason_codes, ['Traffic (1 hour 15 minutes)']);
   });
 
   it('files hours under the route the driver chose', () => {
@@ -314,5 +316,30 @@ describe('clock punch pairing', () => {
     assert.equal(pairs[0].hours, 2.5);
     assert.equal(unpaired.length, 1);
     assert.equal(unpaired[0].reason, 'out');
+  });
+
+  it('keeps an earlier clock in when a later one replaces it, and counts the later one', () => {
+    const punches = [
+      punch('early', 'in', at(2026, 9, 8, 6, 7), { run: 'AM' }),
+      punch('later', 'in', at(2026, 9, 8, 6, 20), { run: 'AM' }),
+      punch('out', 'out', at(2026, 9, 8, 9, 0), { run: 'AM' }),
+    ];
+    const replaced = replacedClockPunchIds(punches);
+    assert.deepEqual([...replaced], ['early']);
+    const { pairs, unpaired } = pairClockPunches(punches);
+    assert.equal(pairs.length, 1);
+    assert.equal(pairs[0].clockIn.id, 'later');
+    assert.equal(unpaired.length, 0);
+  });
+
+  it('leaves a finished route pair in place when the driver clocks that route again', () => {
+    const punches = [
+      punch('in-1', 'in', at(2026, 9, 8, 6, 7), { run: 'AM' }),
+      punch('out-1', 'out', at(2026, 9, 8, 8, 0), { run: 'AM' }),
+      punch('in-2', 'in', at(2026, 9, 8, 9, 0), { run: 'AM' }),
+      punch('out-2', 'out', at(2026, 9, 8, 10, 0), { run: 'AM' }),
+    ];
+    assert.equal(replacedClockPunchIds(punches).size, 0);
+    assert.equal(pairClockPunches(punches).pairs.length, 2);
   });
 });

@@ -247,7 +247,13 @@ begin
       else office->'clockReasonCodes'
     end,
     'punches', punches,
-    'leaveRequests', leave_requests
+    'leaveRequests', leave_requests,
+    'periodEndsAt', case
+      when office is null then '23:59'
+      when coalesce(office #>> '{clockPayDefaults,periodEndsAt}', '') ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        then office #>> '{clockPayDefaults,periodEndsAt}'
+      else '23:59'
+    end
   );
 end;
 $$;
@@ -292,6 +298,7 @@ declare
   end_day int;
   cursor_day int := 1;
   period_end int;
+  ends_at text;
   period_count int := 0;
   used text[] := array[]::text[];
   period_id text;
@@ -407,7 +414,13 @@ begin
   if period_end is null then
     raise exception 'That pay period is closed.';
   end if;
-  deadline := date_trunc('day', local_ts) + (period_end - day_of_month) * interval '1 day' + time '23:59:59.999';
+  ends_at := office #>> '{clockPayDefaults,periodEndsAt}';
+  if ends_at is null or ends_at !~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' then
+    ends_at := '23:59';
+  end if;
+  deadline := date_trunc('day', local_ts)
+    + (period_end - day_of_month) * interval '1 day'
+    + (ends_at || ':59.999')::time;
   if (now() at time zone 'America/Los_Angeles') > deadline then
     raise exception 'That pay period is closed.';
   end if;

@@ -12,11 +12,12 @@ import {
   normalizeEarlyReleaseTimes,
 } from '../../src/logic/earlyRelease.js';
 import { dueClockInKeys, flashingClockInKeys, normalizeLateFlashMinutes } from '../../src/logic/lateClockFlash.js';
-import { normalizePunchRun, punchRunLabel, segmentForClock } from '../../src/logic/timesheets.js';
+import { localDateKey, normalizePunchRun, punchRunLabel, replacedClockPunchIds, segmentForClock } from '../../src/logic/timesheets.js';
 import {
   applyLeaveRequests,
   dropLeaveForClockIn,
   driverClockedIn,
+  LEAVE_REQUESTS_ENABLED,
   leaveContractLead,
   leaveDateLabel,
   leaveFor,
@@ -24,6 +25,7 @@ import {
   leaveMinutesFromParts,
   leaveRequestLead,
   leaveTimeParts,
+  missedClockInNote,
   runsAwaitingLeave,
   saveLeaveRequest,
 } from '../src/leaveRequests.js';
@@ -31,6 +33,8 @@ import { setTimecardEntries } from '../src/officePunches.js';
 import {
   formatTimecardMinutes,
   normalizeTimecardEntries,
+  reasonNoteLine,
+  payPeriodDeadline,
   payPeriodStillOpen,
   sessionForClockOut,
   timecardSummary,
@@ -58,10 +62,10 @@ import {
   normalizePayStatusByRun,
   payStatusForClockIn,
 } from '../src/driverPay.js';
-import { buildMonthlyTimeSummary, buildMonthlySummaryMath, describePayPeriod, mathPeriodsWithPunches, payPeriodsForClocks, renderMonthlyTimeSummaryHtml } from '../src/monthlyTimeSummary.js';
+import { buildMonthlyTimeSummary, buildMonthlySummaryMath, describePayPeriod, payPeriodsForClocks, payPeriodsForDriver, renderMonthlyTimeSummaryHtml } from '../src/monthlyTimeSummary.js';
 import { normalizeOvertimeRules } from '../src/overtimeRules.js';
 import { normalizePaperBackup } from '../src/paperClockBackup.js';
-import { renderMonthlySummaryMathHtml } from '../src/summaryMath.js';
+import { payPeriodInfoMarkup, renderMonthlySummaryMathHtml } from '../src/summaryMath.js';
 import {
   DEFAULT_PUNCH_SOUND_IN,
   DEFAULT_PUNCH_SOUND_OUT,
@@ -71,6 +75,7 @@ import {
 } from './punchSounds.js';
 import { ensureDriverClockLink } from './accounts.js';
 import { clockShareUrl } from '../src/clockShare.js';
+import { noteDayUrl } from '../src/noteShare.js';
 import { driverPhotoSrc } from './driverPhotos.js';
 import {
   compareRouteNumbers,
@@ -97,6 +102,8 @@ const NAME_COLOR_KEY = 'teamster-timeclock-name-colors';
 /** One inch. A name button's long side stays at least this wide on a laptop. */
 const NAME_BUTTON_MIN_PX = 96;
 const ROSTER_GAP_PX = 6;
+/** A name button is this many times as wide as it is tall. Taller than that is extra space. */
+const NAME_BUTTON_RATIO = 1.9;
 
 /**
  * Clock shown on the Timeclock right after a clock in or clock out.
@@ -107,6 +114,43 @@ export function punchDisplayClock(date) {
   const pad = (value) => String(value).padStart(2, '0');
   const clock = `${date.getHours()}:${pad(date.getMinutes())}`;
   return formatClockAmPm(clock);
+}
+
+/**
+ * The clock in the timeclock header and on an unpunched Punch button.
+ * @param {Date} date
+ */
+export function kioskLiveClock(date) {
+  return date.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+/**
+ * Time typed next to a reason.
+ * A blank minutes field means no time yet. Minutes alone are a whole number up to 24 hours.
+ * An hours value, when one is still stored, keeps minutes inside that hour.
+ * @param {unknown} hours
+ * @param {unknown} minutes
+ * @returns {{ ok: true, minutes: number | null } | { ok: false }}
+ */
+export function reasonDurationMinutes(hours, minutes) {
+  const hourText = String(hours ?? '').trim();
+  const minuteText = String(minutes ?? '').trim();
+  if (!hourText && !minuteText) return { ok: true, minutes: null };
+  if ((hourText && !/^\d+$/.test(hourText)) || (minuteText && !/^\d+$/.test(minuteText))) {
+    return { ok: false };
+  }
+  const hourValue = hourText ? Number(hourText) : 0;
+  const minuteValue = minuteText ? Number(minuteText) : 0;
+  if (!hourText) {
+    if (minuteValue > 24 * 60) return { ok: false };
+    return { ok: true, minutes: minuteValue };
+  }
+  if (hourValue > 24 || minuteValue > 59 || (hourValue === 24 && minuteValue > 0)) return { ok: false };
+  return { ok: true, minutes: hourValue * 60 + minuteValue };
 }
 
 /**
@@ -128,6 +172,23 @@ export function clockedPhrase(status, punch = {}) {
 }
 
 /**
+ * Status under the driver's name. A clock-out names the route they punched.
+ * @param {'in' | 'out'} status
+ * @param {{ run?: string, work_type?: string, punched_at?: string, punchedAt?: string }} [punch]
+ */
+export function clockedStatusLabel(status, punch = {}) {
+  if (status === 'in') return clockedPhrase('in', punch).replace(/^is /, '');
+  const run = normalizePunchRun(punch.run);
+  const route = punchRunLabel(run);
+  const work = run === 'OTHER' ? workTypeLabel(punch.work_type) : '';
+  const named = work || route;
+  const when = clockedAtText(punch.punchedAt || punch.punched_at);
+  const routeBit = named ? ` for ${named}` : '';
+  const timeBit = when ? ` at ${when}` : '';
+  return `Clocked out${routeBit}${timeBit}`;
+}
+
+/**
  * @param {unknown} punchedAt
  */
 function clockedAtText(punchedAt) {
@@ -137,32 +198,140 @@ function clockedAtText(punchedAt) {
   return punchDisplayClock(date);
 }
 
+/** Standing rows on the clock card, earliest route segment first. */
+const CLOCK_CARD_SLOTS = [
+  { run: 'AM', action: 'in', label: 'AM IN' },
+  { run: 'AM', action: 'out', label: 'AM OUT' },
+  { run: 'MIDDAY', action: 'in', label: 'MID IN' },
+  { run: 'MIDDAY', action: 'out', label: 'MID OUT' },
+  { run: 'PM', action: 'in', label: 'PM IN' },
+  { run: 'PM', action: 'out', label: 'PM OUT' },
+];
+
+/**
+ * @param {{ run?: string, action?: string }} slot
+ */
+function clockCardSlotRank(slot) {
+  const index = CLOCK_CARD_SLOTS.findIndex((item) => item.run === slot.run && item.action === slot.action);
+  if (index >= 0) return index;
+  return CLOCK_CARD_SLOTS.length + (slot.action === 'out' ? 1 : 0);
+}
+
+/**
+ * Punch times for one route segment, oldest first.
+ * @param {Array<{ run?: string, action?: string, punchedAt?: string }>} punches
+ * @param {{ run: string, action: string }} slot
+ */
+function clockCardSlotTimes(punches, slot) {
+  return punches
+    .filter((punch) => normalizePunchRun(punch?.run) === slot.run && punch?.action === slot.action)
+    .map((punch) => String(punch?.punchedAt || ''))
+    .filter(Boolean)
+    .sort();
+}
+
+/**
+ * Rows for today's clock card.
+ * Later route segments sit higher on the page. Earlier ones sit lower.
+ * PM OUT is the first row. AM IN is the last.
+ * Midday rows show when the driver has a midday contract, or already punched midday today.
+ * A punched Other row sits under PM OUT. Other is not a standing row.
+ * @param {{
+ *   hasMidday?: boolean,
+ *   punches?: Array<{ run?: string, action?: string, punchedAt?: string }>
+ * }} [input]
+ * @returns {Array<{ run: string, action: 'in' | 'out', label: string, punched: boolean, newestAt: string }>}
+ */
+export function clockCardRows(input = {}) {
+  const hasMidday = input.hasMidday === true;
+  const punches = Array.isArray(input.punches) ? input.punches : [];
+  const showMidday = hasMidday || punches.some((punch) => normalizePunchRun(punch?.run) === 'MIDDAY');
+  const standing = CLOCK_CARD_SLOTS.filter((slot) => showMidday || slot.run !== 'MIDDAY').map((slot) => {
+    const times = clockCardSlotTimes(punches, slot);
+    return {
+      run: slot.run,
+      action: /** @type {'in' | 'out'} */ (slot.action),
+      label: slot.label,
+      punched: times.length > 0,
+      newestAt: times[times.length - 1] || '',
+    };
+  });
+  standing.reverse();
+  /** @type {typeof standing} */
+  const other = [];
+  for (const action of ['in', 'out']) {
+    const slot = {
+      run: 'OTHER',
+      action: /** @type {'in' | 'out'} */ (action),
+      label: action === 'in' ? 'OTHER IN' : 'OTHER OUT',
+    };
+    const times = clockCardSlotTimes(punches, slot);
+    if (!times.length) continue;
+    other.push({ ...slot, punched: true, newestAt: times[times.length - 1] });
+  }
+  other.sort((a, b) => b.newestAt.localeCompare(a.newestAt) || clockCardSlotRank(b) - clockCardSlotRank(a));
+  const pmOut = standing.findIndex((row) => row.run === 'PM' && row.action === 'out');
+  standing.splice(pmOut >= 0 ? pmOut + 1 : 0, 0, ...other);
+  return standing;
+}
+
+/**
+ * Type size for one name button, in pixels.
+ * A landscape button can carry a larger name and route number.
+ * Height still has to hold the name plus the route, so the type does not overflow a short button.
+ * @param {number} btnW
+ * @param {number} btnH
+ */
+export function rosterButtonFont(btnW, btnH) {
+  const textW = Math.max(48, btnW * 0.7);
+  const textH = Math.max(22, btnH - 18);
+  return Math.max(12, Math.min(textH / 3.1, textW / 6.4, 48));
+}
+
 /**
  * Column and row counts that keep every name on screen.
+ * Buttons stay landscape. Leftover vertical space is padding between the rows,
+ * not a taller button.
  * Each button stays at least an inch wide when the screen can hold that.
  * @param {{ count: number, width: number, height: number, gap?: number, size?: string }} options
- * @returns {{ columns: number, rows: number, scroll: boolean } | null}
+ * @returns {{ columns: number, rows: number, scroll: boolean, buttonHeight: number, rowGap: number } | null}
  */
 export function kioskRosterLayout({ count, width, height, gap = ROSTER_GAP_PX, size = 'regular' }) {
   if (!Number.isFinite(count) || count < 1) return null;
   if (!(width > 0) || !(height > 0)) return null;
   const target = size === 'compact' ? 150 : size === 'large' ? 280 : 220;
   const minHeight = 44;
-  /** @type {{ columns: number, rows: number, score: number } | null} */
+  /** @type {{ columns: number, rows: number, score: number, buttonHeight: number, rowGap: number } | null} */
   let best = null;
   const maxCols = Math.min(count, Math.max(0, Math.floor((width + gap) / (NAME_BUTTON_MIN_PX + gap))));
   for (let columns = 1; columns <= maxCols; columns += 1) {
     const rows = Math.ceil(count / columns);
     const btnW = (width - gap * (columns - 1)) / columns;
-    const btnH = (height - gap * (rows - 1)) / rows;
-    if (btnW < NAME_BUTTON_MIN_PX || btnH < minHeight) continue;
-    const cramped = btnH < 58 ? (58 - btnH) * 4 : 0;
-    const score = Math.abs(btnW - target) + cramped;
-    if (!best || score < best.score) best = { columns, rows, score };
+    if (btnW < NAME_BUTTON_MIN_PX) continue;
+    const preferredH = btnW / NAME_BUTTON_RATIO;
+    const maxH = (height - gap * (rows - 1)) / rows;
+    if (maxH < minHeight) continue;
+    const btnH = Math.min(preferredH, maxH, btnW);
+    if (btnH < minHeight || btnH > btnW) continue;
+    const rowGap = rows > 1 ? (height - btnH * rows) / (rows - 1) : gap;
+    const ratio = btnW / btnH;
+    const flat = ratio > 2.2 ? (ratio - 2.2) * 5 : 0;
+    const score = rosterButtonFont(btnW, btnH) - flat - Math.abs(btnW - target) / 90;
+    if (!best || score > best.score) best = { columns, rows, score, buttonHeight: btnH, rowGap };
   }
-  if (best) return { columns: best.columns, rows: best.rows, scroll: false };
+  if (best) {
+    return {
+      columns: best.columns,
+      rows: best.rows,
+      scroll: false,
+      buttonHeight: best.buttonHeight,
+      rowGap: best.rowGap,
+    };
+  }
   const columns = Math.max(1, Math.min(count, Math.floor((width + gap) / (NAME_BUTTON_MIN_PX + gap)) || 1));
-  return { columns, rows: Math.ceil(count / columns), scroll: true };
+  const btnW = (width - gap * (columns - 1)) / columns;
+  const buttonHeight = Math.max(minHeight, Math.min(btnW / NAME_BUTTON_RATIO, 132));
+  return { columns, rows: Math.ceil(count / columns), scroll: true, buttonHeight, rowGap: gap };
 }
 
 /**
@@ -218,6 +387,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   const kioskSubstituteWho = document.querySelector('#kiosk-substitute-who');
   const kioskActions = document.querySelector('#kiosk-actions');
   const kioskRunChoice = document.querySelector('#kiosk-run-choice');
+  const kioskCard = document.querySelector('#kiosk-card');
   const kioskWork = document.querySelector('#kiosk-work');
   const kioskWorkOptions = document.querySelector('#kiosk-work-options');
   const kioskWorkBack = document.querySelector('#kiosk-work-back');
@@ -239,10 +409,13 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   const kioskLeave = document.querySelector('#kiosk-leave');
   const kioskLeaveCode = document.querySelector('#kiosk-leave-code');
   const kioskLeaveError = document.querySelector('#kiosk-leave-error');
+  const kioskLeaveBack = document.querySelector('#kiosk-leave-back');
   const kioskConfirm = document.querySelector('#kiosk-confirm');
   const kioskConfirmText = document.querySelector('#kiosk-confirm-text');
   const kioskClockQr = document.querySelector('#kiosk-clock-qr');
   const kioskClockQrCode = document.querySelector('#kiosk-clock-qr-code');
+  const kioskDayQr = document.querySelector('#kiosk-day-qr');
+  const kioskDayQrCode = document.querySelector('#kiosk-day-qr-code');
   if (
     !startButton ||
     !lockForm ||
@@ -287,13 +460,30 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   /** Route and action chosen from a card. Other waits until the kind of work is chosen. */
   let pendingAction = '';
   let pendingRun = '';
+  /** Comments typed on a card row before they are saved on the punch. */
+  const noteDrafts = new Map();
+  /** Reasons chosen on a card row before they are saved on the punch. */
+  /** @type {Map<string, Array<{ id: string, label: string, hours: string, minutes: string }>>} */
+  const reasonDrafts = new Map();
+  /** Reason and time typed in the adder, before Add. */
+  /** @type {Map<string, { id: string, hours: string, minutes: string }>} */
+  const reasonPending = new Map();
+  /** Phone link for each notes box, and the last revision applied on this clock. */
+  /** @type {Map<string, string>} */
+  const noteShareTokens = new Map();
+  /** @type {Map<string, { revision: number, note: string, reasons: string }>} */
+  const noteShareSeen = new Map();
+  let noteShareSyncing = false;
+  let applyingSharedNote = false;
+  /** True while the card is being redrawn, so blur from the old row does not save. */
+  let paintingCard = false;
+  /** @type {{ action: 'in' | 'out', run: string } | null} */
+  let replacePending = null;
   const reasonForm = document.querySelector('#reason-form');
   const reasonLabel = document.querySelector('#reason-label');
   const reasonList = document.querySelector('#reason-list');
   const kioskReason = document.querySelector('#kiosk-reason');
   const kioskReasonPicks = document.querySelector('#kiosk-reason-picks');
-  const kioskNote = document.querySelector('#kiosk-note');
-  const kioskNoteCount = document.querySelector('#kiosk-note-count');
   /** @type {ReturnType<typeof setInterval> | undefined} */
   let clockTimer;
   /** Calendar day the roster clock-ins were built for. */
@@ -358,6 +548,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     renderKioskReasons();
   });
   kioskBack?.addEventListener('click', () => showList());
+  document.querySelector('#kiosk-done')?.addEventListener('click', () => showList());
   document.querySelector('#kiosk-substitute-back')?.addEventListener('click', () => showList());
   kioskSubstitute?.addEventListener('click', onSubstituteHeader);
   kioskPin.addEventListener('input', onPinInput);
@@ -367,19 +558,29 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   });
   kioskConfirm?.addEventListener('click', hidePunchConfirm);
   kioskRunChoice?.addEventListener('click', (event) => {
-    const button = event.target instanceof Element ? event.target.closest('[data-punch]') : null;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('.kiosk-card-reason')) return;
+    const button = target ? target.closest('[data-punch]') : null;
     if (!(button instanceof HTMLButtonElement)) return;
     beginPunch(button.dataset.action || '', button.dataset.punch || '');
   });
-  document.querySelector('#kiosk-work-punch')?.addEventListener('click', () => {
-    if (pendingRun !== 'OTHER') return;
+  document.querySelector('#kiosk-work')?.addEventListener('click', (event) => {
+    const button = event.target instanceof Element ? event.target.closest('[data-work-action]') : null;
+    if (!(button instanceof HTMLButtonElement) || pendingRun !== 'OTHER') return;
+    pendingAction = button.dataset.workAction === 'out' ? 'out' : 'in';
     punch(pendingAction, 'OTHER');
   });
-  document.querySelector('#kiosk-note-toggle')?.addEventListener('click', () => {
-    const panel = document.querySelector('#kiosk-note-panel');
-    setNoteOpen(panel?.hidden !== false);
+  document.querySelector('#kiosk-other-open')?.addEventListener('click', openOtherWork);
+  document.querySelector('#kiosk-replace-yes')?.addEventListener('click', () => {
+    const pending = replacePending;
+    closeReplaceConfirm();
+    if (!pending) return;
+    punch(pending.action, pending.run, true);
   });
-  document.querySelector('#kiosk-leave-request')?.addEventListener('click', () => openLeaveRequest(''));
+  document.querySelector('#kiosk-replace-no')?.addEventListener('click', () => closeReplaceConfirm());
+  const leaveRequestButton = document.querySelector('#kiosk-leave-request');
+  if (leaveRequestButton) leaveRequestButton.hidden = !LEAVE_REQUESTS_ENABLED;
+  leaveRequestButton?.addEventListener('click', () => openLeaveRequest(''));
   document.querySelector('#kiosk-leave-request-back')?.addEventListener('click', () => {
     leavePromptDismissed = true;
     closeLeaveRequest();
@@ -401,11 +602,13 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   kioskChunkPairs?.addEventListener('click', onChunkPairClick);
   kioskChunkSave?.addEventListener('click', saveWorkChunk);
   fillWorkTypeChoices();
-  kioskNote?.addEventListener('input', () => {
-    if (!(kioskNote instanceof HTMLTextAreaElement)) return;
-    if (kioskNote.value.length > NOTE_MAX) kioskNote.value = kioskNote.value.slice(0, NOTE_MAX);
-    syncNoteCount();
+  kioskRunChoice?.addEventListener('input', (event) => {
+    const area = event.target;
+    if (!(area instanceof HTMLTextAreaElement) || !area.dataset.noteFor || !area.dataset.noteAction) return;
+    if (area.value.length > NOTE_MAX) area.value = area.value.slice(0, NOTE_MAX);
+    noteDrafts.set(`${area.dataset.noteFor}:${area.dataset.noteAction}`, area.value);
   });
+  kioskRunChoice?.addEventListener('focusout', onNoteBlur);
   kioskActions?.addEventListener('change', (event) => {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
@@ -423,6 +626,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     error.textContent = '';
   });
   kioskLeave.addEventListener('submit', onLeave);
+  kioskLeaveBack?.addEventListener('click', exitKiosk);
 
   function state() {
     return readState() || {};
@@ -761,6 +965,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       location: payLocation?.value,
       lines: current.lines,
       periods: current.periods,
+      periodEndsAt: current.periodEndsAt,
     });
     writeState(next);
     setOfficeStatus('Job title and location saved.', 'ok');
@@ -1307,7 +1512,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   const summaryStatus = document.querySelector('#summary-maker-status');
   const mathForm = document.querySelector('#math-maker-form');
   const mathDriver = document.querySelector('#math-driver');
-  const mathMonth = document.querySelector('#math-month');
   const mathPeriod = document.querySelector('#math-period');
   const mathStatus = document.querySelector('#math-maker-status');
   const mathButton = document.querySelector('#summary-math');
@@ -1513,8 +1717,8 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   }
 
   /**
-   * Pay periods from this driver's first clock through the current month,
-   * plus the month chosen in the month field when that month is outside the clocks.
+   * Pay periods from this driver's first clock through the current month.
+   * Pass a month to also include that month when it sits outside the clocks.
    * @param {{ name?: string } | undefined} driver
    * @param {Array<{ id: string, startDay: number, endDay: number }>} periods
    * @param {{ year: number, monthIndex: number } | null} [monthParts]
@@ -1647,10 +1851,10 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     const summaryReady = drivers.length > 0;
     if (mathButton instanceof HTMLButtonElement) mathButton.disabled = !summaryReady;
     if (generateButton instanceof HTMLButtonElement) generateButton.disabled = !summaryReady;
-    if (mathMonth instanceof HTMLInputElement && !mathMonth.value) mathMonth.value = monthValue();
     if (mathPeriod instanceof HTMLSelectElement) {
+      // This driver's clocks, route start, and contract changes, through this month.
       const driver = drivers.find((item) => item.id === mathDriverId);
-      const choices = summaryPeriodChoices(driver, defaults.periods, monthPartsFrom(mathMonth));
+      const choices = payPeriodsForDriver(state(), driver?.name || '', defaults.periods, new Date());
       if (!choices.some((choice) => choice.key === mathPeriodKey)) {
         const todayKey = periodKeyForDate(new Date(), defaults.periods);
         mathPeriodKey = choices.some((choice) => choice.key === todayKey) ? todayKey : choices[0]?.key || '';
@@ -1665,12 +1869,33 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       if (!choices.length) {
         const option = document.createElement('option');
         option.value = '';
-        option.textContent = 'No days in that period';
+        option.textContent = 'No pay periods yet';
         mathPeriod.append(option);
       }
       mathPeriod.value = mathPeriodKey;
-      syncMonthInput(mathMonth, mathPeriodKey);
     }
+    renderPayPeriodInfo();
+  }
+
+  function renderPayPeriodInfo() {
+    const host = document.querySelector('#pay-period-info');
+    if (!host) return;
+    const drivers = exDriverOnlyDrivers();
+    const driver = drivers.find((item) => item.id === mathDriverId);
+    const picked = periodKeyParts(mathPeriodKey);
+    const defaults = payLineDefaults();
+    const period = picked ? defaults.periods.find((item) => item.id === picked.periodId) : null;
+    if (!driver || !picked || !period) {
+      host.textContent = drivers.length
+        ? 'Choose a pay period.'
+        : 'Driver Pay period info is only for a driver whose only pay status is EX DRIVER.';
+      return;
+    }
+    const { options } = summaryOptions({ driver, picked, defaults, period }, ['ex-driver']);
+    const math = buildMonthlySummaryMath(options);
+    host.innerHTML = math.periods.length
+      ? payPeriodInfoMarkup(math)
+      : 'That pay period has no days in this month.';
   }
 
   /**
@@ -1723,6 +1948,10 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
         }
         host.append(row);
       });
+    });
+    document.querySelectorAll('[data-pay-period-ends-at]').forEach((input) => {
+      if (!(input instanceof HTMLInputElement) || document.activeElement === input) return;
+      input.value = defaults.periodEndsAt;
     });
   }
 
@@ -1853,10 +2082,12 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       return;
     }
     const current = payLineDefaults();
+    const endsInput = form instanceof HTMLFormElement ? form.querySelector('[data-pay-period-ends-at]') : null;
     const next = state();
     next.clockPayDefaults = normalizeClockPayDefaults({
       ...current,
       periods: normalizePayPeriods(periods),
+      periodEndsAt: endsInput instanceof HTMLInputElement ? endsInput.value : current.periodEndsAt,
     });
     writeState(next);
     setFormStatus(form, message, 'ok');
@@ -2042,15 +2273,9 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     mathPeriodKey = '';
     renderMathChoices(payLineDefaults());
   });
-  mathMonth?.addEventListener('change', () => {
-    const parts = monthPartsFrom(mathMonth);
-    const defaults = payLineDefaults();
-    if (parts) mathPeriodKey = `${parts.year}-${String(parts.monthIndex + 1).padStart(2, '0')}-${defaults.periods[0]?.id || '1'}`;
-    renderMathChoices(defaults);
-  });
   mathPeriod?.addEventListener('change', () => {
     if (mathPeriod instanceof HTMLSelectElement) mathPeriodKey = mathPeriod.value;
-    syncMonthInput(mathMonth, mathPeriodKey);
+    renderMathChoices(payLineDefaults());
   });
   mathForm?.addEventListener('submit', (event) => {
     const submitter = event.submitter;
@@ -2197,6 +2422,10 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       kioskRoster.classList.remove('is-fitted', 'is-scroll');
       kioskRoster.style.removeProperty('grid-template-columns');
       kioskRoster.style.removeProperty('grid-template-rows');
+      kioskRoster.style.removeProperty('grid-auto-rows');
+      kioskRoster.style.removeProperty('column-gap');
+      kioskRoster.style.removeProperty('row-gap');
+      kioskRoster.style.removeProperty('align-content');
       kioskRoster.style.removeProperty('font-size');
       return;
     }
@@ -2212,25 +2441,26 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       size,
     });
     if (!layout) return;
-    const fitKey = `${size}:${count}:${layout.columns}:${layout.rows}:${layout.scroll}:${Math.round(width)}x${Math.round(height)}`;
+    const fitKey = `${size}:${count}:${layout.columns}:${layout.rows}:${layout.scroll}:${Math.round(layout.buttonHeight)}:${Math.round(layout.rowGap)}:${Math.round(width)}x${Math.round(height)}`;
     if (fitKey !== rosterFitKey) {
       rosterFitKey = fitKey;
       kioskRoster.classList.add('is-fitted');
       kioskRoster.classList.toggle('is-scroll', layout.scroll);
-      kioskRoster.style.gap = `${ROSTER_GAP_PX}px`;
+      kioskRoster.style.columnGap = `${ROSTER_GAP_PX}px`;
+      kioskRoster.style.rowGap = `${layout.rowGap}px`;
+      kioskRoster.style.alignContent = 'start';
       if (layout.scroll) {
+        const btnW = (width - ROSTER_GAP_PX * (layout.columns - 1)) / layout.columns;
         kioskRoster.style.gridTemplateColumns = `repeat(${layout.columns}, minmax(1in, 1fr))`;
         kioskRoster.style.gridTemplateRows = 'none';
-        kioskRoster.style.fontSize = '';
+        kioskRoster.style.gridAutoRows = `${Math.round(layout.buttonHeight)}px`;
+        kioskRoster.style.fontSize = `${Math.round(rosterButtonFont(btnW, layout.buttonHeight))}px`;
       } else {
+        kioskRoster.style.removeProperty('grid-auto-rows');
         kioskRoster.style.gridTemplateColumns = `repeat(${layout.columns}, minmax(0, 1fr))`;
-        kioskRoster.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
-        const btnH = (kioskRoster.clientHeight - ROSTER_GAP_PX * (layout.rows - 1)) / layout.rows;
+        kioskRoster.style.gridTemplateRows = `repeat(${layout.rows}, ${layout.buttonHeight}px)`;
         const btnW = (kioskRoster.clientWidth - ROSTER_GAP_PX * (layout.columns - 1)) / layout.columns;
-        const textW = Math.max(48, btnW - 58);
-        const textH = Math.max(22, btnH - 16);
-        const font = Math.min(textH / 2.55, textW / 12, 18);
-        kioskRoster.style.fontSize = `${Math.max(11, Math.round(font))}px`;
+        kioskRoster.style.fontSize = `${Math.round(rosterButtonFont(btnW, layout.buttonHeight))}px`;
       }
     }
     fitNameButtons();
@@ -2553,6 +2783,8 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   let shareOriginPromise = null;
   let clockQrRequest = 0;
   let clockQrUrl = '';
+  let noteDayToken = '';
+  let noteDayUrlSeen = '';
 
   function loadShareOrigin() {
     if (!shareOriginPromise) {
@@ -2567,6 +2799,12 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   function hideClockQr() {
     clockQrRequest += 1;
     if (kioskClockQr) kioskClockQr.hidden = true;
+    hideDayQr();
+  }
+
+  function hideDayQr() {
+    noteDayUrlSeen = '';
+    if (kioskDayQr) kioskDayQr.hidden = true;
   }
 
   /**
@@ -2611,6 +2849,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   }
 
   function showList(message = '') {
+    closeReplaceConfirm();
     if (selected) rememberLateVisit(selected);
     selected = null;
     substituteName = '';
@@ -2961,22 +3200,33 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     refreshTimecardButton();
     syncSubstituteHeader();
     if (selected) paintClockQr(selected);
-    leavePromptDismissed = false;
-    const awaiting = substituteName
-      ? []
-      : runsAwaitingLeave({
-          clockByRun: clockByRunFor(selected),
-          punches: Array.isArray(state().punches) ? state().punches : [],
-          requests: state().leaveRequests,
-          driverName: selected?.name || '',
-          now: new Date(),
-        });
-    if (!leavePromptDismissed && awaiting.length) {
-      openLeaveRequest(awaiting[0]);
-      return;
-    }
+    paintLeaveNote();
     paintRouteCards();
     focusNextPunch();
+  }
+
+  function paintLeaveNote() {
+    const note = document.querySelector('#kiosk-leave-note');
+    if (!note) return;
+    if (!LEAVE_REQUESTS_ENABLED) {
+      note.hidden = true;
+      note.textContent = '';
+      return;
+    }
+    const now = new Date();
+    const awaiting =
+      !selected || substituteName
+        ? []
+        : runsAwaitingLeave({
+            clockByRun: clockByRunFor(selected),
+            punches: Array.isArray(state().punches) ? state().punches : [],
+            requests: state().leaveRequests,
+            driverName: selected.name,
+            now,
+          });
+    const text = missedClockInNote(awaiting, now);
+    note.hidden = !text;
+    note.textContent = text;
   }
 
   function paintDriverHeading(person) {
@@ -2985,10 +3235,10 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     if (kioskDriver) kioskDriver.textContent = person.name;
     const stateLine = document.querySelector('#kiosk-clock-state');
     if (stateLine) {
-      const phrase = clockedPhrase(status, latest || {});
-      stateLine.textContent = status === 'in' ? phrase.replace(/^is /, '') : 'Clocked out';
+      stateLine.textContent = clockedStatusLabel(status, latest || {});
       stateLine.className = `kiosk-clock-state is-${status}`;
     }
+    paintLeaveNote();
   }
 
   function openClock() {
@@ -3004,24 +3254,498 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     };
   }
 
-  function paintRouteCards() {
-    const open = openClock();
-    for (const card of document.querySelectorAll('#kiosk-run-choice .kiosk-route-card')) {
-      if (!(card instanceof HTMLElement)) continue;
-      const run = card.dataset.run || '';
-      const isOpen = open?.run === run;
-      card.classList.toggle('is-open', isOpen);
-      const stateLine = card.querySelector('.kiosk-route-state');
-      if (!stateLine) continue;
-      stateLine.classList.toggle('is-in', isOpen);
-      stateLine.classList.toggle('is-hint', !isOpen && run === 'OTHER');
-      if (isOpen) {
-        const detail = [open.work, open.when].filter(Boolean).join(' · ');
-        stateLine.textContent = detail ? `In now · ${detail}` : 'In now';
-      } else {
-        stateLine.textContent = run === 'OTHER' ? 'Trips and other paid time' : '';
+  /**
+   * Today's clock-ins and clock-outs for each route, oldest first.
+   * A time replaced by a later punch is marked so it can stay struck through.
+   * @param {string} name
+   */
+  function todaysRunTimes(name) {
+    const today = localDateString(new Date());
+    const wanted = name.trim().toLowerCase();
+    const punches = Array.isArray(state().punches) ? state().punches : [];
+    const replaced = replacedClockPunchIds(punches);
+    /** @type {Record<string, { in: Array<{ id: string, clock: string, replaced: boolean, note: string, workType: string, punchedAt: string }>, out: Array<{ id: string, clock: string, replaced: boolean, note: string, workType: string, punchedAt: string }> }>} */
+    const byRun = {};
+    const rows = punches
+      .filter((punch) => {
+        if (punch?.removed === true) return false;
+        if (String(punch?.driver_name || '').trim().toLowerCase() !== wanted) return false;
+        const when = new Date(punch.punched_at);
+        return !Number.isNaN(when.getTime()) && localDateString(when) === today;
+      })
+      .sort((a, b) => String(a.punched_at).localeCompare(String(b.punched_at)));
+    for (const punch of rows) {
+      const run = normalizePunchRun(punch.run);
+      const action = punch.action === 'in' || punch.action === 'out' ? punch.action : '';
+      const clock = clockedAtText(punch.punched_at);
+      if (!run || !action || !clock) continue;
+      if (!byRun[run]) byRun[run] = { in: [], out: [] };
+      byRun[run][action].push({
+        id: String(punch.id || ''),
+        clock,
+        replaced: replaced.has(String(punch.id || '')),
+        note: String(punch.note || ''),
+        workType: String(punch.work_type || ''),
+        punchedAt: String(punch.punched_at || ''),
+        reasonCodes: Array.isArray(punch.reason_codes) ? punch.reason_codes : [],
+      });
+    }
+    return byRun;
+  }
+
+  /**
+   * @param {ReturnType<typeof todaysRunTimes>} times
+   */
+  function cardPunchesFromTimes(times) {
+    /** @type {Array<{ run: string, action: 'in' | 'out', punchedAt: string }>} */
+    const punches = [];
+    for (const [run, actions] of Object.entries(times)) {
+      for (const action of ['in', 'out']) {
+        for (const item of actions[action] || []) {
+          punches.push({ run, action, punchedAt: item.punchedAt });
+        }
       }
     }
+    return punches;
+  }
+
+  function paintRouteCards() {
+    if (!(kioskCard instanceof HTMLElement)) return;
+    const active = document.activeElement;
+    const activeKey =
+      active instanceof HTMLTextAreaElement && active.dataset.noteFor && active.dataset.noteAction
+        ? `${active.dataset.noteFor}:${active.dataset.noteAction}`
+        : '';
+    const selectionStart = active instanceof HTMLTextAreaElement ? active.selectionStart : 0;
+    const reasonFocus =
+      active instanceof HTMLInputElement && active.dataset.reasonField
+        ? {
+            run: active.dataset.reasonFor || '',
+            action: active.dataset.reasonAction || '',
+            id: active.dataset.reasonId || '',
+            field: active.dataset.reasonField,
+            start: active.selectionStart,
+          }
+        : null;
+    const open = openClock();
+    const times = selected ? todaysRunTimes(selected.name) : {};
+    const hasMidday = contractedFor(localDateString(new Date())).MIDDAY != null;
+    const rows = clockCardRows({ hasMidday, punches: cardPunchesFromTimes(times) });
+    paintingCard = true;
+    kioskCard.replaceChildren();
+    for (const slot of rows) {
+      const runTimes = (times[slot.run] && times[slot.run][slot.action]) || [];
+      kioskCard.append(renderCardRow(slot, runTimes, open));
+    }
+    paintingCard = false;
+    if (reasonFocus) {
+      const nextReason = kioskCard.querySelector(
+        `[data-reason-for="${reasonFocus.run}"][data-reason-action="${reasonFocus.action}"][data-reason-id="${reasonFocus.id}"][data-reason-field="${reasonFocus.field}"]`
+      );
+      if (nextReason instanceof HTMLInputElement) {
+        nextReason.focus();
+        const caret = Math.min(reasonFocus.start ?? 0, nextReason.value.length);
+        nextReason.setSelectionRange(caret, caret);
+        return;
+      }
+    }
+    if (activeKey) {
+      const [run, action] = activeKey.split(':');
+      const next = routeNoteField(run, action);
+      if (next instanceof HTMLTextAreaElement) {
+        next.focus();
+        const caret = Math.min(selectionStart ?? 0, next.value.length);
+        next.setSelectionRange(caret, caret);
+      }
+    }
+    lockNoteEditors();
+    if (!applyingSharedNote) void syncNoteShares();
+  }
+
+  /**
+   * @param {unknown} codes
+   * @returns {Array<{ id: string, label: string, hours: string, minutes: string }>}
+   */
+  function reasonsToDraft(codes) {
+    if (!Array.isArray(codes)) return [];
+    /** @type {Array<{ id: string, label: string, hours: string, minutes: string }>} */
+    const draft = [];
+    for (const code of codes) {
+      const id = String(code?.id || '').trim();
+      const label = String(code?.label || '').trim();
+      if (!id || !label) continue;
+      const minutes = Number(code?.minutes);
+      const known = Number.isInteger(minutes) && minutes >= 0 && minutes <= 24 * 60;
+      draft.push({
+        id,
+        label,
+        hours: '',
+        minutes: known ? String(minutes) : '',
+      });
+    }
+    return draft;
+  }
+
+  /**
+   * @param {Array<{ id: string, label: string, hours: string, minutes: string }>} draft
+   * @returns {{ ok: boolean, codes: Array<{ id: string, label: string, minutes?: number }> }}
+   */
+  function reasonCodesFromDraft(draft) {
+    /** @type {Array<{ id: string, label: string, minutes?: number }>} */
+    const codes = [];
+    let ok = true;
+    for (const item of draft) {
+      const id = String(item.id || '').trim();
+      if (!id) continue;
+      const live = catalog().find((code) => code.id === id);
+      const label = String(live?.label || item.label || '').trim();
+      if (!label) continue;
+      const parsed = reasonDurationMinutes(item.hours, item.minutes);
+      if (!parsed.ok) ok = false;
+      /** @type {{ id: string, label: string, minutes?: number }} */
+      const code = { id, label };
+      if (parsed.ok && parsed.minutes != null) code.minutes = parsed.minutes;
+      codes.push(code);
+    }
+    return { ok, codes };
+  }
+
+  /**
+   * @param {string} run
+   * @param {string} action
+   */
+  function kioskReasonCodes(run, action) {
+    const draft = reasonDrafts.get(`${run}:${action}`);
+    if (draft) return reasonCodesFromDraft(draft).codes;
+    const host = kioskCard?.querySelector(`[data-reason-for="${run}"][data-reason-action="${action}"]`);
+    const root = host instanceof HTMLElement ? host.closest('.kiosk-card-row') || host : null;
+    if (!(root instanceof HTMLElement)) return [];
+    return reasonCodesFromDraft(readReasonDraft(root)).codes;
+  }
+
+  /**
+   * Saved reason lines on this card row. The adder's pending fields are left out.
+   * @param {HTMLElement} root
+   */
+  function readReasonDraft(root) {
+    /** @type {Array<{ id: string, label: string, hours: string, minutes: string }>} */
+    const draft = [];
+    for (const item of root.querySelectorAll('[data-reason-id]')) {
+      if (!(item instanceof HTMLElement)) continue;
+      const id = item.dataset.reasonId || '';
+      if (!id || id === 'pending') continue;
+      const hours = item.querySelector('[data-reason-field="hours"]');
+      const minutes = item.querySelector('[data-reason-field="minutes"]');
+      draft.push({
+        id,
+        label: item.dataset.reasonLabel || '',
+        hours: hours instanceof HTMLInputElement ? hours.value : item.dataset.reasonHours || '',
+        minutes: minutes instanceof HTMLInputElement ? minutes.value : item.dataset.reasonMinutes || '',
+      });
+    }
+    return draft;
+  }
+
+  /**
+   * @param {{ label: string, hours: string, minutes: string }} item
+   */
+  function reasonLine(item) {
+    const parsed = reasonDurationMinutes(item.hours, item.minutes);
+    if (parsed.ok && parsed.minutes != null) {
+      const line = reasonNoteLine({ label: item.label, minutes: parsed.minutes });
+      if (line) return line;
+    }
+    return item.label;
+  }
+
+  /**
+   * @param {string} punchId
+   * @param {Array<{ id: string, label: string, minutes?: number }>} codes
+   */
+  function savePunchReasons(punchId, codes) {
+    if (!punchId) return;
+    const next = state();
+    const punches = Array.isArray(next.punches) ? next.punches : [];
+    const punch = punches.find((item) => item.id === punchId);
+    if (!punch) return;
+    const current = JSON.stringify(Array.isArray(punch.reason_codes) ? punch.reason_codes : []);
+    if (current === JSON.stringify(codes)) return;
+    next.punches = punches.map((item) => (item.id === punchId ? { ...item, reason_codes: codes } : item));
+    writeState(next);
+  }
+
+  /**
+   * @param {HTMLElement} box
+   */
+  function persistReasonBox(box) {
+    const key = `${box.dataset.reasonFor || ''}:${box.dataset.reasonAction || ''}`;
+    const root = box.closest('.kiosk-card-row') || box;
+    const draft = reasonDrafts.get(key) || readReasonDraft(root);
+    reasonDrafts.set(key, draft);
+    const built = reasonCodesFromDraft(draft);
+    if (!built.ok) return;
+    savePunchReasons(box.dataset.punchId || '', built.codes);
+    const run = box.dataset.reasonFor || '';
+    const action = box.dataset.reasonAction || '';
+    if (run && (action === 'in' || action === 'out')) void publishNoteShare(run, action);
+  }
+
+  /**
+   * Saved reasons, one line each, under the notes for this row.
+   * @param {HTMLElement} list
+   * @param {Array<{ id: string, label: string, hours: string, minutes: string }>} draft
+   * @param {(item: { id: string, label: string, hours: string, minutes: string }) => void} onRemove
+   */
+  function paintReasonNotes(list, draft, onRemove) {
+    list.replaceChildren();
+    list.hidden = draft.length === 0;
+    for (const item of draft) {
+      const row = document.createElement('li');
+      row.dataset.reasonId = item.id;
+      row.dataset.reasonLabel = item.label;
+      row.dataset.reasonHours = item.hours;
+      row.dataset.reasonMinutes = item.minutes;
+      const text = document.createElement('span');
+      text.textContent = reasonLine(item);
+      text.title = text.textContent;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'secondary';
+      remove.textContent = 'Remove';
+      remove.setAttribute('aria-label', `Remove ${item.label}`);
+      remove.addEventListener('click', () => onRemove(item));
+      row.append(text, remove);
+      list.append(row);
+    }
+  }
+
+  /**
+   * The reason stays a small adder. A reason and a time become a notes line.
+   * @param {{ run: string, action: 'in' | 'out', label: string }} slot
+   * @param {string} punchId
+   * @param {Array<{ id: string, label: string, hours: string, minutes: string }>} draft
+   * @param {HTMLElement} notes
+   */
+  function renderCardReason(slot, punchId, draft, notes) {
+    const key = `${slot.run}:${slot.action}`;
+    const pending = reasonPending.get(key) || { id: '', hours: '', minutes: '' };
+    const box = document.createElement('div');
+    box.className = 'kiosk-card-reason';
+    box.dataset.reasonFor = slot.run;
+    box.dataset.reasonAction = slot.action;
+    if (punchId) box.dataset.punchId = punchId;
+    const caption = document.createElement('span');
+    caption.textContent = 'Reason';
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', `Reason for ${slot.label}`);
+    const time = document.createElement('div');
+    time.className = 'kiosk-card-reason-time';
+    const minutesLabel = document.createElement('label');
+    const minutes = document.createElement('input');
+    minutes.type = 'number';
+    minutes.min = '0';
+    minutes.max = String(24 * 60);
+    minutes.step = '1';
+    minutes.inputMode = 'numeric';
+    minutes.value = pending.minutes;
+    minutes.dataset.reasonFor = slot.run;
+    minutes.dataset.reasonAction = slot.action;
+    minutes.dataset.reasonId = 'pending';
+    minutes.dataset.reasonField = 'minutes';
+    minutes.setAttribute('aria-label', `Minutes for ${slot.label}`);
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'secondary';
+    add.textContent = 'Add';
+    const hint = document.createElement('p');
+    hint.className = 'kiosk-card-reason-hint';
+    hint.hidden = true;
+    hint.setAttribute('role', 'status');
+    minutesLabel.append('Minutes', minutes);
+    time.append(minutesLabel, add);
+    box.append(caption, select, time, hint);
+
+    const rememberPending = () => {
+      reasonPending.set(key, { id: select.value, hours: '', minutes: minutes.value });
+    };
+
+    const fillSelect = () => {
+      const taken = new Set(draft.map((item) => item.id));
+      const current = select.value || pending.id;
+      select.replaceChildren();
+      const blank = document.createElement('option');
+      blank.value = '';
+      const available = catalog().filter((code) => !taken.has(code.id));
+      blank.textContent = catalog().length ? (available.length ? 'Choose a reason' : 'All reasons added') : 'No reasons yet';
+      select.append(blank);
+      for (const code of available) {
+        const option = document.createElement('option');
+        option.value = code.id;
+        option.textContent = code.label;
+        select.append(option);
+      }
+      select.disabled = available.length === 0;
+      add.disabled = available.length === 0;
+      minutes.disabled = available.length === 0;
+      if (available.some((code) => code.id === current)) select.value = current;
+    };
+
+    const paintNotes = () => {
+      paintReasonNotes(notes, draft, (item) => {
+        const index = draft.indexOf(item);
+        if (index >= 0) draft.splice(index, 1);
+        reasonDrafts.set(key, draft);
+        paintNotes();
+        fillSelect();
+        persistReasonBox(box);
+      });
+    };
+
+    const commit = () => {
+      if (!noteEditingOpen()) return;
+      const id = select.value;
+      const code = catalog().find((item) => item.id === id);
+      const parsed = reasonDurationMinutes('', minutes.value);
+      const ready = parsed.ok && parsed.minutes != null && parsed.minutes >= 1;
+      minutes.setAttribute('aria-invalid', ready ? 'false' : 'true');
+      if (!code || draft.some((item) => item.id === code.id)) {
+        hint.hidden = false;
+        hint.textContent = 'Choose a reason.';
+        select.focus();
+        return;
+      }
+      if (!parsed.ok) {
+        hint.hidden = false;
+        hint.textContent = 'Use whole minutes, up to 1440.';
+        minutes.focus();
+        return;
+      }
+      if (parsed.minutes == null || parsed.minutes < 1) {
+        hint.hidden = false;
+        hint.textContent = 'Enter the minutes.';
+        minutes.focus();
+        return;
+      }
+      draft.push({
+        id: code.id,
+        label: code.label,
+        hours: '',
+        minutes: String(parsed.minutes),
+      });
+      reasonDrafts.set(key, draft);
+      reasonPending.delete(key);
+      pending.id = '';
+      pending.hours = '';
+      pending.minutes = '';
+      select.value = '';
+      minutes.value = '';
+      minutes.setAttribute('aria-invalid', 'false');
+      hint.hidden = true;
+      hint.textContent = '';
+      paintNotes();
+      fillSelect();
+      persistReasonBox(box);
+      if (!select.disabled) select.focus();
+    };
+
+    select.addEventListener('change', () => {
+      hint.hidden = true;
+      rememberPending();
+    });
+    minutes.addEventListener('input', () => {
+      hint.hidden = true;
+      minutes.setAttribute('aria-invalid', reasonDurationMinutes('', minutes.value).ok ? 'false' : 'true');
+      rememberPending();
+    });
+    minutes.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      commit();
+    });
+    add.addEventListener('click', commit);
+
+    fillSelect();
+    paintNotes();
+    return box;
+  }
+
+  /**
+   * @param {{ run: string, action: 'in' | 'out', label: string, punched: boolean }} slot
+   * @param {Array<{ id?: string, clock: string, replaced: boolean, note: string, workType: string, punchedAt: string, reasonCodes?: object[] }>} times
+   * @param {{ run: string } | null} open
+   */
+  function renderCardRow(slot, times, open) {
+    const row = document.createElement('div');
+    row.className = 'kiosk-card-row';
+    if (open?.run === slot.run && slot.action === 'in') row.classList.add('is-open');
+    const current = [...times].reverse().find((item) => !item.replaced) || times[times.length - 1];
+    const key = `${slot.run}:${slot.action}`;
+    const notesCol = document.createElement('div');
+    notesCol.className = 'kiosk-card-notes-col';
+    const noteLine = document.createElement('div');
+    noteLine.className = 'kiosk-card-note-line';
+    const comment = document.createElement('label');
+    comment.className = 'kiosk-card-comment';
+    const caption = document.createElement('span');
+    caption.textContent = 'Notes';
+    const area = document.createElement('textarea');
+    area.dataset.noteFor = slot.run;
+    area.dataset.noteAction = slot.action;
+    area.maxLength = NOTE_MAX;
+    area.rows = 3;
+    area.autocomplete = 'off';
+    area.autocorrect = 'off';
+    area.autocapitalize = 'off';
+    area.spellcheck = false;
+    area.setAttribute('aria-label', `Notes for ${slot.label}`);
+    area.value = noteDrafts.has(key) ? noteDrafts.get(key) || '' : current?.note || '';
+    comment.append(caption, area);
+    const reasonNotes = document.createElement('ul');
+    reasonNotes.className = 'kiosk-card-notes';
+    reasonNotes.hidden = true;
+    noteLine.append(comment);
+    notesCol.append(noteLine, reasonNotes);
+    const reasonDraft = reasonDrafts.has(key) ? reasonDrafts.get(key) || [] : reasonsToDraft(current?.reasonCodes);
+    if (!reasonDrafts.has(key)) reasonDrafts.set(key, reasonDraft);
+    const reason = renderCardReason(slot, current?.id || '', reasonDraft, reasonNotes);
+    const kind = document.createElement('p');
+    kind.className = 'kiosk-card-kind';
+    kind.append(slot.label);
+    const work = slot.run === 'OTHER' ? workTypeLabel(current?.workType) : '';
+    if (work) {
+      const detail = document.createElement('span');
+      detail.textContent = work;
+      kind.append(detail);
+    }
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.punch = slot.run;
+    button.dataset.action = slot.action;
+    if (times.length) {
+      button.className = 'kiosk-card-stamp';
+      const timeLine = document.createElement('span');
+      timeLine.className = 'kiosk-punch-time';
+      const spoken = [];
+      for (const item of [...times].reverse()) {
+        const stamp = document.createElement(item.replaced ? 's' : 'span');
+        stamp.textContent = item.clock;
+        timeLine.append(stamp);
+        spoken.push(item.replaced ? `${item.clock}, replaced` : item.clock);
+      }
+      button.append(timeLine);
+      button.setAttribute('aria-label', `${slot.label} at ${spoken.join(' and ')}`);
+    } else {
+      button.className = 'kiosk-card-punch';
+      const word = document.createElement('span');
+      word.className = 'kiosk-punch-word';
+      word.textContent = 'Punch';
+      const live = document.createElement('span');
+      live.className = 'kiosk-punch-live';
+      live.textContent = kioskLiveClock(new Date());
+      button.append(word, live);
+    }
+    row.append(notesCol, reason, kind, button);
+    return row;
   }
 
   function focusNextPunch() {
@@ -3034,8 +3758,21 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       run = segment === 'am' ? 'AM' : segment === 'midday' ? 'MIDDAY' : 'PM';
       action = 'in';
     }
-    const button = kioskRunChoice?.querySelector(`[data-punch="${run}"][data-action="${action}"]`);
+    const match = kioskCard?.querySelector(`[data-punch="${run}"][data-action="${action}"].kiosk-card-punch`);
+    const button = match instanceof HTMLElement ? match : kioskCard?.querySelector('.kiosk-card-punch');
     if (button instanceof HTMLElement) button.focus();
+  }
+
+  function openOtherWork() {
+    if (!selected || !unlocked) return;
+    pendingAction = 'in';
+    pendingRun = 'OTHER';
+    clearWorkType();
+    const area = document.querySelector('#kiosk-note-OTHER');
+    if (area instanceof HTMLTextAreaElement) area.value = '';
+    syncPunchPanels();
+    const first = kioskWorkOptions?.querySelector('input');
+    if (first instanceof HTMLElement) first.focus();
   }
 
   /**
@@ -3056,6 +3793,60 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       return;
     }
     punch(action, chosen);
+  }
+
+  /**
+   * Punches already saved today for this route and this clock in or clock out.
+   * @param {'in' | 'out'} action
+   * @param {string} run
+   */
+  function punchesAlreadyThere(action, run) {
+    if (!selected) return [];
+    const today = localDateKey(new Date());
+    const wanted = selected.name.trim().toLowerCase();
+    return (Array.isArray(state().punches) ? state().punches : [])
+      .filter((punch) => {
+        if (punch?.removed === true || punch.action !== action) return false;
+        if (String(punch.driver_name || '').trim().toLowerCase() !== wanted) return false;
+        if (normalizePunchRun(punch.run) !== run) return false;
+        const when = new Date(punch.punched_at);
+        return !Number.isNaN(when.getTime()) && localDateKey(when) === today;
+      })
+      .sort((a, b) => String(a.punched_at).localeCompare(String(b.punched_at)));
+  }
+
+  /**
+   * @param {'in' | 'out'} action
+   * @param {string} run
+   * @param {object[]} existing
+   */
+  function openReplaceConfirm(action, run, existing) {
+    const panel = document.querySelector('#kiosk-replace-confirm');
+    const text = document.querySelector('#kiosk-replace-confirm-text');
+    if (!panel || !text) {
+      punch(action, run, true);
+      return;
+    }
+    const verb = action === 'in' ? 'clocked in' : 'clocked out';
+    const route = run === 'OTHER' ? 'Other' : `the ${punchRunLabel(run)}`;
+    const times = existing.map((punch) => clockedAtText(punch.punched_at)).filter(Boolean);
+    const when =
+      times.length <= 1
+        ? times[0] || ''
+        : `${times.slice(0, -1).join(', ')} and ${times[times.length - 1]}`;
+    text.textContent = when
+      ? `You already ${verb} for ${route} at ${when}. Are you sure?`
+      : `You already ${verb} for ${route}. Are you sure?`;
+    replacePending = { action, run };
+    panel.hidden = false;
+    const yes = document.querySelector('#kiosk-replace-yes');
+    if (yes instanceof HTMLElement) yes.focus();
+  }
+
+  function closeReplaceConfirm() {
+    replacePending = null;
+    const panel = document.querySelector('#kiosk-replace-confirm');
+    if (panel) panel.hidden = true;
   }
 
   function payStatusForSelected(run) {
@@ -3151,22 +3942,10 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     const otherOpen = pendingRun === 'OTHER' && !chunkOpen && !leaveOpen;
     if (kioskWork) kioskWork.hidden = !otherOpen;
     if (kioskPunchLayout) kioskPunchLayout.hidden = chunkOpen || leaveOpen || otherOpen;
-    const confirm = document.querySelector('#kiosk-work-punch');
-    if (confirm) {
-      const clockingOut = pendingAction === 'out';
-      confirm.textContent = clockingOut ? 'Clock out' : 'Clock in';
-      confirm.classList.toggle('is-out', clockingOut);
-    }
     const heading = document.querySelector('#kiosk-work-heading');
-    if (heading) {
-      heading.textContent = pendingAction === 'out' ? 'Clock out of other work' : 'Clock in for other work';
-    }
+    if (heading) heading.textContent = 'Other work';
     const lead = document.querySelector('#kiosk-work-lead');
-    if (lead) {
-      lead.textContent = pendingAction === 'out'
-        ? 'Choose the kind of work, then clock out.'
-        : 'Choose the kind of work, then clock in.';
-    }
+    if (lead) lead.textContent = 'Choose the kind of work, then clock in or out.';
     if (!kioskPunchLayout?.hidden) paintRouteCards();
     syncChunkButton();
   }
@@ -3302,44 +4081,357 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return new Date(2026, 0, 1, hours || 0, minutes || 0);
   }
 
-  function syncNoteCount() {
-    if (!kioskNoteCount || !(kioskNote instanceof HTMLTextAreaElement)) return;
-    const left = NOTE_MAX - kioskNote.value.length;
-    kioskNoteCount.textContent = left === 1 ? '1 character left' : `${left} characters left`;
-    const toggle = document.querySelector('#kiosk-note-toggle');
-    const panel = document.querySelector('#kiosk-note-panel');
-    if (!(toggle instanceof HTMLButtonElement) || panel?.hidden === false) return;
-    const hasNote = kioskNote.value.trim().length > 0;
-    toggle.textContent = hasNote ? 'Edit note' : 'Add a note';
+  /**
+   * @param {string} run
+   * @param {string} action
+   */
+  function routeNoteField(run, action) {
+    const area = kioskCard?.querySelector(`textarea[data-note-for="${run}"][data-note-action="${action}"]`);
+    return area instanceof HTMLTextAreaElement ? area : null;
   }
 
   /**
-   * @param {boolean} open
+   * @param {FocusEvent} event
    */
-  function setNoteOpen(open) {
-    const panel = document.querySelector('#kiosk-note-panel');
-    const toggle = document.querySelector('#kiosk-note-toggle');
-    if (panel) panel.hidden = !open;
-    if (toggle instanceof HTMLButtonElement) {
-      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-      const hasNote = kioskNote instanceof HTMLTextAreaElement && kioskNote.value.trim().length > 0;
-      toggle.textContent = open ? 'Hide note' : hasNote ? 'Edit note' : 'Add a note';
-    }
-    if (open && kioskNote instanceof HTMLTextAreaElement) kioskNote.focus();
+  function onNoteBlur(event) {
+    if (paintingCard) return;
+    const area = event.target;
+    if (!(area instanceof HTMLTextAreaElement)) return;
+    const run = area.dataset.noteFor || '';
+    const action = area.dataset.noteAction || '';
+    if (!run || (action !== 'in' && action !== 'out')) return;
+    if (!noteEditingOpen()) return;
+    if (area.value.length > NOTE_MAX) area.value = area.value.slice(0, NOTE_MAX);
+    noteDrafts.set(`${run}:${action}`, area.value);
+    if (selected) savePunchNote(run, action, area.value);
+    if (selected) void publishNoteShare(run, action);
+  }
+
+  /**
+   * @param {string} run
+   * @param {string} action
+   * @param {string} raw
+   */
+  function savePunchNote(run, action, raw) {
+    if (!selected || (action !== 'in' && action !== 'out')) return;
+    const note = assertNote(String(raw || '').slice(0, NOTE_MAX));
+    const existing = punchesAlreadyThere(action, run);
+    const punch = existing[existing.length - 1];
+    if (!punch || String(punch.note || '') === note) return;
+    const next = state();
+    next.punches = (Array.isArray(next.punches) ? next.punches : []).map((item) =>
+      item.id === punch.id ? { ...item, note } : item
+    );
+    writeState(next);
   }
 
   function clearKioskNote() {
-    if (kioskNote instanceof HTMLTextAreaElement) {
-      kioskNote.maxLength = NOTE_MAX;
-      kioskNote.value = '';
+    noteDrafts.clear();
+    reasonDrafts.clear();
+    reasonPending.clear();
+    const panel = document.querySelector('#kiosk-note-OTHER');
+    if (panel instanceof HTMLTextAreaElement) {
+      panel.maxLength = NOTE_MAX;
+      panel.value = '';
     }
-    syncNoteCount();
-    setNoteOpen(false);
   }
 
-  function kioskNoteText() {
-    if (!(kioskNote instanceof HTMLTextAreaElement)) return '';
-    return assertNote(kioskNote.value.slice(0, NOTE_MAX));
+  /**
+   * @param {string} run
+   * @param {string} action
+   */
+  function kioskNoteText(run, action) {
+    const panelOpen = run === 'OTHER' && kioskWork instanceof HTMLElement && kioskWork.hidden === false;
+    const panel = document.querySelector('#kiosk-note-OTHER');
+    if (panelOpen && panel instanceof HTMLTextAreaElement) {
+      return assertNote(panel.value.slice(0, NOTE_MAX));
+    }
+    const area = routeNoteField(run, action);
+    if (area) return assertNote(area.value.slice(0, NOTE_MAX));
+    const draft = noteDrafts.get(`${run}:${action}`);
+    return draft ? assertNote(draft.slice(0, NOTE_MAX)) : '';
+  }
+
+  /**
+   * @param {Array<{ id: string, label: string, minutes?: number }>} reasons
+   */
+  function reasonShareKey(reasons) {
+    return JSON.stringify(
+      reasons.map((reason) => ({
+        id: reason.id,
+        minutes: reason.minutes == null ? null : reason.minutes,
+      }))
+    );
+  }
+
+  /**
+   * @param {string} run
+   * @param {'in' | 'out'} action
+   */
+  function rowIsBeingEdited(run, action) {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !(kioskCard instanceof HTMLElement)) return false;
+    if (active instanceof HTMLTextAreaElement && active.dataset.noteFor === run && active.dataset.noteAction === action) {
+      return true;
+    }
+    const box = kioskCard.querySelector(`[data-reason-for="${run}"][data-reason-action="${action}"]`);
+    return box instanceof HTMLElement && box.contains(active);
+  }
+
+  function noteEditingOpen(date = new Date()) {
+    const defaults = payLineDefaults();
+    return payPeriodStillOpen(date, defaults.periods, new Date(), defaults.periodEndsAt);
+  }
+
+  function noteEditDeadline() {
+    const defaults = payLineDefaults();
+    const deadline = payPeriodDeadline(new Date(), defaults.periods, defaults.periodEndsAt);
+    return deadline ? deadline.toISOString() : new Date(0).toISOString();
+  }
+
+  function lockNoteEditors() {
+    const open = noteEditingOpen();
+    if (!(kioskCard instanceof HTMLElement)) return;
+    const controls = kioskCard.querySelectorAll(
+      'textarea[data-note-for], .kiosk-card-reason select, .kiosk-card-reason input, .kiosk-card-reason button, .kiosk-card-notes button'
+    );
+    for (const control of controls) {
+      if (
+        !(
+          control instanceof HTMLInputElement ||
+          control instanceof HTMLTextAreaElement ||
+          control instanceof HTMLSelectElement ||
+          control instanceof HTMLButtonElement
+        )
+      ) {
+        continue;
+      }
+      control.disabled = !open;
+      control.title = open ? '' : 'This pay period has ended.';
+    }
+  }
+
+  /**
+   * @param {string} run
+   * @param {'in' | 'out'} action
+   */
+  async function openNoteShare(run, action) {
+    if (!selected) return null;
+    const response = await fetch('/api/clock-note', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        driverName: selected.name,
+        run,
+        action,
+        date: localDateString(new Date()),
+        editableUntil: noteEditDeadline(),
+        note: kioskNoteText(run, action),
+        reasons: kioskReasonCodes(run, action),
+        catalog: catalog().map((code) => ({ id: code.id, label: code.label })),
+      }),
+    });
+    if (!response.ok) return null;
+    return response.json();
+  }
+
+  /**
+   * @param {string} run
+   * @param {'in' | 'out'} action
+   * @param {{ note?: string, reasons?: Array<{ id: string, label: string, minutes?: number }> }} slot
+   */
+  function applySharedNote(run, action, slot) {
+    const key = `${run}:${action}`;
+    const note = String(slot.note || '');
+    noteDrafts.set(key, note);
+    const area = routeNoteField(run, action);
+    if (area && area.value !== note) area.value = note;
+    savePunchNote(run, action, note);
+    const reasons = Array.isArray(slot.reasons) ? slot.reasons : [];
+    const previous = reasonShareKey(kioskReasonCodes(run, action));
+    reasonDrafts.set(key, reasonsToDraft(reasons));
+    reasonPending.delete(key);
+    const box = kioskCard?.querySelector(`[data-reason-for="${run}"][data-reason-action="${action}"]`);
+    const punchId = box instanceof HTMLElement ? box.dataset.punchId || '' : '';
+    savePunchReasons(punchId, reasons);
+    return previous !== reasonShareKey(reasons);
+  }
+
+  /**
+   * Punched rows on the open card, in the order the driver sees them.
+   * @returns {Array<{ run: string, action: 'in' | 'out', clock: string }>}
+   */
+  function punchedNoteRows() {
+    if (!(kioskCard instanceof HTMLElement)) return [];
+    /** @type {Array<{ run: string, action: 'in' | 'out', clock: string }>} */
+    const rows = [];
+    for (const row of kioskCard.querySelectorAll('.kiosk-card-row')) {
+      const stamp = row.querySelector('.kiosk-card-stamp');
+      const area = row.querySelector('textarea[data-note-for]');
+      if (!(stamp instanceof HTMLElement) || !(area instanceof HTMLTextAreaElement)) continue;
+      const run = area.dataset.noteFor || '';
+      const action = area.dataset.noteAction || '';
+      if (!run || (action !== 'in' && action !== 'out')) continue;
+      const clocks = [...stamp.querySelectorAll('.kiosk-punch-time span, .kiosk-punch-time s')]
+        .map((item) => item.textContent?.trim() || '')
+        .filter(Boolean);
+      rows.push({ run, action: action === 'in' ? 'in' : 'out', clock: clocks.join(', ') });
+    }
+    return rows;
+  }
+
+  async function paintDayQr(token) {
+    if (!(kioskDayQrCode instanceof HTMLCanvasElement) || !kioskDayQr) return;
+    const link = String(token || '').trim();
+    if (!link) {
+      hideDayQr();
+      return;
+    }
+    let origin = '';
+    try {
+      origin = await loadShareOrigin();
+    } catch {
+      origin = '';
+    }
+    if (!origin && location.origin) origin = location.origin;
+    const url = noteDayUrl(origin, link);
+    if (!url) {
+      hideDayQr();
+      return;
+    }
+    if (noteDayUrlSeen !== url) {
+      try {
+        await QRCode.toCanvas(kioskDayQrCode, url, {
+          width: 288,
+          margin: 1,
+          color: { dark: '#102824', light: '#ffffff' },
+        });
+        noteDayUrlSeen = url;
+        kioskDayQrCode.dataset.dayUrl = url;
+      } catch {
+        hideDayQr();
+        return;
+      }
+    }
+    kioskDayQr.hidden = false;
+  }
+
+  /**
+   * @param {Array<{ run: string, action: 'in' | 'out', clock: string }>} rows
+   */
+  async function openDayShare(rows) {
+    if (!selected) return null;
+    const response = await fetch('/api/clock-note-day', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        driverName: selected.name,
+        date: localDateString(new Date()),
+        editableUntil: noteEditDeadline(),
+        catalog: catalog().map((code) => ({ id: code.id, label: code.label })),
+        rows: rows.map((row) => ({
+          run: row.run,
+          action: row.action,
+          clock: row.clock,
+          note: kioskNoteText(row.run, row.action),
+          reasons: kioskReasonCodes(row.run, row.action),
+        })),
+      }),
+    });
+    if (!response.ok) return null;
+    return response.json();
+  }
+
+  async function syncNoteShares() {
+    if (noteShareSyncing || applyingSharedNote || paintingCard) return;
+    if (!selected || kiosk.hidden || kioskActions.hidden || !(kioskCard instanceof HTMLElement)) return;
+    const slots = punchedNoteRows();
+    noteShareSyncing = true;
+    let reasonsChanged = false;
+    try {
+      for (const slot of slots) {
+        const opened = await openNoteShare(slot.run, slot.action);
+        if (!selected) return;
+        if (!opened) continue;
+        const key = `${slot.run}:${slot.action}`;
+        noteShareTokens.set(key, String(opened.token || ''));
+        const remoteReasons = Array.isArray(opened.reasons) ? opened.reasons : [];
+        const same =
+          kioskNoteText(slot.run, slot.action) === String(opened.note || '') &&
+          reasonShareKey(kioskReasonCodes(slot.run, slot.action)) === reasonShareKey(remoteReasons);
+        if (same || rowIsBeingEdited(slot.run, slot.action)) {
+          if (same) {
+            noteShareSeen.set(key, {
+              revision: Number(opened.revision) || 1,
+              note: String(opened.note || ''),
+              reasons: reasonShareKey(remoteReasons),
+            });
+          }
+          continue;
+        }
+        if (applySharedNote(slot.run, slot.action, opened)) reasonsChanged = true;
+        noteShareSeen.set(key, {
+          revision: Number(opened.revision) || 1,
+          note: String(opened.note || ''),
+          reasons: reasonShareKey(remoteReasons),
+        });
+      }
+      if (reasonsChanged) {
+        applyingSharedNote = true;
+        paintRouteCards();
+        applyingSharedNote = false;
+      }
+      const day = await openDayShare(slots);
+      if (day?.token) {
+        noteDayToken = String(day.token);
+        await paintDayQr(noteDayToken);
+      }
+      lockNoteEditors();
+    } catch {
+      // The clock keeps working when the phone link is unavailable.
+    } finally {
+      noteShareSyncing = false;
+      applyingSharedNote = false;
+    }
+  }
+
+  /**
+   * @param {string} run
+   * @param {string} action
+   */
+  async function publishNoteShare(run, action) {
+    if (!selected || paintingCard || applyingSharedNote || (action !== 'in' && action !== 'out')) return;
+    if (!noteEditingOpen()) return;
+    const key = `${run}:${action}`;
+    const note = kioskNoteText(run, action);
+    const reasons = kioskReasonCodes(run, action);
+    const seen = noteShareSeen.get(key);
+    if (seen && seen.note === note && seen.reasons === reasonShareKey(reasons)) return;
+    try {
+      const opened = await openNoteShare(run, action);
+      if (!opened?.token) return;
+      noteShareTokens.set(key, String(opened.token));
+      const send = (revision) =>
+        fetch(`/api/clock-note/${encodeURIComponent(opened.token)}`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ revision, note, reasons }),
+        });
+      let response = await send(Number(opened.revision) || 1);
+      let body = await response.json().catch(() => null);
+      if (response.status === 409 && body?.revision != null) {
+        response = await send(body.revision);
+        body = await response.json().catch(() => null);
+      }
+      if (!response.ok || !body) return;
+      noteShareSeen.set(key, {
+        revision: Number(body.revision) || 1,
+        note: String(body.note || ''),
+        reasons: reasonShareKey(Array.isArray(body.reasons) ? body.reasons : []),
+      });
+    } catch {
+      // A missed phone update can be sent again the next time the note changes.
+    }
   }
 
   function onPinInput() {
@@ -3394,7 +4486,10 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
         if (punch?.action !== 'out' || punch.removed === true) return false;
         if (String(punch.driver_name || '').trim().toLowerCase() !== driver) return false;
         const when = new Date(punch.punched_at);
-        return payPeriodStillOpen(when, payPeriods(), now) && sessionForClockOut(punches, punch.id);
+        return (
+          payPeriodStillOpen(when, payPeriods(), now, payLineDefaults().periodEndsAt) &&
+          sessionForClockOut(punches, punch.id)
+        );
       })
       .sort((a, b) => String(b.punched_at).localeCompare(String(a.punched_at)));
   }
@@ -3590,11 +4685,27 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     error.textContent = message || '';
   }
 
-  function finishTimecard(message) {
-    const name = substituteName || selected?.name || '';
+  /**
+   * Stay on this driver's punch card after a punch or timecard.
+   * @param {string} [message]
+   */
+  function returnToPunchCard(message) {
     hideTimecard();
-    showList();
-    if (message) showPunchConfirm(name, message);
+    if (!selected) {
+      showList();
+      if (message) showPunchConfirm(substituteName, message);
+      return;
+    }
+    clearKioskRun();
+    paintLeaveNote();
+    refreshTimecardButton();
+    paintDriverHeading(selected);
+    if (message) showPunchConfirm(substituteName || selected.name, message);
+    focusNextPunch();
+  }
+
+  function finishTimecard(message) {
+    returnToPunchCard(message);
   }
 
   function leaveTimecard() {
@@ -3602,21 +4713,15 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       showTimecardChoices();
       return;
     }
-    const message = timecardDoneMessage;
-    const name = substituteName || selected?.name || '';
-    hideTimecard();
     if (timecardReturn === 'roster') {
-      showList();
-      if (name) showPunchConfirm(name, message || 'Clocked out');
+      returnToPunchCard(timecardDoneMessage || 'Clocked out');
+      return;
     }
+    hideTimecard();
   }
 
   function skipTimecard() {
-    const message = timecardDoneMessage;
-    const name = substituteName || selected?.name || '';
-    hideTimecard();
-    showList();
-    if (name) showPunchConfirm(name, message || 'Clocked out');
+    returnToPunchCard(timecardDoneMessage || 'Clocked out');
   }
 
   function saveTimecard() {
@@ -3647,6 +4752,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
           entries,
           catalog: catalog(),
           periods: payPeriods(),
+          periodEndsAt: payLineDefaults().periodEndsAt,
         }),
         timecardPunchId,
         tripTicket
@@ -3764,6 +4870,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     setLeaveRequestError('');
     syncPunchPanels();
     refreshTimecardButton();
+    paintLeaveNote();
     if (wasOpen) focusNextPunch();
   }
 
@@ -3771,6 +4878,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
    * @param {string} [run]
    */
   function openLeaveRequest(run) {
+    if (!LEAVE_REQUESTS_ENABLED) return;
     const panel = leaveRequestPanel();
     if (!panel || !selected) return;
     closeChunkPanel();
@@ -3794,7 +4902,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   }
 
   function saveLeaveFromKiosk() {
-    if (!selected) return;
+    if (!LEAVE_REQUESTS_ENABLED || !selected) return;
     const { date, run } = leaveSelection();
     const hours = document.querySelector('#kiosk-leave-request-hours');
     const mins = document.querySelector('#kiosk-leave-request-minutes');
@@ -3842,8 +4950,10 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
 
   /**
    * @param {'in' | 'out'} action
+   * @param {string} run
+   * @param {boolean} [confirmed]
    */
-  function punch(action, run) {
+  function punch(action, run, confirmed = false) {
     if (!selected || !unlocked) return;
     const chosen = normalizePunchRun(run);
     const error = document.querySelector('#kiosk-run-error');
@@ -3874,6 +4984,12 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       if (kioskTripTicket instanceof HTMLInputElement) kioskTripTicket.focus();
       return;
     }
+    const existing = punchesAlreadyThere(action, chosen);
+    if (!confirmed && existing.length) {
+      openReplaceConfirm(action, chosen, existing);
+      return;
+    }
+    closeReplaceConfirm();
     const payStatus = payStatusForSelected(chosen);
     const next = state();
     const punches = Array.isArray(next.punches) ? next.punches : [];
@@ -3883,14 +4999,21 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       driver_name: selected.name,
       action,
       punched_at: new Date().toISOString(),
-      note: kioskNoteText(),
-      reason_codes: [],
+      note: kioskNoteText(chosen, action),
+      reason_codes: kioskReasonCodes(chosen, action),
       run: chosen,
     };
     if (workType) record.work_type = workType;
     if (tripTicket) record.trip_ticket = tripTicket;
     if (payStatus) record.pay_status = payStatus;
     if (substituteName) record.substitute_name = substituteName;
+    noteDrafts.delete(`${chosen}:${action}`);
+    reasonDrafts.delete(`${chosen}:${action}`);
+    reasonPending.delete(`${chosen}:${action}`);
+    if (chosen === 'OTHER') {
+      const panel = document.querySelector('#kiosk-note-OTHER');
+      if (panel instanceof HTMLTextAreaElement) panel.value = '';
+    }
     next.punches = [...punches, record];
     if (action === 'in' && (chosen === 'AM' || chosen === 'MIDDAY' || chosen === 'PM')) {
       next.leaveRequests = dropLeaveForClockIn(next.leaveRequests, {
@@ -3901,6 +5024,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       next.drivers = applyLeaveRequests(next.drivers, next.leaveRequests);
     }
     writeState(next);
+    if (selected) paintDriverHeading(selected);
     playPunchSound(
       punchSoundFor(
         action === 'in' ? next.clockPunchSoundIn : next.clockPunchSoundOut,
@@ -3921,16 +5045,25 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       openTimecardForm(record.id, 'roster');
       return;
     }
-    showList();
-    showPunchConfirm(displayName, detail);
+    returnToPunchCard(detail);
   }
 
   function tick() {
-    kioskNow.textContent = new Date().toLocaleTimeString(undefined, {
-      hour: 'numeric',
-      minute: '2-digit',
-      second: '2-digit',
+    const now = new Date();
+    const dateLine = document.querySelector('#kiosk-now-date');
+    const timeLine = document.querySelector('#kiosk-now-time');
+    const dateText = now.toLocaleDateString(undefined, {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
     });
+    const timeText = kioskLiveClock(now);
+    if (dateLine) dateLine.textContent = dateText;
+    if (timeLine) timeLine.textContent = timeText;
+    if (kioskCard) {
+      for (const live of kioskCard.querySelectorAll('.kiosk-punch-live')) live.textContent = timeText;
+    }
     if (localDateString() !== rosterDate && !kiosk.hidden && !kioskList.hidden) renderRoster();
     paintRosterLate();
   }
@@ -4103,6 +5236,11 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       kioskLeaveCode.focus();
       return;
     }
+    exitKiosk();
+  }
+
+  /** Temporary: Back skips the lock code while testing. */
+  function exitKiosk() {
     const external = isExternalTimeclockSearch(location.search);
     sessionStorage.removeItem(LOCK_KEY);
     hidePunchConfirm();
@@ -4161,6 +5299,9 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   renderPayBrowser();
   renderSummaryTools();
   fillPunchSounds();
+  setInterval(() => {
+    void syncNoteShares();
+  }, 2000);
 
   return { refresh };
 }

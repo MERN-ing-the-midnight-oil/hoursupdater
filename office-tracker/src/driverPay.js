@@ -106,6 +106,20 @@ export function normalizePayPeriods(value) {
 }
 
 /**
+ * Clock time when a pay period stops accepting notes and reasons.
+ * 23:59 keeps the last day open through the end of that day.
+ * @param {unknown} value
+ */
+export function normalizePeriodEndsAt(value) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(String(value ?? '').trim());
+  if (!match) return '23:59';
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return '23:59';
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+/**
  * @param {unknown} periods
  * @returns {'split' | 'month' | 'custom'}
  */
@@ -496,6 +510,7 @@ export function normalizeClockPayDefaults(value) {
     jobTitle: clip(source.jobTitle, DEFAULT_JOB_TITLE, 40),
     location: clip(source.location, DEFAULT_LOCATION, 40),
     periods: normalizePayPeriods(source.periods),
+    periodEndsAt: normalizePeriodEndsAt(source.periodEndsAt),
     lines,
   };
 }

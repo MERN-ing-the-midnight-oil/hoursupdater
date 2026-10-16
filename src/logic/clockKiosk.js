@@ -41,6 +41,7 @@ export const KIOSK_COOKIE = 'clock_kiosk';
  * @typedef {{
  *   id: string,
  *   label: string,
+ *   minutes?: number,
  * }} PunchReasonCode
  *
  * @typedef {{
@@ -155,7 +156,11 @@ function normalizePunchReasonCodes(raw) {
     if (!id || !label) fail('Each reason code needs a name.');
     if (seen.has(id)) continue;
     seen.add(id);
-    codes.push({ id, label });
+    /** @type {PunchReasonCode} */
+    const code = { id, label };
+    const minutes = Number(record.minutes);
+    if (Number.isInteger(minutes) && minutes >= 0 && minutes <= 24 * 60) code.minutes = minutes;
+    codes.push(code);
   }
   return codes;
 }
@@ -178,6 +183,20 @@ export function normalizeReasonCodeList(raw) {
 }
 
 /**
+ * Keep a recorded length of time when the reason stays on the punch.
+ * @param {{ id: string, label: string }} code
+ * @param {{ minutes?: number } | undefined} kept
+ * @returns {PunchReasonCode}
+ */
+function reasonWithMinutes(code, kept) {
+  const minutes = Number(kept?.minutes);
+  if (Number.isInteger(minutes) && minutes >= 0 && minutes <= 24 * 60) {
+    return { id: code.id, label: code.label, minutes };
+  }
+  return { id: code.id, label: code.label };
+}
+
+/**
  * Keep codes already stored on the record when they have left the office list.
  * New picks must still be on that list.
  * @param {PunchReasonCode[]} current
@@ -197,13 +216,13 @@ export function selectReasonCodes(current, rawIds, catalog) {
     if (!id || seen.has(id)) continue;
     seen.add(id);
     const fromList = live.get(id);
+    const kept = previous.get(id);
     if (fromList) {
-      next.push({ id: fromList.id, label: fromList.label });
+      next.push(reasonWithMinutes(fromList, kept));
       continue;
     }
-    const kept = previous.get(id);
     if (kept) {
-      next.push(kept);
+      next.push(reasonWithMinutes(kept, kept));
       continue;
     }
     fail('That reason code is not on the list.');
@@ -350,7 +369,9 @@ export function relabelReasonCode(punches, codeId, label) {
   const text = String(label || '').trim();
   return normalizePunchLog(punches).map((punch) => ({
     ...punch,
-    reason_codes: punch.reason_codes.map((code) => (code.id === id ? { id, label: text } : code)),
+    reason_codes: punch.reason_codes.map((code) =>
+      code.id === id ? reasonWithMinutes({ id, label: text }, code) : code
+    ),
   }));
 }
 

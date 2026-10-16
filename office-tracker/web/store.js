@@ -115,7 +115,22 @@ export function normalizeClockSubstituteDrivers(raw) {
  */
 function normalizePunchReasons(raw) {
   if (!Array.isArray(raw)) return [];
-  return normalizeClockReasonCodes(raw).filter((code) => code.id && code.label);
+  /** @type {Array<{ id: string, label: string, minutes?: number }>} */
+  const codes = [];
+  const seen = new Set();
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const id = String(item.id || '').trim();
+    const label = String(item.label || '').trim();
+    if (!id || !label || label.length > REASON_LABEL_MAX || seen.has(id)) continue;
+    seen.add(id);
+    /** @type {{ id: string, label: string, minutes?: number }} */
+    const code = { id, label };
+    const minutes = Number(item.minutes);
+    if (Number.isInteger(minutes) && minutes >= 0 && minutes <= 24 * 60) code.minutes = minutes;
+    codes.push(code);
+  }
+  return codes;
 }
 
 /**

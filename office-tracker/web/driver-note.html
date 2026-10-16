@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#0c665c" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Clock notes</title>
+    <link rel="icon" href="./favicon.ico" sizes="48x48" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./office.css" />
+  </head>
+  <body class="driver-note-page">
+    <header class="driver-note-head">
+      <p class="app-name">Teamster Tracker</p>
+      <h1 id="driver-note-title">Clock notes</h1>
+      <p id="driver-note-lead" class="driver-note-lead">
+        Change the notes and reasons for this clock. Clocking in and out stays on the timeclock.
+      </p>
+    </header>
+    <p id="driver-note-status" class="status" role="status">Loading this note…</p>
+    <button type="button" id="driver-note-back" class="secondary driver-note-back" hidden>Today's punches</button>
+    <section id="driver-note-day" hidden>
+      <ul id="driver-note-rows" class="driver-note-rows"></ul>
+    </section>
+    <form id="driver-note-form" hidden>
+      <label class="driver-note-field">
+        Notes
+        <textarea id="driver-note-text" rows="5" maxlength="500" autocomplete="off"></textarea>
+      </label>
+      <section class="driver-note-reasons" aria-label="Reasons">
+        <h2>Reason</h2>
+        <ul id="driver-note-reason-list"></ul>
+        <div class="driver-note-add">
+          <label>
+            Reason
+            <select id="driver-note-reason"></select>
+          </label>
+          <label>
+            Minutes
+            <input id="driver-note-minutes" type="number" min="1" max="1440" step="1" inputmode="numeric" />
+          </label>
+          <button type="button" id="driver-note-add" class="secondary">Add</button>
+        </div>
+        <p id="driver-note-reason-hint" class="driver-note-hint" hidden></p>
+      </section>
+    </form>
+    <script type="module" src="./driver-note.js"></script>
+  </body>
+</html>

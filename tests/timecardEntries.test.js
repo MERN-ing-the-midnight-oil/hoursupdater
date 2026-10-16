@@ -4,6 +4,7 @@ import { setTimecardEntries } from '../office-tracker/src/officePunches.js';
 import {
   formatTimecardMinutes,
   normalizeTimecardEntries,
+  reasonNoteLine,
   payPeriodStillOpen,
   sessionForClockOut,
   timecardEntryError,
@@ -101,6 +102,8 @@ test('a driver cannot change codes after the pay period ends, and the office can
   const clockOut = new Date(2026, 9, 9, 10, 0);
   assert.equal(payPeriodStillOpen(clockOut, periods, new Date(2026, 9, 15, 23, 0)), true);
   assert.equal(payPeriodStillOpen(clockOut, periods, new Date(2026, 9, 16, 0, 1)), false);
+  assert.equal(payPeriodStillOpen(clockOut, periods, new Date(2026, 9, 15, 16, 59), '17:00'), true);
+  assert.equal(payPeriodStillOpen(clockOut, periods, new Date(2026, 9, 15, 17, 1), '17:00'), false);
   assert.throws(
     () =>
       setTimecardEntries(punches, 'out', {
@@ -134,6 +137,13 @@ test('a driver cannot change codes after the pay period ends, and the office can
       }),
     /note/i
   );
+});
+
+test('a reason becomes a note line only after it has a time', () => {
+  assert.equal(reasonNoteLine({ label: 'Traffic', minutes: 75 }), 'Traffic · 1 hour 15 minutes');
+  assert.equal(reasonNoteLine({ label: 'Bus Wash', minutes: 1 }), 'Bus Wash · 1 minute');
+  assert.equal(reasonNoteLine({ label: 'Weather' }), '');
+  assert.equal(reasonNoteLine({ label: 'Weather', minutes: 0 }), '');
 });
 
 test('saved timecard codes stay on the clock-out', () => {

@@ -14,8 +14,10 @@
 
 import { formatClockAmPm } from '../../employee-tracker/src/clockTimes.js';
 import { roundClockToQuarterHour } from '../../src/logic/timeUtils.js';
-import { localDateKey, pairClockPunches, runForClockPair } from '../../src/logic/timesheets.js';
+import { localDateKey, pairClockPunches, replacedClockPunchIds, runForClockPair } from '../../src/logic/timesheets.js';
 import { clockNoteText } from '../../src/logic/workTypes.js';
+import { reasonNoteLine } from './timecardEntries.js';
+import { assignmentOnDate, routeAssignments, sameDriver } from './assignments.js';
 import { normalizeClockPayDefaults, normalizeDriverPay, normalizeTimeSummaryEdits, paySlicesForPair } from './driverPay.js';
 import { payrollDriverRows, payrollRowsForDriver, quarterHoursFromDailyMinutes, sumRoundedQuarterHours } from './payrollTimes.js';
 import { overtimeForPairs, pairOvertimeKey } from './overtimeRules.js';
@@ -175,6 +177,64 @@ export function payPeriodsForClocks(punches, periods, now) {
     ending: row.ending,
     days: row.days,
   }));
+}
+
+/**
+ * @param {string} day
+ */
+function punchedAtForDay(day) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(day || '').slice(0, 10));
+  if (!match) return '';
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0).toISOString();
+}
+
+/**
+ * Days that should pull a pay period onto this driver's list: when they took
+ * a route, and when a contract change was recorded for them.
+ * @param {object | null | undefined} officeState
+ * @param {string} driverName
+ */
+function routeAnchorDates(officeState, driverName) {
+  /** @type {string[]} */
+  const dates = [];
+  if (!driverName || !officeState?.profiles) return dates;
+  for (const profile of Object.values(officeState.profiles)) {
+    for (const stint of routeAssignments(profile)) {
+      if (sameDriver(stint.driver_name, driverName)) dates.push(stint.from);
+    }
+    for (const event of profile?.changeLog ?? []) {
+      const dated = String(event?.effective_date || event?.adjusted_at || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dated)) continue;
+      const named = String(event?.driver_name || '').trim();
+      const holder = named || assignmentOnDate(profile, dated)?.driver_name || '';
+      if (sameDriver(holder, driverName)) dates.push(dated);
+    }
+  }
+  return dates;
+}
+
+/**
+ * Pay periods for one driver, newest first. Clocks, the day they took a route,
+ * and contract changes all count. The list still runs through the current month.
+ * With none of those, it is the current month only.
+ * @param {object | null | undefined} officeState
+ * @param {string} driverName
+ * @param {Array<{ id: string, startDay: number, endDay: number }>} periods
+ * @param {Date} [now]
+ */
+export function payPeriodsForDriver(officeState, driverName, periods, now = new Date()) {
+  const name = String(driverName || '').trim().toLowerCase();
+  const punches = name
+    ? (officeState?.punches || []).filter(
+        (punch) => String(punch?.driver_name || '').trim().toLowerCase() === name
+      )
+    : [];
+  const anchors = punches.map((punch) => ({ punched_at: punch?.punched_at, removed: punch?.removed }));
+  for (const day of routeAnchorDates(officeState, driverName)) {
+    const punched_at = punchedAtForDay(day);
+    if (punched_at) anchors.push({ punched_at });
+  }
+  return payPeriodsForClocks(anchors, periods, now);
 }
 
 /**
@@ -380,7 +440,7 @@ const CONTRACT_RUNS = [
  * @param {string} label
  */
 /**
- * Notes an admin should see with one clock: the clock note, a trip ticket, and office notes.
+ * Notes an admin should see with one clock: the clock note, each reason that has a time, and office notes.
  * @param {object | null | undefined} punch
  * @param {string} side
  * @param {string} clock
@@ -396,6 +456,10 @@ function clockTimeNotes(punch, side, clock) {
       const trimmed = line.trim();
       if (trimmed) notes.push({ when, text: trimmed });
     }
+  }
+  for (const code of Array.isArray(punch?.reason_codes) ? punch.reason_codes : []) {
+    const line = reasonNoteLine(code);
+    if (line) notes.push({ when, text: line });
   }
   const edits = Array.isArray(punch?.office_edits) ? punch.office_edits : [];
   for (const edit of edits) {
@@ -436,6 +500,21 @@ function contractChangeNotes(officeState, driverName, date) {
     }
   }
   return notes;
+}
+
+/**
+ * The contracted run that matches one clock period, when this day has one.
+ * @param {Array<{ runs?: Array<{ label?: string, writtenIn?: string, writtenOut?: string, hours?: string }> }>} routes
+ * @param {string} run
+ */
+function contractRunFor(routes, run) {
+  const label = run === 'MIDDAY' ? 'Midday' : run === 'AM' || run === 'PM' ? run : '';
+  if (!label) return null;
+  for (const route of routes || []) {
+    const match = (route.runs || []).find((item) => item.label === label);
+    if (match && (match.writtenIn || match.writtenOut || match.hours)) return match;
+  }
+  return null;
 }
 
 function stepRow(step, label) {
@@ -647,6 +726,7 @@ export function buildMonthlySummaryMath(options) {
     (punch) => String(punch?.driver_name || '').trim().toLowerCase() === wanted
   );
   const { pairs, unpaired } = pairClockPunches(punches);
+  const replacedIds = replacedClockPunchIds(punches);
   const overtimeByPair = overtimeForPairs(pairs, options.overtimeRules);
   const edits = normalizeTimeSummaryEdits(options.edits);
   const driverEdits = edits[summary.driverId] || {};
@@ -661,7 +741,9 @@ export function buildMonthlySummaryMath(options) {
       const match = /^(\d{4})-(\d{2})-[1-9]$/.exec(period.key);
       const date = match ? new Date(Number(match[1]), Number(match[2]) - 1, day) : new Date();
       const key = localDateKey(date);
+      const routes = contractRoutesForDay(options.officeState, driverName, date, rounding);
       const dayPairs = pairs.filter((pair) => localDateKey(pair.start) === key);
+      const claimedRuns = new Set();
       const pairRows = dayPairs.map((pair) => {
         const rawIn = clockFromDate(pair.start);
         const rawOut = clockFromDate(pair.end);
@@ -669,9 +751,20 @@ export function buildMonthlySummaryMath(options) {
         const snapped = clockQuarterStep(rawIn, rawOut, true);
         const shown = clockQuarterStep(rawIn, rawOut, rounding);
         const overtime = overtimeByPair.get(pairOvertimeKey(pair));
+        const run = runForClockPair(pair);
+        const claimContract = Boolean(run) && !claimedRuns.has(run);
+        if (claimContract) claimedRuns.add(run);
+        const contract = claimContract ? contractRunFor(routes, run) : null;
+        const countedHours = shown?.quarterHours ?? snapped?.quarterHours ?? null;
         return {
           ...stepRow(shown, ''),
-          run: runForClockPair(pair),
+          run,
+          roundedIn: snapped ? formatClockAmPm(snapped.usedIn) : '',
+          roundedOut: snapped ? formatClockAmPm(snapped.usedOut) : '',
+          contractIn: contract?.writtenIn || '',
+          contractOut: contract?.writtenOut || '',
+          contractHours: contract?.hours || '',
+          exDriver: contract ? exHoursDifference(countedHours, contract.hours) : '',
           actualMinutes: plain?.minutes ?? null,
           roundedMinutes: plain?.snappedMinutes ?? null,
           snapMinutes: snapped?.minutes ?? null,
@@ -720,12 +813,25 @@ export function buildMonthlySummaryMath(options) {
           };
         });
       const shownPairs = pairRows.filter((row) => row.writtenIn || row.writtenOut);
+      const replacedClocks = punches
+        .filter((punch) => replacedIds.has(String(punch?.id || '')))
+        .map((punch) => {
+          const punched = new Date(punch.punched_at);
+          return { punch, punched };
+        })
+        .filter((item) => !Number.isNaN(item.punched.getTime()) && localDateKey(item.punched) === key)
+        .sort((a, b) => a.punched.getTime() - b.punched.getTime() || String(a.punch.id).localeCompare(String(b.punch.id)))
+        .map((item) => ({
+          action: item.punch.action === 'out' ? 'out' : 'in',
+          clock: formatClockAmPm(clockFromDate(item.punched)),
+        }));
       return {
         day,
         dateLabel: date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }),
-        routes: contractRoutesForDay(options.officeState, driverName, date, rounding),
+        routes,
         contractHours,
         pairs: shownPairs,
+        replacedClocks,
         clockedHours: formatQuarterHourText(clockedNumber),
         residual,
         typed,

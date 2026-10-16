@@ -5,9 +5,10 @@
 
 import { addOfficePunch, assignClockPeriodPay, changeOfficePunch, removeOfficePunch, setTimecardEntries } from '../src/officePunches.js';
 import { formatTimecardMinutes, normalizeTimecardEntries, sessionForClockOut, timecardSummary } from '../src/timecardEntries.js';
-import { pairClockPunches, punchRunLabel } from '../../src/logic/timesheets.js';
+import { pairClockPunches, punchRunLabel, replacedClockPunchIds } from '../../src/logic/timesheets.js';
 import { clockNoteText, normalizeStoredWorkPortions, normalizeTripTicket, stampTripTicket, TRIP_TICKET_WORK_TYPE, workTypeLabel } from '../../src/logic/workTypes.js';
 import { buildDriverClockRecord, CLOCK_RECORD_COLUMNS } from '../src/driverClockRecord.js';
+import { LEAVE_REQUESTS_ENABLED } from '../src/leaveRequests.js';
 import {
   CLOCK_IN_TYPES,
   driverPayStatusChoices,
@@ -594,7 +595,7 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
       normalizeClockPayDefaults(state.clockPayDefaults).periods,
       openDriver,
       officeNow(),
-      state.leaveRequests
+      LEAVE_REQUESTS_ENABLED ? state.leaveRequests : []
     );
     if (recordJumps) {
       recordJumps.replaceChildren();
@@ -910,10 +911,11 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     return button;
   }
 
-  function displayRow(punch) {
+  function displayRow(punch, replaced = false) {
     const row = document.createElement('tr');
     row.classList.add(punch.action === 'out' ? 'is-punch-out' : 'is-punch-in');
     if (punch.removed) row.classList.add('is-removed');
+    if (replaced && !punch.removed) row.classList.add('is-replaced-clock');
     const when = document.createElement('td');
     when.textContent = formatWhen(punch.punched_at);
     const note = document.createElement('td');
@@ -921,7 +923,12 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     note.textContent = clockNoteText(punch);
     const reasons = document.createElement('td');
     const coded = (Array.isArray(punch.reason_codes) ? punch.reason_codes : [])
-      .map((code) => code.label)
+      .map((code) => {
+        const label = String(code?.label || '').trim();
+        if (!label) return '';
+        const minutes = Number(code?.minutes);
+        return Number.isInteger(minutes) && minutes >= 0 ? `${label} (${formatTimecardMinutes(minutes)})` : label;
+      })
       .filter(Boolean);
     const timed = timecardSummary(normalizeTimecardEntries(punch.timecard_entries));
     reasons.style.whiteSpace = 'pre-line';
@@ -1542,12 +1549,13 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
       table.append(row);
       return;
     }
+    const replaced = replacedClockPunchIds(punchesFromState());
     for (const punch of punches) {
       if (editingId === punch.id && editDraft && !punch.removed) table.append(editRow(punch));
       else if (removingId === punch.id && !punch.removed) table.append(removeRow(punch));
       else if (payEditingId === punch.id && payDraft && !punch.removed) table.append(payRow(punch));
       else if (timecardEditingId === punch.id && timecardDraft && !punch.removed) table.append(timecardRow(punch));
-      else table.append(displayRow(punch));
+      else table.append(displayRow(punch, replaced.has(String(punch.id || ''))));
     }
     if (focusSelector) {
       const target = table.querySelector(focusSelector);
@@ -1561,9 +1569,21 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     const previous = new Map(
       (Array.isArray(existing) ? existing : [])
         .filter((code) => code && code.id && code.label)
-        .map((code) => [code.id, { id: code.id, label: code.label }])
+        .map((code) => [code.id, code])
     );
-    return ids.map((id) => catalog.get(id) || previous.get(id)).filter(Boolean);
+    return ids
+      .map((id) => {
+        const fromList = catalog.get(id);
+        const kept = previous.get(id);
+        const source = fromList || kept;
+        if (!source) return null;
+        /** @type {{ id: string, label: string, minutes?: number }} */
+        const next = { id: source.id, label: source.label };
+        const minutes = Number(kept?.minutes);
+        if (Number.isInteger(minutes) && minutes >= 0 && minutes <= 24 * 60) next.minutes = minutes;
+        return next;
+      })
+      .filter(Boolean);
   }
 
   function rememberTypedName(typedName) {

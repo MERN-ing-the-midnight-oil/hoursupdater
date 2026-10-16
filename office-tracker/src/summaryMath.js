@@ -140,12 +140,18 @@ function pairAt(day, index) {
 /**
  * @param {number} index
  * @param {number} total
- * @param {'in' | 'out' | 'actual' | 'rounded' | 'snap' | 'actual-ot' | 'rounded-ot' | 'snap-ot'} kind
+ * @param {'in' | 'out' | 'rounded-in' | 'rounded-out' | 'contract-in' | 'contract-out' | 'contract-hours' | 'ex-driver' | 'actual' | 'rounded' | 'snap' | 'actual-ot' | 'rounded-ot' | 'snap-ot'} kind
  */
 function slotLabel(index, total, kind) {
   const suffix = total > 1 ? ` ${index + 1}` : '';
   if (kind === 'in') return `Clock In${suffix}`;
   if (kind === 'out') return `Clock Out${suffix}`;
+  if (kind === 'rounded-in') return `Rounded clock in${suffix}`;
+  if (kind === 'rounded-out') return `Rounded clock out${suffix}`;
+  if (kind === 'contract-in') return `Contracted clock in${suffix}`;
+  if (kind === 'contract-out') return `Contracted clock out${suffix}`;
+  if (kind === 'contract-hours') return `Contracted hours${suffix}`;
+  if (kind === 'ex-driver') return `EX DRIVER${suffix}`;
   if (kind === 'actual') return `Actual minutes${suffix}`;
   if (kind === 'rounded') return `Quarter-hour minutes${suffix}`;
   if (kind === 'actual-ot') return `Actual overtime minutes${suffix}`;
@@ -355,14 +361,10 @@ function mathRow(row, label, days, value, className = '', tipFor) {
  */
 export function renderMonthlySummaryMathHtml(model) {
   const driverName = String(model?.driverName || 'Driver');
-  const rounding = normalizeClockRounding(
-    model && Object.prototype.hasOwnProperty.call(model, 'rounding') ? model.rounding : model?.roundClocks
-  );
-  const overtimeRules = normalizeOvertimeRules(model?.overtimeRules);
   const email = String(model?.email || '').trim();
   const periods = Array.isArray(model?.periods) ? model.periods : [];
   const periodLabel = periods.map((period) => period.label).filter(Boolean).join('; ');
-  const sheets = periods.map((period) => periodTable(driverName, period, rounding, overtimeRules)).join('');
+  const sheets = payPeriodInfoMarkup(model);
   const title = `Driver Pay period info — ${driverName}`;
   return `<!DOCTYPE html>
 <html lang="en">
@@ -397,6 +399,8 @@ export function renderMonthlySummaryMathHtml(model) {
     tr.ot th, tr.ot td { background: #fde8ea; }
     tr.pair-a.ot th, tr.pair-a.ot td { background: #f8d4d8; }
     tr.pair-b.ot th, tr.pair-b.ot td { background: #f8e4cc; }
+    tr.replaced th, tr.replaced td { background: #f6f1e6; color: #4e463c; }
+    tr.replaced s { text-decoration: line-through; }
     tr.ot.used th, tr.ot.used td { background: #ffe08a; font-weight: 700; }
     td[data-math] { cursor: help; }
     #math-hover { position: fixed; z-index: 5; max-width: 18rem; padding: 0.45rem 0.6rem; background: #1c1e22; color: #fff; border-radius: 6px; font-size: 13px; line-height: 1.35; pointer-events: none; box-shadow: 0 8px 20px rgba(0,0,0,0.2); }
@@ -535,6 +539,56 @@ function clockNotesSection(days) {
   return `<section class="clock-notes"><h2>Clock notes</h2><ul>${rows}</ul></section>`;
 }
 
+/**
+ * The pay-period tables, including clock notes, without the printable page chrome.
+ * @param {Parameters<typeof renderMonthlySummaryMathHtml>[0]} model
+ */
+export function payPeriodInfoMarkup(model) {
+  const driverName = String(model?.driverName || 'Driver');
+  const rounding = normalizeClockRounding(
+    model && Object.prototype.hasOwnProperty.call(model, 'rounding') ? model.rounding : model?.roundClocks
+  );
+  const overtimeRules = normalizeOvertimeRules(model?.overtimeRules);
+  const periods = Array.isArray(model?.periods) ? model.periods : [];
+  return periods.map((period) => periodTable(driverName, period, rounding, overtimeRules)).join('');
+}
+
+/**
+ * One row for each earlier clock time a later punch replaced.
+ * The counted time stays on Clock In or Clock Out. This cell keeps the old time.
+ * @param {Array<{ day: number, replacedClocks?: Array<{ action?: string, clock?: string }> }>} days
+ */
+function earlierClockRows(days) {
+  return ['in', 'out']
+    .map((action) => {
+      const total = days.reduce((max, day) => {
+        const count = (day.replacedClocks || []).filter((item) => item?.action === action && item.clock).length;
+        return Math.max(max, count);
+      }, 0);
+      return Array.from({ length: total }, (_, index) => {
+        const suffix = total > 1 ? ` ${index + 1}` : '';
+        const label = action === 'out' ? `Earlier clock out${suffix}` : `Earlier clock in${suffix}`;
+        const noun = action === 'out' ? 'clock out' : 'clock in';
+        return mathRow(
+          `earlier-${action}-${index}`,
+          label,
+          days,
+          (day) => {
+            const item = (day.replacedClocks || []).filter((entry) => entry?.action === action && entry.clock)[index];
+            return item?.clock ? `<s>${escapeHtml(item.clock)}</s>` : '';
+          },
+          'replaced',
+          (day) => {
+            const item = (day.replacedClocks || []).filter((entry) => entry?.action === action && entry.clock)[index];
+            if (!item?.clock) return '';
+            return `${item.clock} is an earlier ${noun}. It is not counted. The later time on this day is the one that counts. Remove that later time in Clock records if this is the real one.`;
+          }
+        );
+      }).join('');
+    })
+    .join('');
+}
+
 function periodTable(driverName, period, rounding, overtimeRules) {
   const days = Array.isArray(period.days) ? period.days : [];
   const head = days.map((day) => `<th scope="col">${day.day}</th>`).join('');
@@ -545,8 +599,8 @@ function periodTable(driverName, period, rounding, overtimeRules) {
       const id = `pair-${slot.index}`;
       const find = (day) => pairAt(day, slot.index);
       const band = slot.index % 2 === 0 ? 'pair-a' : 'pair-b';
-      /** @type {Array<'in' | 'out' | 'actual' | 'rounded' | 'snap' | 'actual-ot' | 'rounded-ot' | 'snap-ot'>} */
-      const kinds = ['in', 'out', 'actual'];
+      /** @type {Array<'in' | 'out' | 'rounded-in' | 'rounded-out' | 'contract-in' | 'contract-out' | 'contract-hours' | 'ex-driver' | 'actual' | 'rounded' | 'snap' | 'actual-ot' | 'rounded-ot' | 'snap-ot'>} */
+      const kinds = ['in', 'out', 'rounded-in', 'rounded-out', 'contract-in', 'contract-out', 'contract-hours', 'ex-driver', 'actual'];
       if (rounding === 'separate') kinds.push('rounded');
       kinds.push('snap');
       if (slotHasOvertime(days, slot.index)) {
@@ -566,11 +620,27 @@ function periodTable(driverName, period, rounding, overtimeRules) {
             (kind === 'actual-ot' && rounding === 'daily')
               ? 'used'
               : '';
-          const className = ['pair', band, edge, overtime ? 'ot' : '', used].filter(Boolean).join(' ');
+          const className = [
+            'pair',
+            band,
+            edge,
+            overtime ? 'ot' : '',
+            used,
+            kind === 'contract-in' || kind === 'contract-out' || kind === 'contract-hours' ? 'contract' : '',
+            kind === 'ex-driver' ? 'ex' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
           const value = (day) => {
             const pair = find(day);
             if (kind === 'in') return escapeHtml(pair?.writtenIn || '');
             if (kind === 'out') return escapeHtml(pair?.writtenOut || '');
+            if (kind === 'rounded-in') return escapeHtml(pair?.roundedIn || '');
+            if (kind === 'rounded-out') return escapeHtml(pair?.roundedOut || '');
+            if (kind === 'contract-in') return escapeHtml(pair?.contractIn || '');
+            if (kind === 'contract-out') return escapeHtml(pair?.contractOut || '');
+            if (kind === 'contract-hours') return escapeHtml(pair?.contractHours || '');
+            if (kind === 'ex-driver') return escapeHtml(pair?.exDriver || '');
             if (kind === 'actual') return minuteText(pair?.actualMinutes);
             if (kind === 'rounded') return minuteText(pair?.roundedMinutes);
             if (kind === 'actual-ot') return overtimeMinuteText(pair, 'actualOvertimeMinutes');
@@ -586,6 +656,7 @@ function periodTable(driverName, period, rounding, overtimeRules) {
         .join('');
     })
     .join('');
+  const earlier = earlierClockRows(days);
   const billable = mathRow(
     'billable',
     'Total billable clock hours',
@@ -612,6 +683,7 @@ function periodTable(driverName, period, rounding, overtimeRules) {
         </thead>
         <tbody>
           ${clockRows}
+          ${earlier}
           ${billable}
           ${contract}
           ${exHours}

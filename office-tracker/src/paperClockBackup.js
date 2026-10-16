@@ -4,6 +4,8 @@
  * Year-to-date is a separate download of every clock record since January 1.
  */
 
+import { formatTimecardMinutes } from './timecardEntries.js';
+
 export const DEFAULT_BACKUP_HOURS = 24;
 export const MIN_BACKUP_HOURS = 1;
 export const MAX_BACKUP_HOURS = 24 * 31;
@@ -507,7 +509,12 @@ export function paperBackupCsv(groups) {
     for (const punch of group.punches) {
       const at = new Date(punch.punched_at);
       const reasons = (Array.isArray(punch.reason_codes) ? punch.reason_codes : [])
-        .map((code) => String(code?.label || '').trim())
+        .map((code) => {
+          const label = String(code?.label || '').trim();
+          if (!label) return '';
+          const minutes = Number(code?.minutes);
+          return Number.isInteger(minutes) && minutes >= 0 ? `${label} (${formatTimecardMinutes(minutes)})` : label;
+        })
         .filter(Boolean)
         .join('; ');
       lines.push(

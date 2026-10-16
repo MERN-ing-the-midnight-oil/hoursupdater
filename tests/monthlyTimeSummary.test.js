@@ -13,7 +13,7 @@ import {
   paySlicesForPair,
   payStatusForClockIn,
 } from '../office-tracker/src/driverPay.js';
-import { buildMonthlySummaryMath, buildMonthlyTimeSummary, payPeriodsForClocks, renderMonthlyTimeSummaryHtml, summaryPdfBasename } from '../office-tracker/src/monthlyTimeSummary.js';
+import { buildMonthlySummaryMath, buildMonthlyTimeSummary, payPeriodsForClocks, payPeriodsForDriver, renderMonthlyTimeSummaryHtml, summaryPdfBasename } from '../office-tracker/src/monthlyTimeSummary.js';
 import { mathPdfBasename, renderMonthlySummaryMathHtml } from '../office-tracker/src/summaryMath.js';
 import { exampleOfficeState } from '../office-tracker/web/exampleRoutes.js';
 import { listDrivers, saveDriver, saveTimeSummaryEdit } from '../office-tracker/web/store.js';
@@ -776,6 +776,12 @@ test('EX DRIVER is the clocked time beyond that day contract hours', () => {
   assert.match(html, /<th scope="col">8<\/th>/);
   assert.match(html, /<th scope="row">Clock In<\/th>/);
   assert.match(html, /<th scope="row">Clock Out<\/th>/);
+  assert.match(html, /<th scope="row">Rounded clock in<\/th>/);
+  assert.match(html, /<th scope="row">Rounded clock out<\/th>/);
+  assert.match(html, /<th scope="row">Contracted clock in<\/th>/);
+  assert.match(html, /<th scope="row">EX DRIVER<\/th>/);
+  assert.match(html, /data-row="pair-0-rounded-in" data-day="8">6:00 AM</);
+  assert.match(html, /data-row="pair-0-rounded-out" data-day="8">12:45 PM</);
   assert.doesNotMatch(html, /AM Route|PM Route/);
   assert.match(html, /data-row="pair-0-in" data-day="8">6:07 AM</);
   assert.match(html, /data-row="pair-0-out" data-day="8">12:38 PM</);
@@ -818,6 +824,36 @@ test('EX DRIVER is the clocked time beyond that day contract hours', () => {
   assert.match(twoHtml, /data-row="pair-1-in" data-day="8">2:08 PM</);
   assert.match(twoHtml, /data-row="pair-1-out" data-day="8">4:40 PM</);
   assert.doesNotMatch(twoHtml, /AM Route|PM Route|Midday Route/);
+});
+
+test('a replaced clock in stays struck through in its own pay-period cell', () => {
+  const officeState = contractedRoute([
+    ['AM', '6:00-9:00'],
+    ['PM', '14:00-16:30'],
+  ]);
+  const math = buildMonthlySummaryMath({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    roundClocks: true,
+    now: new Date(2026, 9, 10, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1' },
+    officeState,
+    punches: [
+      { id: 'in-1', driver_name: 'Goofy Goof', action: 'in', run: 'AM', punched_at: new Date(2026, 9, 8, 6, 7).toISOString(), pay_status: 'ex-driver' },
+      { id: 'in-2', driver_name: 'Goofy Goof', action: 'in', run: 'AM', punched_at: new Date(2026, 9, 8, 6, 20).toISOString(), pay_status: 'ex-driver' },
+      { id: 'out', driver_name: 'Goofy Goof', action: 'out', run: 'AM', punched_at: new Date(2026, 9, 8, 9, 0).toISOString() },
+    ],
+  });
+  const eighth = math.periods[0].days.find((item) => item.day === 8);
+  assert.equal(eighth.pairs.length, 1);
+  assert.equal(eighth.pairs[0].writtenIn, '6:20 AM');
+  assert.equal(eighth.pairs[0].writtenOut, '9:00 AM');
+  assert.deepEqual(eighth.replacedClocks, [{ action: 'in', clock: '6:07 AM' }]);
+  const html = renderMonthlySummaryMathHtml(math);
+  assert.match(html, /<th scope="row">Earlier clock in<\/th>/);
+  assert.match(html, /<s>6:07 AM<\/s>/);
+  assert.match(html, /data-row="pair-0-in" data-day="8">6:20 AM</);
+  assert.match(html, /if this is the real one/);
 });
 
 test('daily rounding rounds the day once, and separate rounding rounds each clock span', () => {
@@ -1049,6 +1085,36 @@ test('a typed EX DRIVER hour replaces the residual for that day', () => {
   assert.match(html, /data-row="ex-hours" data-day="8"[^>]*>1\.25</);
 });
 
+test('a September route start lists September pay periods for that driver', () => {
+  const now = new Date(2026, 9, 14, 12, 0);
+  const office = {
+    punches: [
+      { driver_name: 'Daisy Duck', punched_at: '2026-10-14T14:54:57.407Z', action: 'in' },
+    ],
+    profiles: {
+      d07: {
+        driver_name: 'Donald Duck',
+        start_date: '2026-09-08',
+        assignments: [{ driver_name: 'Donald Duck', from: '2026-09-08', until: null }],
+        changeLog: [
+          { effective_date: '2026-09-08', driver_name: 'Donald Duck', segment: 'PM' },
+          { effective_date: '2026-09-16', driver_name: 'Donald Duck', segment: 'MIDDAY' },
+          { effective_date: '2026-09-21', driver_name: 'Donald Duck', segment: 'PM' },
+        ],
+      },
+    },
+  };
+  const donald = payPeriodsForDriver(office, 'Donald Duck', DEFAULT_PAY_PERIODS, now);
+  assert.deepEqual(donald.map((period) => period.label), [
+    'October 16–31, 2026',
+    'October 1–15, 2026',
+    'September 16–30, 2026',
+    'September 1–15, 2026',
+  ]);
+  const daisy = payPeriodsForDriver(office, 'Daisy Duck', DEFAULT_PAY_PERIODS, now);
+  assert.deepEqual(daisy.map((period) => period.key), ['2026-10-2', '2026-10-1']);
+});
+
 test('clocks from an earlier month list more than the current two pay periods', () => {
   const now = new Date(2026, 9, 10, 12, 0);
   const empty = payPeriodsForClocks([], DEFAULT_PAY_PERIODS, now);
@@ -1158,6 +1224,43 @@ test('weekend, evening, and over-eight clocks add overtime rows and a total', ()
   assert.doesNotMatch(renderMonthlySummaryMathHtml(daytime), /Actual overtime minutes/);
 });
 
+test('a reason with a time becomes its own clock note for that day', () => {
+  const math = buildMonthlySummaryMath({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    roundClocks: true,
+    now: new Date(2026, 9, 10, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1' },
+    punches: [
+      {
+        id: 'in',
+        driver_name: 'Goofy Goof',
+        action: 'in',
+        punched_at: new Date(2026, 9, 8, 6, 7).toISOString(),
+        note: 'Left the yard late.',
+        reason_codes: [
+          { id: 'reason-traffic', label: 'Traffic', minutes: 75 },
+          { id: 'reason-weather', label: 'Weather' },
+        ],
+      },
+      {
+        id: 'out',
+        driver_name: 'Goofy Goof',
+        action: 'out',
+        punched_at: new Date(2026, 9, 8, 9, 0).toISOString(),
+      },
+    ],
+  });
+  const day = math.periods[0].days.find((item) => item.day === 8);
+  const texts = day.notes.map((note) => note.text);
+  assert.ok(texts.includes('Left the yard late.'));
+  assert.ok(texts.includes('Traffic · 1 hour 15 minutes'));
+  assert.equal(texts.includes('Weather'), false);
+  const reason = day.notes.find((note) => note.text.startsWith('Traffic'));
+  assert.equal(reason.when, 'Clock in 6:07 AM');
+  assert.match(renderMonthlySummaryMathHtml(math), /Traffic · 1 hour 15 minutes/);
+});
+
 test('driver pay period info lists clock notes and office notes', () => {
   const math = buildMonthlySummaryMath({
     driverName: 'Goofy Goof',
@@ -1240,5 +1343,10 @@ test('Donald Duck has a full September 1–15 example with a mid-period contract
   assert.match(html, /Parent was late at the last stop\./);
   assert.match(html, /Left the yard a few minutes late\./);
   assert.match(html, /Covered one extra stop after the regular PM\./);
+  assert.match(html, /<th scope="row">Rounded clock in 1<\/th>/);
+  assert.match(html, /<th scope="row">Contracted hours 2<\/th>/);
+  assert.match(html, /<th scope="row">EX DRIVER 2<\/th>/);
+  assert.match(html, /data-row="pair-1-ex-driver" data-day="10"[^>]*>0\.50</);
+  assert.match(html, /<h2>Clock notes<\/h2>/);
   assert.doesNotMatch(html, />math</i);
 });

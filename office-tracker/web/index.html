@@ -261,16 +261,6 @@
                 </svg>
                 DRIVER INFO
               </button>
-              <button type="button" class="secondary payroll-tool payroll-summary-launch" data-payroll-tool aria-expanded="false" aria-controls="summary-tool">
-                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <rect x="3" y="4" width="18" height="16" rx="2" />
-                  <path d="M3 9h18" />
-                  <path d="M3 14h18" />
-                  <path d="M9 9v11" />
-                  <path d="M15 9v11" />
-                </svg>
-                Driver Pay period info
-              </button>
               <div class="payroll-settings" role="group" aria-label="Payroll settings">
               <button type="button" class="secondary payroll-tool" data-payroll-tool aria-expanded="false" aria-controls="pay-period-settings">
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#payroll-gear"></use></svg>
@@ -321,22 +311,18 @@
                 </table>
               </div>
             </div>
-            <div id="summary-tool" class="payroll-tool-panel" hidden>
+            <div id="summary-tool" class="payroll-tool-panel">
               <h2 class="payroll-summary-heading">Driver Pay period info</h2>
               <p class="field-hint">
                 For a driver whose only pay status is EX DRIVER.
                 Choose that driver and a pay period.
-                The columns are the days in that period.
-                Each clock in and clock out pair has its own rows. Quarter-hour minutes show only when that rounding is selected. A pair that is partly or entirely overtime also shows actual overtime minutes, and the rounded overtime minutes when that rounding method applies. Contract hours sit just under the total billable clock hours. EX HOURS is the billable hours minus the contract hours and can be negative. Total OT is at the bottom. Clock notes from that period are listed under the table.
+                Each clock period shows the actual clock in and clock out, the rounded clock times, the contracted time for that run, and EX DRIVER for that run.
+                The day total sits under those rows. Clock notes for the period are listed under the table.
               </p>
               <form id="math-maker-form" class="clock-form summary-maker" novalidate>
                 <div class="field">
                   <label for="math-driver">EX DRIVER</label>
                   <select id="math-driver" required></select>
-                </div>
-                <div class="field">
-                  <label for="math-month">Month</label>
-                  <input id="math-month" type="month" required />
                 </div>
                 <div class="field">
                   <label for="math-period">Pay period</label>
@@ -348,14 +334,20 @@
                 </div>
                 <p id="math-maker-status" class="status" role="status" hidden></p>
               </form>
+              <div id="pay-period-info" class="pay-period-info"></div>
             </div>
             <div id="pay-period-settings" class="payroll-tool-panel" hidden>
               <h2>Pay period dates</h2>
               <p class="field-hint">
                 These calendar days are the columns on one sheet. The usual periods are days 1–15, or days 16 through the last day of the month.
                 A whole month is days 1 through 31. Day 31 means the last day that month has.
+                Notes and reasons can be changed until the end time on the last day.
               </p>
               <form id="pay-period-form" class="clock-form" data-pay-period-form novalidate>
+                <label class="pay-period-end-time">
+                  Pay period ends at
+                  <input type="time" data-pay-period-ends-at value="23:59" />
+                </label>
                 <div class="pay-period-presets">
                   <button type="button" class="secondary" id="pay-period-split" data-pay-period-split>Use days 1–15 and 16–end</button>
                   <button type="button" class="secondary" id="pay-period-month" data-pay-period-month>Use days 1–31</button>
@@ -1163,8 +1155,13 @@
             These calendar days are the columns on a payroll sheet. The usual periods are days 1–15, or days 16 through the last day of the month.
             A whole month is days 1 through 31. Day 31 means the last day that month has.
             Saving here changes the same dates on Payroll.
+            Notes and reasons can be changed until the end time on the last day.
           </p>
           <form id="clocking-pay-period-form" class="clock-form" data-pay-period-form novalidate>
+            <label class="pay-period-end-time">
+              Pay period ends at
+              <input type="time" data-pay-period-ends-at value="23:59" />
+            </label>
             <div class="pay-period-presets">
               <button type="button" class="secondary" data-pay-period-split>Use days 1–15 and 16–end</button>
               <button type="button" class="secondary" data-pay-period-month>Use days 1–31</button>
@@ -1726,7 +1723,10 @@
 
     <div id="timeclock-kiosk" class="timeclock-kiosk" hidden>
       <div class="kiosk-top">
-        <p id="kiosk-now" class="kiosk-now"></p>
+        <p id="kiosk-now" class="kiosk-now">
+          <span id="kiosk-now-date" class="kiosk-now-date"></span>
+          <span id="kiosk-now-time" class="kiosk-now-time"></span>
+        </p>
         <div class="kiosk-top-tools">
           <button type="button" class="secondary" id="kiosk-substitute">Substitute Drivers</button>
           <button type="button" class="secondary" id="kiosk-fill-screen" hidden title="Fills the monitor this window is on">
@@ -1746,9 +1746,33 @@
                 spellcheck="false"
               />
             </label>
+            <!-- Temporary testing bypass. Remove with #kiosk-leave-back. -->
+            <button type="button" class="secondary" id="kiosk-leave-back">Back</button>
             <button type="submit" class="secondary">Leave</button>
             <p id="kiosk-leave-error" class="status is-error" role="alert"></p>
           </form>
+        </div>
+        <div class="kiosk-header-codes">
+          <aside id="kiosk-day-qr" class="kiosk-clock-qr" hidden>
+            <canvas
+              id="kiosk-day-qr-code"
+              width="288"
+              height="288"
+              role="img"
+              aria-label="QR code. Scan with a phone to edit notes and reasons for today's punches."
+            ></canvas>
+            <p>Today's notes</p>
+          </aside>
+          <aside id="kiosk-clock-qr" class="kiosk-clock-qr" hidden>
+            <canvas
+              id="kiosk-clock-qr-code"
+              width="288"
+              height="288"
+              role="img"
+              aria-label="QR code. Scan with a phone to open this driver's clock records."
+            ></canvas>
+            <p>Your clock records</p>
+          </aside>
         </div>
       </div>
       <section id="kiosk-list">
@@ -1764,28 +1788,20 @@
         </p>
       </section>
       <section id="kiosk-detail" hidden>
-        <div class="kiosk-detail-top">
-          <button type="button" class="secondary" id="kiosk-back">All drivers</button>
-        </div>
         <div class="kiosk-driver-hero">
+          <button type="button" class="secondary" id="kiosk-back">All drivers</button>
           <img id="kiosk-driver-photo" alt="" hidden />
           <div class="kiosk-driver-copy">
             <h2 id="kiosk-driver"></h2>
             <p id="kiosk-clock-state" class="kiosk-clock-state" role="status"></p>
             <p id="kiosk-routes" class="kiosk-assigned"></p>
+            <p id="kiosk-leave-note" class="kiosk-leave-note" hidden></p>
             <p id="kiosk-covering" class="kiosk-covering" hidden></p>
             <p id="kiosk-substitute-who" class="kiosk-covering" hidden></p>
           </div>
-          <aside id="kiosk-clock-qr" class="kiosk-clock-qr" hidden>
-            <p>Your clock records</p>
-            <canvas
-              id="kiosk-clock-qr-code"
-              width="288"
-              height="288"
-              role="img"
-              aria-label="QR code. Scan with a phone to open this driver's clock records."
-            ></canvas>
-          </aside>
+          <div class="kiosk-hero-side">
+            <button type="button" id="kiosk-done" class="kiosk-done">I'm done</button>
+          </div>
         </div>
         <form id="kiosk-pin-form" autocomplete="off">
           <label>
@@ -1809,69 +1825,21 @@
         <div id="kiosk-actions" class="kiosk-actions" hidden>
           <div class="kiosk-punch-layout">
             <div id="kiosk-run-choice" class="kiosk-route-board">
-              <div class="kiosk-route-grid">
-                <article class="kiosk-route-card" data-run="AM">
-                  <h3>AM route</h3>
-                  <p class="kiosk-route-state"></p>
-                  <div class="kiosk-route-actions">
-                    <button type="button" class="kiosk-punch-in" data-punch="AM" data-action="in" aria-label="Clock in for the AM route">Clock in</button>
-                    <button type="button" class="kiosk-punch-out" data-punch="AM" data-action="out" aria-label="Clock out of the AM route">Clock out</button>
-                  </div>
-                </article>
-                <article class="kiosk-route-card" data-run="MIDDAY">
-                  <h3>Mid day route</h3>
-                  <p class="kiosk-route-state"></p>
-                  <div class="kiosk-route-actions">
-                    <button type="button" class="kiosk-punch-in" data-punch="MIDDAY" data-action="in" aria-label="Clock in for the Mid day route">Clock in</button>
-                    <button type="button" class="kiosk-punch-out" data-punch="MIDDAY" data-action="out" aria-label="Clock out of the Mid day route">Clock out</button>
-                  </div>
-                </article>
-                <article class="kiosk-route-card" data-run="PM">
-                  <h3>PM route</h3>
-                  <p class="kiosk-route-state"></p>
-                  <div class="kiosk-route-actions">
-                    <button type="button" class="kiosk-punch-in" data-punch="PM" data-action="in" aria-label="Clock in for the PM route">Clock in</button>
-                    <button type="button" class="kiosk-punch-out" data-punch="PM" data-action="out" aria-label="Clock out of the PM route">Clock out</button>
-                  </div>
-                </article>
-                <article class="kiosk-route-card" data-run="OTHER">
-                  <h3>Other</h3>
-                  <p class="kiosk-route-state">Trips and other paid time</p>
-                  <div class="kiosk-route-actions">
-                    <button type="button" class="kiosk-punch-in" data-punch="OTHER" data-action="in" aria-label="Clock in for other work">Clock in</button>
-                    <button type="button" class="kiosk-punch-out" data-punch="OTHER" data-action="out" aria-label="Clock out of other work">Clock out</button>
-                  </div>
-                </article>
-              </div>
+              <div id="kiosk-card" class="kiosk-card" aria-label="Today's clock card"></div>
               <p id="kiosk-run-error" class="status is-error" role="alert" hidden></p>
             </div>
-            <div class="kiosk-note">
-              <button type="button" class="secondary" id="kiosk-note-toggle" aria-expanded="false" aria-controls="kiosk-note-panel">Add a note</button>
-              <div id="kiosk-note-panel" hidden>
-                <label for="kiosk-note">Note</label>
-                <textarea
-                  id="kiosk-note"
-                  name="timeclock-note"
-                  maxlength="500"
-                  rows="2"
-                  autocomplete="off"
-                  autocorrect="off"
-                  autocapitalize="off"
-                  spellcheck="false"
-                ></textarea>
-                <p id="kiosk-note-count" class="kiosk-note-count">500 characters left</p>
-              </div>
-            </div>
             <div class="kiosk-tools">
-              <button type="button" id="kiosk-leave-request">Leave Requested</button>
-              <button type="button" class="secondary" id="kiosk-chunk-open">Mark part of a regular route</button>
-              <button type="button" class="secondary" id="kiosk-timecard-open" hidden>Timecard codes</button>
+              <button type="button" id="kiosk-leave-request" hidden>Leave Requested</button>
             </div>
           </div>
           <div id="kiosk-work" class="kiosk-work" hidden>
             <button type="button" class="secondary" id="kiosk-work-back">All routes</button>
-            <h3 id="kiosk-work-heading">Clock in for other work</h3>
-            <p id="kiosk-work-lead" class="kiosk-work-lead">Choose the kind of work, then clock in.</p>
+            <h3 id="kiosk-work-heading">Other work</h3>
+            <p id="kiosk-work-lead" class="kiosk-work-lead">Choose the kind of work, then clock in or out.</p>
+            <label class="kiosk-work-comment">
+              Comment
+              <textarea id="kiosk-note-OTHER" maxlength="500" rows="3" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+            </label>
             <fieldset class="kiosk-run">
               <legend>What kind of work is this?</legend>
               <div id="kiosk-work-options" class="kiosk-run-options"></div>
@@ -1889,7 +1857,10 @@
               </label>
               <p id="kiosk-work-error" class="status is-error" role="alert" hidden></p>
             </fieldset>
-            <button type="button" id="kiosk-work-punch">Clock in</button>
+            <div class="kiosk-work-actions">
+              <button type="button" id="kiosk-work-punch" data-work-action="in">Clock in</button>
+              <button type="button" class="kiosk-punch-out" id="kiosk-work-punch-out" data-work-action="out">Clock out</button>
+            </div>
           </div>
           <div id="kiosk-chunk" class="kiosk-chunk">
             <div id="kiosk-chunk-panel" hidden>
@@ -1988,6 +1959,15 @@
       </section>
       <div id="kiosk-confirm" class="kiosk-confirm" hidden>
         <p id="kiosk-confirm-text" class="kiosk-confirm-card" role="status"></p>
+      </div>
+      <div id="kiosk-replace-confirm" class="kiosk-replace-confirm" hidden>
+        <div class="kiosk-replace-card" role="alertdialog" aria-labelledby="kiosk-replace-confirm-text">
+          <p id="kiosk-replace-confirm-text"></p>
+          <div class="kiosk-replace-actions">
+            <button type="button" id="kiosk-replace-yes">Yes</button>
+            <button type="button" class="secondary" id="kiosk-replace-no">No</button>
+          </div>
+        </div>
       </div>
     </div>
 

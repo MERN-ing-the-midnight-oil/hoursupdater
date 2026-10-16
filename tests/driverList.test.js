@@ -271,6 +271,22 @@ test('a clock record keeps its reason codes and a missing list uses the starting
     },
   ]);
   assert.deepEqual(punches[0].reason_codes, [{ id: 'reason-traffic', label: 'Traffic' }]);
+  assert.deepEqual(
+    normalizeOfficePunches([
+      {
+        ...punches[0],
+        id: 'punch-reason-time',
+        reason_codes: [
+          { id: 'reason-traffic', label: 'Traffic', minutes: 75 },
+          { id: 'reason-bad', label: 'Nope', minutes: -3 },
+        ],
+      },
+    ])[0].reason_codes,
+    [
+      { id: 'reason-traffic', label: 'Traffic', minutes: 75 },
+      { id: 'reason-bad', label: 'Nope' },
+    ]
+  );
   assert.equal(
     normalizeOfficePunches([{ ...punches[0], id: 'punch-run', run: 'mid day' }])[0].run,
     'MIDDAY'

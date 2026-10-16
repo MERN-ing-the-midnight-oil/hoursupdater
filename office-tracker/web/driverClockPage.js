@@ -6,6 +6,7 @@ import {
   looksLikeEmail,
 } from '../src/clockShare.js';
 import { buildDriverClockRecord, CLOCK_RECORD_COLUMNS } from '../src/driverClockRecord.js';
+import { LEAVE_REQUESTS_ENABLED } from '../src/leaveRequests.js';
 import { normalizeClockPayDefaults } from '../src/driverPay.js';
 import {
   formatTimecardMinutes,
@@ -35,6 +36,7 @@ let punches = [];
 let periods = [];
 /** @type {Array<{ id: string, label: string }>} */
 let codes = [];
+let periodEndsAt = '23:59';
 
 /** @type {{ driverName: string, email: string, sheets: ReturnType<typeof buildDriverClockRecord> } | null} */
 let record = null;
@@ -197,7 +199,7 @@ function clockOutCards() {
   return outs
     .map((punch) => {
       const when = new Date(punch.punched_at);
-      const open = payPeriodStillOpen(when, periods, now);
+      const open = payPeriodStillOpen(when, periods, now, periodEndsAt);
       const entries = normalizeTimecardEntries(punch.timecard_entries, codes);
       return { punch, open, entries, session: sessionForClockOut(punches, punch.id) };
     })
@@ -380,9 +382,10 @@ async function saveTimecard(punchId, draft, error, save) {
  */
 function applyRecord(data) {
   const driverName = String(data.driverName).trim();
-  periods = normalizeClockPayDefaults({ periods: data.periods }).periods;
+  periods = normalizeClockPayDefaults({ periods: data.periods, periodEndsAt: data.periodEndsAt }).periods;
+  periodEndsAt = normalizeClockPayDefaults({ periodEndsAt: data.periodEndsAt }).periodEndsAt;
   punches = Array.isArray(data.punches) ? data.punches : [];
-  const leaveRequests = Array.isArray(data.leaveRequests) ? data.leaveRequests : [];
+  const leaveRequests = LEAVE_REQUESTS_ENABLED && Array.isArray(data.leaveRequests) ? data.leaveRequests : [];
   codes = (Array.isArray(data.codes) ? data.codes : [])
     .filter((code) => code && code.id && code.label)
     .map((code) => ({ id: String(code.id), label: String(code.label) }));

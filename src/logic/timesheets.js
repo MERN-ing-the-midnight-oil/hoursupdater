@@ -321,12 +321,56 @@ function punchTime(punch) {
 }
 
 /**
+ * Clock punches a later punch of the same route replaced on that same day.
+ * A second clock in before the clock out, or a second clock out before the
+ * next clock in, replaces the earlier one. A finished in-and-out stays.
+ * The replaced punch is kept so the office can still see that time.
+ * @param {Array<{ id?: string, driver_name?: string, action?: string, run?: string, punched_at?: string, removed?: boolean }>} punches
+ * @returns {Set<string>}
+ */
+export function replacedClockPunchIds(punches) {
+  /** @type {Map<string, object[]>} */
+  const groups = new Map();
+  for (const punch of punches || []) {
+    if (!punch || punch.removed === true || !punch.id) continue;
+    if (punch.action !== 'in' && punch.action !== 'out') continue;
+    const when = punchTime(punch);
+    if (!when) continue;
+    const run = normalizePunchRun(punch.run) || '';
+    const key = `${String(punch.driver_name || '').trim().toLowerCase()}|${localDateKey(when)}|${run}`;
+    const list = groups.get(key) || [];
+    list.push(punch);
+    groups.set(key, list);
+  }
+  const replaced = new Set();
+  for (const list of groups.values()) {
+    list.sort((a, b) => String(a.punched_at).localeCompare(String(b.punched_at)) || String(a.id).localeCompare(String(b.id)));
+    let openIn = null;
+    let openOut = null;
+    for (const punch of list) {
+      if (punch.action === 'in') {
+        if (openIn) replaced.add(String(openIn.id));
+        openIn = punch;
+        openOut = null;
+        continue;
+      }
+      if (openOut) replaced.add(String(openOut.id));
+      openOut = punch;
+      openIn = null;
+    }
+  }
+  return replaced;
+}
+
+/**
  * Pair each clock in with the next clock out. A second in, or an out with
- * nothing open, stays unpaired.
+ * nothing open, stays unpaired. A punch replaced by a later one on that
+ * same route is left out of the pair so the later time is the one that counts.
  * @param {Array<{ id?: string, action?: string, punched_at?: string }>} punches
  */
 export function pairClockPunches(punches) {
-  const sorted = [...punches].sort((a, b) => {
+  const replaced = replacedClockPunchIds(punches);
+  const sorted = [...punches].filter((punch) => !replaced.has(String(punch?.id || ''))).sort((a, b) => {
     const at = String(a.punched_at).localeCompare(String(b.punched_at));
     if (at !== 0) return at;
     return String(a.id).localeCompare(String(b.id));
@@ -373,7 +417,18 @@ export function pairClockPunches(punches) {
 }
 
 /**
- * @param {Array<{ id?: string, label?: string }>} codes
+ * @param {number} minutes
+ */
+function reasonMinutesLabel(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  const hourText = hours === 1 ? '1 hour' : hours ? `${hours} hours` : '';
+  const minuteText = rest === 1 ? '1 minute' : rest ? `${rest} minutes` : '';
+  return [hourText, minuteText].filter(Boolean).join(' ') || '0 minutes';
+}
+
+/**
+ * @param {Array<{ id?: string, label?: string, minutes?: number }>} codes
  */
 function reasonLabels(codes) {
   /** @type {string[]} */
@@ -384,7 +439,10 @@ function reasonLabels(codes) {
     const id = String(code?.id || label);
     if (!label || seen.has(id)) continue;
     seen.add(id);
-    labels.push(label);
+    const minutes = Number(code?.minutes);
+    const time =
+      Number.isInteger(minutes) && minutes >= 0 && minutes <= 24 * 60 ? ` (${reasonMinutesLabel(minutes)})` : '';
+    labels.push(`${label}${time}`);
   }
   return labels;
 }

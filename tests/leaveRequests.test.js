@@ -9,6 +9,7 @@ import {
   leaveFor,
   leaveMinutesFromParts,
   leaveRequestLead,
+  missedClockInNote,
   normalizeLeaveRequests,
   runsAwaitingLeave,
   saveLeaveRequest,
@@ -133,6 +134,15 @@ describe('leave requests', () => {
       }),
       []
     );
+    assert.equal(
+      missedClockInNote(['AM', 'PM'], new Date(2026, 9, 12, 15, 0)),
+      'You did not clock in for your Monday AM route or your Monday PM route. Please record your leave hours or write an explanation.'
+    );
+    assert.equal(
+      missedClockInNote(['AM', 'MIDDAY', 'PM'], new Date(2026, 9, 14, 15, 0)),
+      'You did not clock in for your Wednesday AM route, your Wednesday Mid day route, or your Wednesday PM route. Please record your leave hours or write an explanation.'
+    );
+    assert.equal(missedClockInNote([], new Date(2026, 9, 14)), '');
     assert.match(leaveRequestLead({ run: 'AM', date: '2026-10-14', today: '2026-10-14' }), /did not clock in for the AM route/);
     assert.match(leaveRequestLead({ run: 'PM', date: '2026-10-20', today: '2026-10-14' }), /hours of leave requested for the PM route/);
     assert.match(leaveContractLead(140), /2 hr 20 min/);
