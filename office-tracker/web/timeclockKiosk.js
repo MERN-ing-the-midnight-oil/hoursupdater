@@ -1,6 +1,8 @@
 /**
  * Start Timeclock opens the driver screen and keeps this browser there
  * until the office lock code is entered. Driver PINs do not leave that screen.
+ * Full screen stays up the same way: Escape is held while it is open, and a
+ * tap brings it back if the browser drops it. The lock code is what lets go.
  */
 
 import QRCode from 'qrcode';
@@ -358,6 +360,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   const screenList = document.querySelector('#timeclock-screen-list');
   const screenStatus = document.querySelector('#timeclock-screen-status');
   const kioskFill = document.querySelector('#kiosk-fill-screen');
+  const kioskRefill = document.querySelector('#kiosk-refill');
   const lockForm = document.querySelector('#lock-form');
   const lockInput = document.querySelector('#lock-code');
   const pinForm = document.querySelector('#pin-form');
@@ -409,7 +412,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   const kioskLeave = document.querySelector('#kiosk-leave');
   const kioskLeaveCode = document.querySelector('#kiosk-leave-code');
   const kioskLeaveError = document.querySelector('#kiosk-leave-error');
-  const kioskLeaveBack = document.querySelector('#kiosk-leave-back');
   const kioskConfirm = document.querySelector('#kiosk-confirm');
   const kioskConfirmText = document.querySelector('#kiosk-confirm-text');
   const kioskClockQr = document.querySelector('#kiosk-clock-qr');
@@ -520,7 +522,9 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   });
   screenButton?.addEventListener('click', onStartAnotherScreen);
   kioskFill?.addEventListener('click', onFillScreen);
-  document.addEventListener('fullscreenchange', updateFillButton);
+  kioskRefill?.addEventListener('click', onRefillScreen);
+  document.addEventListener('fullscreenchange', syncFullscreenHold);
+  document.addEventListener('webkitfullscreenchange', syncFullscreenHold);
   lockForm.addEventListener('submit', onSaveLock);
   lateFlashForm?.addEventListener('submit', onSaveLateFlash);
   document.querySelector('#paper-backup-reminder-form')?.addEventListener('submit', onSavePaperBackupReminder);
@@ -626,7 +630,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     error.textContent = '';
   });
   kioskLeave.addEventListener('submit', onLeave);
-  kioskLeaveBack?.addEventListener('click', exitKiosk);
 
   function state() {
     return readState() || {};
@@ -5093,18 +5096,112 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     screenList?.replaceChildren();
   }
 
+  /** Set only after the office lock code matches, so a dropped full screen comes back. */
+  let releaseFullscreen = false;
+  /** True once this visit has filled the screen. A refresh keeps the same intent. */
+  let wantsFullscreen = false;
+  const FULL_KEY = 'timeclock-fullscreen';
+
+  function activeFullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  }
+
+  function fullscreenRequest() {
+    const root = document.documentElement;
+    return root.requestFullscreen || root.webkitRequestFullscreen || null;
+  }
+
   function updateFillButton() {
     if (!(kioskFill instanceof HTMLButtonElement)) return;
     const external = isExternalTimeclockSearch(location.search);
-    kioskFill.hidden = !external || kiosk.hidden || Boolean(document.fullscreenElement);
+    kioskFill.hidden = !external || kiosk.hidden || Boolean(activeFullscreenElement());
+  }
+
+  function showRefill() {
+    if (!(kioskRefill instanceof HTMLButtonElement)) return;
+    kioskRefill.hidden = false;
+  }
+
+  function hideRefill() {
+    if (!(kioskRefill instanceof HTMLButtonElement)) return;
+    kioskRefill.hidden = true;
+  }
+
+  /**
+   * Chrome and Edge will ignore Escape while this lock is held.
+   * Holding Escape for about two seconds still leaves; that part belongs to the browser.
+   */
+  async function lockFullscreenEscape() {
+    const lock = navigator.keyboard?.lock;
+    if (typeof lock !== 'function' || !activeFullscreenElement()) return;
+    try {
+      await lock.call(navigator.keyboard, ['Escape']);
+    } catch {
+      // Safari and Firefox have no keyboard lock. Leaving full screen shows the tap cover.
+    }
+  }
+
+  function unlockFullscreenEscape() {
+    const unlock = navigator.keyboard?.unlock;
+    if (typeof unlock === 'function') unlock.call(navigator.keyboard);
+  }
+
+  function rememberFullscreen(on) {
+    wantsFullscreen = on;
+    if (on) sessionStorage.setItem(FULL_KEY, '1');
+    else sessionStorage.removeItem(FULL_KEY);
+  }
+
+  function syncFullscreenHold() {
+    updateFillButton();
+    if (kiosk.hidden || releaseFullscreen) {
+      hideRefill();
+      return;
+    }
+    if (activeFullscreenElement()) rememberFullscreen(true);
+    const dropped = wantsFullscreen && !activeFullscreenElement() && typeof fullscreenRequest() === 'function';
+    if (dropped) showRefill();
+    else hideRefill();
+    if (activeFullscreenElement()) void lockFullscreenEscape();
+  }
+
+  function onBeforeUnload(event) {
+    if (kiosk.hidden || releaseFullscreen) return;
+    event.preventDefault();
+    event.returnValue = '';
+  }
+
+  function onKioskKeydown(event) {
+    if (kiosk.hidden || releaseFullscreen) return;
+    const browserFull = event.key === 'F11' || (event.metaKey && event.ctrlKey && event.key.toLowerCase() === 'f');
+    if (event.key !== 'Escape' && !browserFull) return;
+    event.preventDefault();
+  }
+
+  function armFullscreenHold() {
+    releaseFullscreen = false;
+    wantsFullscreen = sessionStorage.getItem(FULL_KEY) === '1';
+    window.addEventListener('beforeunload', onBeforeUnload);
+    window.addEventListener('keydown', onKioskKeydown, true);
+  }
+
+  function disarmFullscreenHold() {
+    releaseFullscreen = true;
+    rememberFullscreen(false);
+    window.removeEventListener('beforeunload', onBeforeUnload);
+    window.removeEventListener('keydown', onKioskKeydown, true);
+    unlockFullscreenEscape();
+    hideRefill();
   }
 
   async function enterFullscreen() {
     const root = document.documentElement;
-    const request = root.requestFullscreen || root.webkitRequestFullscreen;
+    const request = fullscreenRequest();
     if (typeof request !== 'function') return false;
     try {
-      await request.call(root);
+      if (request === root.requestFullscreen) await request.call(root, { navigationUI: 'hide' });
+      else await request.call(root);
+      await lockFullscreenEscape();
       return true;
     } catch {
       return false;
@@ -5112,8 +5209,15 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   }
 
   async function onFillScreen() {
+    releaseFullscreen = false;
     await enterFullscreen();
-    updateFillButton();
+    syncFullscreenHold();
+  }
+
+  async function onRefillScreen() {
+    releaseFullscreen = false;
+    await enterFullscreen();
+    syncFullscreenHold();
   }
 
   /**
@@ -5143,7 +5247,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     const where = screen ? timeclockScreenLabel(screen) : '';
     setScreenStatus(
       where
-        ? `The timeclock is open on ${where}. This window stays on Clocking. Choose Fill this screen there if you still see the browser around it.`
+        ? `The timeclock is open on ${where}. This window stays on Timeclock settings. Choose Fill this screen there if you still see the browser around it.`
         : 'The timeclock opened in a new window. Drag it onto the other monitor, then choose Fill this screen.'
     );
   }
@@ -5223,8 +5327,9 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     clockTimer = setInterval(tick, 1000);
     holdBack();
     window.addEventListener('popstate', onPopState);
+    armFullscreenHold();
     if (fill) await enterFullscreen();
-    updateFillButton();
+    syncFullscreenHold();
   }
 
   function onLeave(event) {
@@ -5239,19 +5344,20 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     exitKiosk();
   }
 
-  /** Temporary: Back skips the lock code while testing. */
   function exitKiosk() {
     const external = isExternalTimeclockSearch(location.search);
     sessionStorage.removeItem(LOCK_KEY);
     hidePunchConfirm();
+    disarmFullscreenHold();
     kiosk.hidden = true;
     document.body.classList.remove('is-timeclock');
     clearInterval(clockTimer);
     window.removeEventListener('popstate', onPopState);
     kioskLeaveCode.value = '';
     updateFillButton();
-    if (document.fullscreenElement && document.exitFullscreen) {
-      document.exitFullscreen().catch(() => {});
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (activeFullscreenElement() && typeof exit === 'function') {
+      exit.call(document).catch(() => {});
     }
     if (external) window.close();
   }
@@ -5291,7 +5397,8 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     tick();
     clockTimer = setInterval(tick, 1000);
     window.addEventListener('popstate', onPopState);
-    updateFillButton();
+    armFullscreenHold();
+    syncFullscreenHold();
   } else if (isExternalTimeclockSearch(location.search)) {
     startKiosk({ fill: timeclockWantsFill(location.search) });
   }

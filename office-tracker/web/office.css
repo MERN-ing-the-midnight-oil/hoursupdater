@@ -2127,6 +2127,8 @@ form.early-release-form {
 }
 
 .kiosk-top {
+  position: relative;
+  z-index: 7;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
@@ -2995,10 +2997,7 @@ button.text-link:hover {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-}
-
-.timeclock-screen-choices .field-hint {
-  margin: 0;
+  margin-top: 0.75rem;
 }
 
 .timeclock-screen-list {
@@ -3012,8 +3011,12 @@ button.text-link:hover {
   text-align: left;
 }
 
+#timeclock-settings-view #start-timeclock-screen {
+  margin-bottom: 0.85rem;
+}
+
 #timeclock-screen-status {
-  margin: 0;
+  margin: 0 0 0.85rem;
 }
 
 #kiosk-fill-screen {
@@ -3021,6 +3024,35 @@ button.text-link:hover {
 }
 
 #kiosk-fill-screen[hidden] {
+  display: none;
+}
+
+.kiosk-refill {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 1.5rem;
+  border: 0;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--reader-case) 94%, transparent);
+  color: var(--ink);
+  font-size: clamp(1.4rem, 3vw, 2.2rem);
+  font-weight: 750;
+  text-align: center;
+  cursor: pointer;
+}
+
+.kiosk-refill:hover,
+.kiosk-refill:focus-visible {
+  background: color-mix(in srgb, var(--reader-case) 94%, transparent);
+  border: 0;
+  color: var(--ink);
+}
+
+.kiosk-refill[hidden] {
   display: none;
 }
 
@@ -4336,7 +4368,7 @@ button.kiosk-punch-out:focus-visible,
   color: var(--muted);
 }
 
-/* The records code sits at the top right of the header. The date and name use the height beside it. */
+/* Notes code on the left, the clock beside it, office controls to the right of the clock, records code at the top right. */
 .timeclock-kiosk.is-detail {
   gap: 0.45rem;
   padding: 0.45rem 0.6rem 0.4rem;
@@ -4344,16 +4376,22 @@ button.kiosk-punch-out:focus-visible,
 
 .timeclock-kiosk.is-detail .kiosk-top {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 1rem;
-  row-gap: 0.35rem;
+}
+
+.timeclock-kiosk.is-detail #kiosk-day-qr {
+  grid-column: 1;
+  align-self: start;
+  justify-self: start;
+  width: 2.15in;
+  min-width: 2.15in;
+  max-width: 2.15in;
 }
 
 .timeclock-kiosk.is-detail .kiosk-now {
-  grid-column: 1;
-  grid-row: 1;
+  grid-column: 2;
   display: flex;
   align-items: baseline;
   gap: 0.85rem;
@@ -4368,17 +4406,16 @@ button.kiosk-punch-out:focus-visible,
 }
 
 .timeclock-kiosk.is-detail .kiosk-top-tools {
-  grid-column: 1;
-  grid-row: 2;
+  grid-column: 3;
   justify-content: flex-start;
+  align-self: center;
   margin-left: 0;
   flex-wrap: wrap;
   gap: 0.45rem 0.9rem;
 }
 
 .timeclock-kiosk.is-detail .kiosk-header-codes {
-  grid-column: 2;
-  grid-row: 1 / span 2;
+  grid-column: 4;
   align-self: start;
   justify-self: end;
 }

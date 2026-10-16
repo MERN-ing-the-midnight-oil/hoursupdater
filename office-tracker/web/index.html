@@ -514,7 +514,6 @@
             <h1 class="panel-title">Clocking</h1>
             <p class="lead">
               Start Timeclock opens the driver screen on this tablet or laptop and keeps it there.
-              On another screen opens that same driver screen on a second monitor and leaves this window free.
               Clock records opens the name list so you can add, change, or remove a clock in or clock out, and print paper records.
             </p>
           </div>
@@ -527,19 +526,6 @@
                 </svg>
                 Start Timeclock
               </button>
-              <button type="button" class="secondary timeclock-screen-launch" id="start-timeclock-screen">
-                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <rect x="2" y="3" width="20" height="14" rx="2" />
-                  <path d="M8 21h8" />
-                  <path d="M12 17v4" />
-                </svg>
-                On another screen
-              </button>
-              <div id="timeclock-screen-choices" class="timeclock-screen-choices" hidden>
-                <p class="field-hint">Which screen should show the timeclock?</p>
-                <div id="timeclock-screen-list" class="timeclock-screen-list"></div>
-              </div>
-              <p id="timeclock-screen-status" class="status" role="status" hidden></p>
               <button type="button" class="secondary drivers-launch" id="open-clock-records">
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
                   <circle cx="12" cy="12" r="8" />
@@ -750,6 +736,31 @@
         </div>
         <p id="timeclock-settings-status" class="status" role="status" hidden></p>
         <div class="settings-stack">
+          <section class="settings-card">
+          <h2>
+            <span class="settings-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <rect x="2" y="3" width="20" height="14" rx="2" />
+                <path d="M8 21h8" />
+                <path d="M12 17v4" />
+              </svg>
+            </span>
+            On another screen
+          </h2>
+          <p class="field-hint">Opens the driver screen on a second monitor and leaves this window free.</p>
+          <button type="button" class="secondary timeclock-screen-launch" id="start-timeclock-screen">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="2" y="3" width="20" height="14" rx="2" />
+              <path d="M8 21h8" />
+              <path d="M12 17v4" />
+            </svg>
+            On another screen
+          </button>
+          <div id="timeclock-screen-choices" class="timeclock-screen-choices" hidden>
+            <div id="timeclock-screen-list" class="timeclock-screen-list"></div>
+          </div>
+          <p id="timeclock-screen-status" class="status" role="status" hidden></p>
+          </section>
           <section class="settings-card">
           <h2>
             <span class="settings-ico" aria-hidden="true">
@@ -1722,7 +1733,20 @@
     </main>
 
     <div id="timeclock-kiosk" class="timeclock-kiosk" hidden>
+      <button type="button" id="kiosk-refill" class="kiosk-refill" hidden>
+        Tap anywhere to fill this screen
+      </button>
       <div class="kiosk-top">
+        <aside id="kiosk-day-qr" class="kiosk-clock-qr" hidden>
+          <canvas
+            id="kiosk-day-qr-code"
+            width="288"
+            height="288"
+            role="img"
+            aria-label="QR code. Scan with a phone to edit notes and reasons for today's punches."
+          ></canvas>
+          <p>Edit notes with mobile</p>
+        </aside>
         <p id="kiosk-now" class="kiosk-now">
           <span id="kiosk-now-date" class="kiosk-now-date"></span>
           <span id="kiosk-now-time" class="kiosk-now-time"></span>
@@ -1746,23 +1770,11 @@
                 spellcheck="false"
               />
             </label>
-            <!-- Temporary testing bypass. Remove with #kiosk-leave-back. -->
-            <button type="button" class="secondary" id="kiosk-leave-back">Back</button>
             <button type="submit" class="secondary">Leave</button>
             <p id="kiosk-leave-error" class="status is-error" role="alert"></p>
           </form>
         </div>
         <div class="kiosk-header-codes">
-          <aside id="kiosk-day-qr" class="kiosk-clock-qr" hidden>
-            <canvas
-              id="kiosk-day-qr-code"
-              width="288"
-              height="288"
-              role="img"
-              aria-label="QR code. Scan with a phone to edit notes and reasons for today's punches."
-            ></canvas>
-            <p>Today's notes</p>
-          </aside>
           <aside id="kiosk-clock-qr" class="kiosk-clock-qr" hidden>
             <canvas
               id="kiosk-clock-qr-code"
