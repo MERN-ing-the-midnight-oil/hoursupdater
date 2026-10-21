@@ -61,9 +61,9 @@ export const EXAMPLE_VIEW_AS_OF = '2026-11-16';
 /**
  * Fictional driver viewed as of Mon, Nov 16, 2026.
  * September shows a same-day bump, then a small window that locks on October 1.
- * October 6 adds 15 minutes and locks in on October 29.
+ * October 6 adds 15 minutes and locks in on October 28.
  * November 2 adds 12 minutes, and November 9 adds 18 more (12 + 18 = 30).
- * On November 16 that countdown is on school day 4 and points at the December 17 bid.
+ * On November 16 that countdown is on school day 4 and points at the December 14 bid.
  */
 export function exampleProfile() {
   return {
@@ -112,7 +112,7 @@ export function exampleProfile() {
         new_time: '6:15-8:25',
         submitted_at: '2026-10-06T15:00:00.000Z',
         effective_date: '2026-10-06',
-        note: 'Fifteen minutes added after October 1. Count 15 school days, then the new times become contracted on October 29.',
+        note: 'Fifteen minutes added after October 1. Count 15 school days, then the new times become contracted on October 28.',
       }),
       change({
         id: 'example-nov-pm-increase',
@@ -130,7 +130,7 @@ export function exampleProfile() {
         new_time: '11:00-12:25',
         submitted_at: '2026-11-09T15:00:00.000Z',
         effective_date: '2026-11-09',
-        note: 'Eighteen more minutes. 12 + 18 = 30, so this is a 30-minute increase. On November 16 the count is on school day 4. The bid waits for December 17.',
+        note: 'Eighteen more minutes. 12 + 18 = 30, so this is a 30-minute increase. On November 16 the count is on school day 4. The bid waits for December 14.',
       }),
     ],
   };
@@ -293,7 +293,7 @@ export function calendarExampleProfiles() {
           segment: 'AM',
           date: '2026-10-06',
           new_time: '5:20-8:00',
-          note: 'Forty minutes added after October 1. After 15 school days it is posted for bid. Day 15 is October 28, so the bid day is October 29, inside that month’s bid week.',
+          note: 'Forty minutes added after October 1. After 15 school days it is posted for bid on October 28.',
         },
       ],
     }),
@@ -306,7 +306,7 @@ export function calendarExampleProfiles() {
           segment: 'AM',
           date: '2026-10-06',
           new_time: '6:40-8:00',
-          note: 'Forty minutes taken off after October 1. Bump-eligible the day after the 15th school day, October 29. That day is not a contracted-hours box.',
+          note: 'Forty minutes taken off after October 1. Bump-eligible the day after the 15th school day, October 28. That day is not a contracted-hours box.',
         },
       ],
     }),
@@ -326,7 +326,7 @@ export function calendarExampleProfiles() {
           segment: 'PM',
           date: '2026-10-08',
           new_time: '13:40-16:00',
-          note: 'Twenty more minutes. 12 + 20 = 32, so this is a 30-minute increase. The bid is the last five school days of November, starting November 20.',
+          note: 'Twenty more minutes. 12 + 20 = 32, so this is a 30-minute increase. The bid day is October 30.',
         },
       ],
     }),
@@ -346,7 +346,7 @@ export function calendarExampleProfiles() {
           segment: 'PM',
           date: '2026-10-08',
           new_time: '14:20-16:00',
-          note: 'Twenty more minutes taken off. 12 + 20 = 32 the other way, so this is a 30-minute decrease. Bump-eligible the day after school day 15, October 31. No contracted-hours box.',
+          note: 'Twenty more minutes taken off. 12 + 20 = 32 the other way, so this is a 30-minute decrease. Bump-eligible October 30. No contracted-hours box.',
         },
       ],
     }),
@@ -372,7 +372,7 @@ export function calendarExampleProfiles() {
           segment: 'AM',
           date: '2026-11-09',
           new_time: '5:20-8:00',
-          note: 'Forty minutes added November 9. School day 15 is December 3. The bid waits for December 17, the first day of December’s bid week.',
+          note: 'Forty minutes added November 9. School day 15 is December 3. The bid waits for December 14.',
         },
       ],
     }),
@@ -405,7 +405,7 @@ export function calendarExampleProfiles() {
           segment: 'PM',
           date: '2026-11-09',
           new_time: '13:40-16:00',
-          note: 'Twenty more minutes. 12 + 20 = 32, so this is a 30-minute increase. The arrow points at December 17.',
+          note: 'Twenty more minutes. 12 + 20 = 32, so this is a 30-minute increase. The arrow points at December 14.',
         },
       ],
     }),
@@ -438,7 +438,7 @@ export function calendarExampleProfiles() {
           segment: 'AM',
           date: '2026-12-01',
           new_time: '5:45-8:00',
-          note: 'Fifteen minutes added December 1. On December 10 this count is still open. It becomes contracted December 23.',
+          note: 'Fifteen minutes added December 1. On December 10 this count is still open. Winter break starts December 21, so it becomes contracted January 6.',
         },
       ],
     }),
@@ -451,7 +451,7 @@ export function calendarExampleProfiles() {
           segment: 'AM',
           date: '2026-12-01',
           new_time: '5:20-8:00',
-          note: 'Forty minutes added December 1. School day 15 is December 22, so the bid day is December 23, inside December’s bid week.',
+          note: 'Forty minutes added December 1. Winter break starts December 21, so the bid waits for January 21.',
         },
       ],
     }),
@@ -464,7 +464,7 @@ export function calendarExampleProfiles() {
           segment: 'AM',
           date: '2026-12-01',
           new_time: '6:40-8:00',
-          note: 'Forty minutes taken off December 1. Bump-eligible December 23. No contracted-hours box.',
+          note: 'Forty minutes taken off December 1. Bump-eligible January 6. No contracted-hours box.',
         },
       ],
     }),
@@ -484,7 +484,7 @@ export function calendarExampleProfiles() {
           segment: 'PM',
           date: '2026-12-07',
           new_time: '13:35-16:00',
-          note: 'Twenty-five more minutes. 12 + 25 = 37. School day 15 is January 7, so the bid waits for January 25.',
+          note: 'Twenty-five more minutes. 12 + 25 = 37. The bid waits for January 21.',
         },
       ],
     }),

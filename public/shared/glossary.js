@@ -32,7 +32,7 @@ export const GLOSSARY = {
   window: {
     term: 'The review window',
     definition:
-      'The period after a route’s schedule changes before those times become contracted, go to bid, or become bump-eligible. Before October 1, under-30-minute changes wait until October 1. After October 1, increases and decreases are added together for 15 school days. If that total stays under 30 minutes, it becomes official the next school day. If it reaches 30 minutes, an increase goes to bid and a decrease becomes bump-eligible. A later change inside the 15 school days restarts the countdown and adds the exact minutes.',
+      'The period after a route’s schedule changes before those times become contracted, go to bid, or become bump-eligible. Before October 1, a change under 30 minutes waits until October 1. After October 1, changes that stay under 30 minutes are added together for 15 school days, and a later change starts those 15 school days over. An increase of 30 minutes or more goes to bid after 15 school days or more. A later change that leaves that increase at 30 minutes or more does not move the bid date. It runs its own countdown. A decrease of 30 minutes or more becomes bump-eligible.',
     aliases: [
       '15-school-day window',
       '15 school-day window',

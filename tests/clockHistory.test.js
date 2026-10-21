@@ -1,16 +1,19 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { addSchoolDays, getSchoolDays } from '../src/logic/calendar.js';
-import { buildBps2026_2027Calendar } from '../employee-tracker/src/bpsCalendar2026.js';
+import { buildBellingham2026_2027Calendar } from '../employee-tracker/src/bellinghamCalendar2026.js';
 import {
   bidPeriodRanges,
   buildClockHistoryMarks,
   changeDetailLines,
   changeHoverLines,
   clockHistoryLabel,
+  scheduleChangeKind,
+  scheduleChangeKindHtml,
+  scheduleChangeKindLines,
 } from '../employee-tracker/src/clockHistory.js';
 
-const { calendar } = buildBps2026_2027Calendar();
+const { calendar } = buildBellingham2026_2027Calendar();
 const schoolDays = getSchoolDays(calendar);
 
 function row(partial) {
@@ -80,7 +83,17 @@ describe('clock history calendar marks', () => {
     assert.equal(marks.has('2026-10-02'), false);
     assert.equal(
       clockHistoryLabel({ kind: 'change', segment: 'AM', delta_label: '+7 min' }),
-      'AM change +7 min'
+      '+7 min'
+    );
+    assert.deepEqual(
+      scheduleChangeKindLines({
+        kind: 'change',
+        delta_minutes: 7,
+        delta_label: '+7 min',
+        cumulative_drift_minutes: 7,
+        cumulative_drift_label: '+7 min',
+      }),
+      ['Change · +7 min', 'Cumulative change · +7 min']
     );
   });
 
@@ -208,7 +221,7 @@ describe('clock history calendar marks', () => {
     const marks = buildClockHistoryMarks(
       [
         row({
-          date: '2026-10-08',
+          date: '2026-10-09',
           contracted: {
             status: 'predicted',
             becomes_on: '2026-11-02',
@@ -314,15 +327,40 @@ describe('clock history calendar marks', () => {
     const windowDay = addSchoolDays(schoolDays, '2026-10-08', 3);
 
     assert.deepEqual(changeHoverLines(marks.get('2026-10-02')), [
-      'Current change: AM change +12 min',
+      'Current change: +12 min',
     ]);
     assert.equal(marks.get('2026-10-02')?.cumulativeLabel, null);
     assert.deepEqual(changeHoverLines(marks.get('2026-10-08')), [
-      'Current change: PM change +20 min',
+      'Current change: +20 min',
       'Cumulative change: +32 min',
     ]);
+    assert.equal(
+      scheduleChangeKind({
+        kind: 'change',
+        delta_minutes: 20,
+        delta_label: '+20 min',
+        cumulative_drift_minutes: 32,
+        cumulative_drift_label: '+32 min',
+      }),
+      'Change · +20 min\nCumulative change · +32 min'
+    );
+    assert.equal(
+      scheduleChangeKindHtml(
+        {
+          kind: 'change',
+          delta_minutes: 20,
+          delta_label: '+20 min',
+          cumulative_drift_minutes: 32,
+          cumulative_drift_label: '<+32 min>',
+        },
+        (value) =>
+          String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+      ),
+      '<span class="row-kind">Change · +20 min</span><span class="row-kind">Cumulative change · &lt;+32 min&gt;</span>'
+    );
+    assert.equal(scheduleChangeKind({ kind: 'initial' }), 'Established');
     assert.deepEqual(changeHoverLines(marks.get(windowDay)), [
-      'Current change: PM change +20 min',
+      'Current change: +20 min',
       'Cumulative change: +32 min',
     ]);
     assert.equal(marks.get(windowDay)?.sourceIndex, 1);

@@ -1,34 +1,13 @@
 import { toDateString } from './timeUtils.js';
 
-/**
- * Full-day entry from the district calendar files (every civil day in range).
- * @typedef {Object} SchoolCalendarDay
- * @property {string} date - YYYY-MM-DD
- * @property {string} [day_of_week]
- * @property {boolean} is_school_day
- * @property {string} [reason]
- */
+// Full-day entry from the district calendar files (every civil day in range).
 
-/**
- * School calendar — either legacy sparse school_days, or full day list with
- * is_school_day flags. Countdown logic only cares about dates where
- * is_school_day is true; it never assumes summer/month shapes.
- *
- * @typedef {Object} SchoolCalendar
- * @property {string | null} [school_year]
- * @property {string} [coverage_start]
- * @property {string} [coverage_end]
- * @property {string[]} [school_days] - legacy: YYYY-MM-DD school days only
- * @property {SchoolCalendarDay[]} [days] - full coverage with is_school_day
- */
+// School calendar — either legacy sparse school_days, or full day list with
+// is_school_day flags. Countdown logic only cares about dates where
+// is_school_day is true; it never assumes summer/month shapes.
 
-/**
- * Extract ordered school-day date strings from any supported calendar shape.
- * Pure data read — no month/summer hardcoding.
- *
- * @param {SchoolCalendar | string[] | SchoolCalendarDay[]} calendarOrDays
- * @returns {string[]}
- */
+// Extract ordered school-day date strings from any supported calendar shape.
+// Pure data read — no month/summer hardcoding.
 export function getSchoolDays(calendarOrDays) {
   if (Array.isArray(calendarOrDays)) {
     if (calendarOrDays.length === 0) {
@@ -38,7 +17,7 @@ export function getSchoolDays(calendarOrDays) {
       return [...calendarOrDays].map(toDateString).sort();
     }
     return extractSchoolDaysFromDayList(
-      /** @type {SchoolCalendarDay[]} */ (calendarOrDays)
+ (calendarOrDays)
     );
   }
 
@@ -55,10 +34,6 @@ export function getSchoolDays(calendarOrDays) {
   return [...legacy].map(toDateString).sort();
 }
 
-/**
- * @param {SchoolCalendarDay[]} days
- * @returns {string[]}
- */
 function extractSchoolDaysFromDayList(days) {
   const schoolDays = days
     .filter((entry) => entry && entry.is_school_day === true && entry.date)
@@ -71,28 +46,13 @@ function extractSchoolDaysFromDayList(days) {
   return [...new Set(schoolDays)].sort();
 }
 
-/**
- * @param {string[]} schoolDays
- * @param {string | Date} date
- * @returns {boolean}
- */
 export function isSchoolDay(schoolDays, date) {
   const normalized = toDateString(date);
   return schoolDays.includes(normalized);
 }
 
-/**
- * Return the date that is `count` school days after `fromDate` (exclusive of fromDate).
- * Example: fromDate Mon, count 1 → next school day after Mon.
- *
- * Throws if the calendar runs out of school days before `count` is reached
- * (fails visibly rather than returning null / silently opening a window).
- *
- * @param {SchoolCalendar | string[] | SchoolCalendarDay[]} calendarOrDays
- * @param {string | Date} fromDate
- * @param {number} count
- * @returns {string}
- */
+// Return the date that is `count` school days after `fromDate` (exclusive of fromDate).
+// Throws if the calendar runs out of school days before `count` is reached
 export function addSchoolDays(calendarOrDays, fromDate, count) {
   if (count < 0) {
     throw new Error('School day count must be non-negative.');
@@ -121,13 +81,7 @@ export function addSchoolDays(calendarOrDays, fromDate, count) {
   );
 }
 
-/**
- * Count school days strictly after `fromDate` up to and including `toDate`.
- * @param {SchoolCalendar | string[] | SchoolCalendarDay[]} calendarOrDays
- * @param {string | Date} fromDate
- * @param {string | Date} toDate
- * @returns {number}
- */
+// Count school days strictly after `fromDate` up to and including `toDate`.
 export function countSchoolDaysBetween(calendarOrDays, fromDate, toDate) {
   const schoolDays = getSchoolDays(calendarOrDays);
   const start = toDateString(fromDate);
@@ -138,13 +92,7 @@ export function countSchoolDaysBetween(calendarOrDays, fromDate, toDate) {
   return schoolDays.filter((day) => day > start && day <= end).length;
 }
 
-/**
- * Days remaining in an open window (inclusive of expires date as last valid day).
- * @param {SchoolCalendar | string[] | SchoolCalendarDay[]} calendarOrDays
- * @param {string | Date} asOfDate
- * @param {string | null | undefined} windowExpiresDate
- * @returns {number | null}
- */
+// Days remaining in an open window (inclusive of expires date as last valid day).
 export function daysRemainingInWindow(calendarOrDays, asOfDate, windowExpiresDate) {
   if (!windowExpiresDate) {
     return null;
@@ -158,14 +106,9 @@ export function daysRemainingInWindow(calendarOrDays, asOfDate, windowExpiresDat
   return schoolDays.filter((day) => day >= today && day <= expires).length;
 }
 
-/**
- * Whether the accumulation window has expired as of `asOfDate`.
- * Window is open through window_expires_date (inclusive); expires the first
- * school day after that date with no qualifying extension.
- * @param {string | Date} asOfDate
- * @param {string | null | undefined} windowExpiresDate
- * @returns {boolean}
- */
+// Whether the accumulation window has expired as of `asOfDate`.
+// Window is open through window_expires_date (inclusive); expires the first
+// school day after that date with no qualifying extension.
 export function isWindowExpired(asOfDate, windowExpiresDate) {
   if (!windowExpiresDate) {
     return false;
@@ -173,12 +116,7 @@ export function isWindowExpired(asOfDate, windowExpiresDate) {
   return toDateString(asOfDate) > toDateString(windowExpiresDate);
 }
 
-/**
- * Shift a YYYY-MM-DD civil date by `days` (can be negative).
- * @param {string | Date} date
- * @param {number} days
- * @returns {string}
- */
+// Shift a YYYY-MM-DD civil date by `days` (can be negative).
 export function shiftCalendarDate(date, days) {
   const iso = toDateString(date);
   const utc = new Date(`${iso}T00:00:00.000Z`);
@@ -189,18 +127,10 @@ export function shiftCalendarDate(date, days) {
   return utc.toISOString().slice(0, 10);
 }
 
-/**
- * @param {string | Date} date
- * @returns {string}
- */
 export function previousCalendarDate(date) {
   return shiftCalendarDate(date, -1);
 }
 
-/**
- * @param {string | Date} date
- * @returns {string}
- */
 export function nextCalendarDate(date) {
   return shiftCalendarDate(date, 1);
 }

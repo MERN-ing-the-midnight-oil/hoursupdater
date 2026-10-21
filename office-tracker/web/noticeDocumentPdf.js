@@ -1,10 +1,6 @@
 import { jsPDF } from 'jspdf';
 
-/**
- * Download a plain-text notice as a letter-size PDF.
- * @param {string} filename
- * @param {string} text
- */
+// Download a plain-text notice as a letter-size PDF.
 export function downloadTextPdf(filename, text) {
   const pdf = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const margin = 54;

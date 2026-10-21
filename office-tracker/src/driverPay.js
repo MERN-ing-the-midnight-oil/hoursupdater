@@ -1,14 +1,7 @@
-/**
- * Pay details for the district Monthly Time Summary.
- * Office defaults cover the job title, location, pay-period dates,
- * and the pay-status lines. A serial number, hourly rate, and payroll
- * account number belong to one driver. A pay status does not have an account.
- */
-
 export const DEFAULT_JOB_TITLE = 'Driver';
 export const DEFAULT_LOCATION = 'Transportation';
 
-/** Pay status checked for a driver who has none saved. */
+// Pay status checked for a driver who has none saved.
 export const DEFAULT_DRIVER_PAY_STATUS = 'ex-driver';
 
 export const DEFAULT_PAY_LINES = [
@@ -38,38 +31,28 @@ export const DEFAULT_PAY_LINES = [
   },
 ];
 
-/** Days 1–15, then the 16th through the last day of the month. */
+// Days 1–15, then the 16th through the last day of the month.
 export const DEFAULT_PAY_PERIODS = [
   { id: '1', startDay: 1, endDay: 15 },
   { id: '2', startDay: 16, endDay: 31 },
 ];
 
-/** One sheet for the whole month. Day 31 means the last day that month has. */
+// One sheet for the whole month. Day 31 means the last day that month has.
 export const WHOLE_MONTH_PAY_PERIODS = [{ id: '1', startDay: 1, endDay: 31 }];
 
 const BUILTIN_LINE_IDS = new Set(DEFAULT_PAY_LINES.map((line) => line.id));
 const LINE_ID_PATTERN = /^(?:reg-driver|ot-trainer|ex-trainer|ex-driver|pay-[a-z0-9-]{1,32})$/;
 
-/**
- * @param {string} id
- */
 export function isPayLineId(id) {
   return LINE_ID_PATTERN.test(id);
 }
 
-/**
- * @param {unknown} value
- */
 function dayNumber(value) {
   const number = Number(value);
   if (!Number.isInteger(number) || number < 1 || number > 31) return 0;
   return number;
 }
 
-/**
- * @param {Array<{ startDay: number, endDay: number }>} rows
- * @param {Array<{ startDay: number, endDay: number }>} preset
- */
 function samePeriodDays(rows, preset) {
   return (
     rows.length === preset.length &&
@@ -77,12 +60,8 @@ function samePeriodDays(rows, preset) {
   );
 }
 
-/**
- * @param {unknown} value
- */
 export function normalizePayPeriods(value) {
   if (!Array.isArray(value)) return DEFAULT_PAY_PERIODS.map((period) => ({ ...period }));
-  /** @type {Array<{ id: string, startDay: number, endDay: number }>} */
   const periods = [];
   const used = new Set();
   let cursor = 1;
@@ -105,11 +84,7 @@ export function normalizePayPeriods(value) {
   return periods;
 }
 
-/**
- * Clock time when a pay period stops accepting notes and reasons.
- * 23:59 keeps the last day open through the end of that day.
- * @param {unknown} value
- */
+// Clock time when a pay period stops accepting notes and reasons.
 export function normalizePeriodEndsAt(value) {
   const match = /^(\d{1,2}):(\d{2})$/.exec(String(value ?? '').trim());
   if (!match) return '23:59';
@@ -119,10 +94,6 @@ export function normalizePeriodEndsAt(value) {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
 
-/**
- * @param {unknown} periods
- * @returns {'split' | 'month' | 'custom'}
- */
 export function payPeriodPreset(periods) {
   const rows = normalizePayPeriods(periods);
   if (samePeriodDays(rows, DEFAULT_PAY_PERIODS)) return 'split';
@@ -130,10 +101,6 @@ export function payPeriodPreset(periods) {
   return 'custom';
 }
 
-/**
- * @param {string} label
- * @param {Set<string>} taken
- */
 function payLineIdFor(label, taken) {
   const base = String(label || '')
     .toLowerCase()
@@ -150,20 +117,11 @@ function payLineIdFor(label, taken) {
   return id;
 }
 
-/**
- * @param {unknown} value
- * @param {string} fallback
- * @param {number} max
- */
 function clip(value, fallback, max) {
   const text = String(value ?? '').trim().slice(0, max);
   return text || fallback;
 }
 
-/**
- * @param {unknown} value
- * @param {number} fallback
- */
 function otFactor(value, fallback) {
   const number = Number(value);
   if (number === 0) return 0;
@@ -171,11 +129,8 @@ function otFactor(value, fallback) {
   return Math.round(number * 100) / 100;
 }
 
-/**
- * A typed day cell. Blank clears the cell. Zero stays 0.00.
- * Other values snap to the nearest quarter hour.
- * @param {unknown} value
- */
+// A typed day cell. Blank clears the cell. Zero stays 0.00.
+// Other values snap to the nearest quarter hour.
 export function snapSummaryHours(value) {
   const text = String(value ?? '').trim();
   if (!text) return '';
@@ -184,29 +139,22 @@ export function snapSummaryHours(value) {
   return (Math.round(number * 4) / 4).toFixed(2);
 }
 
-/**
- * @param {unknown} value
- */
 export function normalizeDriverPay(value) {
   const source = value && typeof value === 'object' ? value : {};
-  const serial = String(source.serial ?? '').trim().slice(0, 20);
+  const serial = String(source.serial ?? '').trim();
   const rateText = String(source.rate ?? '')
     .trim()
-    .replace(/^\$/, '');
-  const rate = /^\d{1,4}(\.\d{1,2})?$/.test(rateText) ? rateText : '';
-  const account = String(source.account ?? '').trim().slice(0, 40);
+    .replace(/^\$/, '')
+    .replace(/,/g, '');
+  const rate = /^\d+(\.\d+)?$/.test(rateText) ? rateText.replace(/^0+(?=\d)/, '') : '';
+  const account = String(source.account ?? '').trim();
   return { serial, rate, account };
 }
 
-/**
- * Pay statuses a driver may clock. A missing or empty list means EX DRIVER only.
- * @param {unknown} value
- * @param {Set<string>} [known]
- */
+// Pay statuses a driver may clock. A missing or empty list means EX DRIVER only.
 export function normalizeDriverPayStatuses(value, known) {
   const allowed = known instanceof Set ? known : null;
   if (!Array.isArray(value)) return [DEFAULT_DRIVER_PAY_STATUS];
-  /** @type {string[]} */
   const ids = [];
   const seen = new Set();
   for (const item of value) {
@@ -222,11 +170,7 @@ export function normalizeDriverPayStatuses(value, known) {
   return [DEFAULT_DRIVER_PAY_STATUS];
 }
 
-/**
- * Catalog rows this driver can clock, in catalog order.
- * @param {unknown} saved
- * @param {Array<{ id: string, label: string }>} lines
- */
+// Catalog rows this driver can clock, in catalog order.
 export function driverPayStatusChoices(saved, lines) {
   const catalog = Array.isArray(lines) ? lines : [];
   const known = new Set(catalog.map((line) => line.id));
@@ -239,12 +183,8 @@ export function driverPayStatusChoices(saved, lines) {
   return fallback ? [fallback] : [];
 }
 
-/**
- * True when EX DRIVER is this driver's only pay status.
- * A driver with nothing saved counts as EX DRIVER only.
- * @param {unknown} saved
- * @param {Array<{ id: string }> | undefined} [lines]
- */
+// True when EX DRIVER is this driver's only pay status.
+// A driver with nothing saved counts as EX DRIVER only.
 export function isExDriverOnly(saved, lines) {
   const ids = Array.isArray(lines)
     ? driverPayStatusChoices(saved, lines).map((line) => line.id)
@@ -252,7 +192,7 @@ export function isExDriverOnly(saved, lines) {
   return ids.length === 1 && ids[0] === DEFAULT_DRIVER_PAY_STATUS;
 }
 
-/** Clock-in choices on the timeclock, in the order drivers see them. */
+// Clock-in choices on the timeclock, in the order drivers see them.
 export const CLOCK_IN_TYPES = [
   { id: 'AM', label: 'AM route' },
   { id: 'MIDDAY', label: 'Mid day route' },
@@ -260,18 +200,12 @@ export const CLOCK_IN_TYPES = [
   { id: 'OTHER', label: 'Other' },
 ];
 
-/**
- * Pay status for each clock-in.
- * One pay status needs no map. Several pay statuses use the first status wherever a clock-in is unset.
- * @param {unknown} value
- * @param {unknown} allowed
- * @returns {Partial<Record<'AM' | 'MIDDAY' | 'PM' | 'OTHER', string>>}
- */
+// Pay status for each clock-in.
+// One pay status needs no map. Several pay statuses use the first status wherever a clock-in is unset.
 export function normalizePayStatusByRun(value, allowed) {
   const ids = normalizeDriverPayStatuses(Array.isArray(allowed) ? allowed : []);
   if (ids.length < 2) return {};
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-  /** @type {Record<'AM' | 'MIDDAY' | 'PM' | 'OTHER', string>} */
   const map = {};
   for (const type of CLOCK_IN_TYPES) {
     const picked = String(source[type.id] ?? '').trim();
@@ -280,14 +214,8 @@ export function normalizePayStatusByRun(value, allowed) {
   return map;
 }
 
-/**
- * Pay status written on a clock in or clock out.
- * A driver with one pay status uses it for every clock-in.
- * @param {unknown} payStatuses
- * @param {unknown} payStatusByRun
- * @param {unknown} run
- * @param {Array<{ id: string, label: string }>} [lines]
- */
+// Pay status written on a clock in or clock out.
+// A driver with one pay status uses it for every clock-in.
 export function payStatusForClockIn(payStatuses, payStatusByRun, run, lines) {
   const choices = Array.isArray(lines)
     ? driverPayStatusChoices(payStatuses, lines)
@@ -304,22 +232,14 @@ export function payStatusForClockIn(payStatuses, payStatusByRun, run, lines) {
 
 const PAY_PORTION_LIMIT = 8;
 
-/**
- * @param {Date} date
- */
 function minuteStamp(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), date.getMinutes()).getTime();
 }
 
-/**
- * Parts of a clock period saved on the clock in.
- * Each part has its own pay status. Time outside the parts keeps the period's pay status.
- * @param {unknown} value
- * @returns {Array<{ start: string, end: string, pay_status: string }>}
- */
+// Parts of a clock period saved on the clock in.
+// Each part has its own pay status. Time outside the parts keeps the period's pay status.
 export function normalizeStoredPayPortions(value) {
   if (!Array.isArray(value)) return [];
-  /** @type {Array<{ start: string, end: string, pay_status: string }>} */
   const portions = [];
   for (const item of value) {
     if (portions.length >= PAY_PORTION_LIMIT) break;
@@ -331,7 +251,6 @@ export function normalizeStoredPayPortions(value) {
     portions.push({ start: start.toISOString(), end: end.toISOString(), pay_status: status });
   }
   portions.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
-  /** @type {typeof portions} */
   const kept = [];
   let cursor = 0;
   for (const portion of portions) {
@@ -343,14 +262,8 @@ export function normalizeStoredPayPortions(value) {
   return kept;
 }
 
-/**
- * Keep only the parts that sit inside one clock period and use an allowed pay status.
- * A start or end in the same minute as the period edge counts as that edge.
- * @param {unknown} value
- * @param {Date} periodStart
- * @param {Date} periodEnd
- * @param {string[]} [allowed]
- */
+// Keep only the parts that sit inside one clock period and use an allowed pay status.
+// A start or end in the same minute as the period edge counts as that edge.
 export function normalizePayPortions(value, periodStart, periodEnd, allowed) {
   const startMs = periodStart?.getTime?.();
   const endMs = periodEnd?.getTime?.();
@@ -367,13 +280,7 @@ export function normalizePayPortions(value, periodStart, periodEnd, allowed) {
   });
 }
 
-/**
- * Why a set of parts cannot be saved, or an empty string when they can.
- * @param {unknown} portions
- * @param {Date} periodStart
- * @param {Date} periodEnd
- * @param {string[]} [allowed]
- */
+// Why a set of parts cannot be saved, or an empty string when they can.
 export function payPortionError(portions, periodStart, periodEnd, allowed) {
   const list = Array.isArray(portions) ? portions : [];
   if (!list.length) return '';
@@ -384,7 +291,6 @@ export function payPortionError(portions, periodStart, periodEnd, allowed) {
     return 'Clock out before assigning part of the period.';
   }
   const ids = Array.isArray(allowed) ? new Set(allowed.filter((id) => isPayLineId(id))) : null;
-  /** @type {Array<{ from: number, to: number }>} */
   const checked = [];
   for (const portion of list) {
     const status = String(portion?.pay_status ?? '').trim();
@@ -405,12 +311,8 @@ export function payPortionError(portions, periodStart, periodEnd, allowed) {
   return '';
 }
 
-/**
- * Pay-status slices of one clock in and clock out.
- * Parts use their own status. The rest of the period uses the clock in's pay status.
- * @param {{ start: Date, end: Date, clockIn?: { pay_status?: string, pay_portions?: unknown } }} pair
- * @returns {Array<{ start: Date, end: Date, pay_status: string, minutes: number }>}
- */
+// Pay-status slices of one clock in and clock out.
+// Parts use their own status. The rest of the period uses the clock in's pay status.
 export function paySlicesForPair(pair) {
   const start = pair.start <= pair.end ? pair.start : pair.end;
   const end = pair.start <= pair.end ? pair.end : pair.start;
@@ -420,7 +322,6 @@ export function paySlicesForPair(pair) {
   if (!portions.length || elapsed <= 0) {
     return [{ start, end, pay_status: fallback, minutes: elapsed }];
   }
-  /** @type {Array<{ start: Date, end: Date, pay_status: string, minutes: number }>} */
   const slices = [];
   let cursor = start.getTime();
   for (const portion of portions) {
@@ -450,7 +351,6 @@ export function paySlicesForPair(pair) {
       minutes: Math.round((end.getTime() - cursor) / 60000),
     });
   }
-  /** @type {typeof slices} */
   const merged = [];
   for (const slice of slices) {
     if (slice.minutes <= 0) continue;
@@ -468,9 +368,6 @@ export function paySlicesForPair(pair) {
   return merged;
 }
 
-/**
- * @param {unknown} value
- */
 export function normalizeClockPayDefaults(value) {
   const source = value && typeof value === 'object' ? value : {};
   const savedLines = Array.isArray(source.lines) ? source.lines : [];
@@ -515,27 +412,20 @@ export function normalizeClockPayDefaults(value) {
   };
 }
 
-/**
- * @param {unknown} value
- */
 export function normalizeTimeSummaryEdits(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  /** @type {Record<string, Record<string, Record<string, { days?: Record<string, string>, comment?: string }>>>} */
   const edits = {};
   for (const [driverId, periods] of Object.entries(value)) {
     const id = String(driverId).trim().slice(0, 80);
     if (!id || !periods || typeof periods !== 'object' || Array.isArray(periods)) continue;
-    /** @type {Record<string, Record<string, { days?: Record<string, string>, comment?: string }>>} */
     const periodOut = {};
     for (const [periodKey, lines] of Object.entries(periods)) {
       if (!/^\d{4}-\d{2}-[1-9]$/.test(periodKey)) continue;
       if (!lines || typeof lines !== 'object' || Array.isArray(lines)) continue;
-      /** @type {Record<string, { days?: Record<string, string>, comment?: string }>} */
       const lineOut = {};
       for (const [lineId, entry] of Object.entries(lines)) {
         if (!isPayLineId(lineId)) continue;
         if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
-        /** @type {Record<string, string>} */
         const days = {};
         const sourceDays = entry.days && typeof entry.days === 'object' ? entry.days : {};
         for (const [day, hours] of Object.entries(sourceDays)) {
@@ -559,11 +449,7 @@ export function normalizeTimeSummaryEdits(value) {
   return edits;
 }
 
-/**
- * Local typed cells win. A cell that exists only on the shared copy stays.
- * @param {unknown} remote
- * @param {unknown} local
- */
+// Local typed cells win. A cell that exists only on the shared copy stays.
 export function mergeTimeSummaryEdits(remote, local) {
   const base = normalizeTimeSummaryEdits(remote);
   const over = normalizeTimeSummaryEdits(local);
@@ -573,7 +459,6 @@ export function mergeTimeSummaryEdits(remote, local) {
       base[driverId][periodKey] = base[driverId][periodKey] || {};
       for (const [lineId, entry] of Object.entries(lines)) {
         const previous = base[driverId][periodKey][lineId] || {};
-        /** @type {{ days?: Record<string, string>, comment?: string }} */
         const next = {
           days: { ...(previous.days || {}), ...(entry.days || {}) },
         };
@@ -586,18 +471,6 @@ export function mergeTimeSummaryEdits(remote, local) {
   return normalizeTimeSummaryEdits(base);
 }
 
-/**
- * @param {unknown} edits
- * @param {{
- *   driverId?: string,
- *   periodKey?: string,
- *   lineId?: string,
- *   kind?: string,
- *   day?: string | number,
- *   hours?: string,
- *   comment?: string,
- * }} edit
- */
 export function applyTimeSummaryEdit(edits, edit) {
   const next = normalizeTimeSummaryEdits(edits);
   const driverId = String(edit?.driverId ?? '').trim().slice(0, 80);

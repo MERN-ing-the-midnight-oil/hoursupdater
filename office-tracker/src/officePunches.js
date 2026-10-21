@@ -1,9 +1,3 @@
-/**
- * Office changes to a clock record. Adding, changing, or removing one
- * requires a note and the name of the person who did it.
- * A signed-in account is that name. Otherwise the person types their name.
- */
-
 import { NOTE_MAX } from '../../src/logic/clockKiosk.js';
 import { pairClockPunches } from '../../src/logic/timesheets.js';
 import { isPayLineId, normalizePayPortions, payPortionError } from './driverPay.js';
@@ -16,13 +10,8 @@ import {
 
 const NAME_MAX = 80;
 
-/**
- * @param {unknown} raw
- * @returns {Array<{ action: 'add' | 'change' | 'delete', note: string, by: string, by_user_id: string | null, at: string }>}
- */
 export function normalizeOfficeEdits(raw) {
   if (!Array.isArray(raw)) return [];
-  /** @type {Array<{ action: 'add' | 'change' | 'delete', note: string, by: string, by_user_id: string | null, at: string }>} */
   const edits = [];
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue;
@@ -45,12 +34,8 @@ export function normalizeOfficeEdits(raw) {
   return edits;
 }
 
-/**
- * The person recorded on an office change.
- * A signed-in name wins over anything typed.
- * @param {{ id?: string, name?: string } | null | undefined} account
- * @param {unknown} typedName
- */
+// The person recorded on an office change.
+// A signed-in name wins over anything typed.
 export function officeEditor(account, typedName) {
   const signedIn = String(account?.name ?? '').trim();
   if (signedIn) {
@@ -63,9 +48,6 @@ export function officeEditor(account, typedName) {
   return { by, by_user_id: null };
 }
 
-/**
- * @param {unknown} note
- */
 export function officeEditNote(note) {
   const text = String(note ?? '').trim();
   if (!text) throw new Error('Leave a note.');
@@ -73,13 +55,6 @@ export function officeEditNote(note) {
   return text;
 }
 
-/**
- * @param {{ id?: string, name?: string } | null | undefined} account
- * @param {unknown} typedName
- * @param {unknown} note
- * @param {'add' | 'change' | 'delete'} action
- * @param {string | undefined} at
- */
 function editEntry(account, typedName, note, action, at) {
   const when = at ? new Date(at) : new Date();
   if (Number.isNaN(when.getTime())) throw new Error('That time is not valid.');
@@ -91,37 +66,16 @@ function editEntry(account, typedName, note, action, at) {
   };
 }
 
-/**
- * @param {unknown} note
- */
 function recordNote(note) {
   return String(note ?? '').trim().slice(0, NOTE_MAX);
 }
 
-/**
- * @param {unknown} action
- */
 function punchAction(action) {
   if (action === 'out') return 'out';
   if (action === 'in') return 'in';
   throw new Error('Choose clock in or clock out.');
 }
 
-/**
- * @param {object[] | null | undefined} punches
- * @param {{
- *   id?: string,
- *   driver_name: string,
- *   action: unknown,
- *   punched_at: string,
- *   recordNote?: unknown,
- *   reason_codes?: object[],
- *   account?: { id?: string, name?: string } | null,
- *   typedName?: unknown,
- *   note: unknown,
- *   at?: string,
- * }} input
- */
 export function addOfficePunch(punches, input) {
   const driver_name = String(input.driver_name ?? '').trim();
   if (!driver_name) throw new Error('Choose a driver.');
@@ -140,10 +94,6 @@ export function addOfficePunch(punches, input) {
   return [...(Array.isArray(punches) ? punches : []), punch];
 }
 
-/**
- * @param {object[] | null | undefined} punches
- * @param {string} id
- */
 function findPunch(punches, id) {
   const list = Array.isArray(punches) ? punches : [];
   const index = list.findIndex((punch) => punch?.id === id);
@@ -152,20 +102,6 @@ function findPunch(punches, id) {
   return { list, index };
 }
 
-/**
- * @param {object[] | null | undefined} punches
- * @param {string} id
- * @param {{
- *   action: unknown,
- *   punched_at: string,
- *   recordNote?: unknown,
- *   reason_codes?: object[],
- *   account?: { id?: string, name?: string } | null,
- *   typedName?: unknown,
- *   note: unknown,
- *   at?: string,
- * }} input
- */
 export function changeOfficePunch(punches, id, input) {
   const { list, index } = findPunch(punches, id);
   const punched = new Date(input.punched_at);
@@ -187,24 +123,9 @@ export function changeOfficePunch(punches, id, input) {
   return next;
 }
 
-/**
- * Timecard codes, times, and comments on a clock-out.
- * A driver can save while the pay period is open.
- * The office can save later, and that save records an admin note.
- * @param {object[] | null | undefined} punches
- * @param {string} id
- * @param {{
- *   entries?: object[],
- *   catalog?: Array<{ id: string, label: string }>,
- *   periods?: unknown,
- *   now?: Date,
- *   office?: boolean,
- *   account?: { id?: string, name?: string } | null,
- *   typedName?: unknown,
- *   note?: unknown,
- *   at?: string,
- * }} input
- */
+// Timecard codes, times, and comments on a clock-out.
+// A driver can save while the pay period is open.
+// The office can save later, and that save records an admin note.
 export function setTimecardEntries(punches, id, input) {
   const { list, index } = findPunch(punches, id);
   const current = list[index];
@@ -241,21 +162,8 @@ export function setTimecardEntries(punches, id, input) {
   return next;
 }
 
-/**
- * The clock in's pay status covers the whole period.
- * pay_portions, when present, covers only those parts.
- * @param {object[] | null | undefined} punches
- * @param {string} id
- * @param {{
- *   pay_status: unknown,
- *   pay_portions?: object[],
- *   allowed?: string[],
- *   account?: { id?: string, name?: string } | null,
- *   typedName?: unknown,
- *   note: unknown,
- *   at?: string,
- * }} input
- */
+// The clock in's pay status covers the whole period.
+// pay_portions, when present, covers only those parts.
 export function assignClockPeriodPay(punches, id, input) {
   const { list, index } = findPunch(punches, id);
   const current = list[index];
@@ -264,7 +172,6 @@ export function assignClockPeriodPay(punches, id, input) {
   if (!isPayLineId(status)) throw new Error('Choose a pay status.');
   const entry = editEntry(input.account, input.typedName, input.note, 'change', input.at);
   const requested = Array.isArray(input.pay_portions) ? input.pay_portions : [];
-  /** @type {Array<{ start: string, end: string, pay_status: string }>} */
   let portions = [];
   let periodStatus = status;
   if (requested.length) {
@@ -301,18 +208,8 @@ export function assignClockPeriodPay(punches, id, input) {
   return next;
 }
 
-/**
- * Keeps the record, marked removed, so the note and the admin stay with it.
- * Payroll and the driver screen skip a removed record.
- * @param {object[] | null | undefined} punches
- * @param {string} id
- * @param {{
- *   account?: { id?: string, name?: string } | null,
- *   typedName?: unknown,
- *   note: unknown,
- *   at?: string,
- * }} input
- */
+// Keeps the record, marked removed, so the note and the admin stay with it.
+// Payroll and the driver screen skip a removed record.
 export function removeOfficePunch(punches, id, input) {
   const { list, index } = findPunch(punches, id);
   const entry = editEntry(input.account, input.typedName, input.note, 'delete', input.at);

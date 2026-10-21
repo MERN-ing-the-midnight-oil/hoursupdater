@@ -18,16 +18,10 @@ export const DEFAULT_REMINDER_BODY = [
 const EVENT_START = '080000';
 const EVENT_END = '080100';
 
-/**
- * @param {string} value
- */
 function isEmailAddress(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? '').trim());
 }
 
-/**
- * @param {unknown} value
- */
 export function schoolDaysBeforeValue(value) {
   if (value == null || value === '') return DEFAULT_SCHOOL_DAYS_BEFORE;
   const parsed = Number(value);
@@ -35,23 +29,14 @@ export function schoolDaysBeforeValue(value) {
   return Math.min(200, Math.max(0, Math.round(parsed)));
 }
 
-/**
- * @param {unknown} value
- * @param {boolean} fallback
- */
 function yesNo(value, fallback) {
   if (value === true || value === 'yes' || value === 'true') return true;
   if (value === false || value === 'no' || value === 'false') return false;
   return fallback;
 }
 
-/**
- * @param {unknown} raw
- * @returns {{ email: string, name: string }[]}
- */
 function inviteesFrom(raw) {
   const list = Array.isArray(raw) ? raw : [];
-  /** @type {{ email: string, name: string }[]} */
   const invitees = [];
   const seen = new Set();
   for (const item of list) {
@@ -66,10 +51,7 @@ function inviteesFrom(raw) {
   return invitees;
 }
 
-/**
- * Shared office setting for the Outlook reminder.
- * @param {unknown} raw
- */
+// Shared office setting for the Outlook reminder.
 export function normalizeContractReminder(raw) {
   const source = raw && typeof raw === 'object' ? raw : {};
   const subject = String(source.subject ?? '').trim();
@@ -83,11 +65,7 @@ export function normalizeContractReminder(raw) {
   };
 }
 
-/**
- * The reminder day has arrived. Dates are yyyy-mm-dd.
- * @param {string} reminderDate
- * @param {string} asOf
- */
+// The reminder day has arrived. Dates are yyyy-mm-dd.
 export function isReminderDue(reminderDate, asOf) {
   try {
     const day = toDateString(reminderDate);
@@ -98,31 +76,19 @@ export function isReminderDue(reminderDate, asOf) {
   }
 }
 
-/**
- * @param {string} template
- * @param {Record<string, string>} values
- */
 export function fillReminderTemplate(template, values) {
   return String(template ?? '').replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (match, key) =>
     Object.prototype.hasOwnProperty.call(values, key) ? String(values[key] ?? '') : match
   );
 }
 
-/**
- * A change whose contract date is still in the future.
- * @param {object | null | undefined} row
- */
+// A change whose contract date is still in the future.
 export function isPredictedContract(row) {
   return row?.contracted?.status === 'predicted' && Boolean(row?.contracted?.becomes_on);
 }
 
-/**
- * School day `count` school days before the contract date.
- * 0 is the contract date itself. 1 is the previous school day.
- * @param {import('../../src/logic/calendar.js').SchoolCalendar | string[]} calendar
- * @param {string} contractDate
- * @param {number} count
- */
+// School day `count` school days before the contract date.
+// 0 is the contract date itself. 1 is the previous school day.
 export function dateSchoolDaysBefore(calendar, contractDate, count) {
   const whole = schoolDaysBeforeValue(count);
   const start = toDateString(contractDate);
@@ -140,9 +106,6 @@ export function dateSchoolDaysBefore(calendar, contractDate, count) {
   );
 }
 
-/**
- * @param {object} row
- */
 function describeChange(row) {
   const run = row?.segment === 'MIDDAY' ? 'Midday' : row?.segment || 'Clock time';
   const from = formatClockAmPm(row?.previous_time);
@@ -151,15 +114,6 @@ function describeChange(row) {
   return `${run} change.`;
 }
 
-/**
- * @param {{
- *   routeName: string,
- *   driverName?: string,
- *   row: object,
- *   settings: ReturnType<typeof normalizeContractReminder>,
- *   calendar: import('../../src/logic/calendar.js').SchoolCalendar | string[],
- * }} input
- */
 export function prepareContractReminder({ routeName, driverName, row, settings, calendar }) {
   if (!isPredictedContract(row)) return null;
   const contractDate = toDateString(row.contracted.becomes_on);
@@ -184,13 +138,9 @@ export function prepareContractReminder({ routeName, driverName, row, settings, 
   };
 }
 
-/**
- * One Outlook event per reminder day. Later routes on that day are added
- * to the same event instead of getting a second one.
- * @param {Array<NonNullable<ReturnType<typeof prepareContractReminder>>>} reminders
- */
+// One Outlook event per reminder day. Later routes on that day are added
+// to the same event instead of getting a second one.
 export function combineRemindersByDay(reminders) {
-  /** @type {Map<string, NonNullable<ReturnType<typeof prepareContractReminder>>[]>} */
   const byDay = new Map();
   for (const item of reminders || []) {
     if (!item?.reminderDate || !item.changeId) continue;
@@ -221,33 +171,20 @@ export function combineRemindersByDay(reminders) {
     });
 }
 
-/**
- * @param {string} reminderDate
- */
 export function contractReminderUid(reminderDate) {
   return `contract-reminder-${reminderDate}@teamster-time-changes`;
 }
 
-/**
- * Stable text for one day's event, so a later download can tell if it changed.
- * @param {{ changeIds?: string[], subject?: string, body?: string }} event
- */
+// Stable text for one day's event, so a later download can tell if it changed.
 export function reminderEventSignature(event) {
   const ids = [...(event?.changeIds || [])].map(String).filter(Boolean).sort();
   return `${ids.join(',')}\n${event?.subject || ''}\n${event?.body || ''}`;
 }
 
-/**
- * Events to download now. A new prediction creates the day's event.
- * A moved contract date or another route on that day updates it.
- * A day that no longer has a prediction is cancelled.
- * @param {ReturnType<typeof combineRemindersByDay>} currentEvents
- * @param {Record<string, string>} [previousMap] change id to reminder day
- * @param {Record<string, string>} [previousSignatures] reminder day to signature
- * @param {string} [stamp] extra settings, such as invitees, that should refresh the file
- */
+// Events to download now. A new prediction creates the day's event.
+// A moved contract date or another route on that day updates it.
+// A day that no longer has a prediction is cancelled.
 export function planReminderPublish(currentEvents, previousMap = {}, previousSignatures = {}, stamp = '') {
-  /** @type {Map<string, string[]>} */
   const previousByDay = new Map();
   for (const [changeId, day] of Object.entries(previousMap || {})) {
     if (!changeId || !day) continue;
@@ -259,7 +196,6 @@ export function planReminderPublish(currentEvents, previousMap = {}, previousSig
     (currentEvents || []).filter((event) => event?.reminderDate).map((event) => [event.reminderDate, event])
   );
   const days = [...new Set([...currentByDay.keys(), ...previousByDay.keys()])].sort();
-  /** @type {Array<object>} */
   const publish = [];
   for (const day of days) {
     const current = currentByDay.get(day);
@@ -290,17 +226,11 @@ export function planReminderPublish(currentEvents, previousMap = {}, previousSig
   return publish;
 }
 
-/**
- * @param {string} reminderDate
- */
 export function reminderDayFilename(reminderDate) {
   const day = toDateString(reminderDate).replaceAll('-', '');
   return `contract-reminder-${day}.ics`;
 }
 
-/**
- * @param {string} value
- */
 function icsText(value) {
   return String(value ?? '')
     .replaceAll('\\', '\\\\')
@@ -310,18 +240,12 @@ function icsText(value) {
     .replaceAll(';', '\\;');
 }
 
-/**
- * @param {string} value
- */
 function icsParam(value) {
   const text = String(value ?? '').replaceAll('"', '');
   if (/[;,:]/.test(text)) return `"${text}"`;
   return text;
 }
 
-/**
- * @param {string} line
- */
 function foldLine(line) {
   const limit = 73;
   if (line.length <= limit) return line;
@@ -334,32 +258,16 @@ function foldLine(line) {
   return folded;
 }
 
-/**
- * @param {Date} date
- */
 function utcStamp(date) {
   return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 }
 
-/**
- * @param {string} day
- * @param {string} time
- */
 function localStamp(day, time) {
   return `${toDateString(day).replaceAll('-', '')}T${time}`;
 }
 
-/**
- * One-minute Outlook meeting that stays free on the calendar.
- * Opening the file in Outlook lets the signed-in person send it.
- * @param {{
- *   organizer: { email: string, name?: string },
- *   invitees: { email: string, name?: string }[],
- *   events: Array<{ uid: string, reminderDate: string, subject: string, body: string }>,
- *   now?: Date,
- *   method?: 'REQUEST' | 'CANCEL',
- * }} input
- */
+// One-minute Outlook meeting that stays free on the calendar.
+// Opening the file in Outlook lets the signed-in person send it.
 export function buildContractReminderCalendar({
   organizer,
   invitees,

@@ -1,9 +1,3 @@
-/**
- * Phone links for today's clock card.
- * One day link lists the punches. Each punch link can change that row's note
- * and reasons. Neither link can punch.
- */
-
 import { NOTE_MAX, REASON_LABEL_MAX } from '../../src/logic/clockKiosk.js';
 
 function randomToken() {
@@ -17,20 +11,12 @@ const ACTIONS = new Set(['in', 'out']);
 const SLOT_NAME = { AM: 'AM', MIDDAY: 'MID', PM: 'PM', OTHER: 'OTHER' };
 const DAY_MS = 36 * 60 * 60 * 1000;
 
-/**
- * @param {unknown} run
- * @param {unknown} action
- */
 export function noteSlotLabel(run, action) {
   const name = SLOT_NAME[String(run || '')];
   if (!name || !ACTIONS.has(String(action || ''))) return '';
   return `${name} ${action === 'in' ? 'IN' : 'OUT'}`;
 }
 
-/**
- * @param {string} origin
- * @param {string} token
- */
 export function noteShareUrl(origin, token) {
   const base = String(origin || '').replace(/\/$/, '');
   const link = String(token || '').trim();
@@ -38,11 +24,7 @@ export function noteShareUrl(origin, token) {
   return `${base}/driver-note.html?t=${encodeURIComponent(link)}`;
 }
 
-/**
- * One link for every punched row on this driver's day.
- * @param {string} origin
- * @param {string} token
- */
+// One link for every punched row on this driver's day.
 export function noteDayUrl(origin, token) {
   const base = String(origin || '').replace(/\/$/, '');
   const link = String(token || '').trim();
@@ -50,28 +32,18 @@ export function noteDayUrl(origin, token) {
   return `${base}/driver-note.html?d=${encodeURIComponent(link)}`;
 }
 
-/**
- * @param {unknown} value
- */
 function driverName(value) {
   const name = String(value ?? '').trim();
   if (!name || name.length > 80) throw new Error('Choose a driver.');
   return name;
 }
 
-/**
- * @param {unknown} value
- */
 function slotDate(value) {
   const date = String(value ?? '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('That notes link is not valid.');
   return date;
 }
 
-/**
- * @param {unknown} run
- * @param {unknown} action
- */
 function slotIdentity(run, action) {
   const route = String(run || '');
   const side = String(action || '');
@@ -79,12 +51,8 @@ function slotIdentity(run, action) {
   return { run: route, action: side };
 }
 
-/**
- * @param {unknown} raw
- */
 function catalogFrom(raw) {
   if (!Array.isArray(raw)) return [];
-  /** @type {Array<{ id: string, label: string }>} */
   const codes = [];
   const seen = new Set();
   for (const item of raw) {
@@ -99,23 +67,14 @@ function catalogFrom(raw) {
   return codes;
 }
 
-/**
- * @param {unknown} raw
- */
 function noteText(raw) {
   const note = String(raw ?? '').trim();
   if (note.length > NOTE_MAX) throw new Error(`A note can be ${NOTE_MAX} characters or fewer.`);
   return note;
 }
 
-/**
- * Reasons already stored, plus the office list, are the only ones a phone can keep.
- * A clock seeding the link skips a reason that has no time. A phone save does not.
- * @param {unknown} raw
- * @param {Array<{ id: string, label: string }>} catalog
- * @param {Array<{ id: string, label: string, minutes: number }>} [already]
- * @param {boolean} [strict]
- */
+// Reasons already stored, plus the office list, are the only ones a phone can keep.
+// A clock seeding the link skips a reason that has no time. A phone save does not.
 function reasonsFrom(raw, catalog, already = [], strict = true) {
   if (!Array.isArray(raw)) {
     if (!strict) return [];
@@ -126,7 +85,6 @@ function reasonsFrom(raw, catalog, already = [], strict = true) {
   for (const code of already) {
     if (!allowed.has(code.id)) allowed.set(code.id, code.label);
   }
-  /** @type {Array<{ id: string, label: string, minutes: number }>} */
   const reasons = [];
   const seen = new Set();
   for (const item of raw) {
@@ -151,12 +109,6 @@ function reasonsFrom(raw, catalog, already = [], strict = true) {
   return reasons;
 }
 
-/**
- * @param {unknown} value
- */
-/**
- * @param {unknown} value
- */
 function clockText(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
 }
@@ -168,10 +120,6 @@ function editableUntilMs(value) {
   return time;
 }
 
-/**
- * @param {object} session
- * @param {number} now
- */
 function publicSlot(session, now) {
   const editableUntil = session.editableUntil;
   return {
@@ -190,21 +138,14 @@ function publicSlot(session, now) {
   };
 }
 
-/**
- * In-memory notes for the office server. A phone and the clock share one slot.
- * Nothing in here creates a punch.
- * @param {{ now?: () => number, token?: () => string }} [options]
- */
+// In-memory notes for the office server. A phone and the clock share one slot.
+// Nothing in here creates a punch.
 export function createNoteShare(options = {}) {
   const now = options.now || (() => Date.now());
   const token = options.token || randomToken;
-  /** @type {Map<string, object>} */
   const sessions = new Map();
-  /** @type {Map<string, string>} */
   const bySlot = new Map();
-  /** @type {Map<string, object>} */
   const days = new Map();
-  /** @type {Map<string, string>} */
   const byDay = new Map();
 
   function prune() {
@@ -221,9 +162,6 @@ export function createNoteShare(options = {}) {
     }
   }
 
-  /**
-   * @param {object} day
-   */
   function publicDay(day) {
     const moment = now();
     const editableUntil = day.editableUntil;
@@ -253,11 +191,8 @@ export function createNoteShare(options = {}) {
     };
   }
 
-  /**
-   * The clock sends only the rows that already have a punch.
-   * Opening again replaces that list and does not erase a note the phone saved.
-   * @param {object} body
-   */
+  // The clock sends only the rows that already have a punch.
+  // Opening again replaces that list and does not erase a note the phone saved.
   function openDay(body) {
     prune();
     const name = driverName(body?.driverName);
@@ -265,7 +200,6 @@ export function createNoteShare(options = {}) {
     const until = editableUntilMs(body?.editableUntil);
     const catalog = catalogFrom(body?.catalog);
     const rawRows = Array.isArray(body?.rows) ? body.rows.slice(0, 12) : [];
-    /** @type {Array<{ token: string, clock: string }>} */
     const rows = [];
     const seen = new Set();
     for (const item of rawRows) {
@@ -317,9 +251,6 @@ export function createNoteShare(options = {}) {
     return publicDay(day);
   }
 
-  /**
-   * @param {unknown} link
-   */
   function readDay(link) {
     prune();
     const day = days.get(String(link || '').trim());
@@ -328,9 +259,6 @@ export function createNoteShare(options = {}) {
     return publicDay(day);
   }
 
-  /**
-   * @param {object} body
-   */
   function open(body) {
     prune();
     const name = driverName(body?.driverName);
@@ -368,9 +296,6 @@ export function createNoteShare(options = {}) {
     return publicSlot(session, now());
   }
 
-  /**
-   * @param {unknown} link
-   */
   function read(link) {
     prune();
     const session = sessions.get(String(link || '').trim());
@@ -379,10 +304,6 @@ export function createNoteShare(options = {}) {
     return publicSlot(session, now());
   }
 
-  /**
-   * @param {unknown} link
-   * @param {object} body
-   */
   function save(link, body) {
     prune();
     const session = sessions.get(String(link || '').trim());

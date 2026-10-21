@@ -1,28 +1,18 @@
-/**
- * Place the driver timeclock on a monitor other than the one the office is using.
- * The Window Management API can see those screens after the browser asks permission.
- * Without it, the timeclock still opens in its own window so it can be moved across.
- */
+export const TIMECLOCK_LOCK_KEY = 'teamster-timeclock-lock';
 
-/**
- * @param {string} search
- */
+// Place the driver timeclock on a monitor other than the one the office is using.
+// The Window Management API can see those screens after the browser asks permission.
+// Without it, the timeclock still opens in its own window so it can be moved across.
+
 export function isExternalTimeclockSearch(search) {
   return new URLSearchParams(String(search || '')).get('section') === 'timeclock';
 }
 
-/**
- * @param {string} search
- */
 export function timeclockWantsFill(search) {
   const params = new URLSearchParams(String(search || ''));
   return params.get('section') === 'timeclock' && params.get('fill') === '1';
 }
 
-/**
- * @param {string} baseHref
- * @param {{ fill?: boolean }} [options]
- */
 export function timeclockWindowUrl(baseHref, { fill = false } = {}) {
   const url = new URL('./', baseHref);
   url.searchParams.set('section', 'timeclock');
@@ -31,10 +21,6 @@ export function timeclockWindowUrl(baseHref, { fill = false } = {}) {
   return url.href;
 }
 
-/**
- * @param {object | null | undefined} screen
- * @returns {{ left: number, top: number, width: number, height: number } | null}
- */
 export function timeclockWindowBounds(screen) {
   if (!screen) return null;
   return {
@@ -45,19 +31,13 @@ export function timeclockWindowBounds(screen) {
   };
 }
 
-/**
- * @param {object | null | undefined} screen
- */
 export function timeclockWindowFeatures(screen) {
   const bounds = timeclockWindowBounds(screen);
   if (!bounds) return 'popup,width=1280,height=800';
   return `popup,left=${bounds.left},top=${bounds.top},width=${bounds.width},height=${bounds.height}`;
 }
 
-/**
- * A name a person can match to a monitor.
- * @param {object | null | undefined} screen
- */
+// A name a person can match to a monitor.
 export function timeclockScreenLabel(screen) {
   const width = Number(screen?.width) || 0;
   const height = Number(screen?.height) || 0;
@@ -71,11 +51,8 @@ export function timeclockScreenLabel(screen) {
   return [kind, place, size].filter(Boolean).join(' · ');
 }
 
-/**
- * Screens other than the one this window is on.
- * An external monitor comes before another built-in display, then left to right.
- * @param {{ screens?: object[], currentScreen?: object } | null | undefined} details
- */
+// Screens other than the one this window is on.
+// An external monitor comes before another built-in display, then left to right.
 export function otherTimeclockScreens(details) {
   const screens = Array.isArray(details?.screens) ? details.screens.filter(Boolean) : [];
   const current = details?.currentScreen || null;
@@ -94,10 +71,6 @@ export function otherTimeclockScreens(details) {
   });
 }
 
-/**
- * @param {object} a
- * @param {object} b
- */
 function sameBounds(a, b) {
   return (
     Number(a?.left) === Number(b?.left) &&
@@ -107,11 +80,6 @@ function sameBounds(a, b) {
   );
 }
 
-/**
- * @param {unknown} primary
- * @param {unknown} fallback
- * @param {number} empty
- */
 function finite(primary, fallback, empty) {
   const first = Number(primary);
   if (Number.isFinite(first)) return first;

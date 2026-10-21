@@ -1,8 +1,3 @@
-/**
- * Paper records on Clock records. Full pages wait in a queue until they are printed.
- * A printed page stays available to print again. Year-to-date is a separate download.
- */
-
 import {
   groupPunchesByDriver,
   markPaperPagesPrinted,
@@ -21,12 +16,6 @@ import {
   yearToDateRange,
 } from '../src/paperClockBackup.js';
 
-/**
- * @param {{
- *   readState: () => { punches?: object[], paperBackup?: object },
- *   writeState: (state: object) => void,
- * }} options
- */
 export function mountPaperBackup({ readState, writeState }) {
   const view = document.querySelector('#paper-backup-view');
   const remindersInput = document.querySelector('#paper-backup-reminders');
@@ -53,9 +42,7 @@ export function mountPaperBackup({ readState, writeState }) {
     writeState(next);
   }
 
-  /**
-   * Seal any new full pages into the shared queue.
-   */
+  // Seal any new full pages into the shared queue.
   function currentPages() {
     const saved = normalizePaperBackup(readState().paperBackup);
     const synced = syncPaperPages(punches(), saved.pages);
@@ -75,9 +62,6 @@ export function mountPaperBackup({ readState, writeState }) {
     status.textContent = message || '';
   }
 
-  /**
-   * @param {Array<{ title?: string, rows: object[] }>} pages
-   */
   function showPages(pages) {
     sheet.innerHTML = paperPagesHtml(pages);
   }
@@ -91,11 +75,6 @@ export function mountPaperBackup({ readState, writeState }) {
     if (reminderText) reminderText.textContent = due ? paperBackupReminderText(waiting.length) : '';
   }
 
-  /**
-   * @param {HTMLElement | null} list
-   * @param {object[]} pages
-   * @param {string} emptyText
-   */
   function fillPageList(list, pages, emptyText) {
     if (!list) return;
     list.replaceChildren();
@@ -154,10 +133,6 @@ export function mountPaperBackup({ readState, writeState }) {
     return { waiting, printed, open, pages };
   }
 
-  /**
-   * @param {object[]} selected
-   * @param {boolean} clearWaiting
-   */
   function printPages(selected, clearWaiting) {
     const { pages } = currentPages();
     const printable = selected.filter((page) => page.rows?.length);

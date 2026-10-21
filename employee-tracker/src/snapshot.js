@@ -1,6 +1,9 @@
 import { BID_THRESHOLD_MINUTES, SEGMENTS } from '../../src/logic/constants.js';
 import { daysRemainingInWindow } from '../../src/logic/calendar.js';
-import { buildSeeTheMathFromSegments } from '../../src/logic/changeReport.js';
+import {
+  buildSeeTheMathFromSegments,
+  describeOpenWindowContractHours,
+} from '../../src/logic/changeReport.js';
 import {
   contractWindowPlan,
   forcedOctober1ContractPlan,
@@ -34,7 +37,7 @@ const STATUS_COPY = {
   ACCUMULATING: {
     label: 'Accumulating',
     summary:
-      'A review window is open. Further changes reset it and add the exact minute difference. When it closes, these times become contracted — or go to bid/bump if the difference is 30 minutes or more.',
+      'A review window is open. A later change under 30 minutes is added in and the countdown starts over. A later change that leaves an already-qualified 30-minute increase at or above 30 minutes does not move the bid date. That change runs its own countdown.',
   },
   BID_PENDING: {
     label: 'Bid pending',
@@ -99,12 +102,6 @@ const OUTCOME_COPY = {
   },
 };
 
-/**
- * @param {import('../../src/logic/stateMachine.js').LogEntry[]} changeLog
- * @param {import('../../src/logic/calendar.js').SchoolCalendar} calendar
- * @param {string} asOfDate
- * @param {import('../../src/logic/stateMachine.js').RouteStateMap} [prior]
- */
 export function rebuildEmployeeRouteState(
   changeLog,
   calendar,
@@ -121,11 +118,7 @@ export function rebuildEmployeeRouteState(
   return map[EMPLOYEE_ROUTE_ID] ?? null;
 }
 
-/**
- * @param {Record<string, string | null | undefined>} segments
- */
 export function describeSchedule(segments) {
-  /** @type {Record<string, ReturnType<typeof splitSegmentRange>>} */
   const out = {};
   for (const segment of SEGMENTS) {
     out[segment] = splitSegmentRange(segments?.[segment] ?? null);
@@ -159,15 +152,11 @@ function reportChangeIds(report) {
   return (report?.contributing_changes ?? []).map((item) => item.id);
 }
 
-/**
- * One row per established starting schedule, then one row per later change.
- * Oldest first so the most recent change is last.
- *
- * @param {import('../../src/logic/stateMachine.js').LogEntry[]} changeLog
- * @param {import('../../src/logic/stateMachine.js').RouteStateEntry | null} entry
- * @param {ReturnType<typeof buildWindowView> | null} window
- * @param {string | null} startDate
- */
+// One row for the established starting schedule, then one row per later schedule.
+// AM, midday, and PM moves that start on the same date are one row: the contract
+// totals the route, so the row's minutes are the sum. A blank date is not known
+// to be that same day, and those stay separate unless they were saved together.
+// Oldest first, so the most recent schedule is last.
 export function buildScheduleHistory(changeLog, entry, window, startDate) {
   const events = (changeLog ?? [])
     .filter((item) => !item.type || item.type === 'CHANGE')
@@ -179,9 +168,7 @@ export function buildScheduleHistory(changeLog, entry, window, startDate) {
     return [];
   }
 
-  /** @type {Record<string, string | null>} */
   const running = { AM: null, MIDDAY: null, PM: null };
-  /** @type {Record<string, string | null>} */
   const sources = { AM: null, MIDDAY: null, PM: null };
   for (const seed of seeds) {
     running[seed.segment] = seed.new_time;
@@ -191,8 +178,8 @@ export function buildScheduleHistory(changeLog, entry, window, startDate) {
   const reports = entry?.change_reports ?? [];
   const openIds = entry?.contributing_change_ids ?? [];
   const lastOpenId = openIds.at(-1) ?? null;
+  const sideWindows = entry?.side_windows ?? [];
 
-  /** @type {object[]} */
   const rows = [
     {
       id: 'initial',
@@ -222,17 +209,15 @@ export function buildScheduleHistory(changeLog, entry, window, startDate) {
     },
   ];
 
-  /** @type {Array<{ key: string, changes: typeof later }>} */
   const groups = [];
   for (const change of later) {
-    const key = change.schedule_id || change.id;
+    const key = historyGroupKey(change);
     const current = groups.at(-1);
     if (current && current.key === key) current.changes.push(change);
     else groups.push({ key, changes: [change] });
   }
 
   for (const group of groups) {
-    /** @type {string[]} */
     const segments = [];
     let last = group.changes[0];
     for (const change of group.changes) {
@@ -255,6 +240,9 @@ export function buildScheduleHistory(changeLog, entry, window, startDate) {
       previous: splitSegmentRange(last.previous_time),
       next: splitSegmentRange(last.new_time),
       delta_minutes: group.changes.reduce((sum, change) => sum + (change.delta_minutes || 0), 0),
+      delta_by_id: Object.fromEntries(
+        group.changes.map((change) => [change.id, change.delta_minutes || 0])
+      ),
       delta_label: formatSignedMinutes(
         group.changes.reduce((sum, change) => sum + (change.delta_minutes || 0), 0)
       ),
@@ -264,12 +252,13 @@ export function buildScheduleHistory(changeLog, entry, window, startDate) {
       force_oct1_contract: group.changes.some((change) => isForcedOctober1Contract(change.force_oct1_contract)),
       schedule: describeSchedule(running),
       time_sources: { ...sources },
-      contracted: contractedStatusForChange(last, {
+      contracted: contractedStatusForChanges(group.changes, {
         reports,
         openIds,
         lastOpenId,
         entry,
         window,
+        sideWindows,
       }),
     });
   }
@@ -278,24 +267,28 @@ export function buildScheduleHistory(changeLog, entry, window, startDate) {
   return rows;
 }
 
-/**
- * Running exact-minute total inside each review window, as of that change.
- * A later change in the same window keeps the earlier changes in the sum.
- *
- * @param {object[]} rows
- * @param {import('../../src/logic/stateMachine.js').RouteStateEntry | null} entry
- */
+// Changes with a recorded date share one schedule row.
+// A blank date only shares a row with the runs saved in that same edit.
+function historyGroupKey(change) {
+  const date = dateSortKey(change.effective_date);
+  if (date) return `date:${date}`;
+  return `undated:${change.schedule_id || change.id}`;
+}
+
+// Running exact-minute total inside each review window, as of that change.
+// A later change in the same window keeps the earlier changes in the sum.
+// Several runs on one row each add their own minutes once.
 function annotateCumulativeDrift(rows, entry) {
-  /** @type {Map<string, object>} */
   const byId = new Map();
   for (const row of rows) {
-    if (row.kind === 'change' && row.change_id) {
-      byId.set(row.change_id, row);
+    if (row.kind !== 'change') continue;
+    const ids = row.change_ids?.length ? row.change_ids : row.change_id ? [row.change_id] : [];
+    for (const id of ids) {
+      if (id) byId.set(id, row);
     }
   }
   if (!byId.size) return;
 
-  /** @type {string[][]} */
   const groups = [];
   const covered = new Set();
   for (const report of entry?.change_reports ?? []) {
@@ -311,19 +304,34 @@ function annotateCumulativeDrift(rows, entry) {
     (id) => byId.has(id) && !covered.has(id)
   );
   if (openIds.length) groups.push(openIds);
+  for (const side of entry?.side_windows ?? []) {
+    const ids = (side.contributing_change_ids ?? []).filter(
+      (id) => byId.has(id) && !covered.has(id)
+    );
+    if (ids.length) groups.push(ids);
+  }
 
   for (const ids of groups) {
     let sum = 0;
     for (const id of ids) {
       const row = byId.get(id);
-      sum += row.delta_minutes ?? 0;
+      const piece = row.delta_by_id?.[id];
+      sum += typeof piece === 'number' ? piece : row.delta_minutes ?? 0;
       row.cumulative_drift_minutes = sum;
       row.cumulative_drift_label = formatSignedMinutes(sum);
     }
   }
 }
 
-function contractedStatusForChange(change, { reports, openIds, lastOpenId, entry, window }) {
+// A same-day row can mix the open bid with a later change that did not
+// move it. The date column follows the bid, not that later countdown.
+function contractedStatusForChanges(changes, context) {
+  const statuses = changes.map((change) => contractedStatusForChange(change, context));
+  const standing = statuses.find((item) => item.status === 'predicted' && item.becomes_on);
+  return standing || statuses.at(-1);
+}
+
+function contractedStatusForChange(change, { reports, openIds, lastOpenId, entry, window, sideWindows = [] }) {
   for (const report of reports) {
     const ids = reportChangeIds(report);
     if (!ids.includes(change.id)) {
@@ -331,6 +339,18 @@ function contractedStatusForChange(change, { reports, openIds, lastOpenId, entry
     }
     if (ids.at(-1) === change.id) {
       const becomesOn = String(report.finalized_at || '').slice(0, 10) || null;
+      if (report.separate_countdown) {
+        return {
+          status: 'separate_countdown',
+          becomes_on: becomesOn,
+          projected_outcome: null,
+          projected_outcome_label: null,
+          label: becomesOn
+            ? `Own countdown finished ${prettyDate(becomesOn)}. The bid date did not move.`
+            : 'Own countdown finished. The bid date did not move.',
+          detail: null,
+        };
+      }
       const outcomeCopy = OUTCOME_COPY[report.outcome];
     if (report.outcome === 'STABLE') {
       const forced = Boolean(report.forced_october_1);
@@ -370,6 +390,23 @@ function contractedStatusForChange(change, { reports, openIds, lastOpenId, entry
       projected_outcome: null,
       projected_outcome_label: null,
       label: 'Replaced by a later change in that window',
+      detail: null,
+    };
+  }
+
+  const side = sideWindows.find((item) =>
+    (item.contributing_change_ids ?? []).includes(change.id)
+  );
+  if (side) {
+    const becomesOn = side.becomes_on ?? null;
+    return {
+      status: 'side_countdown',
+      becomes_on: becomesOn,
+      projected_outcome: null,
+      projected_outcome_label: null,
+      label: becomesOn
+        ? `Own countdown through ${prettyDate(becomesOn)}. The bid date does not move.`
+        : 'Own countdown. The bid date does not move.',
       detail: null,
     };
   }
@@ -427,9 +464,6 @@ function contractedStatusForChange(change, { reports, openIds, lastOpenId, entry
   };
 }
 
-/**
- * @param {import('../../src/logic/stateMachine.js').RouteStateEntry | null} entry
- */
 export function officialContractedMinutes(entry) {
   if (!entry) {
     return null;
@@ -444,16 +478,6 @@ export function officialContractedMinutes(entry) {
   return buildPayrollRoundingBreakdown(source).payroll_rounded_total_minutes;
 }
 
-/**
- * @param {object} input
- * @param {object | null} input.profile
- * @param {import('../../src/logic/stateMachine.js').LogEntry[]} input.changeLog
- * @param {import('../../src/logic/stateMachine.js').RouteStateEntry | null} input.entry
- * @param {import('../../src/logic/calendar.js').SchoolCalendar} input.calendar
- * @param {string} input.asOfDate
- * @param {object} [input.calendarSummary]
- * @param {object} [input.calendarSource]
- */
 export function buildEmployeeSnapshot({
   profile,
   changeLog,
@@ -510,8 +534,8 @@ export function buildEmployeeSnapshot({
     },
     calendar: {
       school_year: calendar.school_year ?? '2026-2027',
-      first_day: calendarSummary?.first_day ?? '2026-09-08',
-      last_day: calendarSummary?.last_day ?? '2027-06-22',
+      first_day: calendarSummary?.first_day ?? '2026-08-31',
+      last_day: calendarSummary?.last_day ?? '2027-06-11',
       school_day_count:
         calendarSummary?.school_day_count ?? calendar.school_days?.length ?? null,
       source: calendarSource ?? null,
@@ -547,11 +571,6 @@ export function buildEmployeeSnapshot({
   };
 }
 
-/**
- * @param {import('../../src/logic/stateMachine.js').RouteStateEntry} entry
- * @param {import('../../src/logic/calendar.js').SchoolCalendar} calendar
- * @param {string} asOf
- */
 function buildWindowView(entry, calendar, asOf) {
   const status = entry.status;
   const copy = STATUS_COPY[status] ?? {
@@ -574,6 +593,17 @@ function buildWindowView(entry, calendar, asOf) {
   const math = open
     ? buildSeeTheMathFromSegments(entry.baseline_segments, entry.segments)
     : null;
+  const currentContractMinutes =
+    typeof entry.payroll_rounded_total_minutes === 'number'
+      ? entry.payroll_rounded_total_minutes
+      : math?.before?.payroll_rounded_total_minutes;
+  const openWindowStatement =
+    open && math && typeof currentContractMinutes === 'number'
+      ? describeOpenWindowContractHours(
+          currentContractMinutes,
+          math.after.payroll_rounded_total_minutes
+        )
+      : null;
 
   let headline = copy.summary;
   if (open && becomesOn && outcomeCopy) {
@@ -608,14 +638,27 @@ function buildWindowView(entry, calendar, asOf) {
     projected_outcome_detail: outcomeCopy?.detail ?? null,
     contracted_hours_would_change: math?.contracted_hours_changed ?? null,
     contracted_hours_delta_minutes: math?.contracted_hours_delta_minutes ?? null,
-    contracted_hours_statement: math?.statement ?? null,
+    contracted_hours_statement: openWindowStatement ?? math?.statement ?? null,
+    side_windows: entry.side_windows ?? [],
+    side_window_note: describeSideWindowNote(entry.side_windows),
     see_the_math: math,
   };
 }
 
-/**
- * @param {object} report
- */
+function describeSideWindowNote(sideWindows) {
+  if (!sideWindows?.length) return null;
+  return sideWindows
+    .map((side) => {
+      const amount = formatSignedMinutes(side.drift_minutes);
+      const when = side.becomes_on ? prettyDate(side.becomes_on) : 'its own date';
+      const clock = String(side.rule ?? '').endsWith('_bid')
+        ? `its own bid countdown, through ${when}`
+        : `its own 15 school day countdown, through ${when}`;
+      return `A later change of ${amount} keeps the route at 30 minutes or more, so the bid date stays. That change runs ${clock}.`;
+    })
+    .join(' ');
+}
+
 function shapeReport(report) {
   return {
     id: report.id,
@@ -633,9 +676,6 @@ function shapeReport(report) {
   };
 }
 
-/**
- * @param {number} minutes
- */
 export function formatSignedMinutes(minutes) {
   if (typeof minutes !== 'number' || Number.isNaN(minutes)) {
     return '—';
@@ -647,20 +687,7 @@ export function formatSignedMinutes(minutes) {
   return `${sign}${formatDurationLabel(Math.abs(minutes))}`;
 }
 
-/**
- * Preview a not-yet-saved clock change using the same state machine.
- *
- * @param {{
- *   entry: import('../../src/logic/stateMachine.js').RouteStateEntry | null,
- *   calendar: import('../../src/logic/calendar.js').SchoolCalendar,
- *   segment: string,
- *   clock_in: string,
- *   clock_out: string,
- *   change_date: string,
- *   force_oct1_contract?: unknown,
- *   changeLog?: import('../../src/logic/stateMachine.js').LogEntry[] | null,
- * }} input
- */
+// Preview a not-yet-saved clock change using the same state machine.
 export function previewEmployeeChange({
   entry,
   calendar,
@@ -719,18 +746,42 @@ export function previewEmployeeChange({
         0
       )
     : (next.cumulative_drift_minutes ?? delta);
-  const plan = forced
-    ? forcedOctober1ContractPlan(changeDate)
-    : contractWindowPlan(calendar, changeDate, nextDrift);
+  const aside = (next.side_windows ?? []).find((side) => side.id === 'preview');
+  const plan = aside
+    ? {
+        window_expires_date: next.window_expires_date,
+        becomes_effective_on: next.window_expires_date
+          ? dayAfter(next.window_expires_date)
+          : null,
+      }
+    : forced
+      ? forcedOctober1ContractPlan(changeDate)
+      : contractWindowPlan(calendar, changeDate, nextDrift);
   const outcome = forced ? 'STABLE' : windowFinalizationOutcome(nextDrift);
   const outcomeCopy = forced ? FORCED_OCT1_COPY : OUTCOME_COPY[outcome];
+  const compared = closedReport
+    ? null
+    : buildSeeTheMathFromSegments(next.baseline_segments, next.segments);
+  const previewCurrentMinutes =
+    typeof entry.payroll_rounded_total_minutes === 'number'
+      ? entry.payroll_rounded_total_minutes
+      : compared?.before?.payroll_rounded_total_minutes;
   const math = closedReport
     ? {
         contracted_hours_changed: closedReport.contracted_hours_changed,
         contracted_hours_delta_minutes: closedReport.contracted_hours_delta_minutes,
         statement: closedReport.contracted_hours_statement,
       }
-    : buildSeeTheMathFromSegments(next.baseline_segments, next.segments);
+    : {
+        ...compared,
+        statement:
+          typeof previewCurrentMinutes === 'number'
+            ? describeOpenWindowContractHours(
+                previewCurrentMinutes,
+                compared.after.payroll_rounded_total_minutes
+              )
+            : compared.statement,
+      };
 
   return {
     previous_time: previous,
@@ -749,16 +800,11 @@ export function previewEmployeeChange({
     contracted_hours_would_change: math.contracted_hours_changed,
     contracted_hours_delta_minutes: math.contracted_hours_delta_minutes,
     contracted_hours_statement: math.statement,
+    side_window_note: describeSideWindowNote(next.side_windows),
   };
 }
 
-/**
- * Group calendar days by YYYY-MM for the UI.
- * @param {import('../../src/logic/calendar.js').SchoolCalendar} calendar
- */
-/**
- * @param {string} iso
- */
+// Group calendar days by YYYY-MM for the UI.
 function prettyDate(iso) {
   return new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', {
     weekday: 'short',
@@ -769,7 +815,6 @@ function prettyDate(iso) {
 }
 
 export function groupCalendarByMonth(calendar) {
-  /** @type {Record<string, { month: string, label: string, days: object[] }>} */
   const months = {};
   for (const day of calendar.days ?? []) {
     const month = day.date.slice(0, 7);

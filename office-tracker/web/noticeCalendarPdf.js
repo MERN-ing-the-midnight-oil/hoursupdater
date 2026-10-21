@@ -1,10 +1,7 @@
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
-/**
- * Download the route calendar that is on screen.
- * @param {string} filename
- */
+// Download the route calendar that is on screen.
 export async function downloadCalendarPdf(filename) {
   const source = document.querySelector('#calendar-months')?.closest('section');
   const months = document.querySelector('#calendar-months');
@@ -44,9 +41,6 @@ export async function downloadCalendarPdf(filename) {
   }
 }
 
-/**
- * @param {HTMLCanvasElement} canvas
- */
 function canvasHasInk(canvas) {
   const context = canvas.getContext('2d');
   if (!context) return false;
@@ -58,10 +52,6 @@ function canvasHasInk(canvas) {
   return ink > 40;
 }
 
-/**
- * @param {HTMLCanvasElement} canvas
- * @param {string} filename
- */
 function saveCanvasPdf(canvas, filename) {
   const pdf = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const pageWidth = pdf.internal.pageSize.getWidth();

@@ -1,8 +1,6 @@
-/**
- * Kinds of work a driver clocks as Other.
- * Trips come from Appendix A and Article 4.03.
- * Other paid time is the same combined list as the door-clock reason codes.
- */
+// Kinds of work a driver clocks as Other.
+// Trips come from Appendix A and Article 4.03.
+// Other paid time is the same combined list as the door-clock reason codes.
 
 import { DEFAULT_REASON_CODES, TRIP_TICKET_REASON_ID } from './clockKiosk.js';
 import { parseClockTime } from './timeUtils.js';
@@ -11,7 +9,6 @@ import { normalizePunchRun, pairClockPunches } from './timesheets.js';
 export const WORK_PORTION_LIMIT = 8;
 const LOOKBACK_MS = 45 * 24 * 60 * 60 * 1000;
 
-/** @type {Array<{ id: string, label: string, group: string }>} */
 const TRIP_WORK_TYPES = [
   { id: 'field-trip', label: 'Field trip', group: 'Trips' },
   { id: 'flatland-roster', label: 'Flatland roster trip', group: 'Trips' },
@@ -27,29 +24,18 @@ const TRIP_WORK_TYPES = [
 export const TRIP_TICKET_WORK_TYPE = TRIP_TICKET_REASON_ID;
 export const TRIP_TICKET_MAX = 40;
 
-/**
- * @param {unknown} value
- * @returns {string}
- */
 export function normalizeTripTicket(value) {
   const text = String(value ?? '').trim().replace(/\s+/g, ' ');
   if (!text || text.length > TRIP_TICKET_MAX) return '';
   return text;
 }
 
-/**
- * @param {unknown} value
- * @returns {string}
- */
 export function tripTicketLine(value) {
   const ticket = normalizeTripTicket(value);
   return ticket ? `Trip ticket ${ticket}` : '';
 }
 
-/**
- * Driver note, with a trip ticket number on its own line when one was collected.
- * @param {{ note?: unknown, trip_ticket?: unknown, work_portions?: unknown } | null | undefined} punch
- */
+// Driver note, with a trip ticket number on its own line when one was collected.
 export function clockNoteText(punch) {
   const lines = [];
   const seen = new Set();
@@ -66,11 +52,6 @@ export function clockNoteText(punch) {
   return lines.join('\n');
 }
 
-/**
- * @param {object[] | null | undefined} punches
- * @param {string} punchId
- * @param {unknown} ticket
- */
 export function stampTripTicket(punches, punchId, ticket) {
   const value = normalizeTripTicket(ticket);
   return (Array.isArray(punches) ? punches : []).map((punch) => {
@@ -82,7 +63,6 @@ export function stampTripTicket(punches, punchId, ticket) {
   });
 }
 
-/** @type {Array<{ id: string, label: string, group: string }>} */
 export const IRREGULAR_WORK_TYPES = [
   ...TRIP_WORK_TYPES,
   ...DEFAULT_REASON_CODES.map((code) => ({
@@ -94,37 +74,22 @@ export const IRREGULAR_WORK_TYPES = [
 
 const WORK_TYPE_IDS = new Set(IRREGULAR_WORK_TYPES.map((type) => type.id));
 
-/**
- * @param {unknown} value
- * @returns {string}
- */
 export function normalizeWorkType(value) {
   const id = String(value ?? '').trim();
   return WORK_TYPE_IDS.has(id) ? id : '';
 }
 
-/**
- * @param {unknown} value
- */
 export function workTypeLabel(value) {
   const id = normalizeWorkType(value);
   return IRREGULAR_WORK_TYPES.find((type) => type.id === id)?.label || '';
 }
 
-/**
- * @param {Date} date
- */
 function minuteStamp(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), date.getMinutes()).getTime();
 }
 
-/**
- * @param {unknown} value
- * @returns {Array<{ start: string, end: string, work_type: string }>}
- */
 export function normalizeStoredWorkPortions(value) {
   if (!Array.isArray(value)) return [];
-  /** @type {Array<{ start: string, end: string, work_type: string }>} */
   const portions = [];
   for (const item of value) {
     if (portions.length >= WORK_PORTION_LIMIT) break;
@@ -139,7 +104,6 @@ export function normalizeStoredWorkPortions(value) {
     portions.push(portion);
   }
   portions.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
-  /** @type {typeof portions} */
   const kept = [];
   let cursor = 0;
   for (const portion of portions) {
@@ -151,11 +115,6 @@ export function normalizeStoredWorkPortions(value) {
   return kept;
 }
 
-/**
- * @param {unknown} portions
- * @param {Date} periodStart
- * @param {Date} periodEnd
- */
 export function workPortionError(portions, periodStart, periodEnd) {
   const list = Array.isArray(portions) ? portions : [];
   if (!list.length) return '';
@@ -165,7 +124,6 @@ export function workPortionError(portions, periodStart, periodEnd) {
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
     return 'Clock out before marking part of this route.';
   }
-  /** @type {Array<{ from: number, to: number }>} */
   const checked = [];
   for (const portion of list) {
     if (!normalizeWorkType(portion?.work_type)) return 'Choose the kind of work.';
@@ -185,12 +143,7 @@ export function workPortionError(portions, periodStart, periodEnd) {
   return '';
 }
 
-/**
- * Place a clock on the span's calendar day, or the next day when the span crosses midnight.
- * @param {Date} spanStart
- * @param {Date} spanEnd
- * @param {unknown} clock
- */
+// Place a clock on the span's calendar day, or the next day when the span crosses midnight.
 function clockOnSpan(spanStart, spanEnd, clock) {
   const minutes = parseClockTime(String(clock ?? '').trim());
   const candidates = [0, 1].map((extraDay) => {
@@ -201,24 +154,12 @@ function clockOnSpan(spanStart, spanEnd, clock) {
   return candidates.find((date) => minuteStamp(date) >= minuteStamp(spanStart) && minuteStamp(date) <= minuteStamp(spanEnd)) || candidates[0];
 }
 
-/**
- * @param {Date} spanStart
- * @param {Date} spanEnd
- * @param {Date} date
- */
 function snapToSpan(spanStart, spanEnd, date) {
   if (minuteStamp(date) === minuteStamp(spanStart)) return new Date(spanStart);
   if (minuteStamp(date) === minuteStamp(spanEnd)) return new Date(spanEnd);
   return date;
 }
 
-/**
- * @param {Date} spanStart
- * @param {Date} spanEnd
- * @param {unknown} startClock
- * @param {unknown} endClock
- * @returns {{ start: Date, end: Date }}
- */
 export function clocksOnSpan(spanStart, spanEnd, startClock, endClock) {
   let start;
   let end;
@@ -242,13 +183,7 @@ export function clocksOnSpan(spanStart, spanEnd, startClock, endClock) {
   return { start, end };
 }
 
-/**
- * Completed regular routes this driver can still mark, newest first.
- * @param {object[] | null | undefined} punches
- * @param {unknown} driverName
- * @param {Date} [now]
- * @param {number} [limit]
- */
+// Completed regular routes this driver can still mark, newest first.
 export function regularPairsForMarking(punches, driverName, now = new Date(), limit = 8) {
   const wanted = String(driverName ?? '').trim().toLowerCase();
   if (!wanted) return [];
@@ -267,13 +202,8 @@ export function regularPairsForMarking(punches, driverName, now = new Date(), li
     .slice(0, limit);
 }
 
-/**
- * Mark part of a regular clock pair as irregular work.
- * The whole pair becomes that kind of work. A shorter part stays on the clock in.
- * @param {object[] | null | undefined} punches
- * @param {string} clockInId
- * @param {{ workType?: unknown, startClock?: unknown, endClock?: unknown }} input
- */
+// Mark part of a regular clock pair as irregular work.
+// The whole pair becomes that kind of work. A shorter part stays on the clock in.
 export function applyWorkChunk(punches, clockInId, input) {
   const source = Array.isArray(punches) ? punches : [];
   const clockIn = source.find((punch) => punch?.id === clockInId && punch?.removed !== true);

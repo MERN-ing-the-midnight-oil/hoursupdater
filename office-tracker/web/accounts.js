@@ -3,32 +3,29 @@ import { loadState, mergeSharedDriverList, onStateSaved, writeStateLocal } from 
 
 const OFFICE_ROW = 'shared';
 
-/** @type {import('@supabase/supabase-js').SupabaseClient | null} */
 let client = null;
-/** @type {{ id: string, email: string, name: string } | null} */
 let account = null;
 let version = 0;
 let pushing = false;
-/** @type {() => void} */
 let onReplace = () => {};
 let pushChain = Promise.resolve();
 let lastSharedSave = Promise.resolve();
 
-/**
- * The person signed in on this browser, if accounts are turned on.
- */
+// The person signed in on this browser, if accounts are turned on.
 export function currentAccount() {
   return account;
+}
+
+// Signed-in office client, when this browser has an account.
+export function officeClient() {
+  return client;
 }
 
 export function accountsEnabled() {
   return Boolean(client);
 }
 
-/**
- * People who can sign in. Their email is the Outlook address on a reminder.
- * @returns {Promise<Array<{ id: string, email: string, name: string }>>}
- */
+// People who can sign in. Their email is the Outlook address on a reminder.
 export async function listOfficeUsers() {
   if (!client) return [];
   const { data, error } = await client
@@ -45,9 +42,6 @@ export async function listOfficeUsers() {
     .filter((row) => row.email);
 }
 
-/**
- * @param {import('@supabase/supabase-js').User | null | undefined} user
- */
 function accountFromUser(user) {
   if (!user) return null;
   const email = String(user.email ?? '').trim();
@@ -61,7 +55,9 @@ function showGate(show) {
   if (!gate) return;
   gate.hidden = !show;
   document.body.classList.toggle('needs-account', show);
-  document.body.classList.remove('is-booting');
+  if (document.body.dataset.holdBoot !== 'timeclock') {
+    document.body.classList.remove('is-booting');
+  }
 }
 
 function showChip() {
@@ -77,9 +73,6 @@ function showChip() {
   chip.hidden = false;
 }
 
-/**
- * @param {unknown} state
- */
 function remoteHasRoutes(state) {
   return Boolean(
     state &&
@@ -109,9 +102,6 @@ async function reloadFromRemote() {
   onReplace();
 }
 
-/**
- * @param {ReturnType<typeof loadState>} state
- */
 async function push(state) {
   if (!client || !account) {
     throw new Error('Sign in to save to the shared office.');
@@ -160,9 +150,6 @@ async function push(state) {
   }
 }
 
-/**
- * @param {ReturnType<typeof loadState>} state
- */
 function enqueuePush(state) {
   const snapshot = JSON.parse(JSON.stringify(state));
   const run = pushChain.then(() => push(snapshot));
@@ -180,9 +167,7 @@ function enqueuePush(state) {
   return run;
 }
 
-/**
- * Resolves when the newest shared-office save has finished.
- */
+// Resolves when the newest shared-office save has finished.
 export function whenSharedOfficeSaved() {
   return lastSharedSave;
 }
@@ -190,9 +175,6 @@ export function whenSharedOfficeSaved() {
 const PAYROLL_BASELINE_ROW = 'latest';
 const LOCAL_PAYROLL_KEY = 'transportation-payroll-baseline.v1';
 
-/**
- * @param {{ message?: string, code?: string } | null | undefined} error
- */
 function payrollBaselineError(error) {
   const message = String(error?.message ?? '');
   if (error?.code === 'PGRST205' || /payroll_baseline/i.test(message)) {
@@ -203,11 +185,8 @@ function payrollBaselineError(error) {
   return error instanceof Error ? error : new Error(message || 'Could not read the last payroll file.');
 }
 
-/**
- * Rows from the last payroll file this office created.
- * A signed-in office reads the shared record. Otherwise this browser remembers them.
- * @returns {Promise<object[] | null>}
- */
+// Rows from the last payroll file this office created.
+// A signed-in office reads the shared record. Otherwise this browser remembers them.
 export async function loadPayrollBaseline() {
   if (!client || !account) return readLocalPayrollBaseline();
   const { data, error } = await client
@@ -220,10 +199,7 @@ export async function loadPayrollBaseline() {
   return data.rows;
 }
 
-/**
- * Remember the payroll rows just written, so the next file can highlight what changed.
- * @param {object[]} rows
- */
+// Remember the payroll rows just written, so the next file can highlight what changed.
 export async function savePayrollBaseline(rows) {
   const saved = Array.isArray(rows) ? rows : [];
   if (!client || !account) {
@@ -239,9 +215,6 @@ export async function savePayrollBaseline(rows) {
   if (error) throw payrollBaselineError(error);
 }
 
-/**
- * @returns {object[] | null}
- */
 function readLocalPayrollBaseline() {
   try {
     const raw = globalThis.localStorage?.getItem(LOCAL_PAYROLL_KEY);
@@ -253,9 +226,6 @@ function readLocalPayrollBaseline() {
   }
 }
 
-/**
- * @param {object[]} rows
- */
 function writeLocalPayrollBaseline(rows) {
   globalThis.localStorage?.setItem(
     LOCAL_PAYROLL_KEY,
@@ -282,13 +252,14 @@ function subscribe() {
     .subscribe();
 }
 
-async function openOffice() {
+async function openOffice(bootSnapshot) {
   const row = await readOffice();
   if (!row) {
     throw new Error('The shared office record is missing. Run the Supabase setup SQL.');
   }
   version = row.version ?? 0;
-  if (remoteHasRoutes(row.state) || version > 0) {
+  const keptLocalEdits = bootSnapshot != null && JSON.stringify(loadState()) !== bootSnapshot;
+  if (!keptLocalEdits && (remoteHasRoutes(row.state) || version > 0)) {
     writeStateLocal(
       row.state?.profiles
         ? row.state
@@ -298,6 +269,7 @@ async function openOffice() {
   subscribe();
   showGate(false);
   showChip();
+  if (keptLocalEdits) void enqueuePush(loadState());
 }
 
 function setAccountStatus(message, kind) {
@@ -341,10 +313,8 @@ function bindAccountForm(onSignedIn) {
   });
 }
 
-/**
- * The published page ships supabase-config.json. The local program answers
- * /api/supabase-config. Either one turns sign-in on.
- */
+// The published page ships supabase-config.json. The local program answers
+// /api/supabase-config. Either one turns sign-in on.
 async function loadAccountConfig() {
   try {
     const response = await fetch('./supabase-config.json', { cache: 'no-store' });
@@ -367,11 +337,8 @@ async function loadAccountConfig() {
   return { enabled: false };
 }
 
-/**
- * The same link every time this driver opens the route screen.
- * Signed-in offices can create it. The public page reads clocks through it.
- * @param {string} driverName
- */
+// The same link every time this driver opens the route screen.
+// Signed-in offices can create it. The public page reads clocks through it.
 export async function ensureDriverClockLink(driverName) {
   if (!client || !account) return '';
   const driver_name = String(driverName ?? '').trim();
@@ -403,16 +370,16 @@ export async function ensureDriverClockLink(driverName) {
   throw inserted.error || new Error('Could not save the clock record link.');
 }
 
-/**
- * Ask for a Supabase sign-in when an account project is configured.
- * Otherwise the dashboard keeps using this browser only.
- * @param {{ onReady: () => void, onRemoteReset: () => void }} handlers
- */
+// Ask for a Supabase sign-in when an account project is configured.
+// Otherwise the dashboard keeps using this browser only.
 export async function startAccounts(handlers) {
   onReplace = handlers.onRemoteReset;
+  const bootSnapshot = JSON.stringify(loadState());
   const config = await loadAccountConfig();
   if (!config?.enabled || !config.url || !config.anonKey) {
-    document.body.classList.remove('is-booting');
+    if (document.body.dataset.holdBoot !== 'timeclock') {
+      document.body.classList.remove('is-booting');
+    }
     handlers.onReady();
     return;
   }
@@ -426,7 +393,7 @@ export async function startAccounts(handlers) {
     return;
   }
   try {
-    await openOffice();
+    await openOffice(bootSnapshot);
   } catch (error) {
     showGate(true);
     setAccountStatus(error.message || 'Could not load the shared routes.', 'error');

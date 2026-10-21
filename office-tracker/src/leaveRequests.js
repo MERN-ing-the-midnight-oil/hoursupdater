@@ -1,8 +1,6 @@
-/**
- * A driver can mark Leave Requested on an AM, midday, or PM route
- * instead of clocking in and out. The hours are usually the contracted
- * time for that route, and can be less.
- */
+// A driver can mark Leave Requested on an AM, midday, or PM route
+// instead of clocking in and out. The hours are usually the contracted
+// time for that route, and can be less.
 
 import { formatDurationLabel, splitSegmentRange } from '../../employee-tracker/src/clockTimes.js';
 import { parseClockTime } from '../../src/logic/timeUtils.js';
@@ -11,25 +9,18 @@ import { assignmentOnDate, sameDriver } from './assignments.js';
 
 export const LEAVE_RUNS = ['AM', 'MIDDAY', 'PM'];
 
-/** Off until leave requests are ready for drivers. The kiosk button and clock-sheet labels stay hidden. */
+// Off until leave requests are ready for drivers. The kiosk button and clock-sheet labels stay hidden.
 export const LEAVE_REQUESTS_ENABLED = false;
 
-/** Used when the route has no contracted time to compare against. */
+// Used when the route has no contracted time to compare against.
 export const LEAVE_MINUTES_CAP = 12 * 60;
 
-/**
- * @param {unknown} value
- * @returns {'AM' | 'MIDDAY' | 'PM' | ''}
- */
 export function normalizeLeaveRun(value) {
   const run = normalizePunchRun(value);
   if (run === 'AM' || run === 'MIDDAY' || run === 'PM') return run;
   return '';
 }
 
-/**
- * @param {unknown} value
- */
 function dateKey(value) {
   const text = String(value ?? '').trim();
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
@@ -42,26 +33,15 @@ function dateKey(value) {
   return text;
 }
 
-/**
- * @param {unknown} value
- */
 function minuteCount(value) {
   const minutes = Number(value);
   if (!Number.isInteger(minutes) || minutes < 1) return 0;
   return minutes;
 }
 
-/**
- * @param {unknown} raw
- * @returns {Array<{ id: string, driver_name: string, date: string, run: 'AM' | 'MIDDAY' | 'PM', minutes: number, requested_at: string, substitute_name?: string }>}
- */
-/**
- * Leave saved on the office record and on each driver.
- * A screen that does not know this field still keeps the copy on the driver.
- * @param {{ leaveRequests?: unknown, drivers?: unknown } | null | undefined} office
- */
+// Leave saved on the office record and on each driver.
+// A screen that does not know this field still keeps the copy on the driver.
 export function officeLeaveRequests(office) {
-  /** @type {object[]} */
   const rows = [];
   if (Array.isArray(office?.leaveRequests)) rows.push(...office.leaveRequests);
   if (Array.isArray(office?.drivers)) {
@@ -76,13 +56,8 @@ export function officeLeaveRequests(office) {
   return normalizeLeaveRequests(rows);
 }
 
-/**
- * @param {unknown} drivers
- * @param {unknown} requests
- */
 export function applyLeaveRequests(drivers, requests) {
   const list = Array.isArray(drivers) ? drivers.map((driver) => ({ ...driver })) : [];
-  /** @type {Map<string, ReturnType<typeof normalizeLeaveRequests>>} */
   const byName = new Map();
   for (const row of normalizeLeaveRequests(requests)) {
     const key = row.driver_name.toLowerCase();
@@ -99,13 +74,8 @@ export function applyLeaveRequests(drivers, requests) {
   return list;
 }
 
-/**
- * @param {unknown} raw
- * @returns {Array<{ id: string, driver_name: string, date: string, run: 'AM' | 'MIDDAY' | 'PM', minutes: number, requested_at: string, substitute_name?: string }>}
- */
 export function normalizeLeaveRequests(raw) {
   if (!Array.isArray(raw)) return [];
-  /** @type {Map<string, { id: string, driver_name: string, date: string, run: 'AM' | 'MIDDAY' | 'PM', minutes: number, requested_at: string, substitute_name?: string }>} */
   const bySlot = new Map();
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue;
@@ -118,7 +88,6 @@ export function normalizeLeaveRequests(raw) {
     if (!id || !driver_name || driver_name.length > 80 || !date || !run || !minutes) continue;
     if (Number.isNaN(requested.getTime())) continue;
     const substitute_name = String(item.substitute_name || '').trim();
-    /** @type {{ id: string, driver_name: string, date: string, run: 'AM' | 'MIDDAY' | 'PM', minutes: number, requested_at: string, substitute_name?: string }} */
     const row = {
       id,
       driver_name,
@@ -135,12 +104,6 @@ export function normalizeLeaveRequests(raw) {
   return [...bySlot.values()];
 }
 
-/**
- * @param {unknown} requests
- * @param {string} driverName
- * @param {string} date
- * @param {unknown} run
- */
 export function leaveFor(requests, driverName, date, run) {
   const wanted = String(driverName || '').trim().toLowerCase();
   const day = dateKey(date);
@@ -153,12 +116,6 @@ export function leaveFor(requests, driverName, date, run) {
   );
 }
 
-/**
- * @param {object[] | null | undefined} punches
- * @param {string} driverName
- * @param {string} date
- * @param {unknown} run
- */
 export function driverClockedIn(punches, driverName, date, run) {
   const wanted = String(driverName || '').trim().toLowerCase();
   const day = dateKey(date);
@@ -174,11 +131,7 @@ export function driverClockedIn(punches, driverName, date, run) {
   });
 }
 
-/**
- * The clock-in minute has passed, so this route was not clocked at its start.
- * @param {unknown} clock
- * @param {Date} [now]
- */
+// The clock-in minute has passed, so this route was not clocked at its start.
 export function clockInHasPassed(clock, now = new Date()) {
   try {
     const minutes = parseClockTime(String(clock ?? ''));
@@ -188,21 +141,10 @@ export function clockInHasPassed(clock, now = new Date()) {
   }
 }
 
-/**
- * Assigned routes whose clock-in has passed, with no clock-in and no leave yet.
- * @param {{
- *   clockByRun?: Record<string, string>,
- *   punches?: object[],
- *   requests?: object[],
- *   driverName?: string,
- *   now?: Date,
- * }} input
- * @returns {Array<'AM' | 'MIDDAY' | 'PM'>}
- */
+// Assigned routes whose clock-in has passed, with no clock-in and no leave yet.
 export function runsAwaitingLeave(input) {
   const now = input?.now instanceof Date ? input.now : new Date();
   const date = localDateKey(now);
-  /** @type {Array<'AM' | 'MIDDAY' | 'PM'>} */
   const awaiting = [];
   for (const run of LEAVE_RUNS) {
     const clock = input?.clockByRun?.[run];
@@ -214,20 +156,12 @@ export function runsAwaitingLeave(input) {
   return awaiting;
 }
 
-/**
- * @param {unknown} contractedMinutes
- */
 export function leaveMinuteLimit(contractedMinutes) {
   const contracted = Number(contractedMinutes);
   if (Number.isInteger(contracted) && contracted > 0) return contracted;
   return LEAVE_MINUTES_CAP;
 }
 
-/**
- * @param {unknown} hours
- * @param {unknown} minutes
- * @returns {number | null}
- */
 export function leaveMinutesFromParts(hours, minutes) {
   const hourText = String(hours ?? '').trim();
   const minuteText = String(minutes ?? '').trim();
@@ -241,26 +175,17 @@ export function leaveMinutesFromParts(hours, minutes) {
   return total;
 }
 
-/**
- * @param {number} minutes
- */
 export function leaveTimeParts(minutes) {
   const total = minuteCount(minutes);
   return { hours: Math.floor(total / 60), minutes: total % 60 };
 }
 
-/**
- * @param {unknown} contractedMinutes
- */
 export function leaveContractLead(contractedMinutes) {
   const minutes = Number(contractedMinutes);
   if (!Number.isInteger(minutes) || minutes < 1) return '';
   return `Contracted time for this route is ${formatDurationLabel(minutes)}. Enter that time, or less.`;
 }
 
-/**
- * @param {{ run?: unknown, date?: string, today?: string, clockedIn?: boolean }} input
- */
 export function leaveRequestLead(input) {
   const route = punchRunLabel(normalizeLeaveRun(input?.run)) || 'route';
   if (input?.clockedIn) return `You already clocked in for the ${route} on that day.`;
@@ -272,11 +197,7 @@ export function leaveRequestLead(input) {
 
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-/**
- * A quiet reminder for routes whose clock-in has passed. It does not replace clocking in.
- * @param {Array<'AM' | 'MIDDAY' | 'PM'>} runs
- * @param {Date} when
- */
+// A quiet reminder for routes whose clock-in has passed. It does not replace clocking in.
 export function missedClockInNote(runs, when) {
   const list = (Array.isArray(runs) ? runs : []).filter(
     (run) => run === 'AM' || run === 'MIDDAY' || run === 'PM'
@@ -293,29 +214,12 @@ export function missedClockInNote(runs, when) {
   return `You did not clock in for ${missed}. Please record your leave hours or write an explanation.`;
 }
 
-/**
- * @param {string} dateKeyValue
- */
 export function leaveDateLabel(dateKeyValue) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateKeyValue || ''));
   if (!match) return '';
   return `${Number(match[2])}/${Number(match[3])}/${match[1]}`;
 }
 
-/**
- * @param {unknown} requests
- * @param {{
- *   id?: string,
- *   driver_name: string,
- *   date: string,
- *   run: unknown,
- *   minutes: number,
- *   contractedMinutes?: number | null,
- *   requested_at?: string,
- *   substitute_name?: string,
- *   punches?: object[],
- * }} input
- */
 export function saveLeaveRequest(requests, input) {
   const driver_name = String(input?.driver_name || '').trim();
   if (!driver_name) throw new Error('Choose a driver.');
@@ -341,7 +245,6 @@ export function saveLeaveRequest(requests, input) {
   const current = normalizeLeaveRequests(requests);
   const existing = leaveFor(current, driver_name, date, run);
   const substitute_name = String(input?.substitute_name || '').trim();
-  /** @type {{ id: string, driver_name: string, date: string, run: 'AM' | 'MIDDAY' | 'PM', minutes: number, requested_at: string, substitute_name?: string }} */
   const row = {
     id: existing?.id || String(input?.id || '').trim() || crypto.randomUUID(),
     driver_name,
@@ -357,11 +260,7 @@ export function saveLeaveRequest(requests, input) {
   return next;
 }
 
-/**
- * Clocking in for that route replaces a leave request for the same day.
- * @param {unknown} requests
- * @param {{ driver_name?: string, date?: string, run?: unknown }} input
- */
+// Clocking in for that route replaces a leave request for the same day.
 export function dropLeaveForClockIn(requests, input) {
   const driver_name = String(input?.driver_name || '').trim().toLowerCase();
   const date = dateKey(input?.date);
@@ -372,34 +271,23 @@ export function dropLeaveForClockIn(requests, input) {
   );
 }
 
-/**
- * Contracted minutes for each run this driver holds on a date.
- * The route assigned first supplies a run. A later route fills a run only when that first route does not have it.
- * @param {object | null | undefined} profiles
- * @param {string} driverName
- * @param {string} dateKeyValue
- * @param {(profile: object, dateKey: string) => Record<string, string | null | undefined>} segmentsFor
- * @returns {Record<'AM' | 'MIDDAY' | 'PM', number | null>}
- */
+// Contracted minutes for each run this driver holds on a date.
+// The route assigned first supplies a run. A later route fills a run only when that first route does not have it.
 export function contractedRunMinutes(profiles, driverName, dateKeyValue, segmentsFor) {
-  /** @type {Record<'AM' | 'MIDDAY' | 'PM', number | null>} */
   const result = { AM: null, MIDDAY: null, PM: null };
   const day = dateKey(dateKeyValue);
   if (!String(driverName || '').trim() || !day || typeof segmentsFor !== 'function') return result;
-  /** @type {Array<{ assignedFrom: string, name: string, minutes: Record<'AM' | 'MIDDAY' | 'PM', number | null> }>} */
   const held = [];
   const list = profiles && typeof profiles === 'object' ? Object.values(profiles) : [];
   for (const profile of list) {
     const assignment = assignmentOnDate(profile, day);
     if (!assignment || !sameDriver(assignment.driver_name, driverName)) continue;
-    /** @type {Record<string, string | null | undefined>} */
     let segments = {};
     try {
       segments = segmentsFor(profile, day) || {};
     } catch {
       segments = {};
     }
-    /** @type {Record<'AM' | 'MIDDAY' | 'PM', number | null>} */
     const minutes = { AM: null, MIDDAY: null, PM: null };
     for (const run of LEAVE_RUNS) {
       const split = splitSegmentRange(segments?.[run]);

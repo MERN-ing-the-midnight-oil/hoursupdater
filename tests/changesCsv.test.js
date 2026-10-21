@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeDeltaMinutes } from '../src/logic/timeUtils.js';
-import { buildBps2026_2027Calendar } from '../employee-tracker/src/bpsCalendar2026.js';
+import { buildBellingham2026_2027Calendar } from '../employee-tracker/src/bellinghamCalendar2026.js';
 import { EMPLOYEE_ROUTE_ID } from '../employee-tracker/src/snapshot.js';
 import {
   buildEmployeeSnapshot,
@@ -12,7 +12,7 @@ import {
   changesCsvFilename,
 } from '../employee-tracker/src/changesCsv.js';
 
-const { calendar } = buildBps2026_2027Calendar();
+const { calendar } = buildBellingham2026_2027Calendar();
 
 function parseCsv(csv) {
   const text = csv.replace(/^\uFEFF/, '').replace(/\r\n$/, '');

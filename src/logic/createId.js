@@ -1,7 +1,3 @@
-/**
- * UUID helper that works in browsers and Node (no node:crypto import).
- * @returns {string}
- */
 export function createId() {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return globalThis.crypto.randomUUID();

@@ -10,20 +10,13 @@ import {
   scheduleHistoryTableHtml,
 } from './historyMarkup.js';
 
-/**
- * Routes assigned to one driver. Matching is the trimmed name, case-insensitive.
- * @param {object[] | null | undefined} profiles
- * @param {string} driverName
- */
+// Routes assigned to one driver. Matching is the trimmed name, case-insensitive.
 export function profilesForDriver(profiles, driverName) {
   const name = String(driverName ?? '').trim();
   if (!name) return [];
   return (profiles ?? []).filter((profile) => driverOwnsRoute(profile, name));
 }
 
-/**
- * @param {string} driverName
- */
 export function packetPdfBasename(driverName) {
   const slug = String(driverName ?? '')
     .trim()
@@ -33,9 +26,6 @@ export function packetPdfBasename(driverName) {
   return `${slug || 'driver'}-clock-history`;
 }
 
-/**
- * @param {{ driverName: string, routeNames: string[] }} input
- */
 export function driverPacketMail({ driverName, routeNames }) {
   const routes = routeNames.join(', ');
   const noun = routeNames.length === 1 ? 'route' : 'routes';
@@ -60,12 +50,11 @@ export function packetCalendar() {
   };
 }
 
-/**
- * @param {object | null | undefined} snapshot
- */
 function routeSummaryHtml(snapshot) {
   const windowInfo = snapshot?.window;
   const contracted = snapshot?.contracted;
+  const predictedLabel =
+    windowInfo?.status === 'ACCUMULATING' ? snapshot?.scheduled?.if_locked_label : '';
   const daysLeft =
     windowInfo?.days_remaining == null ? '—' : escapeHtml(windowInfo.days_remaining);
   return [
@@ -73,8 +62,20 @@ function routeSummaryHtml(snapshot) {
       ? `<p class="hero-kicker">${escapeHtml(windowInfo.status_label)}</p>`
       : '',
     windowInfo?.headline ? `<p class="hero-detail">${escapeHtml(windowInfo.headline)}</p>` : '',
+    windowInfo?.side_window_note
+      ? `<p class="hero-detail">${escapeHtml(windowInfo.side_window_note)}</p>`
+      : '',
     `<ul class="stat-row">
-      <li><span>Contracted hours</span><strong>${escapeHtml(contracted?.label || '—')}</strong></li>
+      <li><span>${
+        predictedLabel ? 'Current contracted hours' : 'Contracted hours'
+      }</span><strong>${escapeHtml(contracted?.label || '—')}</strong></li>
+      ${
+        predictedLabel
+          ? `<li><span>Predicted contracted hours</span><strong>${escapeHtml(
+              predictedLabel
+            )}</strong></li>`
+          : ''
+      }
       <li><span>Accumulated difference</span><strong>${escapeHtml(
         windowInfo?.cumulative_drift_label || '0 min'
       )}</strong></li>
@@ -91,15 +92,8 @@ function routeSummaryHtml(snapshot) {
     .join('');
 }
 
-/**
- * @param {{ routeName: string, snapshot: object }} section
- * @param {object} calendar
- */
-/**
- * Which pieces of a route's history appear in the PDF.
- * Omitted flags stay on, so a full packet is the default.
- * @param {object | null | undefined} include
- */
+// Which pieces of a route's history appear in the PDF.
+// Omitted flags stay on, so a full packet is the default.
 export function packetIncludes(include) {
   return {
     summary: include?.summary !== false,
@@ -109,11 +103,6 @@ export function packetIncludes(include) {
   };
 }
 
-/**
- * @param {{ routeName: string, snapshot: object, assignment?: object }} section
- * @param {object} calendar
- * @param {ReturnType<typeof packetIncludes>} include
- */
 function routeSectionHtml(section, calendar, include) {
   const snapshot = section.snapshot;
   const rows = snapshot?.schedule_history || [];
@@ -156,10 +145,7 @@ function routeSectionHtml(section, calendar, include) {
   </section>`;
 }
 
-/**
- * A standalone document for one driver. Callers must pass only that driver's routes.
- * @param {{ driverName: string, sections: Array<{ routeName: string, snapshot: object }>, calendar: object, stylesheets?: string[], generatedOn?: string, include?: object }} input
- */
+// A standalone document for one driver. Callers must pass only that driver's routes.
 export function driverPacketDocument({
   driverName,
   sections,
@@ -214,15 +200,11 @@ export function driverPacketDocument({
 </html>`;
 }
 
-/**
- * Route slices and snapshots for one driver.
- * Returns null when that driver has no assigned routes.
- * @param {{ driverName: string, profiles: object[], asOf?: string }} input
- */
+// Route slices and snapshots for one driver.
+// Returns null when that driver has no assigned routes.
 export function sectionsForDriver({ driverName, profiles, asOf }) {
   const name = String(driverName ?? '').trim();
   if (!name) return null;
-  /** @type {Array<{ profile: object, assignment: { from: string, until: string | null, routeStarted: string } }>} */
   const pieces = [];
   for (const profile of profiles ?? []) {
     pieces.push(...slicesForDriver(profile, name));
@@ -257,12 +239,9 @@ export function sectionsForDriver({ driverName, profiles, asOf }) {
   };
 }
 
-/**
- * Build the siloed document for one driver.
- * Returns null when that driver has no assigned routes.
- * `onlyRouteNames` keeps the PDF to the routes named in the notice.
- * @param {{ driverName: string, profiles: object[], stylesheets?: string[], asOf?: string, include?: object, onlyRouteNames?: string[], mail?: { subject?: string, body?: string } }} input
- */
+// Build the siloed document for one driver.
+// Returns null when that driver has no assigned routes.
+// `onlyRouteNames` keeps the PDF to the routes named in the notice.
 export function buildDriverPacket({
   driverName,
   profiles,

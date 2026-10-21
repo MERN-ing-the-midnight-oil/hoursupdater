@@ -19,21 +19,13 @@ const downloadButton = document.querySelector('#driver-clock-download');
 const emailButton = document.querySelector('#driver-clock-email');
 const printButton = document.querySelector('#driver-clock-print');
 
-/** @type {import('@supabase/supabase-js').SupabaseClient | null} */
 let client = null;
 let linkToken = '';
-/** @type {object[]} */
 let punches = [];
-/** @type {Array<{ id: string, startDay: number, endDay: number }>} */
 let periods = [];
 
-/** @type {{ driverName: string, email: string, sheets: ReturnType<typeof buildDriverClockRecord> } | null} */
 let record = null;
 
-/**
- * @param {string} message
- * @param {'error' | ''} [kind]
- */
 function setStatus(message, kind = '') {
   if (!status) return;
   status.hidden = !message;
@@ -47,9 +39,6 @@ function setActionsEnabled(enabled) {
   }
 }
 
-/**
- * @param {ReturnType<typeof buildDriverClockRecord>} sheets
- */
 function renderSheets(sheets) {
   if (!head || !body) return;
   if (jumps) {
@@ -180,9 +169,6 @@ printButton?.addEventListener('click', () => {
   window.print();
 });
 
-/**
- * @param {object} data
- */
 function applyRecord(data) {
   const driverName = String(data.driverName).trim();
   periods = normalizeClockPayDefaults({ periods: data.periods, periodEndsAt: data.periodEndsAt }).periods;

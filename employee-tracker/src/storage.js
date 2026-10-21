@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { FILE_NAMES, getEmployeeDataDir } from './config.js';
-import { buildBps2026_2027Calendar } from './bpsCalendar2026.js';
+import { buildBellingham2026_2027Calendar } from './bellinghamCalendar2026.js';
 
 /**
  * @param {string} [dataDir]
@@ -12,12 +12,12 @@ export async function ensureEmployeeDataDir(dataDir = getEmployeeDataDir()) {
 }
 
 /**
- * Always keep the built-in BPS 2026–27 calendar in place (overwrite stale copies
+ * Always keep the built-in Bellingham 2026–27 calendar in place (overwrite stale copies
  * so the official year ships with the app, not a leftover practice file).
  * @param {string} dataDir
  */
 export async function ensureBuiltInCalendar(dataDir = getEmployeeDataDir()) {
-  const { calendar } = buildBps2026_2027Calendar();
+  const { calendar } = buildBellingham2026_2027Calendar();
   const dest = path.join(dataDir, FILE_NAMES.schoolCalendar);
   await writeJson(dest, calendar);
   return calendar;

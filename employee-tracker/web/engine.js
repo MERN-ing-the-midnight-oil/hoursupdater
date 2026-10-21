@@ -3,10 +3,11 @@ import { createId } from '../../src/logic/createId.js';
 import { isForcedOctober1Contract } from '../../src/logic/contractWindows.js';
 import { computeDeltaMinutes, parseTimeRange, scheduleDateForMath, toDateString } from '../../src/logic/timeUtils.js';
 import {
-  BPS_2026_2027_INPUT,
-  BPS_2026_2027_SOURCE,
-  buildBps2026_2027Calendar,
-} from '../src/bpsCalendar2026.js';
+  BELLINGHAM_2026_2027_INPUT,
+  BELLINGHAM_2026_2027_SOURCE,
+  buildBellingham2026_2027Calendar,
+} from '../src/bellinghamCalendar2026.js';
+import { schoolYearGeneration } from '../../src/logic/schoolYear.js';
 import {
   formatSegmentRange,
   localDateString,
@@ -22,7 +23,7 @@ import {
 } from '../src/snapshot.js';
 import * as employeeStore from './store.js';
 
-/** Swappable so the office calculator can keep routes in its own store. */
+// Swappable so the office calculator can keep routes in its own store.
 let store = employeeStore;
 
 export function bindCalculatorStore(next) {
@@ -30,6 +31,24 @@ export function bindCalculatorStore(next) {
 }
 
 let cachedCalendar = null;
+let customSchoolYear = null;
+
+// Use an imported school year for contract dates and school days.
+// Null, or a year that cannot be read, keeps the built-in Bellingham year.
+export function useSchoolYearCalendar(year) {
+  let next = null;
+  if (year && typeof year === 'object') {
+    try {
+      schoolYearGeneration(year);
+      next = (year);
+    } catch {
+      next = null;
+    }
+  }
+  if (JSON.stringify(customSchoolYear) === JSON.stringify(next)) return;
+  customSchoolYear = next;
+  cachedCalendar = null;
+}
 
 export function getAsOfDate(profile) {
   if (typeof globalThis.location?.search === 'string') {
@@ -46,15 +65,31 @@ export function getAsOfDate(profile) {
 
 export function getCalendarPack() {
   if (!cachedCalendar) {
-    const { calendar, summary, source } = buildBps2026_2027Calendar();
-    cachedCalendar = {
-      calendar,
-      summary,
-      source,
-      months: groupCalendarByMonth(calendar),
-      first_day: BPS_2026_2027_INPUT.first_day,
-      last_day: BPS_2026_2027_INPUT.last_day,
-    };
+    if (customSchoolYear) {
+      const { calendar, summary } = schoolYearGeneration(customSchoolYear);
+      cachedCalendar = {
+        calendar,
+        summary,
+        source: {
+          name: 'Office school year',
+          school_year: customSchoolYear.school_year,
+          document: 'Imported in Timeclock settings',
+        },
+        months: groupCalendarByMonth(calendar),
+        first_day: customSchoolYear.first_day,
+        last_day: customSchoolYear.last_day,
+      };
+    } else {
+      const { calendar, summary, source } = buildBellingham2026_2027Calendar();
+      cachedCalendar = {
+        calendar,
+        summary,
+        source,
+        months: groupCalendarByMonth(calendar),
+        first_day: BELLINGHAM_2026_2027_INPUT.first_day,
+        last_day: BELLINGHAM_2026_2027_INPUT.last_day,
+      };
+    }
   }
   return cachedCalendar;
 }
@@ -63,7 +98,7 @@ function calendarMeta() {
   const pack = getCalendarPack();
   return {
     calendarSummary: pack.summary,
-    calendarSource: pack.source ?? BPS_2026_2027_SOURCE,
+    calendarSource: pack.source ?? BELLINGHAM_2026_2027_SOURCE,
   };
 }
 
@@ -87,12 +122,8 @@ function isSeedEvent(change) {
   );
 }
 
-/**
- * After a correction, walk the log so later entries keep a consistent
- * previous → new chain on each run.
- * @param {object[]} changeLog
- * @param {string} [name]
- */
+// After a correction, walk the log so later entries keep a consistent
+// previous → new chain on each run.
 export function relinkChangeLog(changeLog, name = '') {
   const anchor = (changeLog ?? [])
     .map((event) => String(event.effective_date ?? '').trim())
@@ -108,7 +139,6 @@ export function relinkChangeLog(changeLog, name = '') {
     return String(a.submitted_at).localeCompare(String(b.submitted_at));
   });
 
-  /** @type {Record<string, string | null>} */
   const current = { AM: null, MIDDAY: null, PM: null };
 
   return events.map((event) => {
@@ -180,10 +210,6 @@ function makeSeedChange({ segment, range, startDate, name, submittedAt }) {
   };
 }
 
-/**
- * @param {object | null} profile
- * @param {string} [asOfDate]
- */
 export function buildSnapshot(profile, asOfDate = getAsOfDate()) {
   const pack = getCalendarPack();
   const asOf = toDateString(asOfDate);
@@ -220,16 +246,11 @@ export function currentSnapshot(storage, asOfDate) {
   return buildSnapshot(profile, asOfDate || getAsOfDate(profile));
 }
 
-/**
- * @param {object} body
- * @param {Storage} [storage]
- */
 export function setupProfile(body, storage) {
   const name = String(body.name ?? '').trim();
   const startDate = toDateString(body.start_date || getAsOfDate());
   const submittedAt = new Date().toISOString();
 
-  /** @type {Array<{ segment: string, range: string }>} */
   const segments = [];
   for (const segment of SEGMENTS) {
     const key = segment.toLowerCase();
@@ -270,10 +291,6 @@ export function setupProfile(body, storage) {
   return currentSnapshot(storage);
 }
 
-/**
- * @param {object} body
- * @param {Storage} [storage]
- */
 export function previewChange(body, storage) {
   const profile = store.getCurrentProfile(storage);
   const pack = getCalendarPack();
@@ -299,10 +316,6 @@ export function previewChange(body, storage) {
   });
 }
 
-/**
- * @param {object} body
- * @param {Storage} [storage]
- */
 export function recordChange(body, storage) {
   const profile = store.getCurrentProfile(storage);
   if (!profile) {
@@ -372,11 +385,6 @@ export function recordChange(body, storage) {
   return currentSnapshot(storage);
 }
 
-/**
- * @param {string} changeId
- * @param {object} body
- * @param {Storage} [storage]
- */
 export function updateChange(changeId, body, storage) {
   const profile = store.getCurrentProfile(storage);
   if (!profile) {
@@ -421,10 +429,6 @@ export function updateChange(changeId, body, storage) {
   return currentSnapshot(storage);
 }
 
-/**
- * @param {string} changeId
- * @param {Storage} [storage]
- */
 export function deleteChange(changeId, storage) {
   const profile = store.getCurrentProfile(storage);
   if (!profile) {
@@ -441,11 +445,7 @@ export function deleteChange(changeId, storage) {
   return persistRelinked(profile, storage);
 }
 
-/**
- * Correct the current clock times for one run (edits the last write on that run).
- * @param {object} body
- * @param {Storage} [storage]
- */
+// Correct the current clock times for one run (edits the last write on that run).
 export function correctCurrentTimes(body, storage) {
   const profile = store.getCurrentProfile(storage);
   if (!profile) {
@@ -478,10 +478,6 @@ export function correctCurrentTimes(body, storage) {
   return persistRelinked(profile, storage);
 }
 
-/**
- * @param {object} body
- * @param {Storage} [storage]
- */
 export function updateStartingSchedule(body, storage) {
   const profile = store.getCurrentProfile(storage);
   if (!profile) {
@@ -489,7 +485,6 @@ export function updateStartingSchedule(body, storage) {
   }
   const name = String(body.name ?? profile.name ?? '').trim();
   const startDate = toDateString(body.start_date || profile.start_date || getAsOfDate());
-  /** @type {Array<{ segment: string, range: string }>} */
   const segments = [];
   for (const segment of SEGMENTS) {
     const key = segment.toLowerCase();
@@ -548,15 +543,11 @@ export function updateStartingSchedule(body, storage) {
   return persistRelinked(profile, storage);
 }
 
-/**
- * @param {Storage} [storage]
- */
 export function startingScheduleFields(storage) {
   const profile = store.getCurrentProfile(storage);
   if (!profile) {
     return { name: '', start_date: getAsOfDate(), segments: {} };
   }
-  /** @type {Record<string, ReturnType<typeof splitSegmentRange>>} */
   const segments = {};
   for (const seed of profile.changeLog.filter(isSeedEvent)) {
     segments[seed.segment] = splitSegmentRange(seed.new_time);

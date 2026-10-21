@@ -26,7 +26,7 @@ This writes the site to `docs/`. GitHub Pages serves that folder from `main`.
 
 1. You save your current AM / Midday / PM clock times.
 2. You record a new clock-in or clock-out and the date it took effect.
-3. The app opens a review window using Art. 3.08 (BPS 2026–2027 student calendar, 180 days). Before October 1, under-30-minute changes become contracted on October 1. After October 1, increases and decreases in the same 15 school days are added together. A total under 30 minutes becomes contracted the next school day. A total of 30 minutes or more goes to bid or bump. A further change inside the window resets the countdown and adds the exact minutes.
+3. The app opens a review window using Art. 3.08 (Bellingham Public Schools 2026–2027 student calendar, 179 days). Before October 1, a change under 30 minutes becomes contracted on October 1. After October 1, changes that stay under 30 minutes are added together for 15 school days, and a later change starts that count over. A total under 30 minutes becomes contracted the next school day. A total of 30 minutes or more goes to bid or bump. Once a route is already up 30 minutes or more, a later change that leaves it there does not move the bid date. That change runs its own 15 school day countdown. The contract says reposting happens when a route “is increased thirty (30) minutes or more for fifteen (15) school days or more.”
 4. After the window closes:
    - under 30 minutes → new times are automatically contracted (each run rounded to the nearest 15 minutes, then that sum rounded again)
    - +30 minutes or more → bid pending
@@ -34,4 +34,4 @@ This writes the site to `docs/`. GitHub Pages serves that folder from `main`.
 
 ## Built-in calendar
 
-Official BPS SY2026–27 student year: first day **September 8, 2026**, last day **June 22, 2027** (180 days if no cancellations). Holidays and recesses are included. Teacher-only report days are not school days.
+Bellingham Public Schools 2026–27 student year: first day **August 31, 2026** (grades 1–12), tentative last day **June 11, 2027** (179 days). Holidays, breaks, the teacher workday, Treaty Day, and the semester break are not school days. Every Thursday is an early dismissal, and so is the last day.

@@ -1,10 +1,7 @@
-/**
- * Timesheets: the Timesheet Reader comparison, using Clock Records punches
- * instead of a photographed card. Day rules match compareCardToContract:
- * school days carry the current contracted day, weekends are all overtime,
- * and a weekday's first 8 clock hours are regular. This does not change
- * routes or punches.
- */
+// instead of a photographed card. Day rules match compareCardToContract:
+// school days carry the current contracted day, weekends are all overtime,
+// and a weekday's first 8 clock hours are regular. This does not change
+// routes or punches.
 
 import { getSchoolDays } from './calendar.js';
 import { parseTimeRange } from './timeUtils.js';
@@ -16,19 +13,12 @@ const RUNS = [
   { id: 'PM', label: 'PM' },
 ];
 
-/**
- * @param {string} message
- * @param {number} [status]
- */
 function fail(message, status = 400) {
   const error = new Error(message);
   error.status = status;
   throw error;
 }
 
-/**
- * @param {Date} date
- */
 export function localDateKey(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -36,16 +26,10 @@ export function localDateKey(date) {
   return `${y}-${m}-${d}`;
 }
 
-/**
- * @param {number} value
- */
 function roundHours(value) {
   return Math.round(value * 100) / 100;
 }
 
-/**
- * @param {Date} date
- */
 export function periodFromDate(date) {
   return {
     year: date.getFullYear(),
@@ -54,27 +38,16 @@ export function periodFromDate(date) {
   };
 }
 
-/**
- * @param {{ year: number, monthIndex: number, half: 1 | 2 }} period
- */
 function periodOrdinal(period) {
   return period.year * 24 + period.monthIndex * 2 + (period.half === 1 ? 0 : 1);
 }
 
-/**
- * @param {{ year: number, monthIndex: number, half: 1 | 2 }} period
- */
 function nextPeriod(period) {
   if (period.half === 1) return { year: period.year, monthIndex: period.monthIndex, half: 2 };
   if (period.monthIndex === 11) return { year: period.year + 1, monthIndex: 0, half: 1 };
   return { year: period.year, monthIndex: period.monthIndex + 1, half: 1 };
 }
 
-/**
- * @param {number} year
- * @param {number} monthIndex
- * @param {1 | 2} half
- */
 export function semiMonthlyDates(year, monthIndex, half) {
   const lastDay = new Date(year, monthIndex + 1, 0).getDate();
   const dates = [];
@@ -86,9 +59,6 @@ export function semiMonthlyDates(year, monthIndex, half) {
   return dates;
 }
 
-/**
- * @param {{ year: number, monthIndex: number, half: 1 | 2 }} period
- */
 export function periodLabel(period) {
   const dates = semiMonthlyDates(period.year, period.monthIndex, period.half);
   const monthName = dates[0].toLocaleString('en-US', { month: 'long' });
@@ -96,9 +66,6 @@ export function periodLabel(period) {
   return `${monthName} ${dates[0].getDate()}–${last}, ${period.year}`;
 }
 
-/**
- * @param {{ year: number, monthIndex: number, half: 1 | 2 }} period
- */
 export function presentPeriod(period) {
   return {
     year: period.year,
@@ -108,12 +75,8 @@ export function presentPeriod(period) {
   };
 }
 
-/**
- * Pay periods from the earliest punch through the period that contains `now`.
- * Newest first. With no punches, only the current period.
- * @param {Array<{ punched_at?: string }>} punches
- * @param {Date} [now]
- */
+// Pay periods from the earliest punch through the period that contains `now`.
+// Newest first. With no punches, only the current period.
 export function listPeriods(punches, now = new Date()) {
   const current = periodFromDate(now);
   let earliest = current;
@@ -125,7 +88,6 @@ export function listPeriods(punches, now = new Date()) {
     if (periodOrdinal(period) < periodOrdinal(earliest)) earliest = period;
   }
   if (periodOrdinal(earliest) > periodOrdinal(current)) earliest = current;
-  /** @type {Array<{ year: number, monthIndex: number, half: 1 | 2 }>} */
   const periods = [];
   let cursor = earliest;
   while (periodOrdinal(cursor) <= periodOrdinal(current)) {
@@ -135,10 +97,6 @@ export function listPeriods(punches, now = new Date()) {
   return periods.reverse();
 }
 
-/**
- * @param {Record<string, string | undefined>} query
- * @param {Date} [now]
- */
 export function periodFromQuery(query, now = new Date()) {
   const yearText = query?.year;
   const monthText = query?.month;
@@ -161,9 +119,6 @@ export function periodFromQuery(query, now = new Date()) {
   return { year, monthIndex: month - 1, half };
 }
 
-/**
- * @param {Date} date
- */
 function formatStamp(date) {
   let hours = date.getHours();
   const minutes = String(date.getMinutes()).padStart(2, '0');
@@ -172,18 +127,12 @@ function formatStamp(date) {
   return `${WEEKDAYS[date.getDay()]} ${date.getMonth() + 1}/${date.getDate()} ${hours}:${minutes} ${ampm}`;
 }
 
-/**
- * Routes this driver holds now. Prefer driver id. A route that never stored
- * an id can still match the driver's name.
- * @param {Record<string, { driver_id?: string | null, driver_name?: string | null, segments?: Record<string, string | null> }>} routeState
- * @param {{ driver_id?: string, name?: string }} driver
- */
+// Routes this driver holds now. Prefer driver id. A route that never stored
+// an id can still match the driver's name.
 export function routesHeldBy(routeState, driver) {
   const id = String(driver?.driver_id || '').trim();
   const name = String(driver?.name || '').trim().toLowerCase();
-  /** @type {Array<{ route_id: string, segments: Record<string, string | null | undefined> }>} */
   const byId = [];
-  /** @type {Array<{ route_id: string, segments: Record<string, string | null | undefined> }>} */
   const byName = [];
   for (const [route_id, entry] of Object.entries(routeState || {})) {
     if (!entry || typeof entry !== 'object') continue;
@@ -198,22 +147,15 @@ export function routesHeldBy(routeState, driver) {
   return held;
 }
 
-/**
- * Exact contracted day from current route segments, same as the reader's
- * contractDailyHours when each run has a minute total.
- * @param {Array<{ route_id: string, segments?: Record<string, string | null | undefined> }>} routes
- */
+// Exact contracted day from current route segments, same as the reader's
+// contractDailyHours when each run has a minute total.
 export function contractFromRoutes(routes) {
-  /** @type {string[]} */
   const routeIds = [];
-  /** @type {string[]} */
   const clockParts = [];
-  /** @type {string[]} */
   const problems = [];
   let minutes = 0;
   for (const route of routes) {
     routeIds.push(route.route_id);
-    /** @type {string[]} */
     const runs = [];
     for (const run of RUNS) {
       const range = route.segments?.[run.id];
@@ -239,12 +181,6 @@ export function contractFromRoutes(routes) {
   };
 }
 
-/**
- * @param {Date} date
- * @param {number} dailyHours
- * @param {{ coverage_start?: string, coverage_end?: string } | null} calendar
- * @param {string[] | null} schoolDays
- */
 function contractedHoursForDate(date, dailyHours, calendar, schoolDays) {
   const key = localDateKey(date);
   const start = calendar?.coverage_start;
@@ -256,12 +192,6 @@ function contractedHoursForDate(date, dailyHours, calendar, schoolDays) {
   return day === 0 || day === 6 ? 0 : dailyHours;
 }
 
-/**
- * @param {Map<string, number>} hoursByDay
- * @param {number} dailyContractHours
- * @param {{ year: number, monthIndex: number, half: 1 | 2 }} period
- * @param {object | null} calendar
- */
 export function compareHoursToContract(hoursByDay, dailyContractHours, period, calendar) {
   const dates = semiMonthlyDates(period.year, period.monthIndex, period.half);
   let schoolDays = null;
@@ -312,24 +242,16 @@ export function compareHoursToContract(hoursByDay, dailyContractHours, period, c
   };
 }
 
-/**
- * @param {Array<{ punched_at?: string }>} punches
- */
 function punchTime(punch) {
   const date = new Date(punch?.punched_at);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/**
- * Clock punches a later punch of the same route replaced on that same day.
- * A second clock in before the clock out, or a second clock out before the
- * next clock in, replaces the earlier one. A finished in-and-out stays.
- * The replaced punch is kept so the office can still see that time.
- * @param {Array<{ id?: string, driver_name?: string, action?: string, run?: string, punched_at?: string, removed?: boolean }>} punches
- * @returns {Set<string>}
- */
+// Clock punches a later punch of the same route replaced on that same day.
+// A second clock in before the clock out, or a second clock out before the
+// next clock in, replaces the earlier one. A finished in-and-out stays.
+// The replaced punch is kept so the office can still see that time.
 export function replacedClockPunchIds(punches) {
-  /** @type {Map<string, object[]>} */
   const groups = new Map();
   for (const punch of punches || []) {
     if (!punch || punch.removed === true || !punch.id) continue;
@@ -337,7 +259,8 @@ export function replacedClockPunchIds(punches) {
     const when = punchTime(punch);
     if (!when) continue;
     const run = normalizePunchRun(punch.run) || '';
-    const key = `${String(punch.driver_name || '').trim().toLowerCase()}|${localDateKey(when)}|${run}`;
+    const extra = run === 'OTHER' ? String(extraPunchIndex(punch)) : '';
+    const key = `${String(punch.driver_name || '').trim().toLowerCase()}|${localDateKey(when)}|${run}|${extra}`;
     const list = groups.get(key) || [];
     list.push(punch);
     groups.set(key, list);
@@ -362,12 +285,9 @@ export function replacedClockPunchIds(punches) {
   return replaced;
 }
 
-/**
- * Pair each clock in with the next clock out. A second in, or an out with
- * nothing open, stays unpaired. A punch replaced by a later one on that
- * same route is left out of the pair so the later time is the one that counts.
- * @param {Array<{ id?: string, action?: string, punched_at?: string }>} punches
- */
+// Pair each clock in with the next clock out. A second in, or an out with
+// nothing open, stays unpaired. A punch replaced by a later one on that
+// same route is left out of the pair so the later time is the one that counts.
 export function pairClockPunches(punches) {
   const replaced = replacedClockPunchIds(punches);
   const sorted = [...punches].filter((punch) => !replaced.has(String(punch?.id || ''))).sort((a, b) => {
@@ -375,11 +295,8 @@ export function pairClockPunches(punches) {
     if (at !== 0) return at;
     return String(a.id).localeCompare(String(b.id));
   });
-  /** @type {Array<{ clockIn: object, clockOut: object, start: Date, end: Date, hours: number, reversed: boolean }>} */
   const pairs = [];
-  /** @type {Array<{ punch: object, reason: 'in' | 'out' }>} */
   const unpaired = [];
-  /** @type {object | null} */
   let open = null;
   for (const punch of sorted) {
     if (punch?.removed === true) continue;
@@ -416,9 +333,6 @@ export function pairClockPunches(punches) {
   return { pairs, unpaired };
 }
 
-/**
- * @param {number} minutes
- */
 function reasonMinutesLabel(minutes) {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
@@ -427,11 +341,7 @@ function reasonMinutesLabel(minutes) {
   return [hourText, minuteText].filter(Boolean).join(' ') || '0 minutes';
 }
 
-/**
- * @param {Array<{ id?: string, label?: string, minutes?: number }>} codes
- */
 function reasonLabels(codes) {
-  /** @type {string[]} */
   const labels = [];
   const seen = new Set();
   for (const code of codes || []) {
@@ -447,36 +357,21 @@ function reasonLabels(codes) {
   return labels;
 }
 
-/**
- * @param {object} punch
- */
 function punchNote(punch) {
   return String(punch?.note || '').trim();
 }
 
-/**
- * @param {object} clockIn
- * @param {object} [clockOut]
- */
 function combinedNote(clockIn, clockOut) {
   return [punchNote(clockIn), clockOut ? punchNote(clockOut) : ''].filter(Boolean).join(' · ');
 }
 
-/**
- * @param {object} clockIn
- * @param {object} [clockOut]
- */
 function combinedReasons(clockIn, clockOut) {
   return reasonLabels([...(clockIn?.reason_codes || []), ...(clockOut?.reason_codes || [])]);
 }
 
-/**
- * A pair counts as AM before 8:00, midday from 8:00 until 1:00, and PM after that.
- * The earlier stamp decides the run.
- * Used only when a clock record has no route chosen by the driver.
- * @param {Date} date
- * @returns {'am' | 'midday' | 'pm'}
- */
+// A pair counts as AM before 8:00, midday from 8:00 until 1:00, and PM after that.
+// The earlier stamp decides the run.
+// Used only when a clock record has no route chosen by the driver.
 export function segmentForClock(date) {
   const minutes = date.getHours() * 60 + date.getMinutes();
   if (minutes < 8 * 60) return 'am';
@@ -484,11 +379,7 @@ export function segmentForClock(date) {
   return 'pm';
 }
 
-/**
- * The route a driver chose for a clock in or clock out.
- * @param {unknown} value
- * @returns {'AM' | 'MIDDAY' | 'PM' | 'OTHER' | ''}
- */
+// The route a driver chose for a clock in or clock out.
 export function normalizePunchRun(value) {
   const run = String(value ?? '').trim().toUpperCase().replace(/[\s_-]+/g, '');
   if (run === 'AM') return 'AM';
@@ -498,9 +389,15 @@ export function normalizePunchRun(value) {
   return '';
 }
 
-/**
- * @param {'AM' | 'MIDDAY' | 'PM' | 'OTHER' | ''} run
- */
+// Which extra period a punch belongs to.
+// Missing indexes are the first extra period. Other routes are not extra periods.
+export function extraPunchIndex(punch) {
+  if (normalizePunchRun(punch?.run) !== 'OTHER') return 0;
+  const index = Number(punch?.extra_index);
+  if (Number.isInteger(index) && index >= 1) return index;
+  return 1;
+}
+
 export function punchRunLabel(run) {
   if (run === 'AM') return 'AM route';
   if (run === 'MIDDAY') return 'Mid day route';
@@ -509,12 +406,8 @@ export function punchRunLabel(run) {
   return '';
 }
 
-/**
- * The driver's choice on the clock in, then the clock out.
- * A record saved before that choice still uses the clock time.
- * @param {{ clockIn?: { run?: string }, clockOut?: { run?: string }, start: Date, end: Date }} pair
- * @returns {'AM' | 'MIDDAY' | 'PM' | 'OTHER'}
- */
+// The driver's choice on the clock in, then the clock out.
+// A record saved before that choice still uses the clock time.
 export function runForClockPair(pair) {
   const chosen = normalizePunchRun(pair?.clockIn?.run) || normalizePunchRun(pair?.clockOut?.run);
   if (chosen) return chosen;
@@ -523,35 +416,22 @@ export function runForClockPair(pair) {
   return segment === 'am' ? 'AM' : segment === 'midday' ? 'MIDDAY' : 'PM';
 }
 
-/**
- * A typed extra-hours amount. Zero means the day has none.
- * @param {unknown} value
- */
+// A typed extra-hours amount. Zero means the day has none.
 export function normalizeExtraHours(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
   return roundHours(Math.min(999, Math.max(-999, number)));
 }
 
-/**
- * @param {string} driverId
- * @param {{ year: number, monthIndex: number, half: 1 | 2 }} period
- */
 export function extraStoreKey(driverId, period) {
   return `${driverId}|${period.year}-${period.monthIndex + 1}-${period.half}`;
 }
 
-/**
- * @param {unknown} data
- * @returns {Record<string, Record<string, number>>}
- */
 export function normalizeTimesheetExtras(data) {
-  /** @type {Record<string, Record<string, number>>} */
   const out = {};
   if (!data || typeof data !== 'object' || Array.isArray(data)) return out;
   for (const [key, days] of Object.entries(data)) {
     if (!days || typeof days !== 'object' || Array.isArray(days)) continue;
-    /** @type {Record<string, number>} */
     const cleaned = {};
     for (const [date, hours] of Object.entries(days)) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
@@ -563,13 +443,6 @@ export function normalizeTimesheetExtras(data) {
   return out;
 }
 
-/**
- * @param {unknown} store
- * @param {string} driverId
- * @param {{ year: number, monthIndex: number, half: 1 | 2 }} period
- * @param {string} date
- * @param {unknown} hours
- */
 export function setExtraHours(store, driverId, period, date, hours) {
   const next = normalizeTimesheetExtras(store);
   const key = extraStoreKey(driverId, period);
@@ -582,24 +455,12 @@ export function setExtraHours(store, driverId, period, date, hours) {
   return next;
 }
 
-/**
- * @param {{ year: number, monthIndex: number, half: 1 | 2 }} period
- * @param {string} date
- */
 export function extraDateInPeriod(period, date) {
   return semiMonthlyDates(period.year, period.monthIndex, period.half).some(
     (day) => localDateKey(day) === date
   );
 }
 
-/**
- * @param {{ driver_id: string, name: string, email?: string | null }} driver
- * @param {Array<object>} punches
- * @param {Array<{ route_id: string, segments?: Record<string, string | null | undefined> }>} routes
- * @param {object | null} calendar
- * @param {{ year: number, monthIndex: number, half: 1 | 2 }} period
- * @param {Record<string, number>} [extraByDate]
- */
 export function buildTimesheet({ driver, punches, routes, calendar, period, extraByDate }) {
   const mine = (punches || []).filter((punch) => punch.driver_id === driver.driver_id);
   const { pairs, unpaired } = pairClockPunches(mine);
@@ -607,11 +468,8 @@ export function buildTimesheet({ driver, punches, routes, calendar, period, extr
   const keys = new Set(dates.map((date) => localDateKey(date)));
   const inPeriod = (date) => keys.has(localDateKey(date));
   const hoursByDay = new Map();
-  /** @type {Map<string, number>} */
   const segmentHours = new Map();
-  /** @type {Array<object>} */
   const rows = [];
-  /** @type {string[]} */
   const caveats = [];
 
   for (const pair of pairs) {
@@ -700,9 +558,6 @@ export function buildTimesheet({ driver, punches, routes, calendar, period, extr
   return sheet;
 }
 
-/**
- * @param {object} sheet
- */
 export function payPeriodSummaryText(sheet) {
   const lines = ['Pay period summary', '', `Employee: ${sheet.driver?.name || ''}`];
   if (sheet.route_ids?.length) lines.push(`Route: ${sheet.route_ids.join(', ')}`);
@@ -724,9 +579,6 @@ export function payPeriodSummaryText(sheet) {
   return lines.join('\n');
 }
 
-/**
- * @param {object} sheet
- */
 export function payPeriodEmail(sheet) {
   const to = String(sheet.driver?.email || '').trim();
   const subject = `Pay period summary — ${sheet.period?.label || ''} — ${sheet.driver?.name || ''}`.trim();
@@ -739,15 +591,10 @@ export function payPeriodEmail(sheet) {
   return { to, subject, body, mailto_url };
 }
 
-/**
- * Hours above and below the contracted day. Above is the extra clock time.
- * Below is the shortfall, kept negative so a spreadsheet paste stays signed.
- * @param {Array<{ difference?: number }>} days
- */
+// Hours above and below the contracted day. Above is the extra clock time.
+// Below is the shortfall, kept negative so a spreadsheet paste stays signed.
 export function payrollVarianceRows(days) {
-  /** @type {number[]} */
   const above = [];
-  /** @type {number[]} */
   const below = [];
   for (const day of days || []) {
     const diff = Number(day?.difference);
@@ -758,10 +605,7 @@ export function payrollVarianceRows(days) {
   return { above, below };
 }
 
-/**
- * Two spreadsheet rows: hours above the contracted day, then hours below it.
- * @param {{ above?: number[], below?: number[] }} rows
- */
+// Two spreadsheet rows: hours above the contracted day, then hours below it.
 export function payrollVarianceClipboard(rows) {
   const cell = (value) => (Number.isFinite(Number(value)) ? Number(value).toFixed(2) : '0.00');
   const line = (values) => (values || []).map(cell).join('\t');
@@ -773,20 +617,14 @@ export function payrollVarianceClipboard(rows) {
   };
 }
 
-/**
- * @param {string} value
- */
 function csvCell(value) {
   const text = String(value ?? '');
   if (/[",\r\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
   return text;
 }
 
-/**
- * One row per driver for a pay period. Daily regular and overtime come from
- * clock records, not a scanned card.
- * @param {Array<{ driver?: { name?: string }, route_ids?: string[], days?: Array<{ label?: string, regular?: number, overtime?: number }>, totals?: { regular?: number, overtime?: number } }>} sheets
- */
+// One row per driver for a pay period. Daily regular and overtime come from
+// clock records, not a scanned card.
 export function payPeriodCalculatorsCsv(sheets) {
   const days = sheets[0]?.days || [];
   const dayHeaders = days.flatMap((day) => [`${day.label} Reg`, `${day.label} OT`]);
@@ -805,9 +643,6 @@ export function payPeriodCalculatorsCsv(sheets) {
   return lines.join('\n');
 }
 
-/**
- * @param {string} label
- */
 export function payPeriodExportFilename(label) {
   const safe = String(label || '')
     .replace(/[^\w-]+/g, '_')
@@ -816,10 +651,7 @@ export function payPeriodExportFilename(label) {
   return `Pay_period_calculators_${safe || 'export'}.csv`;
 }
 
-/**
- * Every driver's timesheet for one pay period, by name.
- * @param {{ drivers: Array<{ driver_id: string, name: string }>, punches: Array<object>, routeState: object, calendar: object | null, period: { year: number, monthIndex: number, half: 1 | 2 } }} input
- */
+// Every driver's timesheet for one pay period, by name.
 export function buildPeriodTimesheets({ drivers, punches, routeState, calendar, period }) {
   return [...(drivers || [])]
     .sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }))

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import ExcelJS from 'exceljs';
-import { buildBps2026_2027Calendar } from '../employee-tracker/src/bpsCalendar2026.js';
+import { buildBellingham2026_2027Calendar } from '../employee-tracker/src/bellinghamCalendar2026.js';
 import { buildEmployeeSnapshot, rebuildEmployeeRouteState } from '../employee-tracker/src/snapshot.js';
 import {
   officeStateFromDriverTimesCsv,
@@ -234,7 +234,7 @@ test('uses bid clocks as the established schedule and September clocks as a forc
   );
   assert.equal(open.changeLog[0].force_oct1_contract, undefined);
 
-  const calendar = buildBps2026_2027Calendar().calendar;
+  const calendar = buildBellingham2026_2027Calendar().calendar;
   const wrightEntry = rebuildEmployeeRouteState(wright.changeLog, calendar, '2026-10-02');
   const wrightHistory = buildEmployeeSnapshot({
     profile: wright,

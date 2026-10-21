@@ -180,6 +180,7 @@ function lockInStable(entry, at) {
   next.baseline_segments = { ...next.segments };
   next.cumulative_drift_minutes = 0;
   next.contributing_change_ids = [];
+  next.side_windows = [];
   next.window_opened_date = null;
   next.window_expires_date = null;
   next.window_rule = null;

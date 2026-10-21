@@ -1,4 +1,4 @@
-import { buildBps2026_2027Calendar } from '../../employee-tracker/src/bpsCalendar2026.js';
+import { buildBellingham2026_2027Calendar } from '../../employee-tracker/src/bellinghamCalendar2026.js';
 import { getSchoolDays } from '../../src/logic/calendar.js';
 import { parseLegacyStampToDate } from './timesheetNormalize.js';
 
@@ -289,6 +289,6 @@ export function compareCardToContract(extraction, dailyContractHours, calendar =
 let schoolCalendar;
 
 export function dashboardSchoolCalendar() {
-  if (!schoolCalendar) schoolCalendar = buildBps2026_2027Calendar().calendar;
+  if (!schoolCalendar) schoolCalendar = buildBellingham2026_2027Calendar().calendar;
   return schoolCalendar;
 }

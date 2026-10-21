@@ -1,9 +1,3 @@
-/**
- * Headshots from the Bellingham Public Schools transportation staff page.
- * A name with no portrait, including a directory silhouette, is omitted.
- */
-
-/** @type {Record<string, string>} */
 const DRIVER_PHOTOS = {
   'lauren-adcox': 'lauren-adcox.jpg',
   'samiullah-azizi': 'samiullah-azizi.jpg',
@@ -82,10 +76,7 @@ const DRIVER_PHOTOS = {
   'scott-wright': 'scott-wright.jpg',
 };
 
-/**
- * Portrait for a driver on the PIN screen. Blank when this name has no photo.
- * @param {string} name
- */
+// Portrait for a driver on the PIN screen. Blank when this name has no photo.
 export function driverPhotoSrc(name) {
   const key = String(name ?? '')
     .trim()
@@ -96,7 +87,6 @@ export function driverPhotoSrc(name) {
   return file ? `driver-photos/${file}` : '';
 }
 
-/** @returns {string[]} */
 export function driverPhotoPaths() {
   return Object.values(DRIVER_PHOTOS).map((file) => `driver-photos/${file}`);
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { buildBps2026_2027Calendar } from '../employee-tracker/src/bpsCalendar2026.js';
+import { buildBellingham2026_2027Calendar } from '../employee-tracker/src/bellinghamCalendar2026.js';
 import {
   buildPeriodTimesheets,
   buildTimesheet,
@@ -18,7 +18,7 @@ import {
   setExtraHours,
 } from '../src/logic/timesheets.js';
 
-const calendar = buildBps2026_2027Calendar().calendar;
+const calendar = buildBellingham2026_2027Calendar().calendar;
 
 function at(year, monthIndex, day, hour, minute) {
   return new Date(year, monthIndex, day, hour, minute);
@@ -35,6 +35,7 @@ function punch(id, action, when, extra = {}) {
     note_at: extra.note ? when.toISOString() : null,
     reason_codes: extra.reason_codes || [],
     run: extra.run || '',
+    ...(extra.extra_index ? { extra_index: extra.extra_index } : {}),
   };
 }
 
@@ -330,6 +331,14 @@ describe('clock punch pairing', () => {
     assert.equal(pairs.length, 1);
     assert.equal(pairs[0].clockIn.id, 'later');
     assert.equal(unpaired.length, 0);
+  });
+
+  it('does not replace an extra clock in when the next extra period clocks in', () => {
+    const punches = [
+      punch('in-1', 'in', at(2026, 9, 8, 16, 0), { run: 'OTHER', extra_index: 1 }),
+      punch('in-2', 'in', at(2026, 9, 8, 18, 0), { run: 'OTHER', extra_index: 2 }),
+    ];
+    assert.equal(replacedClockPunchIds(punches).size, 0);
   });
 
   it('leaves a finished route pair in place when the driver clocks that route again', () => {

@@ -3,7 +3,7 @@ import { EMPLOYEE_ROUTE_ID } from '../../employee-tracker/src/snapshot.js';
 import { loadState, saveState } from './store.js';
 
 const START = '2026-09-08';
-const EXAMPLE_VERSION = 5;
+const EXAMPLE_VERSION = 6;
 
 const EXAMPLE_DRIVERS = [
   { id: 'driver-jean-luc-picard', name: 'Jean-Luc Picard', phone: '617-555-0101', email: 'jean-luc.picard@example.com' },
@@ -35,13 +35,6 @@ const EXAMPLE_IDS = new Set([
   'route-p32',
 ]);
 
-/**
- * @param {string} routeId
- * @param {string} driver
- * @param {string} segment
- * @param {string} range
- * @param {number} index
- */
 function seed(routeId, driver, segment, range, index, date = START) {
   return change(routeId, driver, {
     id: `${routeId}-start-${segment.toLowerCase()}`,
@@ -54,11 +47,6 @@ function seed(routeId, driver, segment, range, index, date = START) {
   });
 }
 
-/**
- * @param {string} routeId
- * @param {string} driver
- * @param {{ id?: string, segment: string, previous: string, next: string, date: string, note: string, submitted_at?: string }} input
- */
 function change(routeId, driver, input) {
   const delta = computeDeltaMinutes(input.previous, input.next);
   return {
@@ -80,13 +68,6 @@ function change(routeId, driver, input) {
   };
 }
 
-/**
- * @param {string} id
- * @param {string} name
- * @param {string} driver
- * @param {Array<[string, string]>} starts
- * @param {object[]} changes
- */
 function route(id, name, driver, starts, changes, startDate = START) {
   return {
     id,
@@ -102,7 +83,7 @@ function route(id, name, driver, starts, changes, startDate = START) {
   };
 }
 
-/** Fictional office routes for an empty browser, as of late September 2026. */
+// Fictional office routes for an empty browser, as of late September 2026.
 export function exampleOfficeState() {
   const routes = [
     route(
@@ -406,17 +387,6 @@ const DISNEY_DRIVERS = [
   { id: 'driver-pluto', name: 'Pluto', firstName: 'Pluto', lastName: '', phone: '360-555-0196', email: 'pluto@example.com', payStatuses: ['ex-driver'] },
 ];
 
-/**
- * @param {string} id
- * @param {string} driver
- * @param {'in' | 'out'} action
- * @param {number} year
- * @param {number} monthIndex
- * @param {number} day
- * @param {number} hour
- * @param {number} minute
- * @param {{ run?: string, pay_status?: string }} [extra]
- */
 function samplePunch(id, driver, action, year, monthIndex, day, hour, minute, extra = {}) {
   return {
     id,
@@ -429,13 +399,9 @@ function samplePunch(id, driver, action, year, monthIndex, day, hour, minute, ex
   };
 }
 
-/**
- * Donald Duck works every weekday in the September 1–15 pay period except Labor Day.
- * Contract hours drop on September 8, when the PM run loses 45 minutes.
- * @param {{ pay_status: string }} pay
- */
+// Donald Duck works every weekday in the September 1–15 pay period except Labor Day.
+// Contract hours drop on September 8, when the PM run loses 45 minutes.
 function donaldSeptemberPunches(pay) {
-  /** @type {Array<[number, Array<['AM' | 'MIDDAY' | 'PM', number, number, number, number]>, Record<string, string>, Record<string, object>]>} */
   const days = [
     [1, [['AM', 6, 12, 8, 47], ['MIDDAY', 11, 2, 12, 18], ['PM', 14, 4, 16, 48]], { 'AM-in': 'First week back. Walked the AM stops with the monitor.' }, {}],
     [2, [['AM', 6, 18, 8, 44], ['MIDDAY', 10, 58, 12, 20], ['PM', 13, 57, 16, 42]], { 'MIDDAY-out': 'Preschool student was not ready. Waited at the door.' }, {}],
@@ -485,16 +451,59 @@ function donaldSeptemberPunches(pay) {
   );
 }
 
-/**
- * Weekend, holiday, early-morning, and evening clocks so overtime shows on the pay period info.
- * October 2026: the 3rd and 10th are Saturdays, the 4th and 11th are Sundays,
- * and the 12th is a school holiday.
- * Donald Duck instead has a full September 1–15 pay period, with a contract change on the 8th.
- */
+// Donald Duck's September 16–30 pay period.
+// Weekdays stay on the shorter contract. A few days add overtime:
+// early morning, evening, more than 8 hours, Saturday, and a Sunday split into two clocks.
+function donaldLateSeptemberPunches(pay) {
+  const days = [
+    [16, [['AM', 6, 14, 8, 46], ['MIDDAY', 11, 1, 12, 16], ['PM', 14, 2, 16, 1]], { 'AM-in': 'Second pay period. Same three runs.' }],
+    [17, [['AM', 4, 52, 8, 45], ['MIDDAY', 11, 0, 12, 15], ['PM', 14, 0, 16, 0]], { 'AM-in': 'In the yard before 5:30 for a bus check.' }],
+    [18, [['AM', 6, 15, 8, 45], ['MIDDAY', 11, 0, 12, 15], ['PM', 14, 0, 18, 45]], { 'PM-out': 'Evening stops after a late school activity.' }],
+    [19, [['OTHER', 8, 0, 12, 30]], { 'OTHER-in': 'Saturday field trip.' }],
+    [
+      20,
+      [
+        ['OTHER', 9, 0, 11, 0],
+        ['OTHER', 13, 0, 15, 15],
+      ],
+      { '0-in': 'Sunday charter, morning loop.', '1-in': 'Sunday charter, afternoon loop.' },
+    ],
+    [21, [['AM', 6, 15, 8, 45], ['MIDDAY', 11, 0, 12, 15], ['PM', 14, 0, 18, 0]], { 'PM-out': 'Last stop was after 5:30.' }],
+    [22, [['AM', 6, 0, 9, 0], ['MIDDAY', 10, 30, 12, 30], ['PM', 13, 30, 17, 15]], { 'PM-out': 'This PM is where the day passed 8 hours.' }],
+    [23, [['AM', 6, 16, 8, 44], ['MIDDAY', 11, 3, 12, 14], ['PM', 14, 1, 15, 58]], {}],
+    [24, [['AM', 5, 0, 8, 0], ['MIDDAY', 11, 0, 12, 0], ['PM', 16, 0, 18, 0]], { 'AM-in': 'Started before 5:30.', 'PM-out': 'Back out after 5:30 for a game.' }],
+    [25, [['AM', 6, 18, 8, 47], ['MIDDAY', 10, 59, 12, 17], ['PM', 14, 4, 16, 2]], { 'PM-in': 'Back on the regular PM.' }],
+    [28, [['AM', 6, 12, 8, 45], ['MIDDAY', 11, 2, 12, 15], ['PM', 13, 58, 16, 0]], {}],
+    [29, [['AM', 6, 15, 8, 48], ['MIDDAY', 11, 0, 12, 18], ['PM', 14, 3, 15, 59]], {}],
+    [30, [['AM', 6, 11, 8, 43], ['MIDDAY', 11, 4, 12, 13], ['PM', 14, 0, 16, 3]], { 'PM-out': 'Last day of the pay period. Yard check after the PM.' }],
+  ];
+  return days.flatMap(([day, runs, notes]) =>
+    runs.flatMap(([run, inHour, inMinute, outHour, outMinute], index) => {
+      const slug = `${String(day).padStart(2, '0')}-${run.toLowerCase()}-${index}`;
+      return [
+        samplePunch(`disney-donald-09b-${slug}-in`, 'Donald Duck', 'in', 2026, 8, day, inHour, inMinute, {
+          ...pay,
+          run,
+          note: notes[`${index}-in`] || notes[`${run}-in`] || '',
+        }),
+        samplePunch(`disney-donald-09b-${slug}-out`, 'Donald Duck', 'out', 2026, 8, day, outHour, outMinute, {
+          run,
+          note: notes[`${index}-out`] || notes[`${run}-out`] || '',
+        }),
+      ];
+    })
+  );
+}
+
+// Weekend, holiday, early-morning, and evening clocks so overtime shows on the pay period info.
+// October 2026: the 3rd and 10th are Saturdays, the 4th and 11th are Sundays,
+// and the 12th is a school holiday.
+// Donald Duck has both September pay periods: a contract change on the 8th, then overtime examples from the 16th through the 30th.
 export function exampleOvertimePunches() {
   const pay = { pay_status: 'ex-driver' };
   return [
     ...donaldSeptemberPunches(pay),
+    ...donaldLateSeptemberPunches(pay),
     samplePunch('disney-mickey-thu-in', 'Mickey Mouse', 'in', 2026, 9, 8, 14, 7, { ...pay, run: 'PM' }),
     samplePunch('disney-mickey-thu-out', 'Mickey Mouse', 'out', 2026, 9, 8, 18, 38, { run: 'PM' }),
     samplePunch('disney-mickey-sat-in', 'Mickey Mouse', 'in', 2026, 9, 10, 8, 4, { ...pay, run: 'OTHER' }),
@@ -518,11 +527,8 @@ export function exampleOvertimePunches() {
   ];
 }
 
-/**
- * Add the Disney sample clocks to a fictional office that does not have them yet.
- * A real office is left alone. A driver removed from the list stays off it.
- * @param {object} state
- */
+// Add the Disney sample clocks to a fictional office that does not have them yet.
+// A real office is left alone. A driver removed from the list stays off it.
 export function seedDisneyOvertimeHours(state) {
   if (!isSampleOffice(state)) return state;
   const punches = Array.isArray(state.punches) ? state.punches : [];
@@ -566,18 +572,12 @@ const LEGACY_DRIVER_NAMES = {
   'riley cho': 'Wesley Crusher',
 };
 
-/**
- * @param {string} name
- */
 function legacyDriver(name) {
   const next = LEGACY_DRIVER_NAMES[String(name ?? '').trim().toLowerCase()];
   if (!next) return null;
   return EXAMPLE_DRIVERS.find((driver) => driver.name === next) ?? null;
 }
 
-/**
- * @param {unknown} value
- */
 function rewriteLegacyPeople(value) {
   let text = String(value ?? '');
   const direct = legacyDriver(text);
@@ -589,11 +589,8 @@ function rewriteLegacyPeople(value) {
   return text;
 }
 
-/**
- * Rename the previous sample office in place. Clock times stay put.
- * Returns null when this is not that office.
- * @param {object} state
- */
+// Rename the previous sample office in place. Clock times stay put.
+// Returns null when this is not that office.
 export function migrateLegacyExampleOffice(state) {
   const profiles = Object.values(state?.profiles ?? {});
   const names = profiles.map((profile) => String(profile?.name ?? '').trim());
@@ -623,22 +620,16 @@ export function migrateLegacyExampleOffice(state) {
   return next;
 }
 
-/**
- * True when this browser has no routes yet, or only the fictional sample routes.
- * @param {{ profiles?: Record<string, object> } | null | undefined} state
- */
+// True when this browser has no routes yet, or only the fictional sample routes.
 export function isSampleOffice(state) {
   if (state?.exampleVersion === EXAMPLE_VERSION) return true;
   const ids = Object.keys(state?.profiles ?? {});
   return !ids.length || ids.every((id) => EXAMPLE_IDS.has(id));
 }
 
-/**
- * Fill an empty browser with the fictional office routes.
- * An office that is still the previous sample is renamed to S1–S8.
- * Any other saved office is left alone.
- * @param {Storage} [storage]
- */
+// Fill an empty browser with the fictional office routes.
+// An office that is still the previous sample is renamed to S1–S8.
+// Any other saved office is left alone.
 export function ensureExampleRoutes(storage) {
   let state = loadState(storage);
   const migrated = migrateLegacyExampleOffice(state);

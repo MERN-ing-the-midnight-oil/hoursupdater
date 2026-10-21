@@ -1479,4 +1479,94 @@ describe('stateMachine', () => {
     });
     assert.equal(posted.status, 'BID_PENDING');
   });
+
+  it('keeps the bid date when a later increase stays at or above 30 minutes', () => {
+    let state = applyChangeToRoute(
+      null,
+      makeChange({
+        id: 'big',
+        delta_minutes: 35,
+        effective_date: '2025-10-02',
+        submitted_at: '2025-10-02T08:00:00.000Z',
+      }),
+      calendar,
+      '2025-10-02'
+    );
+    const bidExpires = state.window_expires_date;
+    assert.equal(state.window_rule, 'post_october_1_bid');
+
+    const later = addSchoolDays(calendar, '2025-10-02', 2);
+    state = applyChangeToRoute(
+      state,
+      makeChange({
+        id: 'small',
+        segment: 'PM',
+        delta_minutes: 5,
+        effective_date: later,
+        submitted_at: `${later}T09:00:00.000Z`,
+        previous_time: '14:00-17:00',
+        new_time: '14:00-17:05',
+      }),
+      calendar,
+      later
+    );
+
+    assert.equal(state.status, 'ACCUMULATING');
+    assert.equal(state.window_rule, 'post_october_1_bid');
+    assert.equal(state.window_expires_date, bidExpires);
+    assert.equal(state.window_opened_date, '2025-10-02');
+    assert.equal(state.cumulative_drift_minutes, 35);
+    assert.deepEqual(state.contributing_change_ids, ['big']);
+    assert.equal(state.side_windows.length, 1);
+    assert.equal(state.side_windows[0].id, 'small');
+    assert.equal(state.side_windows[0].drift_minutes, 5);
+    assert.equal(state.side_windows[0].rule, 'post_october_1_increase_lock');
+    assert.notEqual(state.side_windows[0].expires_date, bidExpires);
+    assert.equal(state.segments.PM, '14:00-17:05');
+
+    const posted = applyWindowExpiration(state, nextCalendarDate(bidExpires), {
+      schoolCalendar: calendar,
+      routeId: 'S 20',
+      changeLog: [],
+    });
+    assert.equal(posted.status, 'BID_PENDING');
+    assert.equal(posted.side_windows.length, 1);
+    assert.equal(posted.cumulative_drift_minutes, 35);
+  });
+
+  it('drops the bid clock when a later change takes the total under 30 minutes', () => {
+    let state = applyChangeToRoute(
+      null,
+      makeChange({
+        id: 'big',
+        delta_minutes: 40,
+        effective_date: '2025-10-02',
+        submitted_at: '2025-10-02T08:00:00.000Z',
+      }),
+      calendar,
+      '2025-10-02'
+    );
+    const later = addSchoolDays(calendar, '2025-10-02', 4);
+    state = applyChangeToRoute(
+      state,
+      makeChange({
+        id: 'cut',
+        segment: 'PM',
+        delta_minutes: -15,
+        effective_date: later,
+        submitted_at: `${later}T09:00:00.000Z`,
+        previous_time: '14:00-17:00',
+        new_time: '14:00-16:45',
+      }),
+      calendar,
+      later
+    );
+    assert.equal(state.side_windows.length, 0);
+    assert.equal(state.cumulative_drift_minutes, 25);
+    assert.equal(state.window_rule, 'post_october_1_increase_lock');
+    assert.equal(state.window_opened_date, '2025-10-02');
+    assert.ok(state.contributing_change_ids.includes('big'));
+    assert.ok(state.contributing_change_ids.includes('cut'));
+    assert.ok(state.window_expires_date >= addSchoolDays(calendar, later, 15));
+  });
 });

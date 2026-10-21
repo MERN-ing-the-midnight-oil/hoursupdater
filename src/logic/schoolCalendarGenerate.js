@@ -11,31 +11,9 @@ const WEEKDAY_NAMES = [
   'Saturday',
 ];
 
-/**
- * @typedef {Object} CalendarBreak
- * @property {string} start
- * @property {string} end
- * @property {string} [label]
- */
 
-/**
- * @typedef {Object} CalendarHoliday
- * @property {string} date
- * @property {string} [label]
- */
 
-/**
- * @typedef {Object} GenerateSchoolYearInput
- * @property {string} first_day
- * @property {string} last_day
- * @property {CalendarBreak[]} [breaks]
- * @property {CalendarHoliday[]} [holidays]
- * @property {string | null} [school_year]
- */
 
-/**
- * @param {string} day
- */
 function assertDate(day, label = 'date') {
   if (typeof day !== 'string' || !DATE_RE.test(day.trim())) {
     throw new Error(`Invalid ${label}: ${day}`);
@@ -51,38 +29,20 @@ function assertDate(day, label = 'date') {
   return normalized;
 }
 
-/**
- * @param {string} iso
- * @returns {Date}
- */
 function utcDate(iso) {
   return new Date(`${iso}T00:00:00.000Z`);
 }
 
-/**
- * @param {Date} d
- * @returns {string}
- */
 function isoFromUtc(d) {
   return d.toISOString().slice(0, 10);
 }
 
-/**
- * @param {string} iso
- * @returns {string}
- */
 function dayOfWeekName(iso) {
   return WEEKDAY_NAMES[utcDate(iso).getUTCDay()];
 }
 
-/**
- * District-file convention: July 1 on/before first day → June 30 on/after last day.
- * Flagged in KNOWN_OPEN_QUESTIONS — confirm this boundary with Rachel if needed.
- *
- * @param {string} firstDay
- * @param {string} lastDay
- * @returns {{ coverage_start: string, coverage_end: string, boundary_rule: string }}
- */
+// District-file convention: July 1 on/before first day → June 30 on/after last day.
+// Flagged in KNOWN_OPEN_QUESTIONS — confirm this boundary with Rachel if needed.
 export function defaultCoverageWindow(firstDay, lastDay) {
   const first = utcDate(firstDay);
   const last = utcDate(lastDay);
@@ -110,9 +70,6 @@ export function defaultCoverageWindow(firstDay, lastDay) {
   };
 }
 
-/**
- * @param {GenerateSchoolYearInput} input
- */
 export function validateGenerateSchoolYearInput(input) {
   if (!input || typeof input !== 'object') {
     throw new Error('Generation input is required.');
@@ -123,7 +80,6 @@ export function validateGenerateSchoolYearInput(input) {
     throw new Error('Last day of school must be on or after the first day.');
   }
 
-  /** @type {CalendarBreak[]} */
   const breaks = [];
   for (const raw of input.breaks ?? []) {
     if (!raw || typeof raw !== 'object') {
@@ -141,9 +97,7 @@ export function validateGenerateSchoolYearInput(input) {
     });
   }
 
-  /** @type {CalendarHoliday[]} */
   const holidays = [];
-  /** @type {Set<string>} */
   const holidaySeen = new Set();
   for (const raw of input.holidays ?? []) {
     if (!raw || typeof raw !== 'object') {
@@ -173,26 +127,15 @@ export function validateGenerateSchoolYearInput(input) {
   return { first_day, last_day, breaks, holidays, school_year };
 }
 
-/**
- * Generate a full civil-day calendar for one school year from key dates.
- *
- * @param {GenerateSchoolYearInput} rawInput
- * @returns {{
- *   calendar: import('./calendar.js').SchoolCalendar,
- *   summary: object,
- *   coverage_boundary: { coverage_start: string, coverage_end: string, boundary_rule: string },
- * }}
- */
+// Generate a full civil-day calendar for one school year from key dates.
 export function generateSchoolYearCalendar(rawInput) {
   const input = validateGenerateSchoolYearInput(rawInput);
   const coverage = defaultCoverageWindow(input.first_day, input.last_day);
 
-  /** @type {Map<string, { label: string }>} */
   const holidayByDate = new Map(
     input.holidays.map((h) => [h.date, { label: h.label || 'Holiday' }])
   );
 
-  /** @type {import('./calendar.js').SchoolCalendarDay[]} */
   const days = [];
   let cursor = utcDate(coverage.coverage_start);
   const end = utcDate(coverage.coverage_end);
@@ -209,7 +152,6 @@ export function generateSchoolYearCalendar(rawInput) {
     const day_of_week = dayOfWeekName(date);
     const inSchoolYear = date >= input.first_day && date <= input.last_day;
 
-    /** @type {import('./calendar.js').SchoolCalendarDay} */
     let entry;
 
     if (!inSchoolYear) {
@@ -295,20 +237,12 @@ export function generateSchoolYearCalendar(rawInput) {
   };
 }
 
-/**
- * Compare a generated year against an existing calendar for overlapping dates.
- *
- * @param {import('./calendar.js').SchoolCalendar | null | undefined} existing
- * @param {import('./calendar.js').SchoolCalendar} generated
- */
+// Compare a generated year against an existing calendar for overlapping dates.
 export function findCalendarGenerationConflicts(existing, generated) {
   const existingDays = Array.isArray(existing?.days) ? existing.days : [];
-  /** @type {Map<string, import('./calendar.js').SchoolCalendarDay>} */
   const existingByDate = new Map(existingDays.map((d) => [d.date, d]));
 
-  /** @type {string[]} */
   const overlapping_dates = [];
-  /** @type {Array<{ date: string, existing_is_school_day: boolean, generated_is_school_day: boolean, existing_reason?: string, generated_reason?: string }>} */
   const differing = [];
 
   for (const day of generated.days ?? []) {
@@ -338,15 +272,8 @@ export function findCalendarGenerationConflicts(existing, generated) {
   };
 }
 
-/**
- * Merge generated days into an existing calendar (generated wins on overlap).
- *
- * @param {import('./calendar.js').SchoolCalendar | null | undefined} existing
- * @param {import('./calendar.js').SchoolCalendar} generated
- * @returns {import('./calendar.js').SchoolCalendar}
- */
+// Merge generated days into an existing calendar (generated wins on overlap).
 export function mergeGeneratedSchoolCalendar(existing, generated) {
-  /** @type {Map<string, import('./calendar.js').SchoolCalendarDay>} */
   const byDate = new Map();
   for (const day of existing?.days ?? []) {
     byDate.set(day.date, { ...day });

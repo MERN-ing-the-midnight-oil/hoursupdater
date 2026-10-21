@@ -1,20 +1,9 @@
-/**
- * Timecard codes on a clock-out. Each code has its own minutes and comment.
- * The minutes are a note on that session. They can add up to less than the
- * session. They cannot add up to more. Pay hours do not use them.
- */
-
 import { pairClockPunches } from '../../src/logic/timesheets.js';
 import { normalizePayPeriods, normalizePeriodEndsAt } from './driverPay.js';
 
 export const TIMECARD_COMMENT_MAX = 200;
 export const TIMECARD_ENTRY_LIMIT = 10;
 
-/**
- * @param {unknown} value
- * @param {Array<{ id: string, label: string }>} [catalog]
- * @returns {Array<{ id: string, label: string, minutes: number, comment: string }>}
- */
 export function normalizeTimecardEntries(value, catalog) {
   if (!Array.isArray(value)) return [];
   const labels = new Map(
@@ -22,7 +11,6 @@ export function normalizeTimecardEntries(value, catalog) {
       .filter((code) => code && code.id && code.label)
       .map((code) => [String(code.id), String(code.label).trim()])
   );
-  /** @type {Array<{ id: string, label: string, minutes: number, comment: string }>} */
   const entries = [];
   const seen = new Set();
   for (const item of value) {
@@ -39,12 +27,7 @@ export function normalizeTimecardEntries(value, catalog) {
   return entries;
 }
 
-/**
- * The clock-in this clock-out closes, and the actual minutes between them.
- * @param {object[] | null | undefined} punches
- * @param {string} clockOutId
- * @returns {{ start: Date, end: Date, minutes: number } | null}
- */
+// The clock-in this clock-out closes, and the actual minutes between them.
 export function sessionForClockOut(punches, clockOutId) {
   const list = Array.isArray(punches) ? punches : [];
   const punch = list.find((item) => item?.id === clockOutId);
@@ -64,12 +47,7 @@ export function sessionForClockOut(punches, clockOutId) {
   };
 }
 
-/**
- * Why these codes cannot be saved, or an empty string when they can.
- * @param {unknown} entries
- * @param {number | null} sessionMinutes
- * @param {Array<{ id: string, label: string }>} catalog
- */
+// Why these codes cannot be saved, or an empty string when they can.
 export function timecardEntryError(entries, sessionMinutes, catalog) {
   const list = Array.isArray(entries) ? entries : [];
   if (!list.length) return '';
@@ -95,15 +73,9 @@ export function timecardEntryError(entries, sessionMinutes, catalog) {
   return '';
 }
 
-/**
- * Last moment notes and reasons can change for the pay period that contains this clock.
- * The office periods are used. Day 31 means the last day that month has.
- * `endsAt` is the time of day on that last day. The chosen minute is still open.
- * @param {Date} clockOut
- * @param {unknown} periods
- * @param {unknown} [endsAt]
- * @returns {Date | null}
- */
+// Last moment notes and reasons can change for the pay period that contains this clock.
+// The office periods are used. Day 31 means the last day that month has.
+// `endsAt` is the time of day on that last day. The chosen minute is still open.
 export function payPeriodDeadline(clockOut, periods, endsAt = '23:59') {
   if (!(clockOut instanceof Date) || Number.isNaN(clockOut.getTime())) return null;
   const rows = normalizePayPeriods(periods);
@@ -116,22 +88,13 @@ export function payPeriodDeadline(clockOut, periods, endsAt = '23:59') {
   return new Date(clockOut.getFullYear(), clockOut.getMonth(), endDay, hours, minutes, 59, 999);
 }
 
-/**
- * A driver can change notes, reasons, and timecard codes until the pay period ends.
- * @param {Date} clockOut
- * @param {unknown} periods
- * @param {Date} [now]
- * @param {unknown} [endsAt]
- */
+// A driver can change notes, reasons, and timecard codes until the pay period ends.
 export function payPeriodStillOpen(clockOut, periods, now = new Date(), endsAt = '23:59') {
   const deadline = payPeriodDeadline(clockOut, periods, endsAt);
   if (!deadline) return false;
   return now.getTime() <= deadline.getTime();
 }
 
-/**
- * @param {number} minutes
- */
 export function formatTimecardMinutes(minutes) {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
@@ -140,11 +103,8 @@ export function formatTimecardMinutes(minutes) {
   return [hourText, minuteText].filter(Boolean).join(' ') || '0 minutes';
 }
 
-/**
- * One clock-note line for a reason that already has a length of time.
- * A reason with no time is not a note yet.
- * @param {{ label?: string, minutes?: number } | null | undefined} code
- */
+// One clock-note line for a reason that already has a length of time.
+// A reason with no time is not a note yet.
 export function reasonNoteLine(code) {
   const label = String(code?.label || '').trim();
   const minutes = Number(code?.minutes);
@@ -152,9 +112,6 @@ export function reasonNoteLine(code) {
   return `${label} · ${formatTimecardMinutes(minutes)}`;
 }
 
-/**
- * @param {Array<{ label?: string, minutes?: number, comment?: string }>} entries
- */
 export function timecardSummary(entries) {
   return (entries || [])
     .map((entry) => {

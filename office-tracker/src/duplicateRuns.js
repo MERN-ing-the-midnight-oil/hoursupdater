@@ -1,12 +1,8 @@
 const RUN_ORDER = ['AM', 'MIDDAY', 'PM'];
 
-/**
- * Clock time for each run from the route this driver was assigned first.
- * A later route fills a run only when no earlier route already has that run,
- * so a temporary second AM, Midday, or PM route does not replace the original.
- * @param {Array<{ assignedFrom?: string, name?: string, clocks?: Record<string, string> }>} routes
- * @returns {Record<string, string>}
- */
+// Clock time for each run from the route this driver was assigned first.
+// A later route fills a run only when no earlier route already has that run,
+// so a temporary second AM, Midday, or PM route does not replace the original.
 export function runClocksFromOriginalRoute(routes) {
   const ordered = [...(routes || [])].sort((a, b) => {
     const byFrom = String(a?.assignedFrom || '9999-99-99').localeCompare(
@@ -17,7 +13,6 @@ export function runClocksFromOriginalRoute(routes) {
       numeric: true,
     });
   });
-  /** @type {Record<string, string>} */
   const clocks = {};
   for (const route of ordered) {
     for (const run of RUN_ORDER) {
@@ -29,17 +24,11 @@ export function runClocksFromOriginalRoute(routes) {
   return clocks;
 }
 
-/**
- * @param {string} type
- */
 export function runTypeLabel(type) {
   if (type === 'MIDDAY') return 'Midday';
   return type;
 }
 
-/**
- * @param {string[]} types
- */
 export function joinRunLabels(types) {
   const labels = types.map(runTypeLabel);
   if (labels.length <= 1) return labels[0] || '';
@@ -47,13 +36,8 @@ export function joinRunLabels(types) {
   return `${labels.slice(0, -1).join(', ')}, and ${labels.at(-1)}`;
 }
 
-/**
- * Routes this driver holds that share an AM, Midday, or PM run with the route
- * just assigned. Types are only the runs that appear on more than one route.
- * @param {Array<{ id: string, name: string, types: string[] }>} routes
- * @param {string} focusId
- * @returns {{ types: string[], routes: Array<{ id: string, name: string, types: string[] }> } | null}
- */
+// Routes this driver holds that share an AM, Midday, or PM run with the route
+// just assigned. Types are only the runs that appear on more than one route.
 export function duplicateRunRoutes(routes, focusId) {
   const focus = routes.find((route) => route.id === focusId);
   if (!focus) return null;

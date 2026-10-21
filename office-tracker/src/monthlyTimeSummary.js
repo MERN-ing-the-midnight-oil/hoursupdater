@@ -1,16 +1,14 @@
-/**
- * District Monthly Time Summary. Each sheet is one pay period.
- * The usual periods are the 1st–15th and the 16th through the end
- * of the month. The office can set different calendar days, including
- * one sheet for the whole month. Completed clock pairs fill the pay
- * status recorded on the clock in. A part of that period can use another
- * pay status. A pair with no status fills REG DRIVER.
- * EX DRIVER is the clocked quarter hours beyond that day's contract hours.
- * Other pay-status rows keep their existing calculation.
- * Each day column shows the regular contracted hours in effect that day.
- * Those hours come from Time Changes and change when a contracted date
- * falls inside the pay period.
- */
+// District Monthly Time Summary. Each sheet is one pay period.
+// The usual periods are the 1st–15th and the 16th through the end
+// of the month. The office can set different calendar days, including
+// one sheet for the whole month. Completed clock pairs fill the pay
+// status recorded on the clock in. A part of that period can use another
+// pay status. A pair with no status fills REG DRIVER.
+// EX DRIVER is the clocked quarter hours beyond that day's contract hours.
+// Other pay-status rows keep their existing calculation.
+// Each day column shows the regular contracted hours in effect that day.
+// Those hours come from Time Changes and change when a contracted date
+// falls inside the pay period.
 
 import { formatClockAmPm } from '../../employee-tracker/src/clockTimes.js';
 import { roundClockToQuarterHour } from '../../src/logic/timeUtils.js';
@@ -20,13 +18,11 @@ import { reasonNoteLine } from './timecardEntries.js';
 import { assignmentOnDate, routeAssignments, sameDriver } from './assignments.js';
 import { normalizeClockPayDefaults, normalizeDriverPay, normalizeTimeSummaryEdits, paySlicesForPair } from './driverPay.js';
 import { payrollDriverRows, payrollRowsForDriver, quarterHoursFromDailyMinutes, sumRoundedQuarterHours } from './payrollTimes.js';
-import { overtimeForPairs, pairOvertimeKey } from './overtimeRules.js';
+import { holidayListForState } from '../../src/logic/schoolYear.js';
+import { holidayLabelForDate, overtimeForPairs, pairOvertimeKey } from './overtimeRules.js';
 import { clockQuarterStep, exDriverDayHours, exHoursDifference, formatQuarterHourText } from './summaryMath.js';
 import { CLOCK_ROUNDING_DAILY, CLOCK_ROUNDING_SNAP, normalizeClockRounding } from '../web/store.js';
 
-/**
- * @param {string} value
- */
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -35,34 +31,20 @@ function escapeHtml(value) {
     .replace(/"/g, '&quot;');
 }
 
-/**
- * @param {Date} date
- */
 function clockFromDate(date) {
   return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
-/**
- * Day 31 means the last day that month actually has.
- * @param {number} year
- * @param {number} monthIndex
- * @param {{ id: string, startDay: number, endDay: number }} period
- */
+// Day 31 means the last day that month actually has.
 function datesForPayPeriod(year, monthIndex, period) {
   const lastDay = new Date(year, monthIndex + 1, 0).getDate();
   const end = Math.min(period.endDay, lastDay);
   if (period.startDay > end) return [];
-  /** @type {Date[]} */
   const dates = [];
   for (let day = period.startDay; day <= end; day += 1) dates.push(new Date(year, monthIndex, day));
   return dates;
 }
 
-/**
- * @param {number} year
- * @param {number} monthIndex
- * @param {{ id: string, startDay: number, endDay: number }} period
- */
 function describePeriod(year, monthIndex, period) {
   const dates = datesForPayPeriod(year, monthIndex, period);
   if (!dates.length) return null;
@@ -81,43 +63,24 @@ function describePeriod(year, monthIndex, period) {
   };
 }
 
-/**
- * @param {number} year
- * @param {number} monthIndex
- * @param {{ id: string, startDay: number, endDay: number }} period
- */
 export function describePayPeriod(year, monthIndex, period) {
   const row = describePeriod(year, monthIndex, period);
   if (!row) return null;
   return { id: row.id, key: row.key, label: row.label, ending: row.ending, days: row.days };
 }
 
-/**
- * @param {Date} date
- * @param {Array<{ id: string, startDay: number, endDay: number }>} periods
- */
 function periodForDate(date, periods) {
   const day = date.getDate();
   const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
   return periods.find((period) => day >= period.startDay && day <= Math.min(period.endDay, lastDay)) || null;
 }
 
-/**
- * @param {number} year
- * @param {number} monthIndex
- * @param {number} startDay
- */
 function periodOrdinal(year, monthIndex, startDay) {
   return year * 400 + monthIndex * 32 + startDay;
 }
 
-/**
- * Pay periods from the earliest punch through the period that contains `now`.
- * Newest first. With no punches, only the periods in the current month up through today.
- * @param {Array<{ punched_at?: string }>} punches
- * @param {Array<{ id: string, startDay: number, endDay: number }>} periods
- * @param {Date} now
- */
+// Pay periods from the earliest punch through the period that contains `now`.
+// Newest first. With no punches, only the periods in the current month up through today.
 function listCoveredPeriods(punches, periods, now) {
   let start = new Date(now.getFullYear(), now.getMonth(), 1);
   for (const punch of punches) {
@@ -130,7 +93,6 @@ function listCoveredPeriods(punches, periods, now) {
   const end = new Date(now.getFullYear(), now.getMonth(), 1);
   if (start > end) start = end;
   const cutoff = periodOrdinal(now.getFullYear(), now.getMonth(), now.getDate());
-  /** @type {NonNullable<ReturnType<typeof describePeriod>>[]} */
   const rows = [];
   for (let cursor = new Date(start); cursor <= end; cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)) {
     for (const period of periods) {
@@ -143,14 +105,9 @@ function listCoveredPeriods(punches, periods, now) {
   return rows.reverse();
 }
 
-/**
- * Every configured pay period from the earliest clock through the end of the
- * current month, newest first. A period later this month stays on the list.
- * With no clocks, the list is this month only.
- * @param {Array<{ punched_at?: string }>} punches
- * @param {Array<{ id: string, startDay: number, endDay: number }>} periods
- * @param {Date} now
- */
+// Every configured pay period from the earliest clock through the end of the
+// current month, newest first. A period later this month stays on the list.
+// With no clocks, the list is this month only.
 export function payPeriodsForClocks(punches, periods, now) {
   let start = new Date(now.getFullYear(), now.getMonth(), 1);
   for (const punch of punches) {
@@ -162,7 +119,6 @@ export function payPeriodsForClocks(punches, periods, now) {
   }
   const end = new Date(now.getFullYear(), now.getMonth(), 1);
   if (start > end) start = end;
-  /** @type {NonNullable<ReturnType<typeof describePeriod>>[]} */
   const rows = [];
   for (let cursor = new Date(start); cursor <= end; cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)) {
     for (const period of periods) {
@@ -179,23 +135,15 @@ export function payPeriodsForClocks(punches, periods, now) {
   }));
 }
 
-/**
- * @param {string} day
- */
 function punchedAtForDay(day) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(day || '').slice(0, 10));
   if (!match) return '';
   return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0).toISOString();
 }
 
-/**
- * Days that should pull a pay period onto this driver's list: when they took
- * a route, and when a contract change was recorded for them.
- * @param {object | null | undefined} officeState
- * @param {string} driverName
- */
+// Days that should pull a pay period onto this driver's list: when they took
+// a route, and when a contract change was recorded for them.
 function routeAnchorDates(officeState, driverName) {
-  /** @type {string[]} */
   const dates = [];
   if (!driverName || !officeState?.profiles) return dates;
   for (const profile of Object.values(officeState.profiles)) {
@@ -213,15 +161,9 @@ function routeAnchorDates(officeState, driverName) {
   return dates;
 }
 
-/**
- * Pay periods for one driver, newest first. Clocks, the day they took a route,
- * and contract changes all count. The list still runs through the current month.
- * With none of those, it is the current month only.
- * @param {object | null | undefined} officeState
- * @param {string} driverName
- * @param {Array<{ id: string, startDay: number, endDay: number }>} periods
- * @param {Date} [now]
- */
+// Pay periods for one driver, newest first. Clocks, the day they took a route,
+// and contract changes all count. The list still runs through the current month.
+// With none of those, it is the current month only.
 export function payPeriodsForDriver(officeState, driverName, periods, now = new Date()) {
   const name = String(driverName || '').trim().toLowerCase();
   const punches = name
@@ -237,12 +179,7 @@ export function payPeriodsForDriver(officeState, driverName, periods, now = new 
   return payPeriodsForClocks(anchors, periods, now);
 }
 
-/**
- * Pay periods in which this driver already has a clock, newest first.
- * @param {Array<{ punched_at?: string }>} punches
- * @param {Array<{ id: string, startDay: number, endDay: number }>} periods
- * @param {Date} [now]
- */
+// Pay periods in which this driver already has a clock, newest first.
 export function mathPeriodsWithPunches(punches, periods, now = new Date()) {
   const listed = payPeriodsForClocks(punches || [], periods || [], now);
   const keys = new Set();
@@ -261,9 +198,6 @@ export function mathPeriodsWithPunches(punches, periods, now = new Date()) {
   return listed.filter((row) => keys.has(row.key));
 }
 
-/**
- * @param {number | null | undefined} hours
- */
 function formatCalculated(hours) {
   if (hours == null || !Number.isFinite(Number(hours))) return '';
   const snapped = Math.round(Number(hours) * 4) / 4;
@@ -271,9 +205,6 @@ function formatCalculated(hours) {
   return snapped.toFixed(2);
 }
 
-/**
- * @param {string[]} values
- */
 function totalOf(values) {
   const present = values.filter((value) => value !== '');
   if (!present.length) return '';
@@ -282,18 +213,12 @@ function totalOf(values) {
   return (Math.round(sum * 4) / 4).toFixed(2);
 }
 
-/**
- * @param {number | null | undefined} hours
- */
 function formatContracted(hours) {
   return formatQuarterHourText(hours);
 }
 
-/**
- * The office choice. `true` snaps clocks. `false` is the older off switch.
- * A missing choice snaps each clock.
- * @param {{ rounding?: string, roundClocks?: boolean | string } | null | undefined} options
- */
+// The office choice. `true` snaps clocks. `false` is the older off switch.
+// A missing choice snaps each clock.
 function roundingFrom(options) {
   if (options && Object.prototype.hasOwnProperty.call(options, 'rounding')) {
     return normalizeClockRounding(options.rounding);
@@ -304,25 +229,16 @@ function roundingFrom(options) {
   return CLOCK_ROUNDING_SNAP;
 }
 
-/**
- * Quarter hours for one day. Daily rounding adds the minutes first.
- * The other choices add figures that are already on a quarter hour.
- * @param {Array<number | null | undefined>} values
- * @param {'snap' | 'daily' | 'separate'} rounding
- */
+// Quarter hours for one day. Daily rounding adds the minutes first.
+// The other choices add figures that are already on a quarter hour.
 function dayHours(values, rounding) {
   if (rounding === CLOCK_ROUNDING_DAILY) return quarterHoursFromDailyMinutes(values);
   return sumRoundedQuarterHours(values);
 }
 
-/**
- * Schedule rows dated after `asOf` have not happened yet. Leaving them in
- * would let a later review window rewrite the contract hours of earlier days.
- * @param {object | null | undefined} officeState
- * @param {string} asOf
- */
+// Schedule rows dated after `asOf` have not happened yet. Leaving them in
+// would let a later review window rewrite the contract hours of earlier days.
 function officeStateOnDate(officeState, asOf) {
-  /** @type {Record<string, object>} */
   const profiles = {};
   for (const [id, profile] of Object.entries(officeState?.profiles ?? {})) {
     profiles[id] = {
@@ -336,18 +252,11 @@ function officeStateOnDate(officeState, asOf) {
   return { ...officeState, profiles };
 }
 
-/**
- * Regular contracted hours for one driver on each date. An open review
- * window keeps the earlier contract until its contracted date.
- * Hours from every route the driver holds that day are added together.
- * Daily rounding adds those minutes first, then rounds once.
- * @param {object | null | undefined} officeState
- * @param {string} driverName
- * @param {Date[]} dates
- * @param {'snap' | 'daily' | 'separate'} rounding
- */
+// Regular contracted hours for one driver on each date. An open review
+// window keeps the earlier contract until its contracted date.
+// Hours from every route the driver holds that day are added together.
+// Daily rounding adds those minutes first, then rounds once.
 function contractedHoursForDays(officeState, driverName, dates, rounding) {
-  /** @type {Map<string, string>} */
   const byDay = new Map();
   if (!officeState?.profiles || !driverName) return byDay;
   for (const date of dates) {
@@ -371,9 +280,6 @@ function contractedHoursForDays(officeState, driverName, dates, rounding) {
   return byDay;
 }
 
-/**
- * @param {string} rate
- */
 function formatRate(rate) {
   if (!rate) return '';
   const number = Number(rate);
@@ -381,32 +287,19 @@ function formatRate(rate) {
   return `$${number.toFixed(2)}`;
 }
 
-/**
- * @param {{ start: Date, end: Date }} pair
- * @param {'snap' | 'daily' | 'separate'} rounding
- */
 function pairQuarterHours(pair, rounding) {
   const step = clockQuarterStep(clockFromDate(pair.start), clockFromDate(pair.end), rounding);
   return step ? step.quarterHours : null;
 }
 
-/**
- * Minutes counted for one clock span. Daily rounding sums these before it rounds.
- * @param {{ start: Date, end: Date }} pair
- * @param {'snap' | 'daily' | 'separate'} rounding
- */
+// Minutes counted for one clock span. Daily rounding sums these before it rounds.
 function pairCountedMinutes(pair, rounding) {
   const step = clockQuarterStep(clockFromDate(pair.start), clockFromDate(pair.end), rounding);
   return step ? step.minutes : null;
 }
 
-/**
- * Split one period's already-counted amount across its pay-status slices.
- * The last slice keeps the remainder, so the pieces add back to the period.
- * @param {number | null} amount
- * @param {Array<{ minutes: number }>} slices
- * @param {'snap' | 'daily' | 'separate'} rounding
- */
+// Split one period's already-counted amount across its pay-status slices.
+// The last slice keeps the remainder, so the pieces add back to the period.
 function splitCountedAmount(amount, slices, rounding) {
   if (amount == null || !slices.length) return slices.map(() => null);
   if (slices.length === 1) return [amount];
@@ -414,7 +307,6 @@ function splitCountedAmount(amount, slices, rounding) {
   if (!(total > 0)) return [amount, ...slices.slice(1).map(() => 0)];
   const daily = rounding === CLOCK_ROUNDING_DAILY;
   const units = daily ? Math.round(amount) : Math.round(amount * 4);
-  /** @type {number[]} */
   const shares = [];
   let used = 0;
   for (let index = 0; index < slices.length - 1; index += 1) {
@@ -435,19 +327,8 @@ const CONTRACT_RUNS = [
   { label: 'PM', inKey: 'pmIn', outKey: 'pmOut' },
 ];
 
-/**
- * @param {ReturnType<typeof clockQuarterStep>} step
- * @param {string} label
- */
-/**
- * Notes an admin should see with one clock: the clock note, each reason that has a time, and office notes.
- * @param {object | null | undefined} punch
- * @param {string} side
- * @param {string} clock
- * @returns {Array<{ when: string, text: string }>}
- */
+// Notes an admin should see with one clock: the clock note, each reason that has a time, and office notes.
 function clockTimeNotes(punch, side, clock) {
-  /** @type {Array<{ when: string, text: string }>} */
   const notes = [];
   const when = [side, clock].filter(Boolean).join(' ');
   const text = clockNoteText(punch);
@@ -473,19 +354,12 @@ function clockTimeNotes(punch, side, clock) {
   return notes;
 }
 
-/**
- * Notes on contract-hour changes that take effect on this date.
- * A starting schedule, with no change in the times, is left out.
- * @param {object | null | undefined} officeState
- * @param {string} driverName
- * @param {Date} date
- * @returns {Array<{ when: string, text: string }>}
- */
+// Notes on contract-hour changes that take effect on this date.
+// A starting schedule, with no change in the times, is left out.
 function contractChangeNotes(officeState, driverName, date) {
   const key = localDateKey(date);
   const wanted = String(driverName || '').trim().toLowerCase();
   if (!wanted || !officeState?.profiles) return [];
-  /** @type {Array<{ when: string, text: string }>} */
   const notes = [];
   for (const profile of Object.values(officeState.profiles)) {
     if (String(profile?.driver_name || '').trim().toLowerCase() !== wanted) continue;
@@ -502,11 +376,7 @@ function contractChangeNotes(officeState, driverName, date) {
   return notes;
 }
 
-/**
- * The contracted run that matches one clock period, when this day has one.
- * @param {Array<{ runs?: Array<{ label?: string, writtenIn?: string, writtenOut?: string, hours?: string }> }>} routes
- * @param {string} run
- */
+// The contracted run that matches one clock period, when this day has one.
 function contractRunFor(routes, run) {
   const label = run === 'MIDDAY' ? 'Midday' : run === 'AM' || run === 'PM' ? run : '';
   if (!label) return null;
@@ -531,13 +401,7 @@ function stepRow(step, label) {
   };
 }
 
-/**
- * Contracted runs for one driver on one date, in the same rounding the summary uses.
- * @param {object | null | undefined} officeState
- * @param {string} driverName
- * @param {Date} date
- * @param {'snap' | 'daily' | 'separate'} rounding
- */
+// Contracted runs for one driver on one date, in the same rounding the summary uses.
 function contractRoutesForDay(officeState, driverName, date, rounding) {
   if (!officeState?.profiles || !driverName) return [];
   const key = localDateKey(date);
@@ -562,22 +426,6 @@ function contractRoutesForDay(officeState, driverName, date, rounding) {
   });
 }
 
-/**
- * @param {{
- *   driverName: string,
- *   driverId?: string,
- *   pay?: { serial?: string, rate?: string, account?: string },
- *   defaults?: object,
- *   edits?: object,
- *   punches?: object[],
- *   officeState?: object,
- *   email?: string,
- *   roundClocks?: boolean | string,
- *   rounding?: string,
- *   now?: Date,
- *   focus?: { year: number, monthIndex: number, periodId?: string, lineIds?: string[] },
- * }} options
- */
 export function buildMonthlyTimeSummary(options) {
   const now = options.now instanceof Date ? options.now : new Date();
   const driverName = String(options.driverName || '').trim();
@@ -592,9 +440,7 @@ export function buildMonthlyTimeSummary(options) {
     (punch) => String(punch?.driver_name || '').trim().toLowerCase() === wanted
   );
   const { pairs, unpaired } = pairClockPunches(punches);
-  /** @type {Map<string, Map<string, Array<number | null>>>} */
   const hoursByLine = new Map();
-  /** @type {Map<string, Array<number | null>>} */
   const clockedByDay = new Map();
   for (const pair of pairs) {
     const slices = paySlicesForPair(pair);
@@ -620,7 +466,6 @@ export function buildMonthlyTimeSummary(options) {
   const wantedLines = Array.isArray(focus?.lineIds) ? new Set(focus.lineIds.map((id) => String(id))) : null;
   const catalog = defaults.lines.filter((line) => !wantedLines || wantedLines.has(line.id));
   const chosenLines = catalog.length ? catalog : defaults.lines;
-  /** @type {NonNullable<ReturnType<typeof describePeriod>>[]} */
   let covered = [];
   if (focus && Number.isInteger(focus.year) && Number.isInteger(focus.monthIndex)) {
     const range = ranges.find((period) => period.id === String(focus.periodId || '')) || ranges[0];
@@ -639,7 +484,6 @@ export function buildMonthlyTimeSummary(options) {
     const lines = chosenLines.map((line) => {
       const entry = driverEdits[period.key]?.[line.id] || {};
       const byDay = hoursByLine.get(line.id);
-      /** @type {Record<number, string>} */
       const calculated = {};
       for (const date of period.dates) {
         const key = localDateKey(date);
@@ -712,10 +556,12 @@ export function buildMonthlyTimeSummary(options) {
   };
 }
 
-/**
- * Day-by-day clocks behind EX HOURS: contract hours, written clocks, and the snap.
- * @param {Parameters<typeof buildMonthlyTimeSummary>[0]} options
- */
+function summaryHolidays(options) {
+  if (Array.isArray(options?.holidays)) return options.holidays;
+  return holidayListForState(options?.officeState);
+}
+
+// Day-by-day clocks behind EX HOURS: contract hours, written clocks, and the snap.
 export function buildMonthlySummaryMath(options) {
   const focus = { ...(options?.focus || {}), lineIds: ['ex-driver'] };
   const summary = buildMonthlyTimeSummary({ ...options, focus });
@@ -727,7 +573,8 @@ export function buildMonthlySummaryMath(options) {
   );
   const { pairs, unpaired } = pairClockPunches(punches);
   const replacedIds = replacedClockPunchIds(punches);
-  const overtimeByPair = overtimeForPairs(pairs, options.overtimeRules);
+  const holidays = summaryHolidays(options);
+  const overtimeByPair = overtimeForPairs(pairs, options.overtimeRules, holidays);
   const edits = normalizeTimeSummaryEdits(options.edits);
   const driverEdits = edits[summary.driverId] || {};
   const periods = summary.periods.map((period) => ({
@@ -827,6 +674,8 @@ export function buildMonthlySummaryMath(options) {
         }));
       return {
         day,
+        weekday: ['SUN', 'MON', 'TUES', 'WED', 'THR', 'FRI', 'SAT'][date.getDay()],
+        holiday: holidayLabelForDate(key, holidays),
         dateLabel: date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }),
         routes,
         contractHours,
@@ -860,10 +709,7 @@ export function buildMonthlySummaryMath(options) {
   };
 }
 
-/**
- * File name for the landscape letter PDF attached to the email.
- * @param {string} driverName
- */
+// File name for the landscape letter PDF attached to the email.
 export function summaryPdfBasename(driverName) {
   const slug = String(driverName ?? '')
     .trim()
@@ -873,9 +719,6 @@ export function summaryPdfBasename(driverName) {
   return `${slug || 'driver'}-monthly-time-summary`;
 }
 
-/**
- * @param {ReturnType<typeof buildMonthlyTimeSummary>} summary
- */
 export function renderMonthlyTimeSummaryHtml(summary) {
   const title = `Monthly Time Summary — ${summary.driverName || 'Driver'}`;
   const options = summary.periods

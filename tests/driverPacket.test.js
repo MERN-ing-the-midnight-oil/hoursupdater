@@ -77,7 +77,8 @@ test('a notice packet keeps the chosen pages and routes', () => {
   });
   assert.deepEqual(packet.routeNames, ['S1']);
   assert.match(packet.html, /What changed/);
-  assert.match(packet.html, /Contracted hours/);
+  assert.match(packet.html, /Current contracted hours/);
+  assert.match(packet.html, /Predicted contracted hours/);
   assert.doesNotMatch(packet.html, /class="calendar-months"/);
   assert.doesNotMatch(packet.html, /<h3>Change history<\/h3>/);
   assert.equal(packet.mail.subject, 'Clock-time notice for Jean-Luc Picard');

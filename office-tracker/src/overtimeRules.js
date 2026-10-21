@@ -1,10 +1,8 @@
-/**
- * Which clock minutes count as overtime, and the pay multiplier.
- * The starting rules match the Teamsters contract and can be changed
- * in Timeclock settings and on Payroll.
- */
+// Which clock minutes count as overtime, and the pay multiplier.
+// The starting rules match the Teamsters contract and can be changed
+// in Timeclock settings and on Payroll.
 
-import { BPS_2026_2027_INPUT } from '../../employee-tracker/src/bpsCalendar2026.js';
+import { BELLINGHAM_2026_2027_INPUT } from '../../employee-tracker/src/bellinghamCalendar2026.js';
 import { parseClockTime, roundClockToQuarterHour } from '../../src/logic/timeUtils.js';
 
 export const DEFAULT_OVERTIME_RULES = {
@@ -17,10 +15,6 @@ export const DEFAULT_OVERTIME_RULES = {
   multiplier: 1.5,
 };
 
-/**
- * @param {unknown} value
- * @param {number} max
- */
 function optionalHours(value, max) {
   if (value == null || String(value).trim() === '') return null;
   const number = Number(value);
@@ -28,9 +22,6 @@ function optionalHours(value, max) {
   return Math.round(number * 100) / 100;
 }
 
-/**
- * @param {unknown} value
- */
 function optionalClock(value) {
   const text = String(value ?? '').trim();
   if (!text) return null;
@@ -42,19 +33,13 @@ function optionalClock(value) {
   return `${hours}:${String(minutes).padStart(2, '0')}`;
 }
 
-/**
- * @param {unknown} value
- */
 function multiplierOf(value) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 1 || number > 3) return DEFAULT_OVERTIME_RULES.multiplier;
   return Math.round(number * 100) / 100;
 }
 
-/**
- * Missing rules use the contract defaults. A blank hour or time turns that rule off.
- * @param {unknown} value
- */
+// Missing rules use the contract defaults. A blank hour or time turns that rule off.
 export function normalizeOvertimeRules(value) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : null;
   if (!source) return { ...DEFAULT_OVERTIME_RULES };
@@ -70,25 +55,25 @@ export function normalizeOvertimeRules(value) {
   };
 }
 
-/**
- * School-calendar holidays. A holiday counts only when that rule is on.
- * @returns {Set<string>}
- */
-export function overtimeHolidayDates() {
-  return new Set((BPS_2026_2027_INPUT.holidays || []).map((holiday) => holiday.date));
+// School-calendar holidays. A holiday counts only when that rule is on.
+export function overtimeHolidayDates(holidays) {
+  const list = Array.isArray(holidays) ? holidays : BELLINGHAM_2026_2027_INPUT.holidays || [];
+  return new Set(list.map((holiday) => holiday.date));
 }
 
-/**
- * @param {Date} date
- */
+// Name of the school-calendar holiday on this date. Blank on every other day.
+export function holidayLabelForDate(date, holidays) {
+  const key = String(date || '');
+  const list = Array.isArray(holidays) ? holidays : BELLINGHAM_2026_2027_INPUT.holidays || [];
+  const holiday = list.find((item) => item.date === key);
+  return holiday ? String(holiday.label || '').trim() : '';
+}
+
 function dateKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-/**
- * Monday that starts the work week containing this minute.
- * @param {Date} date
- */
+// Monday that starts the work week containing this minute.
 function weekKey(date) {
   const copy = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const day = copy.getDay();
@@ -97,9 +82,6 @@ function weekKey(date) {
   return dateKey(copy);
 }
 
-/**
- * @param {number} minutes
- */
 function clockLabel(minutes) {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
@@ -108,29 +90,17 @@ function clockLabel(minutes) {
   return `${hour}:${String(mins).padStart(2, '0')} ${suffix}`;
 }
 
-/**
- * @param {Date} date
- */
 function clockText(date) {
   return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
-/**
- * @param {Date} base
- * @param {string} clock
- */
 function dateFromClock(base, clock) {
   const date = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0);
   date.setMinutes(parseClockTime(clock));
   return date;
 }
 
-/**
- * Clock in stays on its punched day. A clock out earlier than the clock in is the next day.
- * @param {Date} anchor
- * @param {string} clockIn
- * @param {string} clockOut
- */
+// Clock in stays on its punched day. A clock out earlier than the clock in is the next day.
 function spanFromClocks(anchor, clockIn, clockOut) {
   if (!clockIn || !clockOut) return null;
   const start = dateFromClock(anchor, clockIn);
@@ -140,9 +110,6 @@ function spanFromClocks(anchor, clockIn, clockOut) {
   return { start, end };
 }
 
-/**
- * @param {ReturnType<typeof normalizeOvertimeRules>} rules
- */
 function prepared(rules) {
   return {
     ...rules,
@@ -153,16 +120,8 @@ function prepared(rules) {
   };
 }
 
-/**
- * @param {Date} start
- * @param {Date} end
- * @param {{ day: Map<string, number>, week: Map<string, number> }} ledger
- * @param {ReturnType<typeof prepared>} rules
- * @param {Set<string>} holidays
- */
 function countSpan(start, end, ledger, rules, holidays) {
   let minutes = 0;
-  /** @type {Set<string>} */
   const reasons = new Set();
   const cursor = new Date(start);
   while (cursor < end) {
@@ -193,30 +152,22 @@ function countSpan(start, end, ledger, rules, holidays) {
   return { minutes, reasons: [...reasons] };
 }
 
-/**
- * @param {{ start?: Date, end?: Date, clockIn?: { id?: string }, clockOut?: { id?: string } }} pair
- */
 export function pairOvertimeKey(pair) {
   return `${pair.clockIn?.id || ''}|${pair.clockOut?.id || ''}|${pair.start?.toISOString?.() || ''}`;
 }
 
-/**
- * Actual, snapped, and quarter-hour overtime minutes for each clock pair.
- * Day and week totals count earlier pairs first, including pairs outside the sheet.
- * @param {Array<{ start?: Date, end?: Date, clockIn?: { id?: string }, clockOut?: { id?: string } }>} pairs
- * @param {unknown} rules
- */
-export function overtimeForPairs(pairs, rules) {
+// Actual, snapped, and quarter-hour overtime minutes for each clock pair.
+// Day and week totals count earlier pairs first, including pairs outside the sheet.
+export function overtimeForPairs(pairs, rules, holidays) {
   const normalized = prepared(normalizeOvertimeRules(rules));
-  const holidays = normalized.holidayOvertime ? overtimeHolidayDates() : new Set();
+  const holidayDates = normalized.holidayOvertime ? overtimeHolidayDates(holidays) : new Set();
   const ordered = [...(pairs || [])].filter((pair) => pair?.start instanceof Date && pair?.end instanceof Date && pair.end > pair.start);
   ordered.sort((a, b) => a.start.getTime() - b.start.getTime() || pairOvertimeKey(a).localeCompare(pairOvertimeKey(b)));
-  /** @type {Map<string, { actual: number, snap: number, rounded: number, reasons: string[], snapReasons: string[] }>} */
   const out = new Map();
   const actualLedger = { day: new Map(), week: new Map() };
   for (const pair of ordered) {
     const span = spanFromClocks(pair.start, clockText(pair.start), clockText(pair.end));
-    const counted = span ? countSpan(span.start, span.end, actualLedger, normalized, holidays) : { minutes: 0, reasons: [] };
+    const counted = span ? countSpan(span.start, span.end, actualLedger, normalized, holidayDates) : { minutes: 0, reasons: [] };
     out.set(pairOvertimeKey(pair), {
       actual: counted.minutes,
       snap: 0,
@@ -234,7 +185,7 @@ export function overtimeForPairs(pairs, rules) {
     .filter(Boolean);
   snapped.sort((a, b) => a.span.start.getTime() - b.span.start.getTime() || pairOvertimeKey(a.pair).localeCompare(pairOvertimeKey(b.pair)));
   for (const item of snapped) {
-    const counted = countSpan(item.span.start, item.span.end, snapLedger, normalized, holidays);
+    const counted = countSpan(item.span.start, item.span.end, snapLedger, normalized, holidayDates);
     const row = out.get(pairOvertimeKey(item.pair));
     if (!row) continue;
     row.snap = counted.minutes;

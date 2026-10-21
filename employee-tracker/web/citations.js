@@ -4,10 +4,6 @@ import {
   publishedContractPdfUrl,
 } from '../../public/shared/contractCitations.js';
 
-/**
- * @param {string} citationId
- * @param {string} label
- */
 export function citeLink(citationId, label) {
   const entry = contractCitations[citationId];
   const href = entry

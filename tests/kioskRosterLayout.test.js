@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { kioskRosterLayout, rosterButtonFont, clockCardRows, clockedPhrase, clockedStatusLabel, kioskLiveClock, nameButtonColors, punchDisplayClock, reasonDurationMinutes } from '../office-tracker/web/timeclockKiosk.js';
+import { kioskRosterLayout, rosterButtonFont, clockCardPeriods, clockCardRows, extraTrackVisibleHeight, clockMoveTargets, clockedPhrase, clockedStatusLabel, kioskLiveClock, movePunchToRow, nameButtonColors, periodNoteText, periodReasonCodes, applyPeriodNote, punchDisplayClock, punchDisplayDay, reasonDurationMinutes } from '../office-tracker/web/timeclockKiosk.js';
 
 const GAP = 6;
 
@@ -117,6 +117,13 @@ describe('timeclock punch clock', () => {
     assert.equal(punchDisplayClock(at(23, 53)), '11:53 PM');
   });
 
+  it('puts the weekday and short date under a punch time', () => {
+    assert.equal(punchDisplayDay(new Date(2026, 9, 16, 7, 22)), 'FRI 10/16/26');
+    assert.equal(punchDisplayDay(new Date(2026, 9, 22, 7, 22)), 'THU 10/22/26');
+    assert.equal(punchDisplayDay(new Date(2026, 0, 5, 7, 22)), 'MON 1/5/26');
+    assert.equal(punchDisplayDay(new Date(NaN)), '');
+  });
+
   it('names the route and clock-in time when a driver is clocked in', () => {
     const punchedAt = at(6, 7).toISOString();
     assert.equal(clockedPhrase('out', { run: 'AM', punchedAt }), 'is Clocked Out');
@@ -153,9 +160,12 @@ describe('clock card rows', () => {
     const rows = clockCardRows({ hasMidday: false, punches: [] });
     assert.deepEqual(
       rows.map((row) => row.label),
-      ['PM OUT', 'PM IN', 'AM OUT', 'AM IN']
+      ['EXTRA OUT', 'EXTRA IN', 'PM OUT', 'PM IN', 'AM OUT', 'AM IN']
     );
-    assert.equal(rows[0].label, 'PM OUT');
+    assert.equal(rows[0].extra, true);
+    assert.equal(rows[1].extra, true);
+    assert.equal(rows[1].punched, false);
+    assert.equal(rows[2].label, 'PM OUT');
     assert.equal(rows.at(-1).label, 'AM IN');
   });
 
@@ -163,7 +173,7 @@ describe('clock card rows', () => {
     const rows = clockCardRows({ hasMidday: true, punches: [] });
     assert.deepEqual(
       rows.map((row) => row.label),
-      ['PM OUT', 'PM IN', 'MID OUT', 'MID IN', 'AM OUT', 'AM IN']
+      ['EXTRA OUT', 'EXTRA IN', 'PM OUT', 'PM IN', 'MID OUT', 'MID IN', 'AM OUT', 'AM IN']
     );
   });
 
@@ -172,7 +182,7 @@ describe('clock card rows', () => {
       hasMidday: false,
       punches: [{ run: 'MIDDAY', action: 'in', punchedAt: '2026-10-15T18:00:00.000Z' }],
     });
-    assert.equal(rows[0].label, 'PM OUT');
+    assert.equal(rows[0].label, 'EXTRA OUT');
     assert.equal(rows.at(-1).label, 'AM IN');
     const midIn = rows.find((row) => row.label === 'MID IN');
     assert.equal(midIn?.punched, true);
@@ -190,13 +200,13 @@ describe('clock card rows', () => {
     });
     assert.deepEqual(
       rows.map((row) => row.label),
-      ['PM OUT', 'PM IN', 'AM OUT', 'AM IN']
+      ['EXTRA OUT', 'EXTRA IN', 'PM OUT', 'PM IN', 'AM OUT', 'AM IN']
     );
     assert.equal(rows.find((row) => row.label === 'AM OUT')?.punched, true);
     assert.equal(rows.find((row) => row.label === 'AM IN')?.punched, true);
   });
 
-  it('puts a punched other row under PM OUT and keeps AM IN last', () => {
+  it('keeps extra rows above PM OUT and keeps AM IN last', () => {
     const rows = clockCardRows({
       hasMidday: false,
       punches: [
@@ -205,9 +215,318 @@ describe('clock card rows', () => {
         { run: 'OTHER', action: 'out', punchedAt: '2026-10-15T18:00:00.000Z' },
       ],
     });
-    assert.deepEqual(rows.map((row) => row.label).slice(0, 3), ['PM OUT', 'OTHER OUT', 'OTHER IN']);
+    assert.deepEqual(rows.map((row) => row.label).slice(0, 6), [
+      'EXTRA OUT',
+      'EXTRA IN',
+      'EXTRA OUT',
+      'EXTRA IN',
+      'PM OUT',
+      'PM IN',
+    ]);
+    assert.equal(rows[0].punched, false);
+    assert.equal(rows[0].extraIndex, 2);
+    assert.equal(rows[2].punched, true);
+    assert.equal(rows[2].extraIndex, 1);
+    assert.equal(rows[3].punched, true);
     assert.equal(rows.at(-1).label, 'AM IN');
-    assert.equal(rows.filter((row) => row.run === 'OTHER').length, 2);
+    assert.equal(rows.filter((row) => row.run === 'OTHER').length, 4);
+  });
+
+  it('adds another extra period after an extra clock in', () => {
+    const rows = clockCardRows({
+      hasMidday: false,
+      punches: [{ run: 'OTHER', action: 'in', punchedAt: '2026-10-15T16:00:00.000Z' }],
+    });
+    const extra = rows.filter((row) => row.extra);
+    assert.deepEqual(
+      extra.map((row) => `${row.extraIndex} ${row.label} ${row.punched}`),
+      ['2 EXTRA OUT false', '2 EXTRA IN false', '1 EXTRA OUT false', '1 EXTRA IN true']
+    );
+  });
+
+  it('does not add an extra period for an extra clock out alone', () => {
+    const rows = clockCardRows({
+      hasMidday: false,
+      punches: [{ run: 'OTHER', action: 'out', punchedAt: '2026-10-15T18:00:00.000Z' }],
+    });
+    assert.equal(rows.filter((row) => row.extra).length, 2);
+    assert.equal(rows.find((row) => row.action === 'out' && row.extra)?.punched, true);
+    assert.equal(rows.find((row) => row.action === 'in' && row.extra)?.punched, false);
+  });
+
+  it('adds a fresh extra period after each extra clock in', () => {
+    const rows = clockCardRows({
+      hasMidday: false,
+      punches: [
+        { run: 'OTHER', action: 'in', punchedAt: '2026-10-15T16:00:00.000Z', extra_index: 1 },
+        { run: 'OTHER', action: 'out', punchedAt: '2026-10-15T17:00:00.000Z', extra_index: 1 },
+        { run: 'OTHER', action: 'in', punchedAt: '2026-10-15T18:00:00.000Z', extra_index: 2 },
+      ],
+    });
+    const extra = rows.filter((row) => row.extra);
+    assert.deepEqual(
+      extra.map((row) => row.extraIndex),
+      [3, 3, 2, 2, 1, 1]
+    );
+    assert.equal(extra[0].punched, false);
+    assert.equal(extra.find((row) => row.extraIndex === 2 && row.action === 'in')?.punched, true);
+    assert.equal(extra.find((row) => row.extraIndex === 1 && row.action === 'out')?.punched, true);
+  });
+});
+
+describe('extra row carousel', () => {
+  it('shows a whole extra period on one advance', () => {
+    assert.equal(extraTrackVisibleHeight([0], 220, 0), 0);
+    assert.equal(extraTrackVisibleHeight([0], 220, 1), 220);
+    assert.equal(extraTrackVisibleHeight([0, 220], 440, 1), 220);
+    assert.equal(extraTrackVisibleHeight([0, 220], 440, 2), 440);
+  });
+});
+
+describe('clock card periods', () => {
+  it('keeps each route’s clock in and clock out in one period', () => {
+    const rows = clockCardRows({
+      hasMidday: true,
+      punches: [
+        { run: 'OTHER', action: 'out', punchedAt: '2026-10-15T18:00:00.000Z' },
+        { run: 'OTHER', action: 'in', punchedAt: '2026-10-15T16:00:00.000Z' },
+      ],
+    });
+    const periods = clockCardPeriods(rows);
+    assert.deepEqual(
+      periods.map((period) => period.period),
+      ['OTHER:2', 'OTHER', 'PM', 'MIDDAY', 'AM']
+    );
+    assert.deepEqual(
+      periods.find((period) => period.run === 'PM').rows.map((row) => row.label),
+      ['PM OUT', 'PM IN']
+    );
+    assert.deepEqual(
+      periods.find((period) => period.run === 'AM').rows.map((row) => row.label),
+      ['AM OUT', 'AM IN']
+    );
+    assert.deepEqual(
+      periods.find((period) => period.period === 'OTHER').rows.map((row) => row.label),
+      ['EXTRA OUT', 'EXTRA IN']
+    );
+    assert.equal(
+      periods.find((period) => period.period === 'OTHER:2').rows.every((row) => row.punched === false),
+      true
+    );
+  });
+
+  it('shows one note for the clock in and the clock out', () => {
+    assert.equal(periodNoteText('Left late', ''), 'Left late');
+    assert.equal(periodNoteText('', 'Traffic back'), 'Traffic back');
+    assert.equal(periodNoteText('Same note', 'Same note'), 'Same note');
+    assert.equal(periodNoteText('Left late', 'Traffic back'), 'Left late\nTraffic back');
+  });
+
+  it('counts a reason once for the period and keeps its minutes', () => {
+    assert.deepEqual(
+      periodReasonCodes(
+        [{ id: 'traffic', label: 'Traffic' }],
+        [
+          { id: 'traffic', label: 'Traffic', minutes: 15 },
+          { id: 'weather', label: 'Weather', minutes: 5 },
+        ]
+      ),
+      [
+        { id: 'traffic', label: 'Traffic', minutes: 15 },
+        { id: 'weather', label: 'Weather', minutes: 5 },
+      ]
+    );
+  });
+
+  it('stores the period note on the clock in and clears the copy on the clock out', () => {
+    const punches = [
+      {
+        id: 'in',
+        driver_name: 'Ada',
+        action: 'in',
+        run: 'AM',
+        punched_at: '2026-10-16T13:00:00.000Z',
+        note: 'Left late',
+        reason_codes: [{ id: 'traffic', label: 'Traffic' }],
+        office_edits: [{ note: 'Yard called' }],
+      },
+      {
+        id: 'out',
+        driver_name: 'Ada',
+        action: 'out',
+        run: 'AM',
+        punched_at: '2026-10-16T15:00:00.000Z',
+        note: 'Traffic back',
+        reason_codes: [{ id: 'traffic', label: 'Traffic', minutes: 15 }],
+      },
+      {
+        id: 'pm',
+        driver_name: 'Ada',
+        action: 'in',
+        run: 'PM',
+        punched_at: '2026-10-16T21:00:00.000Z',
+        note: 'PM only',
+        reason_codes: [],
+      },
+    ];
+    const next = applyPeriodNote(punches, {
+      driverName: 'Ada',
+      run: 'AM',
+      date: '2026-10-16',
+      note: 'Left late\nTraffic back',
+      reasonCodes: [{ id: 'traffic', label: 'Traffic', minutes: 15 }],
+    });
+    assert.equal(next[0].note, 'Left late\nTraffic back');
+    assert.deepEqual(next[0].reason_codes, [{ id: 'traffic', label: 'Traffic', minutes: 15 }]);
+    assert.deepEqual(next[0].office_edits, punches[0].office_edits);
+    assert.equal(next[1].note, '');
+    assert.deepEqual(next[1].reason_codes, []);
+    assert.equal(next[2].note, 'PM only');
+    assert.equal(punches[1].note, 'Traffic back');
+  });
+
+  it('keeps each extra period’s note on that period', () => {
+    const punches = [
+      {
+        id: 'in-1',
+        driver_name: 'Ada',
+        action: 'in',
+        run: 'OTHER',
+        extra_index: 1,
+        punched_at: '2026-10-16T16:00:00.000Z',
+        note: 'First',
+        reason_codes: [],
+      },
+      {
+        id: 'in-2',
+        driver_name: 'Ada',
+        action: 'in',
+        run: 'OTHER',
+        extra_index: 2,
+        punched_at: '2026-10-16T18:00:00.000Z',
+        note: '',
+        reason_codes: [],
+      },
+    ];
+    const next = applyPeriodNote(punches, {
+      driverName: 'Ada',
+      run: 'OTHER',
+      extraIndex: 2,
+      date: '2026-10-16',
+      note: 'Second job',
+      reasonCodes: [{ id: 'trip', label: 'Trip', minutes: 30 }],
+    });
+    assert.equal(next[0].note, 'First');
+    assert.equal(next[1].note, 'Second job');
+    assert.deepEqual(next[1].reason_codes, [{ id: 'trip', label: 'Trip', minutes: 30 }]);
+  });
+
+  it('leaves a replaced punch’s note where it was', () => {
+    const punches = [
+      {
+        id: 'early',
+        driver_name: 'Ada',
+        action: 'in',
+        run: 'AM',
+        punched_at: '2026-10-16T13:00:00.000Z',
+        note: 'First try',
+        reason_codes: [],
+      },
+      {
+        id: 'later',
+        driver_name: 'Ada',
+        action: 'in',
+        run: 'AM',
+        punched_at: '2026-10-16T13:10:00.000Z',
+        note: '',
+        reason_codes: [],
+      },
+    ];
+    const next = applyPeriodNote(punches, {
+      driverName: 'Ada',
+      run: 'AM',
+      date: '2026-10-16',
+      note: 'Use this one',
+    });
+    assert.equal(next[0].note, 'First try');
+    assert.equal(next[1].note, 'Use this one');
+  });
+});
+
+describe('moving a clock time to another row', () => {
+  it('offers every other route row and leaves this row out', () => {
+    assert.deepEqual(
+      clockMoveTargets('AM', 'in').map((row) => row.label),
+      ['PM OUT', 'PM IN', 'MID OUT', 'MID IN', 'AM OUT']
+    );
+    assert.deepEqual(
+      clockMoveTargets('OTHER', 'out').map((row) => row.label),
+      ['PM OUT', 'PM IN', 'MID OUT', 'MID IN', 'AM OUT', 'AM IN']
+    );
+  });
+
+  it('moves the punch onto the other row and keeps the clock time', () => {
+    const punches = [
+      {
+        id: 'p1',
+        driver_name: 'Ada',
+        action: 'in',
+        run: 'AM',
+        punched_at: '2026-10-16T13:07:00.000Z',
+        note: 'traffic',
+        reason_codes: [{ id: 'reason-traffic', label: 'Traffic' }],
+        pay_status: 'reg-driver',
+        pay_portions: [{ start: '2026-10-16T13:07:00.000Z', end: '2026-10-16T14:00:00.000Z', pay_status: 'reg-driver' }],
+        work_type: 'extra',
+      },
+      { id: 'p2', action: 'out', run: 'AM', punched_at: '2026-10-16T15:00:00.000Z' },
+    ];
+    const next = movePunchToRow(punches, 'p1', { run: 'PM', action: 'in' }, { payStatus: 'ot-trainer' });
+    assert.equal(next[0].punched_at, '2026-10-16T13:07:00.000Z');
+    assert.equal(next[0].run, 'PM');
+    assert.equal(next[0].action, 'in');
+    assert.equal(next[0].note, 'traffic');
+    assert.deepEqual(next[0].reason_codes, punches[0].reason_codes);
+    assert.equal(next[0].pay_status, 'ot-trainer');
+    assert.deepEqual(next[0].pay_portions, punches[0].pay_portions);
+    assert.equal(next[0].work_type, undefined);
+    assert.equal(next[1], punches[1]);
+    assert.equal(punches[0].run, 'AM');
+    assert.equal(punches[0].punched_at, '2026-10-16T13:07:00.000Z');
+  });
+
+  it('drops clock-in pay when the time moves to a clock-out row', () => {
+    const next = movePunchToRow(
+      [
+        {
+          id: 'p1',
+          action: 'in',
+          run: 'AM',
+          punched_at: '2026-10-16T13:07:00.000Z',
+          pay_status: 'reg-driver',
+          pay_portions: [{ start: 'a', end: 'b', pay_status: 'reg-driver' }],
+        },
+      ],
+      'p1',
+      { run: 'MIDDAY', action: 'out' }
+    );
+    assert.equal(next[0].punched_at, '2026-10-16T13:07:00.000Z');
+    assert.equal(next[0].run, 'MIDDAY');
+    assert.equal(next[0].action, 'out');
+    assert.equal(next[0].pay_status, undefined);
+    assert.equal(next[0].pay_portions, undefined);
+  });
+
+  it('keeps a clock-out timecard when that clock-out moves to another route', () => {
+    const entries = [{ label: 'Extra', minutes: 15 }];
+    const next = movePunchToRow(
+      [{ id: 'p1', action: 'out', run: 'AM', punched_at: '2026-10-16T15:00:00.000Z', timecard_entries: entries }],
+      'p1',
+      { run: 'PM', action: 'out' }
+    );
+    assert.equal(next[0].punched_at, '2026-10-16T15:00:00.000Z');
+    assert.equal(next[0].run, 'PM');
+    assert.equal(next[0].timecard_entries, entries);
   });
 });
 

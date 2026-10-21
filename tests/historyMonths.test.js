@@ -1,13 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBps2026_2027Calendar } from '../employee-tracker/src/bpsCalendar2026.js';
+import { buildBellingham2026_2027Calendar } from '../employee-tracker/src/bellinghamCalendar2026.js';
 import { groupCalendarByMonth } from '../employee-tracker/src/snapshot.js';
 import {
   calendarMonthsHtml,
   historyMonthsThroughNext,
 } from '../office-tracker/src/historyMarkup.js';
 
-const { calendar } = buildBps2026_2027Calendar();
+const { calendar } = buildBellingham2026_2027Calendar();
 const months = groupCalendarByMonth(calendar);
 
 function labels(asOf) {

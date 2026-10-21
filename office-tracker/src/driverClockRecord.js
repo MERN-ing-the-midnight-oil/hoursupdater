@@ -1,9 +1,3 @@
-/**
- * One driver's clock record: every date from today back through the pay
- * period that holds the earliest clock. Newest day first. A weekend with
- * no clock is an empty row, so the weeks stay visible while scrolling.
- */
-
 import { formatClockAmPm, formatDurationLabel } from '../../employee-tracker/src/clockTimes.js';
 import {
   localDateKey,
@@ -33,23 +27,14 @@ export const CLOCK_RECORD_COLUMNS = [
   { key: 'otherWork', label: 'Other work', text: true },
 ];
 
-/**
- * @param {Date} date
- */
 function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-/**
- * @param {Date} date
- */
 function clockLabel(date) {
   return formatClockAmPm(`${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`);
 }
 
-/**
- * @param {{ key: string, days: number[] }} period
- */
 function datesForPeriod(period) {
   const match = /^(\d{4})-(\d{2})-/.exec(String(period?.key || ''));
   if (!match || !Array.isArray(period?.days)) return [];
@@ -58,14 +43,9 @@ function datesForPeriod(period) {
   return period.days.map((day) => new Date(year, monthIndex, day));
 }
 
-/**
- * @param {object[]} punches
- */
 function clocksByDate(punches) {
   const { pairs, unpaired } = pairClockPunches(punches);
-  /** @type {Map<string, Record<string, Array<{ at: number, in: string, out: string }>>>} */
   const map = new Map();
-  /** @type {Map<string, string[]>} */
   const notes = new Map();
   const ensure = (key) => {
     let bucket = map.get(key);
@@ -126,11 +106,6 @@ function clocksByDate(punches) {
   return { byRun: map, notes };
 }
 
-/**
- * @param {Date} date
- * @param {ReturnType<typeof clocksByDate>} byDate
- * @param {boolean} periodStart
- */
 function rowFor(date, clocks, periodStart) {
   const key = localDateKey(date);
   const spans = clocks.byRun.get(key);
@@ -153,10 +128,6 @@ function rowFor(date, clocks, periodStart) {
   };
 }
 
-/**
- * @param {ReturnType<typeof rowFor>} row
- * @param {ReturnType<typeof normalizeLeaveRequests>} requests
- */
 function paintLeave(row, requests) {
   for (const leave of requests) {
     const hours = formatDurationLabel(leave.minutes);
@@ -173,25 +144,15 @@ function paintLeave(row, requests) {
   return row;
 }
 
-/**
- * @param {string} value
- */
 function dateFromKey(value) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
   if (!match) return null;
   return startOfDay(new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
 }
 
-/**
- * Pay periods for one driver, newest period first, newest day first inside each.
- * Days after `now` stay off the sheet unless a clock was already saved then.
- * A period that ended before this driver's first clock is left out.
- * @param {object[] | null | undefined} punches
- * @param {Array<{ id: string, startDay: number, endDay: number }> | null | undefined} periods
- * @param {string | null | undefined} driverName
- * @param {Date} [now]
- * @param {object[] | null | undefined} [leaveRequests]
- */
+// Pay periods for one driver, newest period first, newest day first inside each.
+// Days after `now` stay off the sheet unless a clock was already saved then.
+// A period that ended before this driver's first clock is left out.
 export function buildDriverClockRecord(punches, periods, driverName, now = new Date(), leaveRequests = []) {
   const wanted = String(driverName ?? '').trim().toLowerCase();
   if (!wanted) return [];
@@ -213,7 +174,6 @@ export function buildDriverClockRecord(punches, periods, driverName, now = new D
     if (day < earliest) earliest = day;
     if (day > end) end = day;
   }
-  /** @type {Map<string, typeof leaves>} */
   const leaveByDate = new Map();
   for (const leave of leaves) {
     const day = dateFromKey(leave.date);
@@ -235,7 +195,6 @@ export function buildDriverClockRecord(punches, periods, driverName, now = new D
     listed = [...listed, ...current].sort((a, b) => (a.key < b.key ? 1 : a.key > b.key ? -1 : 0));
   }
   const byDate = clocksByDate(mine);
-  /** @type {Set<string>} */
   const notable = new Set();
   if (leaves.length) {
     for (const leave of leaves) notable.add(leave.date);
@@ -244,7 +203,6 @@ export function buildDriverClockRecord(punches, periods, driverName, now = new D
       if (!Number.isNaN(date.getTime())) notable.add(localDateKey(date));
     }
   }
-  /** @type {Array<{ key: string, label: string, band: number, rows: ReturnType<typeof rowFor>[] }>} */
   const sheets = [];
   for (const period of listed) {
     const dates = datesForPeriod(period).filter((date) => {

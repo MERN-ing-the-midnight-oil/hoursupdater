@@ -5,6 +5,7 @@ import {
   buildDriverEmailDraft,
   buildPayrollEmailDraft,
   changeReportMatchKey,
+  describeOpenWindowContractHours,
   fillPayrollMessageTemplate,
   preservePayrollNotifiedAt,
 } from '../src/logic/changeReport.js';
@@ -64,7 +65,10 @@ describe('changeReport', () => {
     assert.equal(report.after.math.payroll_rounded_total_minutes, 300);
     assert.equal(report.contracted_hours_changed, true);
     assert.equal(report.contracted_hours_delta_minutes, 15);
-    assert.match(report.contracted_hours_statement, /Contracted hours changed/);
+    assert.equal(
+      report.contracted_hours_statement,
+      'Contracted hours changed from 4 hr 45 min to 5 hr (+15 min).'
+    );
     assert.equal(report.see_the_math.statement, report.contracted_hours_statement);
   });
 
@@ -133,7 +137,21 @@ describe('changeReport', () => {
 
     assert.equal(report.contracted_hours_changed, true);
     assert.ok(report.contracted_hours_delta_minutes !== 0);
-    assert.match(report.contracted_hours_statement, /Contracted hours changed/);
+    assert.match(report.contracted_hours_statement, /Contracted hours changed from/);
+    assert.doesNotMatch(report.contracted_hours_statement, /→/);
+  });
+
+  it('states an open window in contracted hours, not the latest punch size', () => {
+    const text = describeOpenWindowContractHours(255, 300);
+    assert.equal(
+      text,
+      'Predicted contracted hours are 5 hr, up from the current contracted hours of 4 hr 15 min (+45 min). This is the rounded total for the whole schedule, not the size of the latest logged change.'
+    );
+    assert.equal(
+      describeOpenWindowContractHours(300, 255),
+      'Predicted contracted hours are 4 hr 15 min, down from the current contracted hours of 5 hr (−45 min). This is the rounded total for the whole schedule, not the size of the latest logged change.'
+    );
+    assert.match(describeOpenWindowContractHours(255, 255), /stay 4 hr 15 min/);
   });
 
   it('disables email draft when no email is on file', () => {

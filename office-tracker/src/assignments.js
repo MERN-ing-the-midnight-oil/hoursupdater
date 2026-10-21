@@ -1,29 +1,19 @@
 import { EMPLOYEE_ROUTE_ID } from '../../employee-tracker/src/snapshot.js';
 
-/**
- * @param {unknown} value
- */
 export function sameDriver(a, b) {
   const left = String(a ?? '').trim().toLowerCase();
   const right = String(b ?? '').trim().toLowerCase();
   return Boolean(left) && left === right;
 }
 
-/**
- * @param {string} iso
- */
 export function dayBefore(iso) {
   const [year, month, day] = String(iso).split('-').map(Number);
   const date = new Date(Date.UTC(year, month - 1, day - 1));
   return date.toISOString().slice(0, 10);
 }
 
-/**
- * The drivers who have held a route, in order. A route with no recorded
- * assignments is treated as held by its current driver since the start.
- * @param {object | null | undefined} profile
- * @returns {Array<{ driver_name: string, from: string, until: string | null }>}
- */
+// The drivers who have held a route, in order. A route with no recorded
+// assignments is treated as held by its current driver since the start.
 export function routeAssignments(profile) {
   if (Array.isArray(profile?.assignments) && profile.assignments.length) {
     return profile.assignments
@@ -41,20 +31,11 @@ export function routeAssignments(profile) {
   return [{ driver_name: name, from, until: null }];
 }
 
-/**
- * @param {object | null | undefined} profile
- * @param {string} driverName
- */
 export function driverOwnsRoute(profile, driverName) {
   return routeAssignments(profile).some((item) => sameDriver(item.driver_name, driverName));
 }
 
-/**
- * The stint that covers `date`, if this route has one.
- * @param {object} profile
- * @param {string} date
- * @returns {{ driver_name: string, from: string, until: string | null } | null}
- */
+// The stint that covers `date`, if this route has one.
 export function assignmentOnDate(profile, date) {
   const iso = String(date || '');
   return (
@@ -64,21 +45,12 @@ export function assignmentOnDate(profile, date) {
   );
 }
 
-/**
- * @param {object} profile
- * @param {string} date
- */
 export function driverForDate(profile, date) {
   return assignmentOnDate(profile, date)?.driver_name || String(profile?.driver_name ?? '').trim();
 }
 
-/**
- * Record that `nextName` takes the route on `asOf`. The previous driver's
- * stint ends that day, so their history stays attached to them.
- * @param {object} profile
- * @param {string} nextName
- * @param {string} asOf
- */
+// Record that `nextName` takes the route on `asOf`. The previous driver's
+// stint ends that day, so their history stays attached to them.
 export function assignRouteDriver(profile, nextName, asOf) {
   const next = String(nextName ?? '').trim();
   const current = String(profile.driver_name ?? '').trim();
@@ -118,11 +90,6 @@ export function assignRouteDriver(profile, nextName, asOf) {
   return profile;
 }
 
-/**
- * @param {object} profile
- * @param {string} previousName
- * @param {string} nextName
- */
 export function renameDriverOnRoute(profile, previousName, nextName) {
   const next = String(nextName ?? '').trim();
   if (!next || sameDriver(previousName, next)) return profile;
@@ -135,15 +102,11 @@ export function renameDriverOnRoute(profile, previousName, nextName) {
   return profile;
 }
 
-/**
- * Build assignments from dated driver names, earliest first.
- * @param {Array<{ driver?: string, date?: string, order?: number }>} rows
- */
+// Build assignments from dated driver names, earliest first.
 export function assignmentsFromDatedDrivers(rows) {
   const sorted = [...rows]
     .filter((row) => String(row?.driver ?? '').trim() && row?.date)
     .sort((a, b) => String(a.date).localeCompare(String(b.date)) || (a.order ?? 0) - (b.order ?? 0));
-  /** @type {Array<{ driver_name: string, from: string, until: string | null }>} */
   const assignments = [];
   for (const row of sorted) {
     const driver = String(row.driver).trim();
@@ -162,16 +125,10 @@ export function assignmentsFromDatedDrivers(rows) {
   return assignments;
 }
 
-/**
- * @param {object} event
- */
 function isSeed(event) {
   return event?.delta_minutes === 0 && event?.previous_time === event?.new_time;
 }
 
-/**
- * @param {object[]} changeLog
- */
 function orderedLog(changeLog) {
   return [...(changeLog ?? [])].sort((a, b) => {
     const byDate = String(a.effective_date).localeCompare(String(b.effective_date));
@@ -180,12 +137,7 @@ function orderedLog(changeLog) {
   });
 }
 
-/**
- * @param {object[]} changeLog
- * @param {string} date
- */
 function scheduleBefore(changeLog, date) {
-  /** @type {Record<string, string | null>} */
   const running = { AM: null, MIDDAY: null, PM: null };
   for (const event of orderedLog(changeLog)) {
     if (String(event.effective_date) >= date) break;
@@ -194,25 +146,16 @@ function scheduleBefore(changeLog, date) {
   return running;
 }
 
-/**
- * @param {string} date
- * @param {{ from: string, until: string | null }} stint
- */
 function inStint(date, stint) {
   return date >= stint.from && (!stint.until || date < stint.until);
 }
 
-/**
- * One slice per stint this driver held on the route. Later drivers' changes
- * are left out, and an earlier driver's changes are not inherited as notes.
- * @param {object} profile
- * @param {string} driverName
- */
+// One slice per stint this driver held on the route. Later drivers' changes
+// are left out, and an earlier driver's changes are not inherited as notes.
 export function slicesForDriver(profile, driverName) {
   const stints = routeAssignments(profile).filter((item) =>
     sameDriver(item.driver_name, driverName)
   );
-  /** @type {Array<{ profile: object, assignment: { from: string, until: string | null, routeStarted: string } }>} */
   const slices = [];
   const log = orderedLog(profile?.changeLog);
   for (const stint of stints) {

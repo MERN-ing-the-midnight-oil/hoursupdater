@@ -6,6 +6,7 @@ import {
   clockRecordMessage,
   clockShareOrigin,
   clockShareUrl,
+  pageShareOrigin,
   driverClockKey,
   looksLikeEmail,
 } from '../office-tracker/src/clockShare.js';
@@ -37,6 +38,9 @@ describe('driver clock share links', () => {
       'http://192.168.1.20:3849/driver-clock.html?t=abc'
     );
     assert.equal(clockShareUrl('', 'abc'), '');
+    assert.equal(pageShareOrigin('https://teamster-time-changes.pages.dev/'), 'https://teamster-time-changes.pages.dev');
+    assert.equal(pageShareOrigin('http://localhost:3849'), '');
+    assert.equal(pageShareOrigin('http://127.0.0.1:3849'), '');
   });
 
   it('writes a spreadsheet and an email for one driver', () => {

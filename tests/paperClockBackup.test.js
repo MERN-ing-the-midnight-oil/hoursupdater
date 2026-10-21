@@ -9,6 +9,10 @@ import {
   markPaperPagesPrinted,
   mergePaperPages,
   paperBackupCsv,
+  PAPER_COLUMN_COUNT,
+  PAPER_COLUMN_ROWS,
+  PAPER_NAME_CHARACTERS,
+  PAPER_PAGE_SIZE,
   paperBackupHtml,
   paperBackupReminderDue,
   paperBackupReminderText,
@@ -153,15 +157,31 @@ test('a full page joins the queue newest first, and a short page stays open', ()
     [{ title: 'Page 1', rows: first.pages[0].rows }],
     { columnRows: 2 }
   );
+  assert.equal(PAPER_COLUMN_COUNT, 3);
+  assert.equal(PAPER_NAME_CHARACTERS, 20);
+  assert.equal(PAPER_PAGE_SIZE, PAPER_COLUMN_ROWS * PAPER_COLUMN_COUNT);
   assert.match(html, /font-size:10pt/);
   assert.match(html, /<h1>Page 1<\/h1>/);
   assert.equal(paperPageSpan(first.pages[0].rows), '10/13/2026 11:00 AM – 10/13/2026 8:00 AM');
   const columns = [...html.matchAll(/<div class="paper-col">([\s\S]*?)<\/div>/g)].map((match) => match[1]);
+  assert.equal(columns.length, 3);
   assert.match(columns[0], /11:00 AM[\s\S]*10:00 AM/);
   assert.match(columns[1], /9:00 AM[\s\S]*8:00 AM/);
+  assert.doesNotMatch(columns[2], /AM|PM/);
+  assert.match(html, /class="paper-name"/);
   assert.match(html, /Ada Jones/);
   assert.match(html, />In AM</);
   assert.doesNotMatch(html, /skip/);
+  const longName = 'Christopher Williamson-Jones';
+  const longHtml = paperPagesHtml([
+    {
+      title: 'Page 2',
+      rows: [punch('long', longName, 'in', new Date(2026, 9, 13, 11, 0, 0))],
+    },
+  ]);
+  assert.match(longHtml, new RegExp(`title="${longName}"`));
+  assert.match(longHtml, />Christopher Williams</);
+  assert.equal(longHtml.includes(`>${longName}<`), false);
 });
 
 test('a reminder is due while pages are waiting to print', () => {

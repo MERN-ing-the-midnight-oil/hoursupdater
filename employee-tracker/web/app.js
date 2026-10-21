@@ -37,6 +37,7 @@ import {
   changeDetailLines,
   changeHoverLines,
   clockHistoryLabel,
+  scheduleChangeKindHtml,
 } from '../src/clockHistory.js';
 import { buildChangesCsv, changesCsvFilename } from '../src/changesCsv.js';
 import QRCode from 'qrcode';
@@ -374,12 +375,21 @@ function renderHero() {
       ? 'No open window'
       : windowInfo?.status_label || 'Your hours';
 
+  const showPredicted =
+    windowInfo?.status === 'ACCUMULATING' && snapshot.scheduled?.if_locked_label;
+  const contractedCaption = showPredicted ? 'Current contracted hours' : 'Contracted hours';
+  const predictedStat = showPredicted
+    ? `<li><span>Predicted contracted hours</span><strong>${snapshot.scheduled.if_locked_label}</strong></li>`
+    : '';
+
   hero.innerHTML = `
     <p class="hero-kicker">${name ? `${name} · ` : ''}${windowInfo?.status_label || 'Not set up'}</p>
     <h1 class="hero-title">${title}</h1>
     <p class="hero-detail">${windowInfo?.headline || ''}</p>
+    ${windowInfo?.side_window_note ? `<p class="hero-detail">${windowInfo.side_window_note}</p>` : ''}
     <ul class="stat-row">
-      <li><span>Contracted hours</span><strong>${contracted?.label || '—'}</strong></li>
+      <li><span>${contractedCaption}</span><strong>${contracted?.label || '—'}</strong></li>
+      ${predictedStat}
       <li><span>Accumulated difference</span><strong>${windowInfo?.cumulative_drift_label || '0 min'}</strong></li>
       <li><span>School days left in window</span><strong>${
         windowInfo?.days_remaining == null ? '—' : windowInfo.days_remaining
@@ -436,10 +446,7 @@ function renderScheduleHistory() {
   body.innerHTML = rows
     .map((row, index) => {
       const predicted = row.contracted?.status === 'predicted';
-      const kind =
-        row.kind === 'initial'
-          ? 'Established'
-          : `${row.segment} change${row.delta_label ? ` · ${row.delta_label}` : ''}`;
+      const kind = scheduleChangeKindHtml(row, escapeHtml);
       const contractedLabel = escapeHtml(row.contracted?.label || '—');
       const contractedDetail = row.contracted?.projected_outcome_label
         ? `<span class="contracted-detail">${escapeHtml(
@@ -460,7 +467,7 @@ function renderScheduleHistory() {
       }${row.kind === 'initial' ? ' data-row-kind="initial"' : ''}>
         <th scope="row">
           ${prettyDate(row.date)}
-          <span class="row-kind">${escapeHtml(kind)}</span>
+          ${kind}
         </th>
         ${RUNS.map((run) => {
           const changed = row.segment === run.id;
@@ -722,8 +729,8 @@ function loadAll() {
   const viewingAsOf = asOf !== localDateString();
   calendarPill.textContent = viewingAsOf
     ? `Viewing as of ${prettyDate(asOf)}`
-    : `BPS ${snapshot.calendar?.school_year || '2026-2027'} · ${
-        snapshot.calendar?.school_day_count ?? 180
+    : `Bellingham ${snapshot.calendar?.school_year || '2026-2027'} · ${
+        snapshot.calendar?.school_day_count ?? 179
       } school days`;
   if (!document.querySelector('#setup_start_date').value) {
     document.querySelector('#setup_start_date').value = snapshot.as_of || getAsOfDate();
@@ -758,6 +765,7 @@ function updatePreview() {
       · becomes contracted <strong>${prettyDate(preview.becomes_contracted_on)}</strong>
       · ${preview.projected_outcome_label}
       <div class="meta">${preview.contracted_hours_statement || ''}</div>
+      ${preview.side_window_note ? `<div class="meta">${preview.side_window_note}</div>` : ''}
     `;
     setStatus(changeStatus, '');
   } catch (error) {

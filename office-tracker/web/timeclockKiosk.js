@@ -1,10 +1,3 @@
-/**
- * Start Timeclock opens the driver screen and keeps this browser there
- * until the office lock code is entered. Driver PINs do not leave that screen.
- * Full screen stays up the same way: Escape is held while it is open, and a
- * tap brings it back if the browser drops it. The lock code is what lets go.
- */
-
 import QRCode from 'qrcode';
 import { formatClockAmPm, formatDurationLabel, localDateString, toTimeInputValue } from '../../employee-tracker/src/clockTimes.js';
 import { addReasonCode, assertNote, DEFAULT_KIOSK_CODE, driverClockPin, NOTE_MAX, removeReasonCode } from '../../src/logic/clockKiosk.js';
@@ -13,8 +6,17 @@ import {
   knownSchoolCodes,
   normalizeEarlyReleaseTimes,
 } from '../../src/logic/earlyRelease.js';
+import {
+  blankSchoolYear,
+  builtinSchoolYear,
+  describeSchoolYear,
+  savedSchoolYear,
+  schoolYearCalendarDraft,
+  schoolYearFromMarks,
+  schoolYearMonths,
+} from '../../src/logic/schoolYear.js';
 import { dueClockInKeys, flashingClockInKeys, normalizeLateFlashMinutes } from '../../src/logic/lateClockFlash.js';
-import { localDateKey, normalizePunchRun, punchRunLabel, replacedClockPunchIds, segmentForClock } from '../../src/logic/timesheets.js';
+import { extraPunchIndex, localDateKey, normalizePunchRun, punchRunLabel, replacedClockPunchIds, segmentForClock } from '../../src/logic/timesheets.js';
 import {
   applyLeaveRequests,
   dropLeaveForClockIn,
@@ -69,9 +71,10 @@ import {
   playPunchSound,
   punchSoundFor,
 } from './punchSounds.js';
-import { ensureDriverClockLink } from './accounts.js';
-import { clockShareUrl } from '../src/clockShare.js';
+import { ensureDriverClockLink, officeClient } from './accounts.js';
+import { clockShareUrl, pageShareOrigin } from '../src/clockShare.js';
 import { noteDayUrl } from '../src/noteShare.js';
+import { openClockNote, openClockNoteDay, saveClockNote } from './noteShareClient.js';
 import { driverPhotoSrc } from './driverPhotos.js';
 import {
   compareRouteNumbers,
@@ -90,39 +93,40 @@ import {
   timeclockWindowBounds,
   timeclockWindowFeatures,
   timeclockWindowUrl,
+  TIMECLOCK_LOCK_KEY as LOCK_KEY,
 } from './timeclockScreen.js';
 
-/** Set this to true when drivers should enter a PIN before the clock card opens. */
+// Set this to true when drivers should enter a PIN before the clock card opens.
 const DRIVER_PINS_ENABLED = false;
-const LOCK_KEY = 'teamster-timeclock-lock';
 const LATE_ACK_KEY = 'teamster-timeclock-late-ack';
 const NAME_COLOR_KEY = 'teamster-timeclock-name-colors';
-/** One inch. A name button's long side stays at least this wide on a laptop. */
+// One inch. A name button's long side stays at least this wide on a laptop.
 const NAME_BUTTON_MIN_PX = 96;
 const ROSTER_GAP_PX = 6;
-/** A name button is this many times as wide as it is tall. Taller than that is extra space. */
+// A name button is this many times as wide as it is tall. Taller than that is extra space.
 const NAME_BUTTON_RATIO = 1.9;
-/**
- * After leaving a driver, ignore name taps this long.
- * The same finger can otherwise land on the name that appears where I'm done was.
- */
+// After leaving a driver, ignore name taps this long.
+// The same finger can otherwise land on the name that appears where I'm done was.
 const ROSTER_SETTLE_MS = 600;
 
-/**
- * Clock shown on the Timeclock right after a clock in or clock out.
- * This is the actual minute. Payroll rounding does not change it.
- * @param {Date} date
- */
+// Clock shown on the Timeclock right after a clock in or clock out.
+// This is the actual minute. Payroll rounding does not change it.
 export function punchDisplayClock(date) {
   const pad = (value) => String(value).padStart(2, '0');
   const clock = `${date.getHours()}:${pad(date.getMinutes())}`;
   return formatClockAmPm(clock);
 }
 
-/**
- * The clock in the timeclock header and on an unpunched Punch button.
- * @param {Date} date
- */
+const PUNCH_WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+
+// Weekday and short date under a punch time, such as FRI 10/16/26.
+export function punchDisplayDay(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+  const year = String(date.getFullYear()).slice(-2);
+  return `${PUNCH_WEEKDAYS[date.getDay()]} ${date.getMonth() + 1}/${date.getDate()}/${year}`;
+}
+
+// The clock in the timeclock header and on an unpunched Punch button.
 export function kioskLiveClock(date) {
   return date.toLocaleTimeString(undefined, {
     hour: 'numeric',
@@ -131,14 +135,9 @@ export function kioskLiveClock(date) {
   });
 }
 
-/**
- * Time typed next to a reason.
- * A blank minutes field means no time yet. Minutes alone are a whole number up to 24 hours.
- * An hours value, when one is still stored, keeps minutes inside that hour.
- * @param {unknown} hours
- * @param {unknown} minutes
- * @returns {{ ok: true, minutes: number | null } | { ok: false }}
- */
+// Time typed next to a reason.
+// A blank minutes field means no time yet. Minutes alone are a whole number up to 24 hours.
+// An hours value, when one is still stored, keeps minutes inside that hour.
 export function reasonDurationMinutes(hours, minutes) {
   const hourText = String(hours ?? '').trim();
   const minuteText = String(minutes ?? '').trim();
@@ -156,13 +155,9 @@ export function reasonDurationMinutes(hours, minutes) {
   return { ok: true, minutes: hourValue * 60 + minuteValue };
 }
 
-/**
- * Line after a driver's name on the timeclock.
- * A clock-in names the route they chose and the minute they punched.
- * A clock-out does not.
- * @param {'in' | 'out'} status
- * @param {{ run?: string, work_type?: string, punched_at?: string, punchedAt?: string }} [punch]
- */
+// Line after a driver's name on the timeclock.
+// A clock-in names the route they chose and the minute they punched.
+// A clock-out does not.
 export function clockedPhrase(status, punch = {}) {
   if (status !== 'in') return 'is Clocked Out';
   const run = normalizePunchRun(punch.run);
@@ -174,11 +169,7 @@ export function clockedPhrase(status, punch = {}) {
   return `is Clocked In${routeBit}${timeBit}`;
 }
 
-/**
- * Status under the driver's name. A clock-out names the route they punched.
- * @param {'in' | 'out'} status
- * @param {{ run?: string, work_type?: string, punched_at?: string, punchedAt?: string }} [punch]
- */
+// Status under the driver's name. A clock-out names the route they punched.
 export function clockedStatusLabel(status, punch = {}) {
   if (status === 'in') return clockedPhrase('in', punch).replace(/^is /, '');
   const run = normalizePunchRun(punch.run);
@@ -191,9 +182,6 @@ export function clockedStatusLabel(status, punch = {}) {
   return `Clocked out${routeBit}${timeBit}`;
 }
 
-/**
- * @param {unknown} punchedAt
- */
 function clockedAtText(punchedAt) {
   if (!punchedAt) return '';
   const date = new Date(String(punchedAt));
@@ -201,7 +189,7 @@ function clockedAtText(punchedAt) {
   return punchDisplayClock(date);
 }
 
-/** Standing rows on the clock card, earliest route segment first. */
+// Standing rows on the clock card, earliest route segment first.
 const CLOCK_CARD_SLOTS = [
   { run: 'AM', action: 'in', label: 'AM IN' },
   { run: 'AM', action: 'out', label: 'AM OUT' },
@@ -211,40 +199,95 @@ const CLOCK_CARD_SLOTS = [
   { run: 'PM', action: 'out', label: 'PM OUT' },
 ];
 
-/**
- * @param {{ run?: string, action?: string }} slot
- */
-function clockCardSlotRank(slot) {
-  const index = CLOCK_CARD_SLOTS.findIndex((item) => item.run === slot.run && item.action === slot.action);
-  if (index >= 0) return index;
-  return CLOCK_CARD_SLOTS.length + (slot.action === 'out' ? 1 : 0);
-}
-
-/**
- * Punch times for one route segment, oldest first.
- * @param {Array<{ run?: string, action?: string, punchedAt?: string }>} punches
- * @param {{ run: string, action: string }} slot
- */
+// Punch times for one route segment, oldest first.
 function clockCardSlotTimes(punches, slot) {
   return punches
-    .filter((punch) => normalizePunchRun(punch?.run) === slot.run && punch?.action === slot.action)
-    .map((punch) => String(punch?.punchedAt || ''))
+    .filter((punch) => {
+      if (normalizePunchRun(punch?.run) !== slot.run || punch?.action !== slot.action) return false;
+      if (slot.run === 'OTHER' && extraPunchIndex(punch) !== (slot.extraIndex || 1)) return false;
+      return true;
+    })
+    .map((punch) => String(punch?.punchedAt || punch?.punched_at || ''))
     .filter(Boolean)
     .sort();
 }
 
-/**
- * Rows for today's clock card.
- * Later route segments sit higher on the page. Earlier ones sit lower.
- * PM OUT is the first row. AM IN is the last.
- * Midday rows show when the driver has a midday contract, or already punched midday today.
- * A punched Other row sits under PM OUT. Other is not a standing row.
- * @param {{
- *   hasMidday?: boolean,
- *   punches?: Array<{ run?: string, action?: string, punchedAt?: string }>
- * }} [input]
- * @returns {Array<{ run: string, action: 'in' | 'out', label: string, punched: boolean, newestAt: string }>}
- */
+// Extra periods for the card, newest blank period first.
+// Clocking Extra In leaves one more period above the one just punched.
+function extraCardRows(punches) {
+  let highest = 1;
+  let highestIn = 0;
+  for (const punch of punches) {
+    if (normalizePunchRun(punch?.run) !== 'OTHER') continue;
+    const index = extraPunchIndex(punch);
+    if (index > highest) highest = index;
+    if (punch?.action === 'in' && index > highestIn) highestIn = index;
+  }
+  const count = Math.max(highest, highestIn > 0 ? highestIn + 1 : 1);
+  const rows = [];
+  for (let index = count; index >= 1; index -= 1) {
+    for (const slot of CLOCK_CARD_EXTRA_SLOTS) {
+      const times = clockCardSlotTimes(punches, { ...slot, extraIndex: index });
+      rows.push({
+        run: 'OTHER',
+        action: (slot.action),
+        label: slot.label,
+        punched: times.length > 0,
+        newestAt: times[times.length - 1] || '',
+        extra: true,
+        extraIndex: index,
+        period: extraPeriodKey(index),
+      });
+    }
+  }
+  return rows;
+}
+
+// Extra punch rows. They are not AM, midday, or PM. Out sits above in.
+const CLOCK_CARD_EXTRA_SLOTS = [
+  { run: 'OTHER', action: 'out', label: 'EXTRA OUT' },
+  { run: 'OTHER', action: 'in', label: 'EXTRA IN' },
+];
+
+// Card key for one extra period. The first period stays `OTHER`.
+export function extraPeriodKey(index) {
+  const n = Math.floor(Number(index));
+  if (!Number.isInteger(n) || n <= 1) return 'OTHER';
+  return `OTHER:${n}`;
+}
+
+// A clock-card row key. Later extra periods use `OTHER:2`, `OTHER:3`, and so on.
+// Stored punches still use run `OTHER` plus `extra_index`.
+export function clockSlot(value) {
+  const text = String(value ?? '').trim();
+  const numbered = /^OTHER:(\d+)$/i.exec(text);
+  if (numbered) {
+    const extraIndex = Math.max(1, Math.floor(Number(numbered[1])));
+    return { run: 'OTHER', extraIndex, key: extraPeriodKey(extraIndex) };
+  }
+  const run = normalizePunchRun(text);
+  if (run === 'OTHER') return { run: 'OTHER', extraIndex: 1, key: 'OTHER' };
+  return { run, extraIndex: 0, key: run };
+}
+
+// How much of the extra track is in view after this many advances.
+// Each advance uncovers one extra period, clock in and clock out together.
+// Periods start hidden above the card. The one nearest the standing card appears first.
+export function extraTrackVisibleHeight(periodTops, trackHeight, revealed) {
+  const tops = (Array.isArray(periodTops) ? periodTops : []).filter((top) => Number.isFinite(top));
+  const height = Number.isFinite(trackHeight) ? Math.max(0, trackHeight) : 0;
+  const shown = Math.max(0, Math.min(tops.length, Math.floor(Number(revealed) || 0)));
+  if (!tops.length || shown <= 0 || height <= 0) return 0;
+  if (shown >= tops.length) return height;
+  return Math.max(0, Math.min(height, height - tops[tops.length - shown]));
+}
+
+// Rows for today's clock card.
+// Later route segments sit higher on the page. Earlier ones sit lower.
+// Extra rows sit above PM OUT. They start out of view until the card advances.
+// After Extra In is punched, another extra period waits above it.
+// PM OUT is the first standing row. AM IN is the last.
+// Midday rows show when the driver has a midday contract, or already punched midday today.
 export function clockCardRows(input = {}) {
   const hasMidday = input.hasMidday === true;
   const punches = Array.isArray(input.punches) ? input.punches : [];
@@ -253,58 +296,216 @@ export function clockCardRows(input = {}) {
     const times = clockCardSlotTimes(punches, slot);
     return {
       run: slot.run,
-      action: /** @type {'in' | 'out'} */ (slot.action),
+      action: (slot.action),
       label: slot.label,
       punched: times.length > 0,
       newestAt: times[times.length - 1] || '',
+      extra: false,
     };
   });
   standing.reverse();
-  /** @type {typeof standing} */
-  const other = [];
-  for (const action of ['in', 'out']) {
-    const slot = {
-      run: 'OTHER',
-      action: /** @type {'in' | 'out'} */ (action),
-      label: action === 'in' ? 'OTHER IN' : 'OTHER OUT',
-    };
-    const times = clockCardSlotTimes(punches, slot);
-    if (!times.length) continue;
-    other.push({ ...slot, punched: true, newestAt: times[times.length - 1] });
-  }
-  other.sort((a, b) => b.newestAt.localeCompare(a.newestAt) || clockCardSlotRank(b) - clockCardSlotRank(a));
-  const pmOut = standing.findIndex((row) => row.run === 'PM' && row.action === 'out');
-  standing.splice(pmOut >= 0 ? pmOut + 1 : 0, 0, ...other);
-  return standing;
+  return [...extraCardRows(punches), ...standing];
 }
 
-/**
- * Type size for one name button, in pixels.
- * A landscape button can carry a larger name and route number.
- * Height still has to hold the name plus the route, so the type does not overflow a short button.
- * @param {number} btnW
- * @param {number} btnH
- */
+// Group clock-card rows into punch periods.
+// The clock in and clock out for one route are one period, so AM stays together
+// and PM stays together even when another route was punched between them.
+export function clockCardPeriods(rows) {
+  const order = [];
+  const groups = new Map();
+  for (const row of rows || []) {
+    const run = String(row?.run || '');
+    const key = String(row?.period || run);
+    if (!key) continue;
+    if (!groups.has(key)) {
+      groups.set(key, []);
+      order.push(key);
+    }
+    groups.get(key).push(row);
+  }
+  return order.map((key) => {
+    const grouped = groups.get(key) || [];
+    return { run: String(grouped[0]?.run || key), period: key, rows: grouped };
+  });
+}
+
+// One note for the clock in and clock out of the same route.
+// The same sentence on both punches is kept once.
+export function periodNoteText(clockInNote, clockOutNote) {
+  const parts = [];
+  for (const raw of [clockInNote, clockOutNote]) {
+    const text = String(raw ?? '').trim();
+    if (!text || parts.includes(text)) continue;
+    parts.push(text);
+  }
+  return parts.join('\n');
+}
+
+function reasonListSignature(codes) {
+  return JSON.stringify(
+    (Array.isArray(codes) ? codes : []).map((code) => ({
+      id: String(code?.id || ''),
+      label: String(code?.label || ''),
+      minutes: code?.minutes == null || code?.minutes === '' ? null : Number(code.minutes),
+    }))
+  );
+}
+
+// Reasons for one route period. A reason named on both punches counts once.
+// Minutes already saved on either punch are kept.
+export function periodReasonCodes(clockInCodes, clockOutCodes) {
+  const byId = new Map();
+  for (const code of [...(clockInCodes || []), ...(clockOutCodes || [])]) {
+    const id = String(code?.id || '').trim();
+    const label = String(code?.label || '').trim();
+    if (!id || !label) continue;
+    const minutes = Number(code?.minutes);
+    const hasTime = Number.isInteger(minutes) && minutes >= 0 && minutes <= 24 * 60;
+    const prev = byId.get(id);
+    if (!prev) {
+      const next = { id, label };
+      if (hasTime) next.minutes = minutes;
+      byId.set(id, next);
+      continue;
+    }
+    if (hasTime && prev.minutes == null) prev.minutes = minutes;
+  }
+  return [...byId.values()];
+}
+
+// Keep one period note and one set of reasons.
+// They are stored on the clock in when that punch exists, and on the clock out until then.
+// The other punch of the period does not keep a second copy.
+export function applyPeriodNote(punches, change) {
+  const list = Array.isArray(punches) ? punches : [];
+  const run = normalizePunchRun(change?.run);
+  const date = String(change?.date || '');
+  const wanted = String(change?.driverName || '').trim().toLowerCase();
+  const extraIndex = Number(change?.extraIndex);
+  const slot = run === 'OTHER' && Number.isInteger(extraIndex) && extraIndex >= 1 ? extraIndex : 0;
+  if (!run || !date || !wanted) return list;
+  const replaced = replacedClockPunchIds(list);
+  const live = list.filter((punch) => {
+    if (!punch || punch.removed === true || replaced.has(String(punch.id || ''))) return false;
+    if (String(punch.driver_name || '').trim().toLowerCase() !== wanted) return false;
+    if (normalizePunchRun(punch.run) !== run) return false;
+    if (slot && extraPunchIndex(punch) !== slot) return false;
+    if (punch.action !== 'in' && punch.action !== 'out') return false;
+    const when = new Date(punch.punched_at);
+    return !Number.isNaN(when.getTime()) && localDateKey(when) === date;
+  });
+  const clockIn = [...live].reverse().find((punch) => punch.action === 'in') || null;
+  const clockOut = [...live].reverse().find((punch) => punch.action === 'out') || null;
+  const canonical = clockIn || clockOut;
+  if (!canonical) return list;
+  const clearIds = new Set(
+    [clockIn, clockOut].filter((punch) => punch && punch.id !== canonical.id).map((punch) => punch.id)
+  );
+  const setNote = change.note != null;
+  const setReasons = change.reasonCodes != null;
+  const note = setNote ? String(change.note) : '';
+  const reasonCodes = setReasons ? change.reasonCodes : [];
+  const nextSignature = reasonListSignature(reasonCodes);
+  let changed = false;
+  const next = list.map((punch) => {
+    if (!punch) return punch;
+    if (punch.id === canonical.id) {
+      const updated = { ...punch };
+      let touched = false;
+      if (setNote && String(punch.note || '') !== note) {
+        updated.note = note;
+        touched = true;
+      }
+      if (setReasons && reasonListSignature(punch.reason_codes) !== nextSignature) {
+        updated.reason_codes = reasonCodes;
+        touched = true;
+      }
+      if (!touched) return punch;
+      changed = true;
+      return updated;
+    }
+    if (!clearIds.has(punch.id)) return punch;
+    const updated = { ...punch };
+    let touched = false;
+    if (setNote && String(punch.note || '') !== '') {
+      updated.note = '';
+      touched = true;
+    }
+    if (setReasons && reasonListSignature(punch.reason_codes) !== reasonListSignature([])) {
+      updated.reason_codes = [];
+      touched = true;
+    }
+    if (!touched) return punch;
+    changed = true;
+    return updated;
+  });
+  return changed ? next : list;
+}
+
+// Hover text on the edit badge.
+export const CLOCK_MOVE_HOVER = 'Oops! I punched the wrong row';
+
+// Shown when the edit badge is open.
+export const CLOCK_MOVE_HINT = 'Move this clock time to a different row for today. The time stays the same.';
+
+// Other rows a punched time can move to.
+// Later route segments come first, matching the clock card.
+// The clock time itself is not a choice here.
+export function clockMoveTargets(run, action) {
+  const currentRun = normalizePunchRun(run);
+  const currentAction = action === 'in' || action === 'out' ? action : '';
+  return CLOCK_CARD_SLOTS.filter((slot) => slot.run !== currentRun || slot.action !== currentAction)
+    .slice()
+    .reverse();
+}
+
+// Put a punch on another row for the day.
+// The punched time stays as it was. Only the row changes.
+export function movePunchToRow(punches, punchId, target, extras = {}) {
+  const run = normalizePunchRun(target?.run);
+  const action = target?.action === 'out' ? 'out' : target?.action === 'in' ? 'in' : '';
+  if (!run || run === 'OTHER' || !action) throw new Error('Choose a route row.');
+  const list = Array.isArray(punches) ? punches : [];
+  const index = list.findIndex((punch) => punch && punch.id === punchId && punch.removed !== true);
+  if (index < 0) throw new Error('That clock time is not on the card.');
+  const current = list[index];
+  const currentAction = current.action === 'out' ? 'out' : current.action === 'in' ? 'in' : '';
+  if (normalizePunchRun(current.run) === run && currentAction === action) return list;
+  const punch = { ...current, run, action };
+  if (action === 'in') {
+    const status = String(extras.payStatus || '').trim();
+    if (status) punch.pay_status = status;
+    delete punch.timecard_entries;
+  } else {
+    delete punch.pay_status;
+    delete punch.pay_portions;
+  }
+  delete punch.work_type;
+  delete punch.trip_ticket;
+  delete punch.extra_index;
+  const next = list.slice();
+  next[index] = punch;
+  return next;
+}
+
+// Type size for one name button, in pixels.
+// A landscape button can carry a larger name and route number.
+// Height still has to hold the name plus the route, so the type does not overflow a short button.
 export function rosterButtonFont(btnW, btnH) {
   const textW = Math.max(48, btnW * 0.7);
   const textH = Math.max(22, btnH - 18);
   return Math.max(12, Math.min(textH / 3.1, textW / 6.4, 48));
 }
 
-/**
- * Column and row counts that keep every name on screen.
- * Buttons stay landscape. Leftover vertical space is padding between the rows,
- * not a taller button.
- * Each button stays at least an inch wide when the screen can hold that.
- * @param {{ count: number, width: number, height: number, gap?: number, size?: string }} options
- * @returns {{ columns: number, rows: number, scroll: boolean, buttonHeight: number, rowGap: number } | null}
- */
+// Column and row counts that keep every name on screen.
+// Buttons stay landscape. Leftover vertical space is padding between the rows,
+// not a taller button.
+// Each button stays at least an inch wide when the screen can hold that.
 export function kioskRosterLayout({ count, width, height, gap = ROSTER_GAP_PX, size = 'regular' }) {
   if (!Number.isFinite(count) || count < 1) return null;
   if (!(width > 0) || !(height > 0)) return null;
   const target = size === 'compact' ? 150 : size === 'large' ? 280 : 220;
   const minHeight = 44;
-  /** @type {{ columns: number, rows: number, score: number, buttonHeight: number, rowGap: number } | null} */
   let best = null;
   const maxCols = Math.min(count, Math.max(0, Math.floor((width + gap) / (NAME_BUTTON_MIN_PX + gap))));
   for (let columns = 1; columns <= maxCols; columns += 1) {
@@ -337,23 +538,6 @@ export function kioskRosterLayout({ count, width, height, gap = ROSTER_GAP_PX, s
   return { columns, rows: Math.ceil(count / columns), scroll: true, buttonHeight, rowGap: gap };
 }
 
-/**
- * @param {{
- *   readState: () => {
- *     punches?: object[],
- *     clockPins?: Record<string, string>,
- *     clockLockCode?: string,
- *     clockSubstituteDrivers?: Array<{ id: string, name: string }>,
- *     clockLateMinutes?: number | null,
- *     clockNameSize?: string,
- *     clockPunchSoundIn?: string,
- *     clockPunchSoundOut?: string,
- *   },
- *   writeState: (state: object) => void,
- *   listPeople: () => Array<{ id: string, name: string, routes: string[], clockIns?: string[], clockRuns?: string[] }>,
- *   contractedMinutes?: (driverName: string, dateKey: string) => Record<string, number | null>,
- * }} options
- */
 export function mountTimeclock({ readState, writeState, listPeople, contractedMinutes }) {
   const startButton = document.querySelector('#start-timeclock');
   const screenButton = document.querySelector('#start-timeclock-screen');
@@ -364,10 +548,9 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   const kioskRefill = document.querySelector('#kiosk-refill');
   const lockForm = document.querySelector('#lock-form');
   const lockInput = document.querySelector('#lock-code');
-  const pinForm = document.querySelector('#pin-form');
-  const pinDriver = document.querySelector('#pin-driver');
-  const pinValue = document.querySelector('#pin-value');
   const pinList = document.querySelector('#pin-list');
+  const pinTable = document.querySelector('#driver-pin-table');
+  const pinEmpty = document.querySelector('#pin-empty');
   const officeStatus = document.querySelector('#timeclock-settings-status');
   const kiosk = document.querySelector('#timeclock-kiosk');
   const kioskNow = document.querySelector('#kiosk-now');
@@ -392,6 +575,10 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   const kioskActions = document.querySelector('#kiosk-actions');
   const kioskRunChoice = document.querySelector('#kiosk-run-choice');
   const kioskCard = document.querySelector('#kiosk-card');
+  const kioskCardExtra = document.querySelector('#kiosk-card-extra');
+  const kioskCardExtraTrack = document.querySelector('#kiosk-card-extra-track');
+  const kioskCardStanding = document.querySelector('#kiosk-card-standing');
+  const kioskCardMore = document.querySelector('#kiosk-card-more');
   const kioskWork = document.querySelector('#kiosk-work');
   const kioskWorkOptions = document.querySelector('#kiosk-work-options');
   const kioskWorkBack = document.querySelector('#kiosk-work-back');
@@ -419,16 +606,11 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   const kioskClockQrCode = document.querySelector('#kiosk-clock-qr-code');
   const kioskDayQr = document.querySelector('#kiosk-day-qr');
   const kioskDayQrCode = document.querySelector('#kiosk-day-qr-code');
-  const driverPinsCard = document.querySelector('#driver-pins-card');
-  if (driverPinsCard) driverPinsCard.hidden = !DRIVER_PINS_ENABLED;
   if (!DRIVER_PINS_ENABLED && kioskPinForm) kioskPinForm.hidden = true;
   if (
     !startButton ||
     !lockForm ||
     !lockInput ||
-    !pinForm ||
-    !pinDriver ||
-    !pinValue ||
     !pinList ||
     !kiosk ||
     !kioskNow ||
@@ -443,53 +625,66 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return { refresh() {} };
   }
 
-  /** @type {{ id: string, name: string, routes: string[], clockIns: string[], clockRuns: string[] } | null} */
   let selected = null;
-  /** Name chosen from the office substitute list. Blank when this driver entered a PIN. */
+  // Name chosen from the office substitute list. Blank when this driver entered a PIN.
   let substituteName = '';
-  /** The open driver is who this substitute is covering. Otherwise they still pick a name. */
+  // The open driver is who this substitute is covering. Otherwise they still pick a name.
   let substituteCoversSelected = false;
   let unlocked = false;
-  /** Clock in whose regular route is being marked as other work. */
+  // Extra periods revealed from above the card. Starts with those rows out of view.
+  let extraPeriodsRevealed = 0;
+  // Clock in whose regular route is being marked as other work.
   let chunkClockInId = '';
-  /** @type {string[]} */
   let kioskReasonIds = [];
-  /** The missed-route prompt stays closed after Go back until this driver opens Leave Requested. */
+  // The missed-route prompt stays closed after Go back until this driver opens Leave Requested.
   let leavePromptDismissed = false;
-  /** Route and action chosen from a card. Other waits until the kind of work is chosen. */
+  // Route and action chosen from a card. Other waits until the kind of work is chosen.
   let pendingAction = '';
   let pendingRun = '';
-  /** Comments typed on a card row before they are saved on the punch. */
+  // Comments typed for one punch period before they are saved.
   const noteDrafts = new Map();
-  /** Reasons chosen on a card row before they are saved on the punch. */
-  /** @type {Map<string, Array<{ id: string, label: string, hours: string, minutes: string }>>} */
+  // Reasons chosen for one punch period before they are saved.
   const reasonDrafts = new Map();
-  /** Reason and time typed in the adder, before Add. */
-  /** @type {Map<string, { id: string, hours: string, minutes: string }>} */
+  // Reason and time typed in the adder, before Add.
   const reasonPending = new Map();
-  /** Phone link for each notes box, and the last revision applied on this clock. */
-  /** @type {Map<string, string>} */
+  // Phone link for each notes box, and the last revision applied on this clock.
   const noteShareTokens = new Map();
-  /** @type {Map<string, { revision: number, note: string, reasons: string }>} */
   const noteShareSeen = new Map();
+  // A period whose note is being sent to the phone, so a refresh does not put the old copy back.
+  const periodPublishJobs = new Map();
   let noteShareSyncing = false;
   let applyingSharedNote = false;
-  /** True while the card is being redrawn, so blur from the old row does not save. */
+  // True while the card is being redrawn, so blur from the old row does not save.
   let paintingCard = false;
-  /** @type {{ action: 'in' | 'out', run: string } | null} */
   let replacePending = null;
+  let movePanel = null;
+  let moveTip = null;
   const reasonForm = document.querySelector('#reason-form');
   const reasonLabel = document.querySelector('#reason-label');
   const reasonList = document.querySelector('#reason-list');
   const kioskReason = document.querySelector('#kiosk-reason');
   const kioskReasonPicks = document.querySelector('#kiosk-reason-picks');
-  /** @type {ReturnType<typeof setInterval> | undefined} */
   let clockTimer;
-  /** Calendar day the roster clock-ins were built for. */
+  // Calendar day the roster clock-ins were built for.
   let rosterDate = '';
 
   const lateFlashForm = document.querySelector('#late-flash-form');
   const lateFlashMinutes = document.querySelector('#late-flash-minutes');
+  const schoolYearForm = document.querySelector('#school-year-form');
+  const schoolYearOpenButton = document.querySelector('#school-year-open');
+  const schoolYearName = document.querySelector('#school-year-name');
+  const schoolYearCreate = document.querySelector('#school-year-create');
+  const schoolYearPrompt = document.querySelector('#school-year-prompt');
+  const schoolYearCalendar = document.querySelector('#school-year-calendar');
+  const schoolYearSummary = document.querySelector('#school-year-summary');
+  const schoolYearNext = document.querySelector('#school-year-next');
+  const schoolYearSave = document.querySelector('#school-year-save');
+  const schoolYearBack = document.querySelector('#school-year-back');
+  const schoolYearBuiltin = document.querySelector('#school-year-builtin');
+  let schoolYearDraft = null;
+  let schoolYearSourceKey = '';
+  let schoolYearEditing = false;
+  let schoolYearOpen = false;
   const earlyReleaseForm = document.querySelector('#early-release-form');
   const earlyReleaseSchools = document.querySelector('#early-release-schools');
   const earlyReleaseEmpty = document.querySelector('#early-release-empty');
@@ -508,7 +703,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   let payDriverId = '';
   let payType = 'serial';
   let payFind = '';
-  /** @type {{ kind: 'serial' | 'account', driverId: string, lineId: string } | null} */
   let payEdit = null;
   const substituteForm = document.querySelector('#substitute-form');
   const substituteNameInput = document.querySelector('#substitute-name');
@@ -525,6 +719,18 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   lockForm.addEventListener('submit', onSaveLock);
   lateFlashForm?.addEventListener('submit', onSaveLateFlash);
   document.querySelector('#paper-backup-reminder-form')?.addEventListener('submit', onSavePaperBackupReminder);
+  schoolYearForm?.addEventListener('submit', onSaveSchoolYear);
+  schoolYearOpenButton?.addEventListener('click', onToggleSchoolYear);
+  schoolYearCreate?.addEventListener('click', onCreateSchoolYear);
+  schoolYearName?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    onCreateSchoolYear();
+  });
+  schoolYearNext?.addEventListener('click', onSchoolYearNext);
+  schoolYearBack?.addEventListener('click', onSchoolYearBack);
+  schoolYearBuiltin?.addEventListener('click', onUseBuiltinSchoolYear);
+  schoolYearCalendar?.addEventListener('click', onSchoolYearDay);
   earlyReleaseForm?.addEventListener('submit', onSaveEarlyRelease);
   quarterClockForms.forEach((form) => form.addEventListener('submit', onSaveQuarterClocks));
   overtimeForms.forEach((form) => form.addEventListener('submit', onSaveOvertimeRules));
@@ -537,7 +743,8 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     playPunchSound(punchSoundOut instanceof HTMLSelectElement ? punchSoundOut.value : '');
   });
   payDefaultsForm?.addEventListener('submit', onSavePayDefaults);
-  pinForm.addEventListener('submit', onSavePin);
+  pinList.addEventListener('input', onPinEdit);
+  pinList.addEventListener('focusout', onPinBlur);
   substituteForm?.addEventListener('submit', onSaveSubstitute);
   substituteList?.addEventListener('click', onRemoveSubstitute);
   reasonForm?.addEventListener('submit', onSaveReason);
@@ -561,16 +768,42 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   kioskConfirm?.addEventListener('click', hidePunchConfirm);
   kioskRunChoice?.addEventListener('click', (event) => {
     const target = event.target instanceof Element ? event.target : null;
-    if (target?.closest('.kiosk-card-reason')) return;
+    if (target?.closest('.kiosk-card-reason, .kiosk-time-edit, .kiosk-move-panel')) return;
     const button = target ? target.closest('[data-punch]') : null;
     if (!(button instanceof HTMLButtonElement)) return;
     beginPunch(button.dataset.action || '', button.dataset.punch || '');
   });
-  document.querySelector('#kiosk-work')?.addEventListener('click', (event) => {
-    const button = event.target instanceof Element ? event.target.closest('[data-work-action]') : null;
-    if (!(button instanceof HTMLButtonElement) || pendingRun !== 'OTHER') return;
-    pendingAction = button.dataset.workAction === 'out' ? 'out' : 'in';
-    punch(pendingAction, 'OTHER');
+  kioskCardMore?.addEventListener('click', () => {
+    const total =
+      kioskCardExtraTrack instanceof HTMLElement
+        ? kioskCardExtraTrack.querySelectorAll('.kiosk-card-period').length
+        : 0;
+    if (extraPeriodsRevealed >= total) return;
+    extraPeriodsRevealed += 1;
+    layoutExtraRows(true);
+  });
+  document.addEventListener(
+    'click',
+    (event) => {
+      if (!movePanel) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('.kiosk-move-panel, .kiosk-time-edit')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeMovePanel();
+    },
+    true
+  );
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeMovePanel();
+  });
+  kioskTripTicket?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    commitOtherTripTicket();
+  });
+  kioskTripTicket?.addEventListener('focusout', () => {
+    commitOtherTripTicket();
   });
   document.querySelector('#kiosk-other-open')?.addEventListener('click', openOtherWork);
   document.querySelector('#kiosk-replace-yes')?.addEventListener('click', () => {
@@ -598,9 +831,9 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   fillWorkTypeChoices();
   kioskRunChoice?.addEventListener('input', (event) => {
     const area = event.target;
-    if (!(area instanceof HTMLTextAreaElement) || !area.dataset.noteFor || !area.dataset.noteAction) return;
+    if (!(area instanceof HTMLTextAreaElement) || !area.dataset.noteFor) return;
     if (area.value.length > NOTE_MAX) area.value = area.value.slice(0, NOTE_MAX);
-    noteDrafts.set(`${area.dataset.noteFor}:${area.dataset.noteAction}`, area.value);
+    noteDrafts.set(area.dataset.noteFor, area.value);
   });
   kioskRunChoice?.addEventListener('focusout', onNoteBlur);
   kioskActions?.addEventListener('change', (event) => {
@@ -613,6 +846,8 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       if (target.value === TRIP_TICKET_WORK_TYPE) {
         const field = target.name === 'kiosk-chunk-work' ? kioskChunkTicket : kioskTripTicket;
         if (field instanceof HTMLInputElement) field.focus();
+      } else if (target.name === 'kiosk-work') {
+        if (kioskWork) kioskWork.hidden = true;
       }
     }
     if (!error) return;
@@ -653,10 +888,13 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   }
 
   function setOfficeStatus(message, kind = '') {
-    if (!officeStatus) return;
-    officeStatus.hidden = !message;
-    officeStatus.textContent = message || '';
-    officeStatus.className = `status${kind ? ` is-${kind}` : ''}`;
+    const settingsStatus = document.querySelector('#tracker-settings-status');
+    for (const status of [officeStatus, settingsStatus]) {
+      if (!status) continue;
+      status.hidden = !message;
+      status.textContent = message || '';
+      status.className = `status${kind ? ` is-${kind}` : ''}`;
+    }
   }
 
   function fillLockField() {
@@ -664,45 +902,34 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     lockInput.value = lockCode();
   }
 
-  function fillPinDrivers() {
-    const current = pinDriver.value;
-    const roster = people();
-    pinDriver.replaceChildren();
-    const blank = document.createElement('option');
-    blank.value = '';
-    blank.textContent = 'Choose a driver';
-    pinDriver.append(blank);
-    for (const person of roster) {
-      const option = document.createElement('option');
-      option.value = person.id;
-      option.textContent = person.name;
-      pinDriver.append(option);
-    }
-    if (roster.some((person) => person.id === current)) pinDriver.value = current;
-  }
-
   function pinFor(driverId) {
     return driverClockPin(pins(), driverId);
   }
 
   function renderPinList() {
+    if (pinList.contains(document.activeElement)) return;
     const roster = people();
+    if (pinEmpty) pinEmpty.hidden = roster.length > 0;
+    if (pinTable) pinTable.hidden = roster.length === 0;
     pinList.replaceChildren();
-    if (!roster.length) {
-      const item = document.createElement('li');
-      item.className = 'pin-empty';
-      item.textContent = 'No drivers yet.';
-      pinList.append(item);
-      return;
-    }
     for (const person of roster) {
-      const item = document.createElement('li');
-      const name = document.createElement('span');
-      name.textContent = person.name;
-      const code = document.createElement('span');
-      code.textContent = pinFor(person.id);
-      item.append(name, code);
-      pinList.append(item);
+      const row = document.createElement('tr');
+      const nameCell = document.createElement('th');
+      nameCell.scope = 'row';
+      nameCell.textContent = person.name;
+      const pinCell = document.createElement('td');
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.inputMode = 'numeric';
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      input.maxLength = 4;
+      input.setAttribute('aria-label', `PIN for ${person.name}`);
+      input.dataset.driverId = person.id;
+      input.value = pinFor(person.id);
+      pinCell.append(input);
+      row.append(nameCell, pinCell);
+      pinList.append(row);
     }
   }
 
@@ -761,6 +988,213 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     refresh();
   }
 
+  function loadSchoolYearDraft() {
+    if (schoolYearEditing && schoolYearDraft) return;
+    const saved = savedSchoolYear(state());
+    const year = saved || builtinSchoolYear();
+    const key = JSON.stringify(year);
+    if (schoolYearDraft && schoolYearSourceKey === key) return;
+    schoolYearDraft = { ...schoolYearCalendarDraft(year), step: 'holidays' };
+    schoolYearSourceKey = key;
+  }
+
+  function schoolYearDayName(date) {
+    const [year, month, day] = date.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      timeZone: 'UTC',
+    });
+  }
+
+  function paintSchoolYear() {
+    const draft = schoolYearDraft;
+    if (schoolYearOpenButton) {
+      const label = draft?.school_year || '2026-2027';
+      schoolYearOpenButton.textContent = `${label} school year`;
+      schoolYearOpenButton.setAttribute('aria-expanded', schoolYearOpen ? 'true' : 'false');
+    }
+    if (schoolYearForm) schoolYearForm.hidden = !schoolYearOpen;
+    if (!draft || !schoolYearCalendar || !schoolYearOpen) return;
+    if (schoolYearPrompt) {
+      schoolYearPrompt.textContent = `Blue days are holidays with no school. Orange days are half days. Click a weekday to change it.`;
+    }
+    if (schoolYearName instanceof HTMLInputElement && document.activeElement !== schoolYearName) {
+      schoolYearName.value = '';
+    }
+    const closed = new Set(draft.closed);
+    const early = new Set(draft.early);
+    schoolYearCalendar.replaceChildren();
+    const weekdayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+    const months = schoolYearMonths(draft.first_day, draft.last_day);
+    const fall = months.filter((month) => /^(July|August|September|October|November|December)\b/.test(month.title));
+    const spring = months.filter((month) => /^(January|February|March|April|May|June)\b/.test(month.title));
+    const columnFor = (columnMonths) => {
+      const column = document.createElement('div');
+      column.className = 'school-year-column';
+      for (const month of columnMonths) {
+        const card = document.createElement('section');
+        card.className = 'school-year-month';
+        const title = document.createElement('h3');
+        title.textContent = month.title;
+        const heads = document.createElement('div');
+        heads.className = 'school-year-weekdays';
+        for (const name of weekdayNames) {
+          const span = document.createElement('span');
+          span.textContent = name;
+          heads.append(span);
+        }
+        card.append(title, heads);
+        for (const week of month.weeks) {
+          const row = document.createElement('div');
+          row.className = 'school-year-week';
+          for (const date of week) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'school-year-day';
+            if (!date) {
+              button.disabled = true;
+              button.tabIndex = -1;
+              row.append(button);
+              continue;
+            }
+            const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+            const weekend = weekday === 0 || weekday === 6;
+            const holiday = closed.has(date);
+            const release = early.has(date) && !holiday;
+            button.dataset.date = date;
+            button.textContent = String(Number(date.slice(8)));
+            button.classList.toggle('is-holiday', holiday);
+            button.classList.toggle('is-early', release);
+            button.disabled = weekend;
+            button.setAttribute('aria-pressed', holiday || release ? 'true' : 'false');
+            const kind = holiday ? 'holiday, no school' : release ? 'half day' : weekend ? 'weekend' : 'school day';
+            button.title = `${schoolYearDayName(date)}, ${kind}`;
+            button.setAttribute('aria-label', button.title);
+            row.append(button);
+          }
+          card.append(row);
+        }
+        column.append(card);
+      }
+      return column;
+    };
+    schoolYearCalendar.append(columnFor(fall), columnFor(spring));
+    if (schoolYearSummary) {
+      const saved = savedSchoolYear(state());
+      const noSchool = draft.closed.length === 1 ? '1 no-school day' : `${draft.closed.length} no-school days`;
+      const earlyOut =
+        draft.early.length === 1 ? '1 early dismissal day' : `${draft.early.length} early dismissal days`;
+      const counts = `${noSchool} marked. ${earlyOut} marked.`;
+      schoolYearSummary.textContent =
+        saved && saved.school_year === draft.school_year
+          ? counts
+          : `${counts} Save when the days are right.`;
+    }
+  }
+
+  function fillSchoolYear() {
+    if (!schoolYearCalendar) return;
+    loadSchoolYearDraft();
+    paintSchoolYear();
+  }
+
+  function toggleSchoolYearDate(dates, date) {
+    const index = dates.indexOf(date);
+    if (index >= 0) dates.splice(index, 1);
+    else dates.push(date);
+    dates.sort();
+  }
+
+  function onSchoolYearDay(event) {
+    const button = event.target instanceof Element ? event.target.closest('[data-date]') : null;
+    if (!(button instanceof HTMLButtonElement) || button.disabled || !schoolYearDraft) return;
+    const date = button.dataset.date || '';
+    if (!date) return;
+    schoolYearEditing = true;
+    const isClosed = schoolYearDraft.closed.includes(date);
+    const isEarly = schoolYearDraft.early.includes(date);
+    if (isClosed) {
+      schoolYearDraft.closed = schoolYearDraft.closed.filter((day) => day !== date);
+      if (!isEarly) schoolYearDraft.early.push(date);
+      schoolYearDraft.early.sort();
+    } else if (isEarly) {
+      schoolYearDraft.early = schoolYearDraft.early.filter((day) => day !== date);
+    } else {
+      schoolYearDraft.closed.push(date);
+      schoolYearDraft.closed.sort();
+      schoolYearDraft.early = schoolYearDraft.early.filter((day) => day !== date);
+      if (!schoolYearDraft.labels[date]) schoolYearDraft.labels[date] = 'No school';
+    }
+    paintSchoolYear();
+  }
+
+  function onToggleSchoolYear() {
+    schoolYearOpen = !schoolYearOpen;
+    if (schoolYearOpen) loadSchoolYearDraft();
+    paintSchoolYear();
+  }
+
+  function onCreateSchoolYear() {
+    const raw = schoolYearName instanceof HTMLInputElement ? schoolYearName.value : '';
+    let blank;
+    try {
+      blank = blankSchoolYear(raw);
+    } catch (error) {
+      setOfficeStatus(error instanceof Error ? error.message : 'Enter a school year like 2007-2008.', 'error');
+      return;
+    }
+    schoolYearEditing = true;
+    schoolYearOpen = true;
+    schoolYearDraft = { ...blank, step: 'holidays' };
+    paintSchoolYear();
+    setOfficeStatus(`${blank.school_year} is ready. Click every weekday that has no school.`, 'ok');
+  }
+
+  function onSchoolYearNext() {
+    if (!schoolYearDraft) return;
+    schoolYearDraft.step = 'early';
+    paintSchoolYear();
+    schoolYearPrompt?.focus?.();
+  }
+
+  function onSchoolYearBack() {
+    if (!schoolYearDraft) return;
+    schoolYearDraft.step = 'holidays';
+    paintSchoolYear();
+  }
+
+  function onSaveSchoolYear(event) {
+    event.preventDefault();
+    if (!schoolYearDraft) return;
+    let year;
+    try {
+      year = schoolYearFromMarks(schoolYearDraft);
+    } catch (error) {
+      setOfficeStatus(error instanceof Error ? error.message : 'That school year could not be saved.', 'error');
+      return;
+    }
+    const next = state();
+    next.schoolYear = year;
+    schoolYearDraft = { ...schoolYearCalendarDraft(year), step: 'early' };
+    schoolYearSourceKey = JSON.stringify(savedSchoolYear({ schoolYear: year }) || year);
+    schoolYearEditing = false;
+    writeState(next);
+    setOfficeStatus(describeSchoolYear(year, { saved: true }), 'ok');
+  }
+
+  function onUseBuiltinSchoolYear(event) {
+    event.preventDefault();
+    const next = state();
+    next.schoolYear = null;
+    schoolYearDraft = null;
+    schoolYearSourceKey = '';
+    schoolYearEditing = false;
+    writeState(next);
+    setOfficeStatus(describeSchoolYear(builtinSchoolYear(), { saved: false }), 'ok');
+  }
+
   function fillEarlyRelease() {
     if (!earlyReleaseSchools) return;
     if (earlyReleaseForm?.contains(document.activeElement)) return;
@@ -789,7 +1223,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
 
   function onSaveEarlyRelease(event) {
     event.preventDefault();
-    /** @type {Record<string, string>} */
     const times = {};
     const inputs = earlyReleaseSchools?.querySelectorAll('[data-school-code]') ?? [];
     for (const input of inputs) {
@@ -838,9 +1271,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     setFormStatus(form, clockRoundingStatus(mode), 'ok');
   }
 
-  /**
-   * @param {'snap' | 'daily' | 'separate'} mode
-   */
   function clockRoundingStatus(mode) {
     if (mode === 'daily') {
       return 'Each clock stays on the minute it was punched. The daily total rounds to the nearest quarter hour.';
@@ -851,12 +1281,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return 'Payroll minutes snap each clock to the nearest quarter hour. The Timeclock still shows the actual time.';
   }
 
-  /**
-   * Blank turns the rule off. Anything else must be a positive number up to max.
-   * @param {HTMLInputElement | null} input
-   * @param {number} max
-   * @returns {number | null | undefined}
-   */
+  // Blank turns the rule off. Anything else must be a positive number up to max.
   function readOvertimeHours(input, max) {
     const text = input?.value.trim() ?? '';
     if (!text) return null;
@@ -865,10 +1290,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return Math.round(number * 100) / 100;
   }
 
-  /**
-   * @param {ParentNode} form
-   * @param {string} name
-   */
   function overtimeField(form, name) {
     const field = form.querySelector(`[data-ot-${name}]`);
     return field instanceof HTMLInputElement ? field : null;
@@ -983,10 +1404,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     );
   }
 
-  /**
-   * @param {ReturnType<typeof payDrivers>[number]} driver
-   * @param {{ serial?: string, rate?: string, account?: string, payStatuses?: string[], payStatusByRun?: object }} fields
-   */
   function savePayIdentity(driver, fields) {
     saveDriver({
       id: driver.id,
@@ -998,11 +1415,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     });
   }
 
-  /**
-   * @param {string} name
-   * @param {string} previous
-   * @param {string} next
-   */
   function confirmSerialChange(name, previous, next) {
     if (previous === next) return true;
     if (!next) return confirm(`Remove the serial number for ${name}${previous ? ` (${previous})` : ''}?`);
@@ -1010,11 +1422,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return confirm(`Change the serial number for ${name} from ${previous} to ${next}?`);
   }
 
-  /**
-   * @param {string} name
-   * @param {string} previous
-   * @param {string} next
-   */
   function confirmAccountChange(name, previous, next) {
     if (previous === next) return true;
     if (!next) return confirm(`Remove the payroll account number for ${name}${previous ? ` (${previous})` : ''}?`);
@@ -1022,11 +1429,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return confirm(`Change the payroll account number for ${name} from ${previous} to ${next}?`);
   }
 
-  /**
-   * @param {'driver' | 'type'} mode
-   * @param {string} label
-   * @param {boolean} pressed
-   */
   function modeButton(mode, label, pressed) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -1037,11 +1439,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return button;
   }
 
-  /**
-   * @param {string} type
-   * @param {string} label
-   * @param {boolean} pressed
-   */
   function typeButton(type, label, pressed) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -1052,12 +1449,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return button;
   }
 
-  /**
-   * @param {string} kind
-   * @param {string} driverId
-   * @param {string} lineId
-   * @param {string} label
-   */
   function changeButton(kind, driverId, lineId, label) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -1069,12 +1460,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return button;
   }
 
-  /**
-   * @param {'serial' | 'account'} kind
-   * @param {string} driverId
-   * @param {string} lineId
-   * @param {string} current
-   */
   function editForm(kind, driverId, lineId, current) {
     const form = document.createElement('form');
     form.className = 'pay-edit';
@@ -1086,7 +1471,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     input.type = 'text';
     input.autocomplete = 'off';
     input.spellcheck = false;
-    input.maxLength = kind === 'serial' ? 20 : 40;
     input.value = current;
     input.setAttribute('aria-label', kind === 'serial' ? 'New serial number' : 'New payroll account number');
     const save = document.createElement('button');
@@ -1101,15 +1485,11 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return form;
   }
 
-  /**
-   * @param {ReturnType<typeof payDrivers>[number]} driver
-   */
   function rateInput(driver) {
     const input = document.createElement('input');
     input.className = 'js-pay-rate';
     input.type = 'text';
     input.inputMode = 'decimal';
-    input.maxLength = 7;
     input.autocomplete = 'off';
     input.dataset.driverId = driver.id;
     input.value = driver.pay?.rate || '';
@@ -1118,9 +1498,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return input;
   }
 
-  /**
-   * @param {string} text
-   */
   function valueText(text) {
     const node = document.createElement('span');
     node.className = 'pay-value';
@@ -1509,19 +1886,54 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   const mathStatus = document.querySelector('#math-maker-status');
   const mathButton = document.querySelector('#summary-math');
   const generateButton = document.querySelector('#summary-generate');
+  const payPeriodHover = document.querySelector('#pay-period-math-hover');
+
+  function placePayPeriodHover(cell) {
+    if (!(payPeriodHover instanceof HTMLElement)) return;
+    payPeriodHover.textContent = cell.getAttribute('data-math') || '';
+    payPeriodHover.hidden = false;
+    const box = cell.getBoundingClientRect();
+    const width = payPeriodHover.offsetWidth;
+    const left = Math.max(8, Math.min(box.left, window.innerWidth - width - 8));
+    const below = box.bottom + 6;
+    const height = payPeriodHover.offsetHeight;
+    payPeriodHover.style.left = `${left}px`;
+    payPeriodHover.style.top = `${below + height > window.innerHeight ? Math.max(8, box.top - height - 6) : below}px`;
+  }
+
+  function payPeriodMathCell(event) {
+    const target = event.target;
+    if (!(target instanceof Element)) return null;
+    const cell = target.closest('#pay-period-info [data-math]');
+    return cell instanceof HTMLElement ? cell : null;
+  }
+
+  document.addEventListener('mouseover', (event) => {
+    const cell = payPeriodMathCell(event);
+    if (cell) placePayPeriodHover(cell);
+  });
+  document.addEventListener('focusin', (event) => {
+    const cell = payPeriodMathCell(event);
+    if (cell) placePayPeriodHover(cell);
+  });
+  document.addEventListener('mouseout', (event) => {
+    const cell = payPeriodMathCell(event);
+    if (!cell || cell.contains(event.relatedTarget instanceof Node ? event.relatedTarget : null)) return;
+    if (payPeriodHover instanceof HTMLElement) payPeriodHover.hidden = true;
+  });
+  document.addEventListener('focusout', (event) => {
+    const cell = payPeriodMathCell(event);
+    if (!cell || cell.contains(event.relatedTarget instanceof Node ? event.relatedTarget : null)) return;
+    if (payPeriodHover instanceof HTMLElement) payPeriodHover.hidden = true;
+  });
   let summaryDriverId = '';
   let summaryPeriodKey = '';
   let mathDriverId = '';
   let mathPeriodKey = '';
-  /** @type {Set<string> | null} */
   let summaryChecked = null;
   const knownStatusIds = new Set();
   let summaryChecksReady = false;
 
-  /**
-   * @param {string} message
-   * @param {'ok' | 'error'} [kind]
-   */
   function setSummaryStatus(message, kind = 'ok') {
     if (!(summaryStatus instanceof HTMLElement)) return;
     summaryStatus.hidden = !message;
@@ -1530,10 +1942,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     summaryStatus.classList.toggle('is-ok', kind === 'ok' && Boolean(message));
   }
 
-  /**
-   * @param {string} message
-   * @param {'ok' | 'error'} [kind]
-   */
   function setMathStatus(message, kind = 'ok') {
     if (!(mathStatus instanceof HTMLElement)) return;
     mathStatus.hidden = !message;
@@ -1542,11 +1950,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     mathStatus.classList.toggle('is-ok', kind === 'ok' && Boolean(message));
   }
 
-  /**
-   * @param {EventTarget | null} form
-   * @param {string} message
-   * @param {'ok' | 'error'} [kind]
-   */
   function setFormStatus(form, message, kind = 'ok') {
     const el = form instanceof HTMLElement ? form.querySelector('[data-form-status]') : null;
     if (!(el instanceof HTMLElement)) return;
@@ -1556,29 +1959,16 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     el.classList.toggle('is-ok', kind === 'ok' && Boolean(message));
   }
 
-  /**
-   * @param {Element} host
-   * @param {boolean} force
-   */
   function skipHost(host, force) {
     const active = document.activeElement;
     return !force && (active instanceof HTMLInputElement || active instanceof HTMLSelectElement) && host.contains(active);
   }
 
-  /**
-   * @param {string} name
-   * @param {string[]} labels
-   */
   function payStatusSavedMessage(name, labels) {
     if (labels.length === 1) return `${name} uses ${labels[0]} for every clock-in.`;
     return `${name} can use ${labels.join(', ')}. Choose which clock-in uses each one.`;
   }
 
-  /**
-   * @param {HTMLElement} parent
-   * @param {{ id: string, name: string, payStatusByRun?: object }} driver
-   * @param {Array<{ id: string, label: string }>} choices
-   */
   function appendClockInPayMap(parent, driver, choices) {
     if (choices.length < 2) {
       const note = document.createElement('p');
@@ -1614,9 +2004,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     parent.append(grid);
   }
 
-  /**
-   * @param {HTMLSelectElement} select
-   */
   function savePayStatusRun(select) {
     if (!select.classList.contains('js-pay-status-run')) return false;
     const driver = payDrivers().find((item) => item.id === select.dataset.driverId);
@@ -1644,16 +2031,10 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return true;
   }
 
-  /**
-   * @param {Date} [date]
-   */
   function monthValue(date = new Date()) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
   }
 
-  /**
-   * @param {Element | null} input
-   */
   function monthPartsFrom(input) {
     const value = input instanceof HTMLInputElement ? input.value : '';
     const match = /^(\d{4})-(\d{2})$/.exec(value);
@@ -1668,9 +2049,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return monthPartsFrom(summaryMonth);
   }
 
-  /**
-   * @param {string} key
-   */
   function periodKeyParts(key) {
     const match = /^(\d{4})-(\d{2})-([1-9])$/.exec(key);
     if (!match) return null;
@@ -1680,10 +2058,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return { year, monthIndex, periodId: match[3] };
   }
 
-  /**
-   * @param {Date} date
-   * @param {Array<{ id: string, startDay: number, endDay: number }>} periods
-   */
   function periodKeyForDate(date, periods) {
     const day = date.getDate();
     const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
@@ -1692,13 +2066,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${period.id}`;
   }
 
-  /**
-   * @param {string} key
-   */
-  /**
-   * @param {Element | null} input
-   * @param {string} key
-   */
   function syncMonthInput(input, key) {
     const parts = periodKeyParts(key);
     if (!parts || !(input instanceof HTMLInputElement)) return;
@@ -1709,13 +2076,8 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     syncMonthInput(summaryMonth, key);
   }
 
-  /**
-   * Pay periods from this driver's first clock through the current month.
-   * Pass a month to also include that month when it sits outside the clocks.
-   * @param {{ name?: string } | undefined} driver
-   * @param {Array<{ id: string, startDay: number, endDay: number }>} periods
-   * @param {{ year: number, monthIndex: number } | null} [monthParts]
-   */
+  // Pay periods from this driver's first clock through the current month.
+  // Pass a month to also include that month when it sits outside the clocks.
   function summaryPeriodChoices(driver, periods, monthParts) {
     const name = String(driver?.name || '').trim().toLowerCase();
     const punches = name
@@ -1733,9 +2095,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return choices;
   }
 
-  /**
-   * @param {ReturnType<typeof payLineDefaults>['lines']} lines
-   */
   function renderStatusChoices(lines) {
     if (!summaryStatuses) return;
     if (!summaryChecked) summaryChecked = new Set();
@@ -1765,9 +2124,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
   }
 
-  /**
-   * @param {ReturnType<typeof payLineDefaults>} defaults
-   */
   function renderSummaryChoices(defaults) {
     const drivers = payDrivers();
     if (!drivers.some((driver) => driver.id === summaryDriverId)) summaryDriverId = drivers[0]?.id || '';
@@ -1819,9 +2175,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return payDrivers().filter((driver) => isExDriverOnly(driver.payStatuses, lines));
   }
 
-  /**
-   * @param {ReturnType<typeof payLineDefaults>} defaults
-   */
   function renderMathChoices(defaults) {
     const drivers = exDriverOnlyDrivers();
     if (!drivers.some((driver) => driver.id === mathDriverId)) mathDriverId = drivers[0]?.id || '';
@@ -1891,13 +2244,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       : 'That pay period has no days in this month.';
   }
 
-  /**
-   * @param {ReturnType<typeof payLineDefaults>} defaults
-   */
-  /**
-   * @param {ReturnType<typeof payLineDefaults>} defaults
-   * @param {boolean} [force]
-   */
   function renderPayPeriodRows(defaults, force = false) {
     document.querySelectorAll('[data-pay-period-rows]').forEach((host) => {
       if (skipHost(host, force)) return;
@@ -1948,10 +2294,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     });
   }
 
-  /**
-   * @param {ReturnType<typeof payLineDefaults>} defaults
-   * @param {boolean} [force]
-   */
   function renderPayStatusCatalog(defaults, force = false) {
     document.querySelectorAll('[data-pay-status-catalog]').forEach((catalog) => {
       if (skipHost(catalog, force)) return;
@@ -1976,9 +2318,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     });
   }
 
-  /**
-   * @param {boolean} [force]
-   */
   function renderClockingDriverStatuses(force = false) {
     const host = document.querySelector('#clocking-driver-statuses');
     if (!host || skipHost(host, force)) return;
@@ -2009,9 +2348,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
   }
 
-  /**
-   * @param {boolean} [force]
-   */
   function renderSummaryTools(force = false) {
     if (!summaryForm && !mathForm) return;
     const active = document.activeElement;
@@ -2025,11 +2361,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     renderClockingDriverStatuses(force);
   }
 
-  /**
-   * @param {Element | null} host
-   */
   function readPayPeriodRows(host) {
-    /** @type {Array<{ id: string, startDay: number, endDay: number }>} */
     const rows = [];
     host?.querySelectorAll('.pay-period-row').forEach((row) => {
       if (!(row instanceof HTMLElement)) return;
@@ -2044,9 +2376,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return rows;
   }
 
-  /**
-   * @param {Array<{ id?: string, startDay: number, endDay: number }>} periods
-   */
   function payPeriodError(periods) {
     if (!periods.length) return 'Add at least one pay period.';
     if (periods.length > 6) return 'Six pay periods is the limit.';
@@ -2063,11 +2392,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return '';
   }
 
-  /**
-   * @param {Array<{ id?: string, startDay: number, endDay: number }>} periods
-   * @param {string} message
-   * @param {EventTarget | null} [form]
-   */
   function savePayPeriods(periods, message, form) {
     const problem = payPeriodError(periods);
     if (problem) {
@@ -2108,10 +2432,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return { driver, picked, defaults, period };
   }
 
-  /**
-   * @param {{ driver: { name: string, id: string, email?: string, pay?: object }, picked: { year: number, monthIndex: number }, defaults: object, period: { id: string } }} selection
-   * @param {string[] | undefined} lineIds
-   */
   function summaryOptions(selection, lineIds) {
     const saved = state();
     return {
@@ -2501,7 +2821,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       silent.value = 'off';
       silent.textContent = 'Silent';
       select.append(silent);
-      /** @type {Map<string, HTMLOptGroupElement>} */
       const groups = new Map();
       for (const sound of PUNCH_SOUNDS) {
         let group = groups.get(sound.group);
@@ -2637,9 +2956,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
   }
 
-  /**
-   * @param {Event} event
-   */
   function onRemoveReason(event) {
     const button = event.target instanceof Element ? event.target.closest('[data-reason-id]') : null;
     if (!button) return;
@@ -2655,25 +2971,41 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
   }
 
-  function onSavePin(event) {
-    event.preventDefault();
-    const driverId = pinDriver.value.trim();
-    const pin = pinValue.value.trim();
+  function onPinEdit(event) {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || !input.dataset.driverId) return;
+    const digits = pinDigits(input.value);
+    if (input.value !== digits) input.value = digits;
+    if (digits.length === 4) commitDriverPin(input);
+  }
+
+  function onPinBlur(event) {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || !input.dataset.driverId) return;
+    commitDriverPin(input, true);
+  }
+
+  function commitDriverPin(input, restore = false) {
+    const driverId = input.dataset.driverId || '';
     const person = people().find((item) => item.id === driverId);
-    if (!person) {
-      setOfficeStatus('Choose a driver.', 'error');
+    if (!person) return;
+    const pin = pinDigits(input.value);
+    const current = pinFor(driverId);
+    if (pin === current) {
+      input.value = current;
       return;
     }
     if (!/^\d{4}$/.test(pin)) {
+      if (!restore) return;
+      input.value = current;
       setOfficeStatus('PIN must be 4 digits.', 'error');
       return;
     }
     const next = state();
     next.clockPins = { ...pins(), [driverId]: pin };
     writeState(next);
-    pinValue.value = '';
+    input.value = pin;
     setOfficeStatus(`PIN saved for ${person.name}.`, 'ok');
-    refresh();
   }
 
   function substituteDrivers() {
@@ -2727,9 +3059,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     refresh();
   }
 
-  /**
-   * @param {Event} event
-   */
   function onRemoveSubstitute(event) {
     const button = event.target instanceof Element ? event.target.closest('[data-substitute-id]') : null;
     if (!button) return;
@@ -2741,13 +3070,8 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     refresh();
   }
 
-  /** @type {ReturnType<typeof setTimeout> | undefined} */
   let confirmTimer;
 
-  /**
-   * @param {string} name
-   * @param {string} detail
-   */
   function showPunchConfirm(name, detail) {
     if (!kioskConfirm || !kioskConfirmText) return;
     clearTimeout(confirmTimer);
@@ -2772,7 +3096,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return String(value || '').replace(/\D/g, '').slice(0, 4);
   }
 
-  /** @type {Promise<string> | null} */
   let shareOriginPromise = null;
   let clockQrRequest = 0;
   let clockQrUrl = '';
@@ -2781,10 +3104,17 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
 
   function loadShareOrigin() {
     if (!shareOriginPromise) {
-      shareOriginPromise = fetch('/api/clock-share-origin')
-        .then((response) => (response.ok ? response.json() : { origin: '' }))
-        .then((body) => String(body?.origin || '').replace(/\/$/, ''))
-        .catch(() => '');
+      shareOriginPromise = fetch('/api/clock-share-origin', { cache: 'no-store' })
+        .then(async (response) => {
+          const type = response.headers.get('content-type') || '';
+          if (response.ok && type.includes('json')) {
+            const body = await response.json().catch(() => null);
+            const origin = String(body?.origin || '').replace(/\/$/, '');
+            if (origin) return origin;
+          }
+          return pageShareOrigin(location.origin);
+        })
+        .catch(() => pageShareOrigin(location.origin));
     }
     return shareOriginPromise;
   }
@@ -2800,9 +3130,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     if (kioskDayQr) kioskDayQr.hidden = true;
   }
 
-  /**
-   * @param {{ id: string, name: string }} person
-   */
   async function paintClockQr(person) {
     const request = ++clockQrRequest;
     if (!kioskClockQr || !(kioskClockQrCode instanceof HTMLCanvasElement) || !person?.name) {
@@ -2841,9 +3168,8 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     kioskClockQr.hidden = false;
   }
 
-  /** Name taps are ignored until this time so a closing tap cannot open whoever appears underneath. */
+  // Name taps are ignored until this time so a closing tap cannot open whoever appears underneath.
   let blockRosterOpenUntil = 0;
-  /** @type {ReturnType<typeof setTimeout> | undefined} */
   let rosterSettleTimer;
 
   function settleRosterClicks() {
@@ -2856,9 +3182,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }, ROSTER_SETTLE_MS);
   }
 
-  /**
-   * @param {Event} event
-   */
   function swallowSettlingRosterClick(event) {
     if (Date.now() >= blockRosterOpenUntil) return;
     const target = event.target instanceof Element ? event.target : null;
@@ -2867,9 +3190,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     event.stopPropagation();
   }
 
-  /**
-   * @param {Event} event
-   */
   function onLeaveDriver(event) {
     event.preventDefault();
     showList();
@@ -2878,6 +3198,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   function showList(message = '') {
     const coveringRoster = kioskDetail.hidden === false || Boolean(kioskSubstitutes && !kioskSubstitutes.hidden);
     closeReplaceConfirm();
+    closeMovePanel();
     if (selected) rememberLateVisit(selected);
     if (coveringRoster) {
       const focused = document.activeElement;
@@ -2887,6 +3208,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     selected = null;
     substituteName = '';
     unlocked = false;
+    extraPeriodsRevealed = 0;
     kiosk.classList.remove('is-detail');
     kioskDetail.hidden = true;
     kioskList.hidden = false;
@@ -2962,10 +3284,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     fitRoster();
   }
 
-  /**
-   * Latest punch for this route driver. A substitute punch stays on that driver's name.
-   * @param {string} name
-   */
+  // Latest punch for this route driver. A substitute punch stays on that driver's name.
   function latestPunch(name) {
     const wanted = name.trim().toLowerCase();
     let latest = null;
@@ -2977,19 +3296,13 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return latest;
   }
 
-  /**
-   * The substitute covering this route, while their clock-in is still the latest punch.
-   * @param {string} name
-   */
+  // The substitute covering this route, while their clock-in is still the latest punch.
   function activeSubstitute(name) {
     const latest = latestPunch(name);
     if (latest?.action !== 'in') return '';
     return String(latest.substitute_name || '').trim();
   }
 
-  /**
-   * @param {string} driverId
-   */
   function acknowledgements(driverId) {
     const all = readLateAcks();
     const list = all[driverId];
@@ -3006,11 +3319,8 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
   }
 
-  /**
-   * Opening this driver and coming back clears every clock-in that is already late.
-   * A later run can still flash when its own clock-in passes.
-   * @param {{ id: string, name: string, clockIns: string[] }} person
-   */
+  // Opening this driver and coming back clears every clock-in that is already late.
+  // A later run can still flash when its own clock-in passes.
   function rememberLateVisit(person) {
     const current = people().find((item) => item.id === person.id) || person;
     const keys = dueClockInKeys({
@@ -3026,10 +3336,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     sessionStorage.setItem(LATE_ACK_KEY, JSON.stringify(all));
   }
 
-  /**
-   * @param {HTMLButtonElement} button
-   * @param {{ id: string, name: string, clockIns: string[] }} person
-   */
   function paintLate(button, person) {
     const late =
       flashingClockInKeys({
@@ -3072,10 +3378,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
   }
 
-  /**
-   * Portrait under the clocked-in or clocked-out line. Hidden when this driver has none.
-   * @param {string} name
-   */
+  // Portrait under the clocked-in or clocked-out line. Hidden when this driver has none.
   function paintDriverPhoto(name) {
     if (!(kioskDriverPhoto instanceof HTMLImageElement)) return;
     const src = driverPhotoSrc(name);
@@ -3094,14 +3397,12 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     kioskDriverPhoto.hidden = false;
   }
 
-  /**
-   * @param {{ id: string, name: string, routes: string[] }} person
-   */
   function openDriver(person) {
     const coveringAs = substituteName;
     selected = person;
     if (!coveringAs) substituteName = '';
     unlocked = false;
+    extraPeriodsRevealed = 0;
     hidePunchConfirm();
     kiosk.classList.add('is-detail');
     kioskList.hidden = true;
@@ -3192,9 +3493,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
   }
 
-  /**
-   * @param {string} name
-   */
   function chooseSubstitute(name) {
     substituteName = name;
     if (kioskSubstitutes) kioskSubstitutes.hidden = true;
@@ -3286,23 +3584,19 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     const run = normalizePunchRun(latest.run);
     if (!run) return null;
     return {
-      run,
+      run: run === 'OTHER' ? extraPeriodKey(extraPunchIndex(latest)) : run,
       when: clockedAtText(latest.punched_at),
       work: run === 'OTHER' ? workTypeLabel(latest.work_type) : '',
     };
   }
 
-  /**
-   * Today's clock-ins and clock-outs for each route, oldest first.
-   * A time replaced by a later punch is marked so it can stay struck through.
-   * @param {string} name
-   */
+  // Today's clock-ins and clock-outs for each route, oldest first.
+  // A time replaced by a later punch is marked so it can stay struck through.
   function todaysRunTimes(name) {
     const today = localDateString(new Date());
     const wanted = name.trim().toLowerCase();
     const punches = Array.isArray(state().punches) ? state().punches : [];
     const replaced = replacedClockPunchIds(punches);
-    /** @type {Record<string, { in: Array<{ id: string, clock: string, replaced: boolean, note: string, workType: string, punchedAt: string }>, out: Array<{ id: string, clock: string, replaced: boolean, note: string, workType: string, punchedAt: string }> }>} */
     const byRun = {};
     const rows = punches
       .filter((punch) => {
@@ -3317,8 +3611,9 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       const action = punch.action === 'in' || punch.action === 'out' ? punch.action : '';
       const clock = clockedAtText(punch.punched_at);
       if (!run || !action || !clock) continue;
-      if (!byRun[run]) byRun[run] = { in: [], out: [] };
-      byRun[run][action].push({
+      const key = run === 'OTHER' ? extraPeriodKey(extraPunchIndex(punch)) : run;
+      if (!byRun[key]) byRun[key] = { in: [], out: [] };
+      byRun[key][action].push({
         id: String(punch.id || ''),
         clock,
         replaced: replaced.has(String(punch.id || '')),
@@ -3331,35 +3626,63 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return byRun;
   }
 
-  /**
-   * @param {ReturnType<typeof todaysRunTimes>} times
-   */
   function cardPunchesFromTimes(times) {
-    /** @type {Array<{ run: string, action: 'in' | 'out', punchedAt: string }>} */
     const punches = [];
-    for (const [run, actions] of Object.entries(times)) {
+    for (const [key, actions] of Object.entries(times)) {
+      const slot = clockSlot(key);
       for (const action of ['in', 'out']) {
         for (const item of actions[action] || []) {
-          punches.push({ run, action, punchedAt: item.punchedAt });
+          const punch = { run: slot.run, action, punchedAt: item.punchedAt };
+          if (slot.run === 'OTHER') punch.extra_index = slot.extraIndex;
+          punches.push(punch);
         }
       }
     }
     return punches;
   }
 
+  // Park extra periods above the standing card.
+  // One advance shows EXTRA IN and EXTRA OUT together, with their shared notes.
+  function layoutExtraRows(animate = false) {
+    if (!(kioskCardExtra instanceof HTMLElement) || !(kioskCardExtraTrack instanceof HTMLElement)) return;
+    const periods = [...kioskCardExtraTrack.querySelectorAll('.kiosk-card-period')];
+    if (extraPeriodsRevealed > periods.length) extraPeriodsRevealed = periods.length;
+    const previousHeight = kioskCardExtra.style.height;
+    const previousTransform = kioskCardExtraTrack.style.transform;
+    kioskCardExtra.classList.remove('is-sliding');
+    kioskCardExtra.style.height = 'auto';
+    kioskCardExtraTrack.style.transform = 'none';
+    const trackRect = kioskCardExtraTrack.getBoundingClientRect();
+    const tops = periods.map((period) => period.getBoundingClientRect().top - trackRect.top);
+    const visible = extraTrackVisibleHeight(tops, trackRect.height, extraPeriodsRevealed);
+    const hidden = Math.max(0, trackRect.height - visible);
+    const nextHeight = `${Math.ceil(visible)}px`;
+    const nextTransform = `translateY(-${hidden}px)`;
+    kioskCardExtra.style.height = previousHeight || '0px';
+    kioskCardExtraTrack.style.transform = previousTransform || `translateY(-${trackRect.height}px)`;
+    if (animate) {
+      void kioskCardExtra.offsetHeight;
+      kioskCardExtra.classList.add('is-sliding');
+      void kioskCardExtra.offsetHeight;
+    }
+    kioskCardExtra.style.height = nextHeight;
+    kioskCardExtraTrack.style.transform = nextTransform;
+    if (kioskCardMore instanceof HTMLButtonElement) {
+      const more = periods.length > extraPeriodsRevealed;
+      kioskCardMore.hidden = !more;
+      kioskCardMore.setAttribute('aria-expanded', extraPeriodsRevealed > 0 ? 'true' : 'false');
+    }
+  }
+
   function paintRouteCards() {
     if (!(kioskCard instanceof HTMLElement)) return;
     const active = document.activeElement;
-    const activeKey =
-      active instanceof HTMLTextAreaElement && active.dataset.noteFor && active.dataset.noteAction
-        ? `${active.dataset.noteFor}:${active.dataset.noteAction}`
-        : '';
+    const activeKey = active instanceof HTMLTextAreaElement && active.dataset.noteFor ? active.dataset.noteFor : '';
     const selectionStart = active instanceof HTMLTextAreaElement ? active.selectionStart : 0;
     const reasonFocus =
       active instanceof HTMLInputElement && active.dataset.reasonField
         ? {
             run: active.dataset.reasonFor || '',
-            action: active.dataset.reasonAction || '',
             id: active.dataset.reasonId || '',
             field: active.dataset.reasonField,
             start: active.selectionStart,
@@ -3369,16 +3692,29 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     const times = selected ? todaysRunTimes(selected.name) : {};
     const hasMidday = contractedFor(localDateString(new Date())).MIDDAY != null;
     const rows = clockCardRows({ hasMidday, punches: cardPunchesFromTimes(times) });
+    const periods = clockCardPeriods(rows);
+    closeMovePanel();
     paintingCard = true;
-    kioskCard.replaceChildren();
-    for (const slot of rows) {
-      const runTimes = (times[slot.run] && times[slot.run][slot.action]) || [];
-      kioskCard.append(renderCardRow(slot, runTimes, open));
+    const extraTrack = kioskCardExtraTrack instanceof HTMLElement ? kioskCardExtraTrack : null;
+    const standing = kioskCardStanding instanceof HTMLElement ? kioskCardStanding : null;
+    if (extraTrack && standing) {
+      extraTrack.replaceChildren();
+      standing.replaceChildren();
+    } else {
+      kioskCard.replaceChildren();
+    }
+    for (const period of periods) {
+      const node = renderCardPeriod(period, times, open);
+      const isExtra = period.rows.every((row) => row.extra);
+      if (isExtra && extraTrack) extraTrack.append(node);
+      else if (standing) standing.append(node);
+      else kioskCard.append(node);
     }
     paintingCard = false;
+    layoutExtraRows(false);
     if (reasonFocus) {
       const nextReason = kioskCard.querySelector(
-        `[data-reason-for="${reasonFocus.run}"][data-reason-action="${reasonFocus.action}"][data-reason-id="${reasonFocus.id}"][data-reason-field="${reasonFocus.field}"]`
+        `[data-reason-for="${reasonFocus.run}"][data-reason-id="${reasonFocus.id}"][data-reason-field="${reasonFocus.field}"]`
       );
       if (nextReason instanceof HTMLInputElement) {
         nextReason.focus();
@@ -3388,8 +3724,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       }
     }
     if (activeKey) {
-      const [run, action] = activeKey.split(':');
-      const next = routeNoteField(run, action);
+      const next = routeNoteField(activeKey);
       if (next instanceof HTMLTextAreaElement) {
         next.focus();
         const caret = Math.min(selectionStart ?? 0, next.value.length);
@@ -3400,13 +3735,8 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     if (!applyingSharedNote) void syncNoteShares();
   }
 
-  /**
-   * @param {unknown} codes
-   * @returns {Array<{ id: string, label: string, hours: string, minutes: string }>}
-   */
   function reasonsToDraft(codes) {
     if (!Array.isArray(codes)) return [];
-    /** @type {Array<{ id: string, label: string, hours: string, minutes: string }>} */
     const draft = [];
     for (const code of codes) {
       const id = String(code?.id || '').trim();
@@ -3424,12 +3754,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return draft;
   }
 
-  /**
-   * @param {Array<{ id: string, label: string, hours: string, minutes: string }>} draft
-   * @returns {{ ok: boolean, codes: Array<{ id: string, label: string, minutes?: number }> }}
-   */
   function reasonCodesFromDraft(draft) {
-    /** @type {Array<{ id: string, label: string, minutes?: number }>} */
     const codes = [];
     let ok = true;
     for (const item of draft) {
@@ -3440,7 +3765,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       if (!label) continue;
       const parsed = reasonDurationMinutes(item.hours, item.minutes);
       if (!parsed.ok) ok = false;
-      /** @type {{ id: string, label: string, minutes?: number }} */
       const code = { id, label };
       if (parsed.ok && parsed.minutes != null) code.minutes = parsed.minutes;
       codes.push(code);
@@ -3448,25 +3772,27 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return { ok, codes };
   }
 
-  /**
-   * @param {string} run
-   * @param {string} action
-   */
-  function kioskReasonCodes(run, action) {
-    const draft = reasonDrafts.get(`${run}:${action}`);
-    if (draft) return reasonCodesFromDraft(draft).codes;
-    const host = kioskCard?.querySelector(`[data-reason-for="${run}"][data-reason-action="${action}"]`);
-    const root = host instanceof HTMLElement ? host.closest('.kiosk-card-row') || host : null;
-    if (!(root instanceof HTMLElement)) return [];
-    return reasonCodesFromDraft(readReasonDraft(root)).codes;
+  // The punch that currently counts for this route and this clock in or clock out.
+  // A time replaced by a later punch is left out.
+  function currentPunch(action, run) {
+    const replaced = replacedClockPunchIds(Array.isArray(state().punches) ? state().punches : []);
+    return [...punchesAlreadyThere(action, run)].reverse().find((punch) => !replaced.has(String(punch.id || ''))) || null;
   }
 
-  /**
-   * Saved reason lines on this card row. The adder's pending fields are left out.
-   * @param {HTMLElement} root
-   */
+  // Reasons saved on one punch. The phone link still belongs to that punch.
+  function kioskReasonCodes(run, action) {
+    const punch = currentPunch(action, run);
+    return Array.isArray(punch?.reason_codes) ? punch.reason_codes : [];
+  }
+
+  // Reasons sitting in the one box for this route period.
+  function fieldReasonCodes(run) {
+    if (reasonDrafts.has(run)) return reasonCodesFromDraft(reasonDrafts.get(run) || []).codes;
+    return periodReasonCodes(kioskReasonCodes(run, 'in'), kioskReasonCodes(run, 'out'));
+  }
+
+  // Saved reason lines on this card row. The adder's pending fields are left out.
   function readReasonDraft(root) {
-    /** @type {Array<{ id: string, label: string, hours: string, minutes: string }>} */
     const draft = [];
     for (const item of root.querySelectorAll('[data-reason-id]')) {
       if (!(item instanceof HTMLElement)) continue;
@@ -3484,9 +3810,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return draft;
   }
 
-  /**
-   * @param {{ label: string, hours: string, minutes: string }} item
-   */
   function reasonLine(item) {
     const parsed = reasonDurationMinutes(item.hours, item.minutes);
     if (parsed.ok && parsed.minutes != null) {
@@ -3496,10 +3819,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return item.label;
   }
 
-  /**
-   * @param {string} punchId
-   * @param {Array<{ id: string, label: string, minutes?: number }>} codes
-   */
   function savePunchReasons(punchId, codes) {
     if (!punchId) return;
     const next = state();
@@ -3512,28 +3831,18 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     writeState(next);
   }
 
-  /**
-   * @param {HTMLElement} box
-   */
-  function persistReasonBox(box) {
-    const key = `${box.dataset.reasonFor || ''}:${box.dataset.reasonAction || ''}`;
-    const root = box.closest('.kiosk-card-row') || box;
-    const draft = reasonDrafts.get(key) || readReasonDraft(root);
-    reasonDrafts.set(key, draft);
-    const built = reasonCodesFromDraft(draft);
-    if (!built.ok) return;
-    savePunchReasons(box.dataset.punchId || '', built.codes);
+  function persistReasonBox(box, publish = true) {
     const run = box.dataset.reasonFor || '';
-    const action = box.dataset.reasonAction || '';
-    if (run && (action === 'in' || action === 'out')) void publishNoteShare(run, action);
+    const root = box.closest('.kiosk-card-period') || box;
+    const draft = reasonDrafts.get(run) || readReasonDraft(root);
+    reasonDrafts.set(run, draft);
+    const built = reasonCodesFromDraft(draft);
+    if (!built.ok || !run) return;
+    savePeriodReasons(run, built.codes);
+    if (publish) void publishPeriodShare(run);
   }
 
-  /**
-   * Saved reasons, one line each, under the notes for this row.
-   * @param {HTMLElement} list
-   * @param {Array<{ id: string, label: string, hours: string, minutes: string }>} draft
-   * @param {(item: { id: string, label: string, hours: string, minutes: string }) => void} onRemove
-   */
+  // Saved reasons, one line each, under the notes for this row.
   function paintReasonNotes(list, draft, onRemove) {
     list.replaceChildren();
     list.hidden = draft.length === 0;
@@ -3557,21 +3866,14 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
   }
 
-  /**
-   * The reason stays a small adder. A reason and a time become a notes line.
-   * @param {{ run: string, action: 'in' | 'out', label: string }} slot
-   * @param {string} punchId
-   * @param {Array<{ id: string, label: string, hours: string, minutes: string }>} draft
-   * @param {HTMLElement} notes
-   */
-  function renderCardReason(slot, punchId, draft, notes) {
-    const key = `${slot.run}:${slot.action}`;
+  // The reason stays a small adder. A reason and a time become a notes line.
+  // One adder covers the clock in and the clock out for this route.
+  function renderCardReason(slot, draft, notes) {
+    const key = slot.run;
     const pending = reasonPending.get(key) || { id: '', hours: '', minutes: '' };
     const box = document.createElement('div');
     box.className = 'kiosk-card-reason';
     box.dataset.reasonFor = slot.run;
-    box.dataset.reasonAction = slot.action;
-    if (punchId) box.dataset.punchId = punchId;
     const caption = document.createElement('span');
     caption.textContent = 'Reason';
     const select = document.createElement('select');
@@ -3587,7 +3889,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     minutes.inputMode = 'numeric';
     minutes.value = pending.minutes;
     minutes.dataset.reasonFor = slot.run;
-    minutes.dataset.reasonAction = slot.action;
     minutes.dataset.reasonId = 'pending';
     minutes.dataset.reasonField = 'minutes';
     minutes.setAttribute('aria-label', `Minutes for ${slot.label}`);
@@ -3707,17 +4008,31 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return box;
   }
 
-  /**
-   * @param {{ run: string, action: 'in' | 'out', label: string, punched: boolean }} slot
-   * @param {Array<{ id?: string, clock: string, replaced: boolean, note: string, workType: string, punchedAt: string, reasonCodes?: object[] }>} times
-   * @param {{ run: string } | null} open
-   */
-  function renderCardRow(slot, times, open) {
-    const row = document.createElement('div');
-    row.className = 'kiosk-card-row';
-    if (open?.run === slot.run && slot.action === 'in') row.classList.add('is-open');
-    const current = [...times].reverse().find((item) => !item.replaced) || times[times.length - 1];
-    const key = `${slot.run}:${slot.action}`;
+  // The newest punch that still counts on this row.
+  function liveCardTime(times) {
+    const list = Array.isArray(times) ? times : [];
+    return [...list].reverse().find((item) => !item.replaced) || list[list.length - 1] || null;
+  }
+
+  // Spoken name for the shared notes and reason on one route.
+  function periodFieldLabel(run) {
+    if (run === 'OTHER') return 'Extra';
+    const label = punchRunLabel(run);
+    return label ? `the ${label}` : 'this period';
+  }
+
+  // One notes box and one reason box for the clock in and clock out of a route.
+  function renderCardPeriod(period, times, open) {
+    const run = period.period || period.run;
+    const section = document.createElement('section');
+    section.className = 'kiosk-card-period';
+    if (period.rows.every((row) => row.extra)) section.classList.add('is-extra');
+    section.dataset.run = run;
+    const label = periodFieldLabel(period.run);
+    const inTimes = (times[run] && times[run].in) || [];
+    const outTimes = (times[run] && times[run].out) || [];
+    const clockIn = liveCardTime(inTimes);
+    const clockOut = liveCardTime(outTimes);
     const notesCol = document.createElement('div');
     notesCol.className = 'kiosk-card-notes-col';
     const noteLine = document.createElement('div');
@@ -3727,25 +4042,46 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     const caption = document.createElement('span');
     caption.textContent = 'Notes';
     const area = document.createElement('textarea');
-    area.dataset.noteFor = slot.run;
-    area.dataset.noteAction = slot.action;
+    area.dataset.noteFor = run;
     area.maxLength = NOTE_MAX;
     area.rows = 3;
     area.autocomplete = 'off';
     area.autocorrect = 'off';
     area.autocapitalize = 'off';
     area.spellcheck = false;
-    area.setAttribute('aria-label', `Notes for ${slot.label}`);
-    area.value = noteDrafts.has(key) ? noteDrafts.get(key) || '' : current?.note || '';
+    area.setAttribute('aria-label', `Notes for ${label}`);
+    const merged = periodNoteText(clockIn?.note, clockOut?.note).slice(0, NOTE_MAX);
+    area.value = noteDrafts.has(run) ? noteDrafts.get(run) || '' : merged;
     comment.append(caption, area);
     const reasonNotes = document.createElement('ul');
     reasonNotes.className = 'kiosk-card-notes';
     reasonNotes.hidden = true;
     noteLine.append(comment);
     notesCol.append(noteLine, reasonNotes);
-    const reasonDraft = reasonDrafts.has(key) ? reasonDrafts.get(key) || [] : reasonsToDraft(current?.reasonCodes);
-    if (!reasonDrafts.has(key)) reasonDrafts.set(key, reasonDraft);
-    const reason = renderCardReason(slot, current?.id || '', reasonDraft, reasonNotes);
+    const reasonDraft = reasonDrafts.has(run)
+      ? reasonDrafts.get(run) || []
+      : reasonsToDraft(periodReasonCodes(clockIn?.reasonCodes, clockOut?.reasonCodes));
+    if (!reasonDrafts.has(run)) reasonDrafts.set(run, reasonDraft);
+    const reason = renderCardReason({ run, label }, reasonDraft, reasonNotes);
+    const punches = document.createElement('div');
+    punches.className = 'kiosk-card-punches';
+    for (const slot of period.rows) {
+      const runTimes = (times[run] && times[run][slot.action]) || [];
+      punches.append(renderCardLine(slot, runTimes, open));
+    }
+    section.append(notesCol, reason, punches);
+    return section;
+  }
+
+  function renderCardLine(slot, times, open) {
+    const row = document.createElement('div');
+    const key = slot.period || slot.run;
+    row.className = 'kiosk-card-line';
+    if (slot.extra) row.classList.add('is-extra');
+    row.dataset.run = key;
+    row.dataset.action = slot.action;
+    if (open?.run === key && slot.action === 'in') row.classList.add('is-open');
+    const current = liveCardTime(times);
     const kind = document.createElement('p');
     kind.className = 'kiosk-card-kind';
     kind.append(slot.label);
@@ -3755,35 +4091,235 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       detail.textContent = work;
       kind.append(detail);
     }
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.dataset.punch = slot.run;
-    button.dataset.action = slot.action;
     if (times.length) {
-      button.className = 'kiosk-card-stamp';
+      const stamp = document.createElement('div');
+      stamp.className = 'kiosk-card-stamp';
       const timeLine = document.createElement('span');
       timeLine.className = 'kiosk-punch-time';
-      const spoken = [];
       for (const item of [...times].reverse()) {
-        const stamp = document.createElement(item.replaced ? 's' : 'span');
-        stamp.textContent = item.clock;
-        timeLine.append(stamp);
-        spoken.push(item.replaced ? `${item.clock}, replaced` : item.clock);
+        const clock = document.createElement('span');
+        clock.className = 'kiosk-punch-clock';
+        const again = document.createElement('button');
+        again.type = 'button';
+        again.className = 'kiosk-punch-again';
+        again.dataset.punch = key;
+        again.dataset.action = slot.action;
+        const read = document.createElement(item.replaced ? 's' : 'span');
+        read.className = 'kiosk-punch-read';
+        const face = document.createElement('span');
+        face.className = 'kiosk-punch-face';
+        face.textContent = item.clock;
+        read.append(face);
+        const punched = item.punchedAt ? new Date(item.punchedAt) : null;
+        const dayLabel = punched ? punchDisplayDay(punched) : '';
+        if (dayLabel) {
+          const day = document.createElement('span');
+          day.className = 'kiosk-punch-day';
+          day.textContent = dayLabel;
+          read.append(day);
+        }
+        again.append(read);
+        const phrase = item.replaced ? `${item.clock}, replaced` : item.clock;
+        const spoken = dayLabel ? `${phrase}, ${dayLabel}` : phrase;
+        again.setAttribute('aria-label', `${slot.label} at ${spoken}`);
+        clock.append(again);
+        if (item.id && noteEditingOpen(item.punchedAt ? new Date(item.punchedAt) : new Date())) {
+          clock.append(renderTimeEdit(item));
+        }
+        timeLine.append(clock);
       }
-      button.append(timeLine);
-      button.setAttribute('aria-label', `${slot.label} at ${spoken.join(' and ')}`);
-    } else {
-      button.className = 'kiosk-card-punch';
-      const word = document.createElement('span');
-      word.className = 'kiosk-punch-word';
-      word.textContent = 'Punch';
-      const live = document.createElement('span');
-      live.className = 'kiosk-punch-live';
-      live.textContent = kioskLiveClock(new Date());
-      button.append(word, live);
+      stamp.append(timeLine);
+      row.append(kind, stamp);
+      return row;
     }
-    row.append(notesCol, reason, kind, button);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.punch = key;
+    button.dataset.action = slot.action;
+    button.className = 'kiosk-card-punch';
+    const word = document.createElement('span');
+    word.className = 'kiosk-punch-word';
+    word.textContent = 'Punch';
+    const live = document.createElement('span');
+    live.className = 'kiosk-punch-live';
+    live.textContent = kioskLiveClock(new Date());
+    button.append(word, live);
+    row.append(kind, button);
     return row;
+  }
+
+  function renderTimeEdit(item) {
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'kiosk-time-edit';
+    edit.dataset.movePunch = item.id || '';
+    edit.setAttribute('aria-label', `Edit. Move ${item.clock} to a different row. The time stays the same.`);
+    edit.setAttribute('aria-expanded', 'false');
+    const word = document.createElement('span');
+    word.textContent = 'Edit';
+    edit.append(word);
+    edit.addEventListener('pointerenter', () => showMoveTip(edit));
+    edit.addEventListener('pointerleave', (event) => {
+      if (event.relatedTarget instanceof Node && moveTip?.contains(event.relatedTarget)) return;
+      hideMoveTip();
+    });
+    edit.addEventListener('focus', () => showMoveTip(edit));
+    edit.addEventListener('blur', hideMoveTip);
+    edit.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      hideMoveTip();
+      openMovePanel(edit, item);
+    });
+    return edit;
+  }
+
+  function showMoveTip(anchor) {
+    if (movePanel) return;
+    hideMoveTip();
+    const tip = document.createElement('div');
+    tip.className = 'kiosk-time-tip';
+    tip.setAttribute('role', 'tooltip');
+    tip.textContent = CLOCK_MOVE_HOVER;
+    document.body.append(tip);
+    const rect = anchor.getBoundingClientRect();
+    const width = tip.offsetWidth;
+    const height = tip.offsetHeight;
+    let left = rect.left - width - 8;
+    let top = rect.top + rect.height / 2 - height / 2;
+    if (left < 8) left = Math.min(rect.right + 8, window.innerWidth - width - 8);
+    if (top < 8) top = 8;
+    if (top + height > window.innerHeight - 8) top = Math.max(8, window.innerHeight - height - 8);
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+    tip.addEventListener('pointerleave', (event) => {
+      if (event.relatedTarget instanceof Node && anchor.contains(event.relatedTarget)) return;
+      hideMoveTip();
+    });
+    moveTip = tip;
+  }
+
+  function hideMoveTip() {
+    moveTip?.remove();
+    moveTip = null;
+  }
+
+  function closeMovePanel() {
+    hideMoveTip();
+    movePanel?.remove();
+    movePanel = null;
+    if (!(kioskCard instanceof HTMLElement)) return;
+    for (const badge of kioskCard.querySelectorAll('.kiosk-time-edit[aria-expanded="true"]')) {
+      badge.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  function openMovePanel(badge, item) {
+    const punchId = item.id || '';
+    if (!punchId || !selected) return;
+    const already = movePanel?.dataset.punchId === punchId;
+    closeMovePanel();
+    if (already) return;
+    const punches = Array.isArray(state().punches) ? state().punches : [];
+    const punch = punches.find((entry) => entry?.id === punchId && entry.removed !== true);
+    if (!punch) return;
+    const targets = clockMoveTargets(normalizePunchRun(punch.run), punch.action === 'out' ? 'out' : 'in');
+    if (!targets.length) return;
+    const panel = document.createElement('div');
+    panel.className = 'kiosk-move-panel';
+    panel.dataset.punchId = punchId;
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', `Move ${item.clock}`);
+    const hint = document.createElement('p');
+    hint.textContent = CLOCK_MOVE_HINT;
+    const list = document.createElement('div');
+    list.className = 'kiosk-move-rows';
+    for (const target of targets) {
+      const choice = document.createElement('button');
+      choice.type = 'button';
+      choice.textContent = target.label;
+      choice.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        movePunchOnCard(punchId, target.run, target.action);
+      });
+      list.append(choice);
+    }
+    panel.append(hint, list);
+    document.body.append(panel);
+    movePanel = panel;
+    badge.setAttribute('aria-expanded', 'true');
+    const rect = badge.getBoundingClientRect();
+    const width = panel.offsetWidth;
+    const height = panel.offsetHeight;
+    let left = rect.right - width;
+    let top = rect.bottom + 6;
+    if (left < 8) left = 8;
+    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8);
+    if (top + height > window.innerHeight - 8) top = Math.max(8, rect.top - height - 6);
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+    const first = list.querySelector('button');
+    if (first instanceof HTMLElement) first.focus();
+  }
+
+  // Save the period note and reasons before a punch moves to another row.
+  function flushCardPeriod(run) {
+    const area = routeNoteField(run);
+    if (area && noteDrafts.has(run)) {
+      const note = assertNote(area.value.slice(0, NOTE_MAX));
+      if (note !== storedPeriodNote(run)) savePeriodNote(run, note);
+    }
+    const box = kioskCard?.querySelector(`[data-reason-for="${run}"]`);
+    if (box instanceof HTMLElement && reasonDrafts.has(run)) persistReasonBox(box, false);
+  }
+
+  function movePunchOnCard(punchId, run, action) {
+    if (!selected || !unlocked) return;
+    const targetRun = normalizePunchRun(run);
+    const targetAction = action === 'out' ? 'out' : action === 'in' ? 'in' : '';
+    if (!targetRun || targetRun === 'OTHER' || !targetAction) return;
+    const punches = Array.isArray(state().punches) ? state().punches : [];
+    const punch = punches.find((item) => item?.id === punchId && item.removed !== true);
+    if (!punch) return;
+    const when = new Date(punch.punched_at);
+    if (!noteEditingOpen(Number.isNaN(when.getTime()) ? new Date() : when)) return;
+    const sourceRun = normalizePunchRun(punch.run) || 'AM';
+    flushCardPeriod(sourceRun);
+    if (sourceRun !== targetRun) flushCardPeriod(targetRun);
+    const next = state();
+    const clock = clockedAtText(punch.punched_at);
+    try {
+      next.punches = movePunchToRow(
+        next.punches,
+        punchId,
+        { run: targetRun, action: targetAction },
+        { payStatus: targetAction === 'in' ? payStatusForSelected(targetRun) : '' }
+      );
+    } catch {
+      return;
+    }
+    if (targetAction === 'in' && (targetRun === 'AM' || targetRun === 'MIDDAY' || targetRun === 'PM')) {
+      next.leaveRequests = dropLeaveForClockIn(next.leaveRequests, {
+        driver_name: selected.name,
+        date: localDateString(when),
+        run: targetRun,
+      });
+      next.drivers = applyLeaveRequests(next.drivers, next.leaveRequests);
+    }
+    for (const key of [sourceRun, targetRun]) {
+      noteDrafts.delete(key);
+      reasonDrafts.delete(key);
+      reasonPending.delete(key);
+    }
+    writeState(next);
+    void publishPeriodShare(sourceRun);
+    if (targetRun !== sourceRun) void publishPeriodShare(targetRun);
+    closeMovePanel();
+    paintDriverHeading(selected);
+    paintRouteCards();
+    const label = CLOCK_CARD_SLOTS.find((slot) => slot.run === targetRun && slot.action === targetAction)?.label || targetRun;
+    showPunchConfirm(substituteName || selected.name, `Moved ${clock} to ${label}. The time stayed the same.`);
   }
 
   function focusNextPunch() {
@@ -3798,66 +4334,55 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
     const match = kioskCard?.querySelector(`[data-punch="${run}"][data-action="${action}"].kiosk-card-punch`);
     const button = match instanceof HTMLElement ? match : kioskCard?.querySelector('.kiosk-card-punch');
-    if (button instanceof HTMLElement) button.focus();
+    if (!(button instanceof HTMLElement)) return;
+    if (extraPunchHidden(button)) {
+      if (kioskCardMore instanceof HTMLButtonElement && !kioskCardMore.hidden) kioskCardMore.focus();
+      return;
+    }
+    button.focus();
+  }
+
+  // Extra periods above the revealed edge are still clipped.
+  function extraPunchHidden(button) {
+    if (!(kioskCardExtraTrack instanceof HTMLElement) || !kioskCardExtraTrack.contains(button)) return false;
+    const periods = [...kioskCardExtraTrack.querySelectorAll('.kiosk-card-period')];
+    const period = button.closest('.kiosk-card-period');
+    const index = periods.indexOf(period);
+    if (index < 0) return true;
+    return index < periods.length - extraPeriodsRevealed;
   }
 
   function openOtherWork() {
-    if (!selected || !unlocked) return;
-    pendingAction = 'in';
-    pendingRun = 'OTHER';
-    clearWorkType();
-    const area = document.querySelector('#kiosk-note-OTHER');
-    if (area instanceof HTMLTextAreaElement) area.value = '';
-    syncPunchPanels();
-    const first = kioskWorkOptions?.querySelector('input');
-    if (first instanceof HTMLElement) first.focus();
+    beginPunch('in', 'OTHER');
   }
 
-  /**
-   * @param {string} action
-   * @param {string} run
-   */
   function beginPunch(action, run) {
     if (!selected || !unlocked) return;
-    const chosen = normalizePunchRun(run);
-    if ((action !== 'in' && action !== 'out') || !chosen) return;
-    if (chosen === 'OTHER') {
-      pendingAction = action;
-      pendingRun = 'OTHER';
-      clearWorkType();
-      syncPunchPanels();
-      const first = kioskWorkOptions?.querySelector('input');
-      if (first instanceof HTMLElement) first.focus();
-      return;
-    }
-    punch(action, chosen);
+    const slot = clockSlot(run);
+    if ((action !== 'in' && action !== 'out') || !slot.run) return;
+    if (kioskWork) kioskWork.hidden = true;
+    punch(action, slot.key);
   }
 
-  /**
-   * Punches already saved today for this route and this clock in or clock out.
-   * @param {'in' | 'out'} action
-   * @param {string} run
-   */
+  // Punches already saved today for this route and this clock in or clock out.
   function punchesAlreadyThere(action, run) {
     if (!selected) return [];
+    const slot = clockSlot(run);
+    if (!slot.run) return [];
     const today = localDateKey(new Date());
     const wanted = selected.name.trim().toLowerCase();
     return (Array.isArray(state().punches) ? state().punches : [])
       .filter((punch) => {
         if (punch?.removed === true || punch.action !== action) return false;
         if (String(punch.driver_name || '').trim().toLowerCase() !== wanted) return false;
-        if (normalizePunchRun(punch.run) !== run) return false;
+        if (normalizePunchRun(punch.run) !== slot.run) return false;
+        if (slot.run === 'OTHER' && extraPunchIndex(punch) !== slot.extraIndex) return false;
         const when = new Date(punch.punched_at);
         return !Number.isNaN(when.getTime()) && localDateKey(when) === today;
       })
       .sort((a, b) => String(a.punched_at).localeCompare(String(b.punched_at)));
   }
 
-  /**
-   * @param {'in' | 'out'} action
-   * @param {string} run
-   * @param {object[]} existing
-   */
   function openReplaceConfirm(action, run, existing) {
     const panel = document.querySelector('#kiosk-replace-confirm');
     const text = document.querySelector('#kiosk-replace-confirm-text');
@@ -3866,7 +4391,8 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       return;
     }
     const verb = action === 'in' ? 'clocked in' : 'clocked out';
-    const route = run === 'OTHER' ? 'Other' : `the ${punchRunLabel(run)}`;
+    const slot = clockSlot(run);
+    const route = slot.run === 'OTHER' ? 'Extra' : `the ${punchRunLabel(slot.run)}`;
     const times = existing.map((punch) => clockedAtText(punch.punched_at)).filter(Boolean);
     const when =
       times.length <= 1
@@ -3875,7 +4401,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     text.textContent = when
       ? `You already ${verb} for ${route} at ${when}. Are you sure?`
       : `You already ${verb} for ${route}. Are you sure?`;
-    replacePending = { action, run };
+    replacePending = { action, run: slot.key };
     panel.hidden = false;
     const yes = document.querySelector('#kiosk-replace-yes');
     if (yes instanceof HTMLElement) yes.focus();
@@ -3939,10 +4465,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     fillWorkTypeGroup(kioskChunkTypes, 'kiosk-chunk-work');
   }
 
-  /**
-   * @param {Element | null} container
-   * @param {string} name
-   */
   function fillWorkTypeGroup(container, name) {
     if (!container) return;
     container.replaceChildren();
@@ -3968,6 +4490,20 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
   }
 
+  // The blue punch button already chose clock in or clock out.
+  // Picking the kind of work records that punch.
+  function finishOtherPunch() {
+    if (pendingRun !== 'OTHER' || replacePending) return;
+    punch(pendingAction === 'out' ? 'out' : 'in', 'OTHER');
+  }
+
+  function commitOtherTripTicket() {
+    if (pendingRun !== 'OTHER' || chosenWorkType() !== TRIP_TICKET_WORK_TYPE) return;
+    const ticket = normalizeTripTicket(kioskTripTicket instanceof HTMLInputElement ? kioskTripTicket.value : '');
+    if (!ticket) return;
+    finishOtherPunch();
+  }
+
   function hideWorkTypes() {
     clearKioskRun();
     paintRouteCards();
@@ -3977,13 +4513,9 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   function syncPunchPanels() {
     const chunkOpen = kioskChunkPanel?.hidden === false;
     const leaveOpen = leaveRequestPanel()?.hidden === false;
-    const otherOpen = pendingRun === 'OTHER' && !chunkOpen && !leaveOpen;
-    if (kioskWork) kioskWork.hidden = !otherOpen;
-    if (kioskPunchLayout) kioskPunchLayout.hidden = chunkOpen || leaveOpen || otherOpen;
-    const heading = document.querySelector('#kiosk-work-heading');
-    if (heading) heading.textContent = 'Other work';
-    const lead = document.querySelector('#kiosk-work-lead');
-    if (lead) lead.textContent = 'Choose the kind of work, then clock in or out.';
+    if (kioskWork) kioskWork.hidden = true;
+    pendingRun = pendingRun === 'OTHER' ? '' : pendingRun;
+    if (kioskPunchLayout) kioskPunchLayout.hidden = chunkOpen || leaveOpen;
     if (!kioskPunchLayout?.hidden) paintRouteCards();
     syncChunkButton();
   }
@@ -4020,9 +4552,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     if (wasOpen) focusNextPunch();
   }
 
-  /**
-   * @param {boolean} open
-   */
   function showChunkPanel(open) {
     if (!open) {
       closeChunkPanel();
@@ -4066,9 +4595,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
   }
 
-  /**
-   * @param {Event} event
-   */
   function onChunkPairClick(event) {
     const button = event.target instanceof Element ? event.target.closest('button') : null;
     const id = button instanceof HTMLButtonElement ? button.dataset.chunkIn || '' : '';
@@ -4111,55 +4637,59 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
   }
 
-  /**
-   * @param {string} clock
-   */
   function clockFromInput(clock) {
     const [hours, minutes] = clock.split(':').map(Number);
     return new Date(2026, 0, 1, hours || 0, minutes || 0);
   }
 
-  /**
-   * @param {string} run
-   * @param {string} action
-   */
-  function routeNoteField(run, action) {
-    const area = kioskCard?.querySelector(`textarea[data-note-for="${run}"][data-note-action="${action}"]`);
+  function routeNoteField(run) {
+    const area = kioskCard?.querySelector(`textarea[data-note-for="${run}"]`);
     return area instanceof HTMLTextAreaElement ? area : null;
   }
 
-  /**
-   * @param {FocusEvent} event
-   */
   function onNoteBlur(event) {
     if (paintingCard) return;
     const area = event.target;
     if (!(area instanceof HTMLTextAreaElement)) return;
     const run = area.dataset.noteFor || '';
-    const action = area.dataset.noteAction || '';
-    if (!run || (action !== 'in' && action !== 'out')) return;
+    if (!run || !noteDrafts.has(run)) return;
     if (!noteEditingOpen()) return;
     if (area.value.length > NOTE_MAX) area.value = area.value.slice(0, NOTE_MAX);
-    noteDrafts.set(`${run}:${action}`, area.value);
-    if (selected) savePunchNote(run, action, area.value);
-    if (selected) void publishNoteShare(run, action);
+    const note = assertNote(area.value);
+    if (!selected || note === storedPeriodNote(run)) {
+      noteDrafts.delete(run);
+      return;
+    }
+    noteDrafts.delete(run);
+    savePeriodNote(run, note);
+    void publishPeriodShare(run);
   }
 
-  /**
-   * @param {string} run
-   * @param {string} action
-   * @param {string} raw
-   */
-  function savePunchNote(run, action, raw) {
-    if (!selected || (action !== 'in' && action !== 'out')) return;
+  function savePeriodNote(run, raw) {
+    if (!selected) return;
     const note = assertNote(String(raw || '').slice(0, NOTE_MAX));
-    const existing = punchesAlreadyThere(action, run);
-    const punch = existing[existing.length - 1];
-    if (!punch || String(punch.note || '') === note) return;
+    writePeriod(run, { note });
+  }
+
+  function savePeriodReasons(run, codes) {
+    if (!selected) return;
+    writePeriod(run, { reasonCodes: codes });
+  }
+
+  function writePeriod(run, change) {
+    if (!selected) return;
+    const slot = clockSlot(run);
+    if (!slot.run) return;
     const next = state();
-    next.punches = (Array.isArray(next.punches) ? next.punches : []).map((item) =>
-      item.id === punch.id ? { ...item, note } : item
-    );
+    const punches = applyPeriodNote(Array.isArray(next.punches) ? next.punches : [], {
+      driverName: selected.name,
+      run: slot.run,
+      extraIndex: slot.run === 'OTHER' ? slot.extraIndex : undefined,
+      date: localDateKey(new Date()),
+      ...change,
+    });
+    if (punches === next.punches) return;
+    next.punches = punches;
     writeState(next);
   }
 
@@ -4174,25 +4704,30 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
   }
 
-  /**
-   * @param {string} run
-   * @param {string} action
-   */
+  // The note saved on one punch. Phone links still follow each punch.
   function kioskNoteText(run, action) {
+    return String(currentPunch(action, run)?.note || '');
+  }
+
+  // The note the period box is showing, from both punches until the driver edits it.
+  function storedPeriodNote(run) {
+    return periodNoteText(kioskNoteText(run, 'in'), kioskNoteText(run, 'out'));
+  }
+
+  // Note to store when a punch is made. The other-work screen has its own comment.
+  function punchNote(run) {
     const panelOpen = run === 'OTHER' && kioskWork instanceof HTMLElement && kioskWork.hidden === false;
     const panel = document.querySelector('#kiosk-note-OTHER');
     if (panelOpen && panel instanceof HTMLTextAreaElement) {
-      return assertNote(panel.value.slice(0, NOTE_MAX));
+      const typed = assertNote(panel.value.slice(0, NOTE_MAX));
+      if (typed) return typed;
     }
-    const area = routeNoteField(run, action);
+    const area = routeNoteField(run);
     if (area) return assertNote(area.value.slice(0, NOTE_MAX));
-    const draft = noteDrafts.get(`${run}:${action}`);
-    return draft ? assertNote(draft.slice(0, NOTE_MAX)) : '';
+    if (noteDrafts.has(run)) return assertNote(String(noteDrafts.get(run) || '').slice(0, NOTE_MAX));
+    return assertNote(storedPeriodNote(run).slice(0, NOTE_MAX));
   }
 
-  /**
-   * @param {Array<{ id: string, label: string, minutes?: number }>} reasons
-   */
   function reasonShareKey(reasons) {
     return JSON.stringify(
       reasons.map((reason) => ({
@@ -4202,17 +4737,11 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     );
   }
 
-  /**
-   * @param {string} run
-   * @param {'in' | 'out'} action
-   */
-  function rowIsBeingEdited(run, action) {
+  function periodIsBeingEdited(run) {
     const active = document.activeElement;
-    if (!(active instanceof HTMLElement) || !(kioskCard instanceof HTMLElement)) return false;
-    if (active instanceof HTMLTextAreaElement && active.dataset.noteFor === run && active.dataset.noteAction === action) {
-      return true;
-    }
-    const box = kioskCard.querySelector(`[data-reason-for="${run}"][data-reason-action="${action}"]`);
+    if (!(active instanceof HTMLElement) || !(kioskCard instanceof HTMLElement) || !kioskCard.contains(active)) return false;
+    if (active instanceof HTMLTextAreaElement && active.dataset.noteFor === run) return true;
+    const box = kioskCard.querySelector(`[data-reason-for="${run}"]`);
     return box instanceof HTMLElement && box.contains(active);
   }
 
@@ -4249,16 +4778,10 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
   }
 
-  /**
-   * @param {string} run
-   * @param {'in' | 'out'} action
-   */
   async function openNoteShare(run, action) {
     if (!selected) return null;
-    const response = await fetch('/api/clock-note', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
+    const result = await openClockNote(
+      {
         driverName: selected.name,
         run,
         action,
@@ -4267,53 +4790,53 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
         note: kioskNoteText(run, action),
         reasons: kioskReasonCodes(run, action),
         catalog: catalog().map((code) => ({ id: code.id, label: code.label })),
-      }),
-    });
-    if (!response.ok) return null;
-    return response.json();
+      },
+      officeClient()
+    );
+    if (!result.ok) return null;
+    return result.body;
   }
 
-  /**
-   * @param {string} run
-   * @param {'in' | 'out'} action
-   * @param {{ note?: string, reasons?: Array<{ id: string, label: string, minutes?: number }> }} slot
-   */
   function applySharedNote(run, action, slot) {
-    const key = `${run}:${action}`;
     const note = String(slot.note || '');
-    noteDrafts.set(key, note);
-    const area = routeNoteField(run, action);
-    if (area && area.value !== note) area.value = note;
-    savePunchNote(run, action, note);
+    const punch = currentPunch(action, run);
+    noteDrafts.delete(run);
+    if (punch && String(punch.note || '') !== note) {
+      const next = state();
+      next.punches = (Array.isArray(next.punches) ? next.punches : []).map((item) =>
+        item.id === punch.id ? { ...item, note } : item
+      );
+      writeState(next);
+    }
     const reasons = Array.isArray(slot.reasons) ? slot.reasons : [];
     const previous = reasonShareKey(kioskReasonCodes(run, action));
-    reasonDrafts.set(key, reasonsToDraft(reasons));
-    reasonPending.delete(key);
-    const box = kioskCard?.querySelector(`[data-reason-for="${run}"][data-reason-action="${action}"]`);
-    const punchId = box instanceof HTMLElement ? box.dataset.punchId || '' : '';
-    savePunchReasons(punchId, reasons);
+    reasonDrafts.delete(run);
+    reasonPending.delete(run);
+    savePunchReasons(punch?.id || '', reasons);
+    const area = routeNoteField(run);
+    if (area && document.activeElement !== area) {
+      const shown = storedPeriodNote(run).slice(0, NOTE_MAX);
+      if (area.value !== shown) area.value = shown;
+    }
     return previous !== reasonShareKey(reasons);
   }
 
-  /**
-   * Punched rows on the open card, in the order the driver sees them.
-   * @returns {Array<{ run: string, action: 'in' | 'out', clock: string }>}
-   */
+  // Punched rows on the open card, in the order the driver sees them.
   function punchedNoteRows() {
     if (!(kioskCard instanceof HTMLElement)) return [];
-    /** @type {Array<{ run: string, action: 'in' | 'out', clock: string }>} */
     const rows = [];
-    for (const row of kioskCard.querySelectorAll('.kiosk-card-row')) {
+    for (const row of kioskCard.querySelectorAll('.kiosk-card-line')) {
       const stamp = row.querySelector('.kiosk-card-stamp');
-      const area = row.querySelector('textarea[data-note-for]');
-      if (!(stamp instanceof HTMLElement) || !(area instanceof HTMLTextAreaElement)) continue;
-      const run = area.dataset.noteFor || '';
-      const action = area.dataset.noteAction || '';
-      if (!run || (action !== 'in' && action !== 'out')) continue;
-      const clocks = [...stamp.querySelectorAll('.kiosk-punch-time span, .kiosk-punch-time s')]
+      if (!(stamp instanceof HTMLElement) || !(row instanceof HTMLElement)) continue;
+      const run = row.dataset.run || '';
+      const action = row.dataset.action || '';
+      const slot = clockSlot(run);
+      if (!slot.run || (action !== 'in' && action !== 'out')) continue;
+      if (slot.run === 'OTHER' && slot.extraIndex > 1) continue;
+      const clocks = [...stamp.querySelectorAll('.kiosk-punch-face')]
         .map((item) => item.textContent?.trim() || '')
         .filter(Boolean);
-      rows.push({ run, action: action === 'in' ? 'in' : 'out', clock: clocks.join(', ') });
+      rows.push({ run: slot.key, action: action === 'in' ? 'in' : 'out', clock: clocks.join(', ') });
     }
     return rows;
   }
@@ -4325,13 +4848,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       hideDayQr();
       return;
     }
-    let origin = '';
-    try {
-      origin = await loadShareOrigin();
-    } catch {
-      origin = '';
-    }
-    if (!origin && location.origin) origin = location.origin;
+    const origin = await loadShareOrigin();
     const url = noteDayUrl(origin, link);
     if (!url) {
       hideDayQr();
@@ -4354,15 +4871,10 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     kioskDayQr.hidden = false;
   }
 
-  /**
-   * @param {Array<{ run: string, action: 'in' | 'out', clock: string }>} rows
-   */
   async function openDayShare(rows) {
     if (!selected) return null;
-    const response = await fetch('/api/clock-note-day', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
+    const result = await openClockNoteDay(
+      {
         driverName: selected.name,
         date: localDateString(new Date()),
         editableUntil: noteEditDeadline(),
@@ -4374,10 +4886,11 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
           note: kioskNoteText(row.run, row.action),
           reasons: kioskReasonCodes(row.run, row.action),
         })),
-      }),
-    });
-    if (!response.ok) return null;
-    return response.json();
+      },
+      officeClient()
+    );
+    if (!result.ok) return null;
+    return result.body;
   }
 
   async function syncNoteShares() {
@@ -4388,6 +4901,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     let reasonsChanged = false;
     try {
       for (const slot of slots) {
+        if (periodPublishJobs.has(slot.run)) continue;
         const opened = await openNoteShare(slot.run, slot.action);
         if (!selected) return;
         if (!opened) continue;
@@ -4397,7 +4911,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
         const same =
           kioskNoteText(slot.run, slot.action) === String(opened.note || '') &&
           reasonShareKey(kioskReasonCodes(slot.run, slot.action)) === reasonShareKey(remoteReasons);
-        if (same || rowIsBeingEdited(slot.run, slot.action)) {
+        if (same || periodIsBeingEdited(slot.run) || periodPublishJobs.has(slot.run)) {
           if (same) {
             noteShareSeen.set(key, {
               revision: Number(opened.revision) || 1,
@@ -4433,10 +4947,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
   }
 
-  /**
-   * @param {string} run
-   * @param {string} action
-   */
   async function publishNoteShare(run, action) {
     if (!selected || paintingCard || applyingSharedNote || (action !== 'in' && action !== 'out')) return;
     if (!noteEditingOpen()) return;
@@ -4450,25 +4960,43 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       if (!opened?.token) return;
       noteShareTokens.set(key, String(opened.token));
       const send = (revision) =>
-        fetch(`/api/clock-note/${encodeURIComponent(opened.token)}`, {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ revision, note, reasons }),
-        });
-      let response = await send(Number(opened.revision) || 1);
-      let body = await response.json().catch(() => null);
-      if (response.status === 409 && body?.revision != null) {
-        response = await send(body.revision);
-        body = await response.json().catch(() => null);
+        saveClockNote(opened.token, { revision, note, reasons }, officeClient());
+      let result = await send(Number(opened.revision) || 1);
+      if (result.status === 409 && result.body?.revision != null) {
+        result = await send(result.body.revision);
       }
-      if (!response.ok || !body) return;
+      if (!result.ok || !result.body) return;
       noteShareSeen.set(key, {
-        revision: Number(body.revision) || 1,
-        note: String(body.note || ''),
-        reasons: reasonShareKey(Array.isArray(body.reasons) ? body.reasons : []),
+        revision: Number(result.body.revision) || 1,
+        note: String(result.body.note || ''),
+        reasons: reasonShareKey(Array.isArray(result.body.reasons) ? result.body.reasons : []),
       });
     } catch {
       // A missed phone update can be sent again the next time the note changes.
+    }
+  }
+
+  // Send the period's note to the phone links for its clock in and clock out.
+  // The clock in carries the note. The clock out link is cleared so it does not keep a second copy.
+  async function publishPeriodShare(run) {
+    const slot = clockSlot(run);
+    if (!slot.run) return;
+    if (slot.run === 'OTHER' && slot.extraIndex > 1) return;
+    const existing = periodPublishJobs.get(run);
+    if (existing) {
+      existing.again = true;
+      return;
+    }
+    const job = { again: false };
+    periodPublishJobs.set(run, job);
+    try {
+      do {
+        job.again = false;
+        if (currentPunch('in', run)) await publishNoteShare(run, 'in');
+        if (currentPunch('out', run)) await publishNoteShare(run, 'out');
+      } while (job.again);
+    } finally {
+      periodPublishJobs.delete(run);
     }
   }
 
@@ -4479,9 +5007,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     if (entered.length === 4) checkPin(entered);
   }
 
-  /**
-   * @param {string} entered
-   */
   function checkPin(entered) {
     if (!selected || unlocked || !/^\d{4}$/.test(entered)) return;
     if (pinFor(selected.id) !== entered) {
@@ -4494,10 +5019,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     showPunchStep();
   }
 
-  /**
-   * Stay on this driver's punch card after a punch.
-   * @param {string} [message]
-   */
+  // Stay on this driver's punch card after a punch.
   function returnToPunchCard(message) {
     if (!selected) {
       showList();
@@ -4515,11 +5037,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return document.querySelector('#kiosk-leave-request-panel');
   }
 
-  /**
-   * @param {{ clockRuns?: string[], clockIns?: string[] } | null | undefined} person
-   */
   function clockByRunFor(person) {
-    /** @type {Record<string, string>} */
     const clocks = {};
     const runs = Array.isArray(person?.clockRuns) ? person.clockRuns : [];
     const times = Array.isArray(person?.clockIns) ? person.clockIns : [];
@@ -4530,12 +5048,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return clocks;
   }
 
-  /**
-   * @param {string} dateKey
-   * @returns {Record<'AM' | 'MIDDAY' | 'PM', number | null>}
-   */
   function contractedFor(dateKey) {
-    /** @type {Record<'AM' | 'MIDDAY' | 'PM', number | null>} */
     const empty = { AM: null, MIDDAY: null, PM: null };
     if (!selected || typeof contractedMinutes !== 'function') return empty;
     try {
@@ -4550,9 +5063,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     return empty;
   }
 
-  /**
-   * @param {string} message
-   */
   function setLeaveRequestError(message) {
     const error = document.querySelector('#kiosk-leave-request-error');
     if (!error) return;
@@ -4560,9 +5070,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     error.textContent = message || '';
   }
 
-  /**
-   * @param {number} minutes
-   */
   function fillLeaveHours(minutes) {
     const parts = leaveTimeParts(minutes);
     const hours = document.querySelector('#kiosk-leave-request-hours');
@@ -4617,9 +5124,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     if (wasOpen) focusNextPunch();
   }
 
-  /**
-   * @param {string} [run]
-   */
   function openLeaveRequest(run) {
     if (!LEAVE_REQUESTS_ENABLED) return;
     const panel = leaveRequestPanel();
@@ -4689,82 +5193,61 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     showPunchConfirm(name, detail);
   }
 
-  /**
-   * @param {'in' | 'out'} action
-   * @param {string} run
-   * @param {boolean} [confirmed]
-   */
   function punch(action, run, confirmed = false) {
     if (!selected || !unlocked) return;
-    const chosen = normalizePunchRun(run);
+    const slot = clockSlot(run);
     const error = document.querySelector('#kiosk-run-error');
-    const workError = document.querySelector('#kiosk-work-error');
-    if (!chosen) {
+    if (!slot.run) {
       if (error) {
         error.hidden = false;
         error.textContent = 'Choose AM route, Mid day route, PM route, or Other.';
       }
       return;
     }
-    const workType = chosen === 'OTHER' ? chosenWorkType() : '';
-    if (chosen === 'OTHER' && !workType) {
-      if (workError) {
-        workError.hidden = false;
-        workError.textContent = 'Choose the kind of work.';
-      }
-      return;
-    }
-    const tripTicket = workType === TRIP_TICKET_WORK_TYPE
-      ? normalizeTripTicket(kioskTripTicket instanceof HTMLInputElement ? kioskTripTicket.value : '')
-      : '';
-    if (workType === TRIP_TICKET_WORK_TYPE && !tripTicket) {
-      if (workError) {
-        workError.hidden = false;
-        workError.textContent = 'Enter the trip ticket number.';
-      }
-      if (kioskTripTicket instanceof HTMLInputElement) kioskTripTicket.focus();
-      return;
-    }
-    const existing = punchesAlreadyThere(action, chosen);
+    const existing = punchesAlreadyThere(action, slot.key);
     if (!confirmed && existing.length) {
-      openReplaceConfirm(action, chosen, existing);
+      openReplaceConfirm(action, slot.key, existing);
       return;
     }
     closeReplaceConfirm();
-    const payStatus = payStatusForSelected(chosen);
+    const payStatus = payStatusForSelected(slot.run);
+    const note = punchNote(slot.key);
+    const reasons = fieldReasonCodes(slot.key);
     const next = state();
     const punches = Array.isArray(next.punches) ? next.punches : [];
-    /** @type {{ id: string, driver_name: string, action: 'in' | 'out', punched_at: string, note: string, reason_codes: object[], run: 'AM' | 'MIDDAY' | 'PM' | 'OTHER', pay_status?: string, substitute_name?: string }} */
     const record = {
       id: crypto.randomUUID(),
       driver_name: selected.name,
       action,
       punched_at: new Date().toISOString(),
-      note: kioskNoteText(chosen, action),
-      reason_codes: kioskReasonCodes(chosen, action),
-      run: chosen,
+      note: '',
+      reason_codes: [],
+      run: slot.run,
     };
-    if (workType) record.work_type = workType;
-    if (tripTicket) record.trip_ticket = tripTicket;
+    if (slot.run === 'OTHER' && slot.extraIndex >= 2) record.extra_index = slot.extraIndex;
     if (payStatus) record.pay_status = payStatus;
     if (substituteName) record.substitute_name = substituteName;
-    noteDrafts.delete(`${chosen}:${action}`);
-    reasonDrafts.delete(`${chosen}:${action}`);
-    reasonPending.delete(`${chosen}:${action}`);
-    if (chosen === 'OTHER') {
-      const panel = document.querySelector('#kiosk-note-OTHER');
-      if (panel instanceof HTMLTextAreaElement) panel.value = '';
-    }
-    next.punches = [...punches, record];
-    if (action === 'in' && (chosen === 'AM' || chosen === 'MIDDAY' || chosen === 'PM')) {
+    noteDrafts.delete(slot.key);
+    reasonDrafts.delete(slot.key);
+    reasonPending.delete(slot.key);
+    next.punches = applyPeriodNote([...punches, record], {
+      driverName: selected.name,
+      run: slot.run,
+      extraIndex: slot.run === 'OTHER' ? slot.extraIndex : undefined,
+      date: localDateKey(new Date(record.punched_at)),
+      note,
+      reasonCodes: reasons,
+    });
+    if (action === 'in' && (slot.run === 'AM' || slot.run === 'MIDDAY' || slot.run === 'PM')) {
       next.leaveRequests = dropLeaveForClockIn(next.leaveRequests, {
         driver_name: selected.name,
         date: localDateString(new Date(record.punched_at)),
-        run: chosen,
+        run: slot.run,
       });
       next.drivers = applyLeaveRequests(next.drivers, next.leaveRequests);
     }
     writeState(next);
+    void publishPeriodShare(slot.key);
     if (selected) paintDriverHeading(selected);
     playPunchSound(
       punchSoundFor(
@@ -4772,15 +5255,12 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
         action === 'in' ? DEFAULT_PUNCH_SOUND_IN : DEFAULT_PUNCH_SOUND_OUT
       )
     );
-    const displayName = substituteName || selected.name;
     const verb = action === 'in' ? 'Clocked in' : 'Clocked out';
     const when = punchDisplayClock(new Date(record.punched_at));
-    const routeLabel = workType ? workTypeLabel(workType) : punchRunLabel(chosen);
-    const ticketNote = tripTicketLine(tripTicket);
-    const detailParts = ticketNote ? `${routeLabel} · ${ticketNote}` : routeLabel;
+    const routeLabel = slot.run === 'OTHER' ? 'Extra' : punchRunLabel(slot.run);
     const detail = substituteName
-      ? `${verb} at ${when} for ${selected.name} · ${detailParts}`
-      : `${verb} at ${when} · ${detailParts}`;
+      ? `${verb} at ${when} for ${selected.name} · ${routeLabel}`
+      : `${verb} at ${when} · ${routeLabel}`;
     returnToPunchCard(detail);
   }
 
@@ -4813,10 +5293,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     holdBack();
   }
 
-  /**
-   * @param {string} message
-   * @param {boolean} [isError]
-   */
   function setScreenStatus(message, isError = false) {
     if (!screenStatus) return;
     screenStatus.hidden = !message;
@@ -4829,9 +5305,9 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     screenList?.replaceChildren();
   }
 
-  /** Set only after the office lock code matches, so a dropped full screen comes back. */
+  // Set only after the office lock code matches, so a dropped full screen comes back.
   let releaseFullscreen = false;
-  /** True once this visit has filled the screen. A refresh keeps the same intent. */
+  // True once this visit has filled the screen. A refresh keeps the same intent.
   let wantsFullscreen = false;
   const FULL_KEY = 'timeclock-fullscreen';
 
@@ -4860,10 +5336,8 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     kioskRefill.hidden = true;
   }
 
-  /**
-   * Chrome and Edge will ignore Escape while this lock is held.
-   * Holding Escape for about two seconds still leaves; that part belongs to the browser.
-   */
+  // Chrome and Edge will ignore Escape while this lock is held.
+  // Holding Escape for about two seconds still leaves; that part belongs to the browser.
   async function lockFullscreenEscape() {
     const lock = navigator.keyboard?.lock;
     if (typeof lock !== 'function' || !activeFullscreenElement()) return;
@@ -4953,9 +5427,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     syncFullscreenHold();
   }
 
-  /**
-   * @param {object | null} screen
-   */
   function openTimeclockWindow(screen) {
     const placed = Boolean(screen);
     const opened = window.open(
@@ -4985,9 +5456,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     );
   }
 
-  /**
-   * @param {object[]} screens
-   */
   function showScreenChoices(screens) {
     if (!screenChoices || !screenList) {
       openTimeclockWindow(screens[0] || null);
@@ -5023,7 +5491,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       openTimeclockWindow(null);
       return;
     }
-    /** @type {{ screens?: object[], currentScreen?: object } | undefined} */
     let details;
     try {
       details = await window.getScreenDetails();
@@ -5046,9 +5513,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     showScreenChoices(others);
   }
 
-  /**
-   * @param {{ fill?: boolean }} [options]
-   */
   async function startKiosk({ fill = true } = {}) {
     sessionStorage.setItem(LOCK_KEY, '1');
     kiosk.hidden = false;
@@ -5099,6 +5563,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     fillLockField();
     fillPaperBackupReminder();
     fillLateFlash();
+    fillSchoolYear();
     fillEarlyRelease();
     fillQuarterClocks();
     fillOvertimeRules();
@@ -5109,7 +5574,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     fillNameSize();
     fillPunchSounds();
     applyNameSize();
-    fillPinDrivers();
     renderPinList();
     renderSubstituteList();
     renderReasonList();
@@ -5146,27 +5610,15 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   return { refresh };
 }
 
-/**
- * @param {string[]} routes
- */
 function sortedRoutes(routes) {
   return [...routes].filter(Boolean).sort(compareRouteNumbers);
 }
 
-/**
- * @param {string[]} routes
- */
 function routeParen(routes) {
   const names = sortedRoutes(routes);
   return names.length ? `(${names.join(', ')})` : '';
 }
 
-/**
- * @param {{ name: string, routes: string[] }} person
- * @param {string} substitute
- * @param {'in' | 'out'} status
- * @param {{ run?: string, punched_at?: string }} [punch]
- */
 function spokenName(person, substitute, status, punch) {
   const routes = sortedRoutes(person.routes);
   const routeBit = routes.length ? `, route ${routes.join(', ')}` : '';
@@ -5175,11 +5627,6 @@ function spokenName(person, substitute, status, punch) {
   return `${person.name}${stateBit}${routeBit}`;
 }
 
-/**
- * @param {HTMLElement} label
- * @param {{ name: string, routes: string[] }} person
- * @param {string} substitute
- */
 function fillNameLabel(label, person, substitute) {
   label.replaceChildren();
   const regular = document.createElement('span');
@@ -5204,27 +5651,17 @@ function fillNameLabel(label, person, substitute) {
   }
 }
 
-/**
- * @param {number} a
- * @param {number} b
- */
 function hueDistance(a, b) {
   const diff = Math.abs(a - b) % 360;
   return Math.min(diff, 360 - diff);
 }
 
-/**
- * @param {{ background: string, look: string, border: string, alt: string }} paint
- */
 function nameStyleKey(paint) {
   return `${paint.background}|${paint.look}|${paint.border}|${paint.alt}`;
 }
 
-/**
- * Pick an unused palette slot whose fill stays far from colors already in use,
- * and whose border drawing is not already paired with that fill.
- * @param {Set<number>} used
- */
+// Pick an unused palette slot whose fill stays far from colors already in use,
+// and whose border drawing is not already paired with that fill.
 function nextColorIndex(used) {
   const usedPaints = [...used].map((index) => nameButtonColors(index));
   const usedKeys = new Set(usedPaints.map((paint) => nameStyleKey(paint)));
@@ -5251,7 +5688,7 @@ function nextColorIndex(used) {
   return 0;
 }
 
-/** Border drawings. The fill color stays on its own palette. */
+// Border drawings. The fill color stays on its own palette.
 const NAME_BORDER_LOOKS = [
   'solid',
   'double',
@@ -5267,7 +5704,7 @@ const NAME_BORDER_LOOKS = [
   'outset',
 ];
 
-/** Bold pairs so a border does not just repeat the button's fill. */
+// Bold pairs so a border does not just repeat the button's fill.
 const NAME_BORDER_PAIRS = [
   ['#1b3a4b', '#e85d04'],
   ['#3d1e6d', '#f4d35e'],
@@ -5283,13 +5720,7 @@ const NAME_BORDER_PAIRS = [
   ['#3c096c', '#ff9e00'],
 ];
 
-/**
- * Painted edge for stripe, hash, band, and conic borders.
- * @param {string} look
- * @param {string} border
- * @param {string} alt
- * @param {number} index
- */
+// Painted edge for stripe, hash, band, and conic borders.
 function nameBorderFrame(look, border, alt, index) {
   const angle = 15 + (index % 8) * 18;
   const band = 4 + (index % 3);
@@ -5322,12 +5753,9 @@ function nameBorderFrame(look, border, alt, index) {
   return { image: 'none', image2: 'none' };
 }
 
-/**
- * Each index gets its own fill and its own border colors plus drawing.
- * The same border drawing is not reused until every look and color pair has been used,
- * and then the fill is on the opposite side of the color wheel.
- * @param {number} index
- */
+// Each index gets its own fill and its own border colors plus drawing.
+// The same border drawing is not reused until every look and color pair has been used,
+// and then the fill is on the opposite side of the color wheel.
 export function nameButtonColors(index) {
   const lookCount = NAME_BORDER_LOOKS.length;
   const pairCount = NAME_BORDER_PAIRS.length;
@@ -5363,13 +5791,9 @@ function readStoredNameColors() {
   }
 }
 
-/**
- * Keep a stable color for each driver. New people get a free color; saved ones stay put.
- * @param {Array<{ id: string, name: string }>} drivers
- */
+// Keep a stable color for each driver. New people get a free color; saved ones stay put.
 function ensureNameColors(drivers) {
   const stored = readStoredNameColors();
-  /** @type {Map<string, number>} */
   const assigned = new Map();
   const used = new Set();
   const usedKeys = new Set();

@@ -37,6 +37,12 @@ function resolutionSentence(row, next, asOf) {
   const when = row.contracted?.becomes_on;
   const how = howPhrase(row);
 
+  if (status === 'side_countdown') {
+    return when
+      ? `Its own countdown runs through ${prettyDate(when)}. The bid date does not move.`
+      : 'It runs its own countdown. The bid date does not move.';
+  }
+
   if (status === 'superseded') {
     return next?.date
       ? `It resolved on ${prettyDate(next.date)}, replaced by a later change.`

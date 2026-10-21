@@ -1,8 +1,3 @@
-/**
- * Office clock. A signed-in person records a driver's clock in or clock out.
- * The records stay on the shared office and feed the payroll spreadsheet.
- */
-
 import { addOfficePunch, assignClockPeriodPay, changeOfficePunch, removeOfficePunch } from '../src/officePunches.js';
 import { formatTimecardMinutes, normalizeTimecardEntries, timecardSummary } from '../src/timecardEntries.js';
 import { pairClockPunches, punchRunLabel, replacedClockPunchIds } from '../../src/logic/timesheets.js';
@@ -19,17 +14,6 @@ import {
 } from '../src/driverPay.js';
 import { compareRouteNumbers, driversFromState } from './store.js';
 
-/**
- * @param {{
- *   readState: () => { punches?: object[], profiles?: object },
- *   writePunches: (punches: object[]) => void,
- *   listNames: () => string[],
- *   asOf?: () => string,
- *   readAccount?: () => { id?: string, name?: string } | null,
- *   onOpenHistory?: (name: string) => void,
- *   saveDriverPay?: (driver: object, fields: { serial?: string, rate?: string, payStatuses?: string[], payStatusByRun?: object }) => Promise<void> | void,
- * }} options
- */
 export function mountClockDesk({ readState, writePunches, listNames, asOf, readAccount, onOpenHistory, saveDriverPay }) {
   const driverSelect = document.querySelector('#clock-driver');
   const timeInput = document.querySelector('#clock-time');
@@ -69,22 +53,16 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
   const clockingSheet = document.querySelector('#clocking-driver-sheet');
   const clockingSheetTitle = document.querySelector('#clocking-driver-sheet-title');
   const clockingSheetRoutes = document.querySelector('#clocking-driver-sheet-routes');
-  /** @type {string[]} */
   let draftReasonIds = [];
-  /** @type {string} */
   let openDriver = '';
   let factsDriver = '';
   let editingId = '';
   let removingId = '';
   let payEditingId = '';
-  /** @type {{ time: string, action: string, note: string, reasonIds: string[], adminNote: string, adminName: string } | null} */
   let editDraft = null;
-  /** @type {{ payStatus: string, portions: Array<{ start: string, end: string, payStatus: string }>, adminNote: string, adminName: string } | null} */
   let payDraft = null;
-  /** @type {{ adminNote: string, adminName: string }} */
   let removeDraft = { adminNote: '', adminName: '' };
   let officeName = '';
-  /** @type {string} */
   let focusSelector = '';
 
   function driversMode() {
@@ -227,7 +205,6 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
 
   function routesFor(name) {
     const wanted = String(name || '').trim().toLowerCase();
-    /** @type {string[]} */
     const routes = [];
     for (const profile of Object.values(readState()?.profiles || {})) {
       if (String(profile?.driver_name || '').trim().toLowerCase() !== wanted) continue;
@@ -287,7 +264,7 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
       (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })
     );
     if (openDriver && !names.some((name) => name === openDriver)) openDriver = '';
-    fillDriverList(driverList, driverSummary, 'Drivers', names);
+    fillDriverList(driverList, driverSummary, 'Driver Clock Records', names);
     fillDriverList(clockingDriverList, clockingDriverSummary, 'Clock records', names, true);
   }
 
@@ -359,10 +336,8 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     input.dataset.payField = field;
     input.value = value;
     input.setAttribute('aria-label', label);
-    if (field === 'serial') input.maxLength = 20;
     if (field === 'rate') {
       input.inputMode = 'decimal';
-      input.maxLength = 7;
       input.placeholder = '0.00';
     }
     name.append(input);
@@ -435,11 +410,6 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     driverFacts.append(statuses);
   }
 
-  /**
-   * @param {HTMLElement} parent
-   * @param {NonNullable<ReturnType<typeof openPayDriver>>} driver
-   * @param {Array<{ id: string, label: string }>} choices
-   */
   function appendClockInPayMap(parent, driver, choices) {
     if (choices.length < 2) {
       const note = document.createElement('p');
@@ -474,9 +444,6 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     parent.append(grid);
   }
 
-  /**
-   * @param {HTMLSelectElement} select
-   */
   function savePayStatusRun(select) {
     const driver = openPayDriver();
     if (!driver) return;
@@ -498,9 +465,6 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     );
   }
 
-  /**
-   * @param {HTMLInputElement} input
-   */
   function commitPayField(input) {
     const driver = openPayDriver();
     if (!driver || !saveDriverPay) return;
@@ -553,12 +517,6 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     savePay(driver, { payStatuses: next }, `${removed?.label || 'Pay status'} removed for ${driver.name}.`, true);
   }
 
-  /**
-   * @param {NonNullable<ReturnType<typeof openPayDriver>>} driver
-   * @param {{ serial?: string, rate?: string, payStatuses?: string[], payStatusByRun?: object }} fields
-   * @param {string} message
-   * @param {boolean} [redraw]
-   */
   function savePay(driver, fields, message, redraw = false) {
     try {
       const pending = saveDriverPay?.(driver, fields);
@@ -810,7 +768,6 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
   }
 
   function actorControls(draft, dataset) {
-    /** @type {HTMLElement[]} */
     const nodes = [];
     const signedIn = signedInName();
     if (!signedIn) {
@@ -1198,7 +1155,6 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
       hint.textContent = `${payStatusName(choices[0]?.id) || 'This pay status'} is used for the whole period.`;
       wholeField.append(hint);
     }
-    /** @type {HTMLElement[]} */
     const portionNodes = [];
     if (choices.length > 1 && pair) {
       const block = document.createElement('div');
@@ -1349,7 +1305,6 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
         const kept = previous.get(id);
         const source = fromList || kept;
         if (!source) return null;
-        /** @type {{ id: string, label: string, minutes?: number }} */
         const next = { id: source.id, label: source.label };
         const minutes = Number(kept?.minutes);
         if (Number.isInteger(minutes) && minutes >= 0 && minutes <= 24 * 60) next.minutes = minutes;
@@ -1534,7 +1489,7 @@ export function mountClockDesk({ readState, writePunches, listNames, asOf, readA
     if (!onPayroll && !onClocking) return;
     const inDriversWindow = document.body.classList.contains('is-drivers-window');
     if (inDriversWindow) {
-      const windowLabel = driversMode() === 'clocking' ? 'Clock records' : 'Drivers';
+      const windowLabel = driversMode() === 'clocking' ? 'Clock records' : 'Driver Clock Records';
       document.title = openDriver
         ? `${openDriver} · ${windowLabel} · Teamster Tracker`
         : `${windowLabel} · Teamster Tracker`;

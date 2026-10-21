@@ -1,8 +1,4 @@
-/**
- * Parse a time string like "6:35" or "14:05" into minutes since midnight.
- * @param {string} time
- * @returns {number}
- */
+// Parse a time string like "6:35" or "14:05" into minutes since midnight.
 export function parseClockTime(time) {
   const trimmed = time.trim();
   const match = /^(\d{1,2}):(\d{2})$/.exec(trimmed);
@@ -17,11 +13,7 @@ export function parseClockTime(time) {
   return hours * 60 + minutes;
 }
 
-/**
- * Parse a route segment time range like "6:35-8:55".
- * @param {string} range
- * @returns {{ startMinutes: number, endMinutes: number, durationMinutes: number }}
- */
+// Parse a route segment time range like "6:35-8:55".
 export function parseTimeRange(range) {
   const trimmed = range.trim();
   const parts = trimmed.split('-');
@@ -44,29 +36,19 @@ export function parseTimeRange(range) {
   };
 }
 
-/**
- * Exact raw minute difference between old and new route durations.
- * No rounding — a genuine 7-minute shift stores as 7.
- * @param {string} previousTime
- * @param {string} newTime
- * @returns {number}
- */
+// Exact raw minute difference between old and new route durations.
+// No rounding — a genuine 7-minute shift stores as 7.
 export function computeDeltaMinutes(previousTime, newTime) {
   const previous = parseTimeRange(previousTime);
   const next = parseTimeRange(newTime);
   return next.durationMinutes - previous.durationMinutes;
 }
 
-/**
- * Exact total daily scheduled duration for one route: sum of that route's own
- * AM + MIDDAY + PM segment durations. Null segments are skipped. No rounding.
- *
- * @param {Record<'AM'|'MIDDAY'|'PM', string | null | undefined>} segments
- * @returns {number}
- */
+// Exact total daily scheduled duration for one route: sum of that route's own
+// AM + MIDDAY + PM segment durations. Null segments are skipped. No rounding.
 export function computeExactRouteDailyTotalMinutes(segments) {
   let total = 0;
-  for (const key of /** @type {const} */ (['AM', 'MIDDAY', 'PM'])) {
+  for (const key of (['AM', 'MIDDAY', 'PM'])) {
     const range = segments?.[key];
     if (!range) continue;
     total += parseTimeRange(range).durationMinutes;
@@ -74,12 +56,7 @@ export function computeExactRouteDailyTotalMinutes(segments) {
   return total;
 }
 
-/**
- * Snap a clock to the nearest quarter hour on the clock face.
- * 6:07 is 6:00. 6:08 is 6:15. 23:53 is 12:00 AM.
- * @param {string | null | undefined} clock
- * @returns {string}
- */
+// Snap a clock to the nearest quarter hour on the clock face.
 export function roundClockToQuarterHour(clock) {
   const text = String(clock ?? '').trim();
   if (!text) return '';
@@ -88,25 +65,16 @@ export function roundClockToQuarterHour(clock) {
   return formatClockMinutesFromDay(snapped % (24 * 60));
 }
 
-/**
- * @param {number} minutesSinceMidnight
- */
 function formatClockMinutesFromDay(minutesSinceMidnight) {
   const hours = Math.floor(minutesSinceMidnight / 60);
   const minutes = minutesSinceMidnight % 60;
   return `${hours}:${String(minutes).padStart(2, '0')}`;
 }
 
-/**
- * Round minutes to the nearest quarter hour for Payroll reporting only.
- *
- * Payroll rounds each run (AM, midday, PM) on its own, adds those rounded
- * minutes, then rounds that sum for the contracted daily total. Never use
- * this for stored deltas, cumulative drift, or threshold checks.
- *
- * @param {number} minutes - exact unrounded minutes (may be negative)
- * @returns {number} nearest multiple of 15
- */
+// Round minutes to the nearest quarter hour for Payroll reporting only.
+// Payroll rounds each run (AM, midday, PM) on its own, adds those rounded
+// minutes, then rounds that sum for the contracted daily total. Never use
+// this for stored deltas, cumulative drift, or threshold checks.
 export function roundToQuarterHourForPayroll(minutes) {
   if (typeof minutes !== 'number' || Number.isNaN(minutes)) {
     throw new Error(`Expected a number of minutes, got: ${minutes}`);
@@ -115,25 +83,11 @@ export function roundToQuarterHourForPayroll(minutes) {
   return Math.round(minutes / 15) * 15 || 0;
 }
 
-/**
- * Full breakdown for Payroll contracted hours (and phase-4 "see the math" UI).
- * Each run is rounded on its own. Those rounded minutes are added, and that
- * sum is rounded again for the contracted daily total.
- *
- * @param {Record<'AM'|'MIDDAY'|'PM', string | null | undefined>} segments
- * @returns {{
- *   segments: Array<{
- *     segment: string,
- *     time: string | null,
- *     duration_minutes: number | null,
- *     rounded_minutes: number | null,
- *   }>,
- *   exact_total_minutes: number,
- *   payroll_rounded_total_minutes: number,
- * }}
- */
+// Full breakdown for Payroll contracted hours (and phase-4 "see the math" UI).
+// Each run is rounded on its own. Those rounded minutes are added, and that
+// sum is rounded again for the contracted daily total.
 export function buildPayrollRoundingBreakdown(segments) {
-  const detail = /** @type {const} */ (['AM', 'MIDDAY', 'PM']).map((segment) => {
+  const detail = (['AM', 'MIDDAY', 'PM']).map((segment) => {
     const time = segments?.[segment] ?? null;
     if (!time) {
       return { segment, time: null, duration_minutes: null, rounded_minutes: null };
@@ -159,26 +113,15 @@ export function buildPayrollRoundingBreakdown(segments) {
   };
 }
 
-/**
- * Normalize a date string to YYYY-MM-DD for consistent comparisons.
- * @param {string | Date} value
- * @returns {string}
- */
-/**
- * True when a schedule row has no start date. The calendar picker stores that as null.
- * @param {unknown} value
- */
+// Normalize a date string to YYYY-MM-DD for consistent comparisons.
+// True when a schedule row has no start date. The calendar picker stores that as null.
 export function isBlankScheduleDate(value) {
   const text = value == null ? '' : String(value).trim();
   return !text || text.toLowerCase() === 'null';
 }
 
-/**
- * Date used for contract math when a schedule row's start date is null.
- * A blank date sorts with the route's established date so it stays the next row.
- * @param {unknown} value
- * @param {string} anchor
- */
+// Date used for contract math when a schedule row's start date is null.
+// A blank date sorts with the route's established date so it stays the next row.
 export function scheduleDateForMath(value, anchor) {
   const text = value == null ? '' : String(value).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;

@@ -1,15 +1,6 @@
-/**
- * Mechanical punch sounds synthesized in the browser.
- * Each clock-in sound has a related clock-out sound with a different pitch or rhythm.
- */
-
-/** @typedef {{ at: number, dur: number, gain: number, freq: number, noise?: boolean, q?: number, type?: OscillatorType, slide?: number }} SoundEvent */
-/** @typedef {{ id: string, label: string, group: string, events: SoundEvent[] }} PunchSound */
-
 const noise = (at, dur, gain, freq, q = 0.8) => ({ at, noise: true, dur, gain, freq, q });
 const tone = (at, freq, dur, gain, type = 'triangle', slide) => ({ at, freq, dur, gain, type, slide });
 
-/** @type {PunchSound[]} */
 export const PUNCH_SOUNDS = [
   {
     id: 'time-clock-stamp',
@@ -504,12 +495,8 @@ export const DEFAULT_PUNCH_SOUND_OUT = 'time-clock-release';
 
 const byId = new Map(PUNCH_SOUNDS.map((sound) => [sound.id, sound]));
 
-/**
- * A saved choice. Blank means the office has not picked one.
- * `off` is silent.
- * @param {unknown} raw
- * @returns {string}
- */
+// A saved choice. Blank means the office has not picked one.
+// `off` is silent.
 export function normalizePunchSound(raw) {
   const value = String(raw ?? '').trim().toLowerCase();
   if (value === 'off') return 'off';
@@ -517,23 +504,14 @@ export function normalizePunchSound(raw) {
   return '';
 }
 
-/**
- * The sound to play. A missing or unknown choice uses the starting sound.
- * @param {unknown} raw
- * @param {string} fallback
- */
+// The sound to play. A missing or unknown choice uses the starting sound.
 export function punchSoundFor(raw, fallback) {
   return normalizePunchSound(raw) || fallback;
 }
 
-/** @type {AudioContext | null} */
 let audioContext = null;
-/** @type {WeakMap<AudioContext, AudioBuffer>} */
 const noiseBuffers = new WeakMap();
 
-/**
- * @param {AudioContext} ctx
- */
 function sharedNoise(ctx) {
   const cached = noiseBuffers.get(ctx);
   if (cached) return cached;
@@ -545,10 +523,6 @@ function sharedNoise(ctx) {
   return buffer;
 }
 
-/**
- * @param {AudioContext} ctx
- * @param {SoundEvent[]} events
- */
 function renderRecipe(ctx, events) {
   const startAt = ctx.currentTime + 0.02;
   const master = ctx.createGain();
@@ -595,10 +569,7 @@ function renderRecipe(ctx, events) {
   }
 }
 
-/**
- * Play one catalog sound. Silent and unknown ids do nothing.
- * @param {unknown} id
- */
+// Play one catalog sound. Silent and unknown ids do nothing.
 export function playPunchSound(id) {
   const key = normalizePunchSound(id);
   const sound = key && key !== 'off' ? byId.get(key) : null;

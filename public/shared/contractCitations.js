@@ -1,50 +1,29 @@
-/**
- * Verbatim CBA excerpts keyed by citation ID.
- * `page` is the CBA printed footer number (not the PDF file page index).
- * Cover + TOC precede printed page 1, so PDF viewer pages are page + 2.
- */
+// Verbatim CBA excerpts keyed by citation ID.
+// `page` is the CBA printed footer number (not the PDF file page index).
+// Cover + TOC precede printed page 1, so PDF viewer pages are page + 2.
 
 export const CONTRACT_PDF_PATH = '/contract/Teamsters-CBA-2024-2027.pdf';
 
-/** District HR page that lists the published Teamsters Local 231 CBA. */
+// District HR page that lists the published Teamsters Local 231 CBA.
 export const CONTRACT_PUBLISHED_INDEX_URL =
   'https://www.bellinghamschools.org/about/departments/human-resources/collective-bargaining-agreements-and-salary-schedules';
 
-/**
- * Official 2024–2027 Teamsters CBA PDF hosted by Bellingham Public Schools
- * (Finalsite resource for “Teamsters Union Local 231”).
- */
+// Official 2024–2027 Teamsters CBA PDF hosted by Bellingham Public Schools
 export const CONTRACT_PUBLISHED_PDF_URL =
   'https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf';
 
-/** Printed footer page → PDF `#page=` index (cover + TOC). */
+// Printed footer page → PDF `#page=` index (cover + TOC).
 export const CONTRACT_PDF_PAGE_OFFSET = 2;
 
-/**
- * @param {number} printedPage
- * @returns {string}
- */
 export function contractPdfUrl(printedPage) {
   return `${CONTRACT_PDF_PATH}#page=${printedPage + CONTRACT_PDF_PAGE_OFFSET}`;
 }
 
-/**
- * @param {number} printedPage
- * @returns {string}
- */
 export function publishedContractPdfUrl(printedPage) {
   return `${CONTRACT_PUBLISHED_PDF_URL}#page=${printedPage + CONTRACT_PDF_PAGE_OFFSET}`;
 }
 
-/**
- * @typedef {{
- *   label: string,
- *   page: number,
- *   text: string,
- * }} ContractCitation
- */
 
-/** @type {Record<string, ContractCitation>} */
 export const contractCitations = {
   "3.01": {
     label: "Art. 3.01",

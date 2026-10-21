@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildBps2026_2027Calendar } from '../employee-tracker/src/bpsCalendar2026.js';
+import { buildBellingham2026_2027Calendar } from '../employee-tracker/src/bellinghamCalendar2026.js';
 import {
   EMPLOYEE_ROUTE_ID,
   buildEmployeeSnapshot,
@@ -135,7 +135,7 @@ describe('Force Oct 1 Contract', () => {
   });
 
   it('shows October 1 on the office schedule history for a forced change', () => {
-    const { calendar: schoolYear } = buildBps2026_2027Calendar();
+    const { calendar: schoolYear } = buildBellingham2026_2027Calendar();
     const start = '2026-09-08';
     const seeds = ['AM', 'MIDDAY', 'PM'].map((segment, index) => ({
       id: `seed-${segment}`,

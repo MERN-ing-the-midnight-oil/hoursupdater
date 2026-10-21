@@ -2172,11 +2172,7 @@ function computeDeltaMinutes(previousTime, newTime) {
 }
 function computeExactRouteDailyTotalMinutes(segments) {
   let total = 0;
-  for (
-    const key of
-    /** @type {const} */
-    ["AM", "MIDDAY", "PM"]
-  ) {
+  for (const key of ["AM", "MIDDAY", "PM"]) {
     const range = segments?.[key];
     if (!range) continue;
     total += parseTimeRange(range).durationMinutes;
@@ -2190,22 +2186,19 @@ function roundToQuarterHourForPayroll(minutes) {
   return Math.round(minutes / 15) * 15 || 0;
 }
 function buildPayrollRoundingBreakdown(segments) {
-  const detail = (
-    /** @type {const} */
-    ["AM", "MIDDAY", "PM"].map((segment) => {
-      const time = segments?.[segment] ?? null;
-      if (!time) {
-        return { segment, time: null, duration_minutes: null, rounded_minutes: null };
-      }
-      const duration_minutes = parseTimeRange(time).durationMinutes;
-      return {
-        segment,
-        time,
-        duration_minutes,
-        rounded_minutes: roundToQuarterHourForPayroll(duration_minutes)
-      };
-    })
-  );
+  const detail = ["AM", "MIDDAY", "PM"].map((segment) => {
+    const time = segments?.[segment] ?? null;
+    if (!time) {
+      return { segment, time: null, duration_minutes: null, rounded_minutes: null };
+    }
+    const duration_minutes = parseTimeRange(time).durationMinutes;
+    return {
+      segment,
+      time,
+      duration_minutes,
+      rounded_minutes: roundToQuarterHourForPayroll(duration_minutes)
+    };
+  });
   const exact_total_minutes = computeExactRouteDailyTotalMinutes(segments);
   const rounded_piece_total = detail.reduce(
     (sum, segment) => sum + (segment.rounded_minutes ?? 0),
@@ -2248,7 +2241,6 @@ function getSchoolDays(calendarOrDays) {
       return [...calendarOrDays].map(toDateString).sort();
     }
     return extractSchoolDaysFromDayList(
-      /** @type {SchoolCalendarDay[]} */
       calendarOrDays
     );
   }
@@ -2664,47 +2656,202 @@ function generateSchoolYearCalendar(rawInput) {
   };
 }
 
-// employee-tracker/src/bpsCalendar2026.js
-var BPS_2026_2027_SOURCE = {
-  name: "Boston Public Schools",
+// employee-tracker/src/bellinghamCalendar2026.js
+var BELLINGHAM_2026_2027_SOURCE = {
+  name: "Bellingham Public Schools",
   school_year: "2026-2027",
-  document: "SY26-27 BPS District Calendar",
-  url: "https://www.bostonpublicschools.org"
+  document: "2026-27 District Calendar",
+  url: "https://www.bellinghamschools.org/calendar"
 };
-var BPS_2026_2027_INPUT = {
+var BELLINGHAM_2026_2027_INPUT = {
   school_year: "2026-2027",
-  first_day: "2026-09-08",
-  last_day: "2027-06-22",
+  first_day: "2026-08-31",
+  last_day: "2027-06-11",
   breaks: [
-    { start: "2026-11-26", end: "2026-11-27", label: "Thanksgiving Recess" },
-    { start: "2026-12-24", end: "2027-01-01", label: "Winter Recess" },
-    { start: "2027-02-16", end: "2027-02-19", label: "February Recess" },
-    { start: "2027-04-20", end: "2027-04-23", label: "Spring Recess" }
+    { start: "2026-09-18", end: "2026-09-18", label: "Teacher workday" },
+    { start: "2026-12-21", end: "2027-01-01", label: "Winter break" },
+    { start: "2027-01-22", end: "2027-01-22", label: "Treaty Day" },
+    { start: "2027-01-25", end: "2027-01-25", label: "Semester break" },
+    { start: "2027-04-05", end: "2027-04-09", label: "Spring break" },
+    { start: "2027-05-21", end: "2027-05-21", label: "No school or weather makeup day" }
   ],
   holidays: [
     { date: "2026-09-07", label: "Labor Day" },
-    { date: "2026-10-12", label: "Indigenous Peoples\u2019 Day" },
     { date: "2026-11-11", label: "Veterans Day" },
-    { date: "2027-01-04", label: "Teachers/paras report (students off)" },
+    { date: "2026-11-26", label: "Thanksgiving" },
+    { date: "2026-11-27", label: "Thanksgiving" },
     { date: "2027-01-18", label: "Martin Luther King Jr. Day" },
-    { date: "2027-02-15", label: "Presidents\u2019 Day" },
-    { date: "2027-03-26", label: "Good Friday" },
-    { date: "2027-04-19", label: "Patriots\u2019 Day" },
+    { date: "2027-02-15", label: "Presidents Day" },
     { date: "2027-05-31", label: "Memorial Day" },
-    { date: "2027-06-18", label: "Juneteenth (observed)" }
+    { date: "2027-06-18", label: "Juneteenth" }
   ]
 };
-function buildBps2026_2027Calendar() {
-  const { calendar, summary } = generateSchoolYearCalendar(BPS_2026_2027_INPUT);
+function buildBellingham2026_2027Calendar() {
+  const { calendar, summary } = generateSchoolYearCalendar(BELLINGHAM_2026_2027_INPUT);
   return {
     calendar: {
       ...calendar,
-      district: BPS_2026_2027_SOURCE.name,
-      source_document: BPS_2026_2027_SOURCE.document
+      district: BELLINGHAM_2026_2027_SOURCE.name,
+      source_document: BELLINGHAM_2026_2027_SOURCE.document
     },
     summary,
-    source: BPS_2026_2027_SOURCE
+    source: BELLINGHAM_2026_2027_SOURCE
   };
+}
+
+// src/logic/schoolYear.js
+var LABEL_MAX = 80;
+var YEAR_LABEL_MAX = 40;
+var MONTHS = {
+  jan: 1,
+  january: 1,
+  feb: 2,
+  february: 2,
+  mar: 3,
+  march: 3,
+  apr: 4,
+  april: 4,
+  may: 5,
+  jun: 6,
+  june: 6,
+  jul: 7,
+  july: 7,
+  aug: 8,
+  august: 8,
+  sep: 9,
+  sept: 9,
+  september: 9,
+  oct: 10,
+  october: 10,
+  nov: 11,
+  november: 11,
+  dec: 12,
+  december: 12
+};
+function isoFromParts(year, month, day) {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return "";
+  let fullYear = year;
+  if (fullYear < 100) fullYear += 2e3;
+  if (fullYear < 2e3 || fullYear > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return "";
+  const iso = `${fullYear}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const parsed = /* @__PURE__ */ new Date(`${iso}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== iso) return "";
+  return iso;
+}
+function takeDate(text) {
+  const source = String(text ?? "").trim();
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})\b/.exec(source);
+  if (isoMatch) {
+    const iso = isoFromParts(Number(isoMatch[1]), Number(isoMatch[2]), Number(isoMatch[3]));
+    if (!iso) return null;
+    return { iso, rest: source.slice(isoMatch[0].length).trim() };
+  }
+  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/.exec(source);
+  if (slash) {
+    const iso = isoFromParts(Number(slash[3]), Number(slash[1]), Number(slash[2]));
+    if (!iso) return null;
+    return { iso, rest: source.slice(slash[0].length).trim() };
+  }
+  const named = /^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})\b/.exec(source);
+  if (named) {
+    const month = MONTHS[named[1].toLowerCase()];
+    if (!month) return null;
+    const iso = isoFromParts(Number(named[3]), month, Number(named[2]));
+    if (!iso) return null;
+    return { iso, rest: source.slice(named[0].length).trim() };
+  }
+  return null;
+}
+function eachDate(start, end) {
+  const dates = [];
+  const cursor = /* @__PURE__ */ new Date(`${start}T00:00:00.000Z`);
+  const last = /* @__PURE__ */ new Date(`${end}T00:00:00.000Z`);
+  while (cursor <= last) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+function yearLabel(startYear, endYear) {
+  return startYear === endYear ? String(startYear) : `${startYear}-${endYear}`;
+}
+function cleanLabel(raw) {
+  return String(raw ?? "").trim().replace(/\s+/g, " ").slice(0, LABEL_MAX);
+}
+function normalizeSchoolYear(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const source = raw;
+  const first = takeDate(String(source.first_day ?? ""));
+  const last = takeDate(String(source.last_day ?? ""));
+  if (!first || first.rest || !last || last.rest || last.iso < first.iso) return null;
+  const bounds = defaultCoverageWindow(first.iso, last.iso);
+  const holidays = [];
+  const breaks = [];
+  const noSchool = [];
+  const early = [];
+  const seen = /* @__PURE__ */ new Set();
+  const addDay = (date, label, bucket) => {
+    const parsed = takeDate(String(date ?? ""));
+    if (!parsed || parsed.rest || parsed.iso < bounds.coverage_start || parsed.iso > bounds.coverage_end || seen.has(parsed.iso)) {
+      return;
+    }
+    seen.add(parsed.iso);
+    bucket.push({ date: parsed.iso, label: cleanLabel(label) });
+  };
+  for (const item of Array.isArray(source.holidays) ? source.holidays : []) {
+    if (!item || typeof item !== "object") continue;
+    addDay(item.date, item.label, holidays);
+  }
+  for (const item of Array.isArray(source.breaks) ? source.breaks : []) {
+    if (!item || typeof item !== "object") continue;
+    const start = takeDate(String(item.start ?? ""));
+    const end = takeDate(String(item.end ?? ""));
+    if (!start || start.rest || !end || end.rest || end.iso < start.iso) continue;
+    if (start.iso < bounds.coverage_start || end.iso > bounds.coverage_end) continue;
+    const covered = eachDate(start.iso, end.iso);
+    if (covered.some((date) => seen.has(date))) continue;
+    for (const date of covered) seen.add(date);
+    breaks.push({ start: start.iso, end: end.iso, label: cleanLabel(item.label) });
+  }
+  for (const item of Array.isArray(source.no_school) ? source.no_school : []) {
+    if (!item || typeof item !== "object") continue;
+    addDay(item.date, item.label, noSchool);
+  }
+  for (const item of Array.isArray(source.early_release) ? source.early_release : []) {
+    if (typeof item === "string") addDay(item, "", early);
+    else if (item && typeof item === "object") addDay(item.date, item.label, early);
+  }
+  const startYear = Number(first.iso.slice(0, 4));
+  const endYear = Number(last.iso.slice(0, 4));
+  const written = String(source.school_year ?? "").trim().replace(/\s+/g, " ");
+  return {
+    school_year: written && written.length <= YEAR_LABEL_MAX ? written : yearLabel(startYear, endYear),
+    first_day: first.iso,
+    last_day: last.iso,
+    holidays: holidays.sort((a, b) => a.date.localeCompare(b.date)),
+    breaks: breaks.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end)),
+    no_school: noSchool.sort((a, b) => a.date.localeCompare(b.date)),
+    early_release: early.sort((a, b) => a.date.localeCompare(b.date)),
+    early_release_thursdays: source.early_release_thursdays === true
+  };
+}
+function schoolYearGeneration(year) {
+  const current = normalizeSchoolYear(year);
+  if (!current) throw new Error("Enter a school year first.");
+  return generateSchoolYearCalendar({
+    school_year: current.school_year,
+    first_day: current.first_day,
+    last_day: current.last_day,
+    holidays: current.holidays,
+    breaks: [
+      ...current.breaks,
+      ...current.no_school.map((day) => ({
+        start: day.date,
+        end: day.date,
+        label: day.label || "No school"
+      }))
+    ]
+  });
 }
 
 // employee-tracker/src/clockTimes.js
@@ -2775,8 +2922,7 @@ function buildSeeTheMathFromSegments(before_segments, after_segments) {
   const schedule_changed = before.exact_total_minutes !== after.exact_total_minutes;
   let statement;
   if (contracted_hours_changed) {
-    const sign = contracted_hours_delta_minutes > 0 ? "+" : "";
-    statement = `Contracted hours changed by ${sign}${contracted_hours_delta_minutes} minutes (${before.payroll_rounded_total_minutes} \u2192 ${after.payroll_rounded_total_minutes}).`;
+    statement = `Contracted hours changed from ${formatContractHours(before.payroll_rounded_total_minutes)} to ${formatContractHours(after.payroll_rounded_total_minutes)} (${formatSignedContractHours(contracted_hours_delta_minutes)}).`;
   } else if (schedule_changed) {
     statement = `Schedule changed (exact total ${before.exact_total_minutes} \u2192 ${after.exact_total_minutes} minutes), but contracted hours did not change because both totals round to the same quarter-hour figure (${after.payroll_rounded_total_minutes} minutes).`;
   } else {
@@ -2789,6 +2935,30 @@ function buildSeeTheMathFromSegments(before_segments, after_segments) {
     contracted_hours_changed,
     contracted_hours_delta_minutes
   };
+}
+function formatContractHours(minutes) {
+  const sign = minutes < 0 ? "\u2212" : "";
+  const abs = Math.abs(minutes);
+  const hours = Math.floor(abs / 60);
+  const mins = abs % 60;
+  if (hours === 0) return `${sign}${mins} min`;
+  if (mins === 0) return `${sign}${hours} hr`;
+  return `${sign}${hours} hr ${mins} min`;
+}
+function formatSignedContractHours(minutes) {
+  if (minutes === 0) return "0 min";
+  const sign = minutes > 0 ? "+" : "\u2212";
+  return `${sign}${formatContractHours(Math.abs(minutes))}`;
+}
+function describeOpenWindowContractHours(currentMinutes, predictedMinutes) {
+  const current = formatContractHours(currentMinutes);
+  const predicted = formatContractHours(predictedMinutes);
+  const delta = predictedMinutes - currentMinutes;
+  if (delta === 0) {
+    return `Predicted contracted hours stay ${predicted}, the same as the current contracted hours. The latest logged change did not move the rounded total.`;
+  }
+  const direction = delta > 0 ? "up" : "down";
+  return `Predicted contracted hours are ${predicted}, ${direction} from the current contracted hours of ${current} (${formatSignedContractHours(delta)}). This is the rounded total for the whole schedule, not the size of the latest logged change.`;
 }
 function buildChangeReport(input) {
   const math = buildSeeTheMathFromSegments(
@@ -2865,10 +3035,7 @@ function resolutionMatchesDiscrepancy(resolution, discrepancy) {
   return (resolution.causing_adjustment_id ?? null) === (discrepancy.causing_adjustment_id ?? null) && resolution.previous_finalized_status === discrepancy.previous_finalized_status && resolution.computed_status === discrepancy.computed_status;
 }
 function findMatchingNeedsReviewResolution(changeLog, routeId, discrepancy) {
-  const matches = changeLog.filter(isNeedsReviewResolutionEvent).map((entry) => (
-    /** @type {NeedsReviewResolutionEvent} */
-    entry
-  )).filter((entry) => entry.route_id === routeId).filter((entry) => resolutionMatchesDiscrepancy(entry, discrepancy)).sort((a, b) => a.resolved_at.localeCompare(b.resolved_at));
+  const matches = changeLog.filter(isNeedsReviewResolutionEvent).map((entry) => entry).filter((entry) => entry.route_id === routeId).filter((entry) => resolutionMatchesDiscrepancy(entry, discrepancy)).sort((a, b) => a.resolved_at.localeCompare(b.resolved_at));
   return matches.at(-1) ?? null;
 }
 function resolveDriverAssignment(changeLog, routeId, asOfTimestamp) {
@@ -2880,10 +3047,7 @@ function resolveDriverAssignment(changeLog, routeId, asOfTimestamp) {
   };
   for (const entry of changeLog) {
     if (isChangeEvent(entry)) {
-      const change2 = (
-        /** @type {ChangeEvent} */
-        entry
-      );
+      const change2 = entry;
       if (change2.route_id !== routeId) continue;
       const at = change2.submitted_at;
       if (!at || at > asOfTimestamp) continue;
@@ -2898,10 +3062,7 @@ function resolveDriverAssignment(changeLog, routeId, asOfTimestamp) {
       continue;
     }
     if (isReassignmentEvent(entry)) {
-      const reassignment = (
-        /** @type {ReassignmentEvent} */
-        entry
-      );
+      const reassignment = entry;
       if (reassignment.route_id !== routeId) continue;
       const at = reassignment.reassigned_at;
       if (!at || at > asOfTimestamp) continue;
@@ -2953,6 +3114,10 @@ function cloneRouteState(routeState) {
     segments: { ...routeState.segments },
     baseline_segments: { ...routeState.baseline_segments },
     contributing_change_ids: [...routeState.contributing_change_ids],
+    side_windows: (routeState.side_windows ?? []).map((side) => ({
+      ...side,
+      contributing_change_ids: [...side.contributing_change_ids ?? []]
+    })),
     pending_change_ids: [...routeState.pending_change_ids ?? []],
     review_history: [...routeState.review_history ?? []],
     change_reports: [...routeState.change_reports ?? []],
@@ -2975,6 +3140,7 @@ function createInitialRouteState(changeEvent) {
     window_rule: null,
     cumulative_drift_minutes: 0,
     contributing_change_ids: [],
+    side_windows: [],
     payroll_rounded_total_minutes: null,
     bump_decision_due_date: null,
     bump_chain_id: null,
@@ -2996,9 +3162,11 @@ function windowFinalizationOutcome(exactDrift) {
   return exactDrift > 0 ? "BID_PENDING" : "BUMP_ELIGIBLE";
 }
 function applyWindowExpiration(routeState, asOfDate, options = {}) {
-  if (routeState.status !== "ACCUMULATING" && routeState.status !== "BID_PENDING" && routeState.status !== "BUMP_ELIGIBLE") {
-    return routeState;
+  const withSideWindows = expireDueSideWindows(routeState, asOfDate, options);
+  if (withSideWindows.status !== "ACCUMULATING" && withSideWindows.status !== "BID_PENDING" && withSideWindows.status !== "BUMP_ELIGIBLE") {
+    return withSideWindows;
   }
+  routeState = withSideWindows;
   if (!isWindowExpired(asOfDate, routeState.window_expires_date)) {
     return routeState;
   }
@@ -3014,11 +3182,7 @@ function applyWindowExpiration(routeState, asOfDate, options = {}) {
     const byId = /* @__PURE__ */ new Map();
     for (const entry of options.changeLog) {
       if (isChangeEvent(entry)) {
-        byId.set(
-          entry.id,
-          /** @type {ChangeEvent} */
-          entry
-        );
+        byId.set(entry.id, entry);
       }
     }
     const contributing_changes = state.contributing_change_ids.map((id) => {
@@ -3064,6 +3228,7 @@ function applyWindowExpiration(routeState, asOfDate, options = {}) {
     state.window_expires_date = null;
     state.window_rule = null;
     state.contributing_change_ids = [];
+    state.side_windows = [];
     state.bump_decision_due_date = null;
     state.bump_chain_id = null;
     state.bump_chain_link = null;
@@ -3118,17 +3283,11 @@ function resolveEffectiveDeltas(changeLog) {
   const deltas = /* @__PURE__ */ new Map();
   for (const entry of changeLog) {
     if (isChangeEvent(entry)) {
-      const change2 = (
-        /** @type {ChangeEvent} */
-        entry
-      );
+      const change2 = entry;
       deltas.set(change2.id, change2.delta_minutes);
     }
   }
-  const adjustments = changeLog.filter(isAdjustmentEvent).map((entry) => (
-    /** @type {AdjustmentEvent} */
-    entry
-  )).sort((a, b) => a.adjusted_at.localeCompare(b.adjusted_at));
+  const adjustments = changeLog.filter(isAdjustmentEvent).map((entry) => entry).sort((a, b) => a.adjusted_at.localeCompare(b.adjusted_at));
   for (const adjustment of adjustments) {
     deltas.set(adjustment.target_change_id, adjustment.new_delta);
   }
@@ -3136,6 +3295,86 @@ function resolveEffectiveDeltas(changeLog) {
 }
 function forcesOctober1Contract(changeEvent) {
   return isForcedOctober1Contract(changeEvent?.force_oct1_contract);
+}
+function sideWindowDrift(state) {
+  return (state.side_windows ?? []).reduce(
+    (sum, side) => sum + (side.drift_minutes || 0),
+    0
+  );
+}
+function keepsBidAboveThreshold(state, delta) {
+  const rule = state.window_rule;
+  if (rule !== "post_october_1_bid" && rule !== "pre_october_1_bid") {
+    return false;
+  }
+  if ((state.cumulative_drift_minutes ?? 0) < BID_THRESHOLD_MINUTES) {
+    return false;
+  }
+  const total = (state.cumulative_drift_minutes ?? 0) + sideWindowDrift(state) + delta;
+  return total >= BID_THRESHOLD_MINUTES;
+}
+function foldSideWindows(state) {
+  for (const side of state.side_windows ?? []) {
+    state.cumulative_drift_minutes += side.drift_minutes || 0;
+    state.contributing_change_ids.push(...side.contributing_change_ids ?? []);
+  }
+  state.side_windows = [];
+}
+function expireDueSideWindows(routeState, asOfDate, options = {}) {
+  const pending = routeState.side_windows ?? [];
+  if (!pending.some((side) => isWindowExpired(asOfDate, side.expires_date))) {
+    return routeState;
+  }
+  const state = cloneRouteState(routeState);
+  const keep = [];
+  for (const side of state.side_windows ?? []) {
+    if (!isWindowExpired(asOfDate, side.expires_date)) {
+      keep.push(side);
+      continue;
+    }
+    const report = buildSeparateCountdownReport(state, side, options);
+    if (report) {
+      state.change_reports = [...state.change_reports ?? [], report];
+    }
+  }
+  state.side_windows = keep;
+  return state;
+}
+function buildSeparateCountdownReport(state, side, options) {
+  if (!options.changeLog || !options.routeId) {
+    return null;
+  }
+  const ids = new Set(side.contributing_change_ids ?? []);
+  const changes = options.changeLog.filter(
+    (entry) => isChangeEvent(entry) && ids.has(entry.id)
+  );
+  if (!changes.length) {
+    return null;
+  }
+  const effectiveDeltas = options.effectiveDeltas ?? resolveEffectiveDeltas(options.changeLog);
+  const contributing_changes = changes.map((change2) => ({
+    ...change2,
+    effective_delta_minutes: effectiveDeltas.has(change2.id) ? effectiveDeltas.get(change2.id) : change2.delta_minutes
+  }));
+  const before = { ...state.segments };
+  for (const change2 of changes) {
+    if (state.segments[change2.segment] === change2.new_time) {
+      before[change2.segment] = change2.previous_time;
+    }
+  }
+  const closedOn = nextCalendarDate(side.expires_date);
+  const report = buildChangeReport({
+    route_id: options.routeId,
+    driver_name: state.driver_name,
+    driver_id: state.driver_id ?? null,
+    outcome: windowFinalizationOutcome(side.drift_minutes),
+    finalized_at: `${closedOn}T00:00:00.000Z`,
+    window_opened_date: side.opened_date,
+    before_segments: before,
+    after_segments: { ...state.segments },
+    contributing_changes
+  });
+  return { ...report, separate_countdown: true };
 }
 function applyChangeToRoute(routeState, changeEvent, schoolCalendar, asOfDate = changeEvent.effective_date, deltaOverride = void 0, options = {}) {
   const changeDate = toDateString(asOfDate);
@@ -3162,7 +3401,29 @@ function applyChangeToRoute(routeState, changeEvent, schoolCalendar, asOfDate = 
     }
     return state;
   }
+  if (!forcesOctober1Contract(changeEvent) && hasOpenAccumulationWindow(state, changeDate) && keepsBidAboveThreshold(state, delta)) {
+    const aside = contractWindowPlan(schoolCalendar, changeDate, delta);
+    state.side_windows = [
+      ...state.side_windows ?? [],
+      {
+        id: changeEvent.id,
+        opened_date: changeDate,
+        expires_date: aside.window_expires_date,
+        becomes_on: aside.becomes_effective_on,
+        rule: aside.rule,
+        drift_minutes: delta,
+        contributing_change_ids: [changeEvent.id]
+      }
+    ];
+    return applyWindowExpiration(state, changeDate, {
+      routeId: changeEvent.route_id,
+      changeLog: options.changeLog,
+      effectiveDeltas: options.effectiveDeltas,
+      schoolCalendar
+    });
+  }
   if (hasOpenAccumulationWindow(state, changeDate)) {
+    foldSideWindows(state);
     state.cumulative_drift_minutes += delta;
     state.contributing_change_ids.push(changeEvent.id);
     if ((state.status === "BID_PENDING" || state.status === "BUMP_ELIGIBLE") && Math.abs(state.cumulative_drift_minutes) < BID_THRESHOLD_MINUTES) {
@@ -3238,15 +3499,9 @@ function getPreviousFinalizedStatus(entry) {
 }
 function findCausingAdjustment(changeLog, routeId) {
   const changeIds = new Set(
-    changeLog.filter(isChangeEvent).map((entry) => (
-      /** @type {ChangeEvent} */
-      entry
-    )).filter((change2) => change2.route_id === routeId).map((change2) => change2.id)
+    changeLog.filter(isChangeEvent).map((entry) => entry).filter((change2) => change2.route_id === routeId).map((change2) => change2.id)
   );
-  const adjustments = changeLog.filter(isAdjustmentEvent).map((entry) => (
-    /** @type {AdjustmentEvent} */
-    entry
-  )).filter((adjustment) => changeIds.has(adjustment.target_change_id)).sort((a, b) => a.adjusted_at.localeCompare(b.adjusted_at));
+  const adjustments = changeLog.filter(isAdjustmentEvent).map((entry) => entry).filter((adjustment) => changeIds.has(adjustment.target_change_id)).sort((a, b) => a.adjusted_at.localeCompare(b.adjusted_at));
   return adjustments.at(-1) ?? null;
 }
 function getReviewHoldAfter(prior) {
@@ -3464,10 +3719,7 @@ function rebuildRouteStateFromChangeLog(changeLog, initialState = {}, schoolCale
   const changesByRoute = {};
   for (const entry of changeLog) {
     if (!isChangeEvent(entry)) continue;
-    const change2 = (
-      /** @type {ChangeEvent} */
-      entry
-    );
+    const change2 = entry;
     if (!changesByRoute[change2.route_id]) changesByRoute[change2.route_id] = [];
     changesByRoute[change2.route_id].push(change2);
   }
@@ -3537,7 +3789,7 @@ var STATUS_COPY = {
   },
   ACCUMULATING: {
     label: "Accumulating",
-    summary: "A review window is open. Further changes reset it and add the exact minute difference. When it closes, these times become contracted \u2014 or go to bid/bump if the difference is 30 minutes or more."
+    summary: "A review window is open. A later change under 30 minutes is added in and the countdown starts over. A later change that leaves an already-qualified 30-minute increase at or above 30 minutes does not move the bid date. That change runs its own countdown."
   },
   BID_PENDING: {
     label: "Bid pending",
@@ -3635,6 +3887,7 @@ function buildScheduleHistory(changeLog, entry, window2, startDate) {
   const reports = entry?.change_reports ?? [];
   const openIds = entry?.contributing_change_ids ?? [];
   const lastOpenId = openIds.at(-1) ?? null;
+  const sideWindows = entry?.side_windows ?? [];
   const rows = [
     {
       id: "initial",
@@ -3665,7 +3918,7 @@ function buildScheduleHistory(changeLog, entry, window2, startDate) {
   ];
   const groups = [];
   for (const change2 of later) {
-    const key = change2.schedule_id || change2.id;
+    const key = historyGroupKey(change2);
     const current = groups.at(-1);
     if (current && current.key === key) current.changes.push(change2);
     else groups.push({ key, changes: [change2] });
@@ -3693,6 +3946,9 @@ function buildScheduleHistory(changeLog, entry, window2, startDate) {
       previous: splitSegmentRange(last.previous_time),
       next: splitSegmentRange(last.new_time),
       delta_minutes: group.changes.reduce((sum, change2) => sum + (change2.delta_minutes || 0), 0),
+      delta_by_id: Object.fromEntries(
+        group.changes.map((change2) => [change2.id, change2.delta_minutes || 0])
+      ),
       delta_label: formatSignedMinutes(
         group.changes.reduce((sum, change2) => sum + (change2.delta_minutes || 0), 0)
       ),
@@ -3702,23 +3958,31 @@ function buildScheduleHistory(changeLog, entry, window2, startDate) {
       force_oct1_contract: group.changes.some((change2) => isForcedOctober1Contract(change2.force_oct1_contract)),
       schedule: describeSchedule(running),
       time_sources: { ...sources },
-      contracted: contractedStatusForChange(last, {
+      contracted: contractedStatusForChanges(group.changes, {
         reports,
         openIds,
         lastOpenId,
         entry,
-        window: window2
+        window: window2,
+        sideWindows
       })
     });
   }
   annotateCumulativeDrift(rows, entry);
   return rows;
 }
+function historyGroupKey(change2) {
+  const date = dateSortKey(change2.effective_date);
+  if (date) return `date:${date}`;
+  return `undated:${change2.schedule_id || change2.id}`;
+}
 function annotateCumulativeDrift(rows, entry) {
   const byId = /* @__PURE__ */ new Map();
   for (const row of rows) {
-    if (row.kind === "change" && row.change_id) {
-      byId.set(row.change_id, row);
+    if (row.kind !== "change") continue;
+    const ids = row.change_ids?.length ? row.change_ids : row.change_id ? [row.change_id] : [];
+    for (const id of ids) {
+      if (id) byId.set(id, row);
     }
   }
   if (!byId.size) return;
@@ -3734,17 +3998,29 @@ function annotateCumulativeDrift(rows, entry) {
     (id) => byId.has(id) && !covered.has(id)
   );
   if (openIds.length) groups.push(openIds);
+  for (const side of entry?.side_windows ?? []) {
+    const ids = (side.contributing_change_ids ?? []).filter(
+      (id) => byId.has(id) && !covered.has(id)
+    );
+    if (ids.length) groups.push(ids);
+  }
   for (const ids of groups) {
     let sum = 0;
     for (const id of ids) {
       const row = byId.get(id);
-      sum += row.delta_minutes ?? 0;
+      const piece = row.delta_by_id?.[id];
+      sum += typeof piece === "number" ? piece : row.delta_minutes ?? 0;
       row.cumulative_drift_minutes = sum;
       row.cumulative_drift_label = formatSignedMinutes(sum);
     }
   }
 }
-function contractedStatusForChange(change2, { reports, openIds, lastOpenId, entry, window: window2 }) {
+function contractedStatusForChanges(changes, context) {
+  const statuses = changes.map((change2) => contractedStatusForChange(change2, context));
+  const standing = statuses.find((item) => item.status === "predicted" && item.becomes_on);
+  return standing || statuses.at(-1);
+}
+function contractedStatusForChange(change2, { reports, openIds, lastOpenId, entry, window: window2, sideWindows = [] }) {
   for (const report of reports) {
     const ids = reportChangeIds(report);
     if (!ids.includes(change2.id)) {
@@ -3752,6 +4028,16 @@ function contractedStatusForChange(change2, { reports, openIds, lastOpenId, entr
     }
     if (ids.at(-1) === change2.id) {
       const becomesOn = String(report.finalized_at || "").slice(0, 10) || null;
+      if (report.separate_countdown) {
+        return {
+          status: "separate_countdown",
+          becomes_on: becomesOn,
+          projected_outcome: null,
+          projected_outcome_label: null,
+          label: becomesOn ? `Own countdown finished ${prettyDate(becomesOn)}. The bid date did not move.` : "Own countdown finished. The bid date did not move.",
+          detail: null
+        };
+      }
       const outcomeCopy = OUTCOME_COPY[report.outcome];
       if (report.outcome === "STABLE") {
         const forced = Boolean(report.forced_october_1);
@@ -3780,6 +4066,20 @@ function contractedStatusForChange(change2, { reports, openIds, lastOpenId, entr
       projected_outcome: null,
       projected_outcome_label: null,
       label: "Replaced by a later change in that window",
+      detail: null
+    };
+  }
+  const side = sideWindows.find(
+    (item) => (item.contributing_change_ids ?? []).includes(change2.id)
+  );
+  if (side) {
+    const becomesOn = side.becomes_on ?? null;
+    return {
+      status: "side_countdown",
+      becomes_on: becomesOn,
+      projected_outcome: null,
+      projected_outcome_label: null,
+      label: becomesOn ? `Own countdown through ${prettyDate(becomesOn)}. The bid date does not move.` : "Own countdown. The bid date does not move.",
       detail: null
     };
   }
@@ -3884,8 +4184,8 @@ function buildEmployeeSnapshot({
     },
     calendar: {
       school_year: calendar.school_year ?? "2026-2027",
-      first_day: calendarSummary?.first_day ?? "2026-09-08",
-      last_day: calendarSummary?.last_day ?? "2027-06-22",
+      first_day: calendarSummary?.first_day ?? "2026-08-31",
+      last_day: calendarSummary?.last_day ?? "2027-06-11",
       school_day_count: calendarSummary?.school_day_count ?? calendar.school_days?.length ?? null,
       source: calendarSource ?? null
     },
@@ -3925,6 +4225,11 @@ function buildWindowView(entry, calendar, asOf) {
   const projectedOutcome = open ? forced ? "STABLE" : windowFinalizationOutcome(drift) : null;
   const outcomeCopy = forced ? FORCED_OCT1_COPY : projectedOutcome ? OUTCOME_COPY[projectedOutcome] : null;
   const math = open ? buildSeeTheMathFromSegments(entry.baseline_segments, entry.segments) : null;
+  const currentContractMinutes = typeof entry.payroll_rounded_total_minutes === "number" ? entry.payroll_rounded_total_minutes : math?.before?.payroll_rounded_total_minutes;
+  const openWindowStatement = open && math && typeof currentContractMinutes === "number" ? describeOpenWindowContractHours(
+    currentContractMinutes,
+    math.after.payroll_rounded_total_minutes
+  ) : null;
   let headline = copy.summary;
   if (open && becomesOn && outcomeCopy) {
     const ruleNote = WINDOW_RULE_HEADLINE[entry.window_rule] ?? "If you do not log another change, these times become contracted on the date below.";
@@ -3951,9 +4256,20 @@ function buildWindowView(entry, calendar, asOf) {
     projected_outcome_detail: outcomeCopy?.detail ?? null,
     contracted_hours_would_change: math?.contracted_hours_changed ?? null,
     contracted_hours_delta_minutes: math?.contracted_hours_delta_minutes ?? null,
-    contracted_hours_statement: math?.statement ?? null,
+    contracted_hours_statement: openWindowStatement ?? math?.statement ?? null,
+    side_windows: entry.side_windows ?? [],
+    side_window_note: describeSideWindowNote(entry.side_windows),
     see_the_math: math
   };
+}
+function describeSideWindowNote(sideWindows) {
+  if (!sideWindows?.length) return null;
+  return sideWindows.map((side) => {
+    const amount = formatSignedMinutes(side.drift_minutes);
+    const when = side.becomes_on ? prettyDate(side.becomes_on) : "its own date";
+    const clock = String(side.rule ?? "").endsWith("_bid") ? `its own bid countdown, through ${when}` : `its own 15 school day countdown, through ${when}`;
+    return `A later change of ${amount} keeps the route at 30 minutes or more, so the bid date stays. That change runs ${clock}.`;
+  }).join(" ");
 }
 function shapeReport(report) {
   return {
@@ -4035,14 +4351,26 @@ function previewEmployeeChange({
     (sum, item) => sum + (item.delta_minutes || 0),
     0
   ) : next.cumulative_drift_minutes ?? delta;
-  const plan = forced ? forcedOctober1ContractPlan(changeDate) : contractWindowPlan(calendar, changeDate, nextDrift);
+  const aside = (next.side_windows ?? []).find((side) => side.id === "preview");
+  const plan = aside ? {
+    window_expires_date: next.window_expires_date,
+    becomes_effective_on: next.window_expires_date ? dayAfter(next.window_expires_date) : null
+  } : forced ? forcedOctober1ContractPlan(changeDate) : contractWindowPlan(calendar, changeDate, nextDrift);
   const outcome = forced ? "STABLE" : windowFinalizationOutcome(nextDrift);
   const outcomeCopy = forced ? FORCED_OCT1_COPY : OUTCOME_COPY[outcome];
+  const compared = closedReport ? null : buildSeeTheMathFromSegments(next.baseline_segments, next.segments);
+  const previewCurrentMinutes = typeof entry.payroll_rounded_total_minutes === "number" ? entry.payroll_rounded_total_minutes : compared?.before?.payroll_rounded_total_minutes;
   const math = closedReport ? {
     contracted_hours_changed: closedReport.contracted_hours_changed,
     contracted_hours_delta_minutes: closedReport.contracted_hours_delta_minutes,
     statement: closedReport.contracted_hours_statement
-  } : buildSeeTheMathFromSegments(next.baseline_segments, next.segments);
+  } : {
+    ...compared,
+    statement: typeof previewCurrentMinutes === "number" ? describeOpenWindowContractHours(
+      previewCurrentMinutes,
+      compared.after.payroll_rounded_total_minutes
+    ) : compared.statement
+  };
   return {
     previous_time: previous,
     new_time: newTime,
@@ -4059,7 +4387,8 @@ function previewEmployeeChange({
     projected_outcome_detail: outcomeCopy.detail,
     contracted_hours_would_change: math.contracted_hours_changed,
     contracted_hours_delta_minutes: math.contracted_hours_delta_minutes,
-    contracted_hours_statement: math.statement
+    contracted_hours_statement: math.statement,
+    side_window_note: describeSideWindowNote(next.side_windows)
   };
 }
 function prettyDate(iso) {
@@ -4244,6 +4573,7 @@ function importState(json, storage = globalThis.localStorage) {
 // employee-tracker/web/engine.js
 var store = store_exports;
 var cachedCalendar = null;
+var customSchoolYear = null;
 function getAsOfDate(profile) {
   if (typeof globalThis.location?.search === "string") {
     const value = new URLSearchParams(globalThis.location.search).get("as_of");
@@ -4258,15 +4588,31 @@ function getAsOfDate(profile) {
 }
 function getCalendarPack() {
   if (!cachedCalendar) {
-    const { calendar, summary, source } = buildBps2026_2027Calendar();
-    cachedCalendar = {
-      calendar,
-      summary,
-      source,
-      months: groupCalendarByMonth(calendar),
-      first_day: BPS_2026_2027_INPUT.first_day,
-      last_day: BPS_2026_2027_INPUT.last_day
-    };
+    if (customSchoolYear) {
+      const { calendar, summary } = schoolYearGeneration(customSchoolYear);
+      cachedCalendar = {
+        calendar,
+        summary,
+        source: {
+          name: "Office school year",
+          school_year: customSchoolYear.school_year,
+          document: "Imported in Timeclock settings"
+        },
+        months: groupCalendarByMonth(calendar),
+        first_day: customSchoolYear.first_day,
+        last_day: customSchoolYear.last_day
+      };
+    } else {
+      const { calendar, summary, source } = buildBellingham2026_2027Calendar();
+      cachedCalendar = {
+        calendar,
+        summary,
+        source,
+        months: groupCalendarByMonth(calendar),
+        first_day: BELLINGHAM_2026_2027_INPUT.first_day,
+        last_day: BELLINGHAM_2026_2027_INPUT.last_day
+      };
+    }
   }
   return cachedCalendar;
 }
@@ -4274,7 +4620,7 @@ function calendarMeta() {
   const pack = getCalendarPack();
   return {
     calendarSummary: pack.summary,
-    calendarSource: pack.source ?? BPS_2026_2027_SOURCE
+    calendarSource: pack.source ?? BELLINGHAM_2026_2027_SOURCE
   };
 }
 function requireClockPair(clockIn, clockOut, label) {
@@ -4953,7 +5299,7 @@ function exampleProfile() {
         new_time: "6:15-8:25",
         submitted_at: "2026-10-06T15:00:00.000Z",
         effective_date: "2026-10-06",
-        note: "Fifteen minutes added after October 1. Count 15 school days, then the new times become contracted on October 29."
+        note: "Fifteen minutes added after October 1. Count 15 school days, then the new times become contracted on October 28."
       }),
       change({
         id: "example-nov-pm-increase",
@@ -4971,7 +5317,7 @@ function exampleProfile() {
         new_time: "11:00-12:25",
         submitted_at: "2026-11-09T15:00:00.000Z",
         effective_date: "2026-11-09",
-        note: "Eighteen more minutes. 12 + 18 = 30, so this is a 30-minute increase. On November 16 the count is on school day 4. The bid waits for December 17."
+        note: "Eighteen more minutes. 12 + 18 = 30, so this is a 30-minute increase. On November 16 the count is on school day 4. The bid waits for December 14."
       })
     ]
   };
@@ -5117,7 +5463,7 @@ function calendarExampleProfiles() {
           segment: "AM",
           date: "2026-10-06",
           new_time: "5:20-8:00",
-          note: "Forty minutes added after October 1. After 15 school days it is posted for bid. Day 15 is October 28, so the bid day is October 29, inside that month\u2019s bid week."
+          note: "Forty minutes added after October 1. After 15 school days it is posted for bid on October 28."
         }
       ]
     }),
@@ -5130,7 +5476,7 @@ function calendarExampleProfiles() {
           segment: "AM",
           date: "2026-10-06",
           new_time: "6:40-8:00",
-          note: "Forty minutes taken off after October 1. Bump-eligible the day after the 15th school day, October 29. That day is not a contracted-hours box."
+          note: "Forty minutes taken off after October 1. Bump-eligible the day after the 15th school day, October 28. That day is not a contracted-hours box."
         }
       ]
     }),
@@ -5150,7 +5496,7 @@ function calendarExampleProfiles() {
           segment: "PM",
           date: "2026-10-08",
           new_time: "13:40-16:00",
-          note: "Twenty more minutes. 12 + 20 = 32, so this is a 30-minute increase. The bid is the last five school days of November, starting November 20."
+          note: "Twenty more minutes. 12 + 20 = 32, so this is a 30-minute increase. The bid day is October 30."
         }
       ]
     }),
@@ -5170,7 +5516,7 @@ function calendarExampleProfiles() {
           segment: "PM",
           date: "2026-10-08",
           new_time: "14:20-16:00",
-          note: "Twenty more minutes taken off. 12 + 20 = 32 the other way, so this is a 30-minute decrease. Bump-eligible the day after school day 15, October 31. No contracted-hours box."
+          note: "Twenty more minutes taken off. 12 + 20 = 32 the other way, so this is a 30-minute decrease. Bump-eligible October 30. No contracted-hours box."
         }
       ]
     }),
@@ -5196,7 +5542,7 @@ function calendarExampleProfiles() {
           segment: "AM",
           date: "2026-11-09",
           new_time: "5:20-8:00",
-          note: "Forty minutes added November 9. School day 15 is December 3. The bid waits for December 17, the first day of December\u2019s bid week."
+          note: "Forty minutes added November 9. School day 15 is December 3. The bid waits for December 14."
         }
       ]
     }),
@@ -5229,7 +5575,7 @@ function calendarExampleProfiles() {
           segment: "PM",
           date: "2026-11-09",
           new_time: "13:40-16:00",
-          note: "Twenty more minutes. 12 + 20 = 32, so this is a 30-minute increase. The arrow points at December 17."
+          note: "Twenty more minutes. 12 + 20 = 32, so this is a 30-minute increase. The arrow points at December 14."
         }
       ]
     }),
@@ -5262,7 +5608,7 @@ function calendarExampleProfiles() {
           segment: "AM",
           date: "2026-12-01",
           new_time: "5:45-8:00",
-          note: "Fifteen minutes added December 1. On December 10 this count is still open. It becomes contracted December 23."
+          note: "Fifteen minutes added December 1. On December 10 this count is still open. Winter break starts December 21, so it becomes contracted January 6."
         }
       ]
     }),
@@ -5275,7 +5621,7 @@ function calendarExampleProfiles() {
           segment: "AM",
           date: "2026-12-01",
           new_time: "5:20-8:00",
-          note: "Forty minutes added December 1. School day 15 is December 22, so the bid day is December 23, inside December\u2019s bid week."
+          note: "Forty minutes added December 1. Winter break starts December 21, so the bid waits for January 21."
         }
       ]
     }),
@@ -5288,7 +5634,7 @@ function calendarExampleProfiles() {
           segment: "AM",
           date: "2026-12-01",
           new_time: "6:40-8:00",
-          note: "Forty minutes taken off December 1. Bump-eligible December 23. No contracted-hours box."
+          note: "Forty minutes taken off December 1. Bump-eligible January 6. No contracted-hours box."
         }
       ]
     }),
@@ -5308,7 +5654,7 @@ function calendarExampleProfiles() {
           segment: "PM",
           date: "2026-12-07",
           new_time: "13:35-16:00",
-          note: "Twenty-five more minutes. 12 + 25 = 37. School day 15 is January 7, so the bid waits for January 25."
+          note: "Twenty-five more minutes. 12 + 25 = 37. The bid waits for January 21."
         }
       ]
     })
@@ -5405,11 +5751,25 @@ function shiftIsoDate(iso, days) {
   const date = new Date(Date.UTC(year, month - 1, day + days));
   return date.toISOString().slice(0, 10);
 }
+function cumulativeChangeBeside(row) {
+  if (row?.kind !== "change") return null;
+  const label = String(row?.cumulative_drift_label ?? "").trim();
+  return label || null;
+}
+function scheduleChangeKindLines(row) {
+  if (row?.kind === "initial") return ["Established"];
+  const lines = [row?.delta_label ? `Change \xB7 ${row.delta_label}` : "Change"];
+  const cumulative = cumulativeChangeBeside(row);
+  if (cumulative) lines.push(`Cumulative change \xB7 ${cumulative}`);
+  return lines;
+}
+function scheduleChangeKindHtml(row, escapeHtml2) {
+  const escape = typeof escapeHtml2 === "function" ? escapeHtml2 : (value) => String(value ?? "");
+  return scheduleChangeKindLines(row).map((line) => `<span class="row-kind">${escape(line)}</span>`).join("");
+}
 function clockHistoryLabel(row) {
   if (row?.kind === "initial") return "Established";
-  const segment = row?.segments?.length > 1 ? "Schedule" : row?.segment === "MIDDAY" ? "Midday" : row?.segment || "Schedule";
-  const delta = row?.delta_label ? ` ${row.delta_label}` : "";
-  return `${segment} change${delta}`;
+  return row?.delta_label || "Change";
 }
 function fifteenSchoolDaysAfter(schoolDays, from) {
   try {
@@ -5976,12 +6336,17 @@ function renderHero() {
   const outcome = windowInfo?.projected_outcome;
   hero.className = `hero panel${outcome === "BID_PENDING" ? " outcome-bid" : outcome === "BUMP_ELIGIBLE" ? " outcome-bump" : ""}`;
   const title = windowInfo?.becomes_contracted_on ? `Becomes contracted on ${prettyDate2(windowInfo.becomes_contracted_on)}` : windowInfo?.status === "STABLE" ? "No open window" : windowInfo?.status_label || "Your hours";
+  const showPredicted = windowInfo?.status === "ACCUMULATING" && snapshot.scheduled?.if_locked_label;
+  const contractedCaption = showPredicted ? "Current contracted hours" : "Contracted hours";
+  const predictedStat = showPredicted ? `<li><span>Predicted contracted hours</span><strong>${snapshot.scheduled.if_locked_label}</strong></li>` : "";
   hero.innerHTML = `
     <p class="hero-kicker">${name ? `${name} \xB7 ` : ""}${windowInfo?.status_label || "Not set up"}</p>
     <h1 class="hero-title">${title}</h1>
     <p class="hero-detail">${windowInfo?.headline || ""}</p>
+    ${windowInfo?.side_window_note ? `<p class="hero-detail">${windowInfo.side_window_note}</p>` : ""}
     <ul class="stat-row">
-      <li><span>Contracted hours</span><strong>${contracted?.label || "\u2014"}</strong></li>
+      <li><span>${contractedCaption}</span><strong>${contracted?.label || "\u2014"}</strong></li>
+      ${predictedStat}
       <li><span>Accumulated difference</span><strong>${windowInfo?.cumulative_drift_label || "0 min"}</strong></li>
       <li><span>School days left in window</span><strong>${windowInfo?.days_remaining == null ? "\u2014" : windowInfo.days_remaining}</strong></li>
     </ul>
@@ -6013,7 +6378,7 @@ function renderScheduleHistory() {
   }
   body.innerHTML = rows.map((row, index) => {
     const predicted = row.contracted?.status === "predicted";
-    const kind = row.kind === "initial" ? "Established" : `${row.segment} change${row.delta_label ? ` \xB7 ${row.delta_label}` : ""}`;
+    const kind = scheduleChangeKindHtml(row, escapeHtml);
     const contractedLabel = escapeHtml(row.contracted?.label || "\u2014");
     const contractedDetail = row.contracted?.projected_outcome_label ? `<span class="contracted-detail">${escapeHtml(
       row.contracted.projected_outcome_label
@@ -6025,7 +6390,7 @@ function renderScheduleHistory() {
     return `<tr class="is-history${predicted ? " is-predicted" : ""}" style="--tone:${toneForRow(index)}"${row.change_id ? ` data-change-id="${escapeHtml(row.change_id)}"` : ""}${row.kind === "initial" ? ' data-row-kind="initial"' : ""}>
         <th scope="row">
           ${prettyDate2(row.date)}
-          <span class="row-kind">${escapeHtml(kind)}</span>
+          ${kind}
         </th>
         ${RUNS.map((run) => {
       const changed = row.segment === run.id;
@@ -6231,7 +6596,7 @@ function loadAll() {
   snapshot = addingPerson ? buildSnapshot(null) : currentSnapshot();
   const asOf = snapshot.as_of || getAsOfDate();
   const viewingAsOf = asOf !== localDateString();
-  calendarPill.textContent = viewingAsOf ? `Viewing as of ${prettyDate2(asOf)}` : `BPS ${snapshot.calendar?.school_year || "2026-2027"} \xB7 ${snapshot.calendar?.school_day_count ?? 180} school days`;
+  calendarPill.textContent = viewingAsOf ? `Viewing as of ${prettyDate2(asOf)}` : `Bellingham ${snapshot.calendar?.school_year || "2026-2027"} \xB7 ${snapshot.calendar?.school_day_count ?? 179} school days`;
   if (!document.querySelector("#setup_start_date").value) {
     document.querySelector("#setup_start_date").value = snapshot.as_of || getAsOfDate();
   }
@@ -6264,6 +6629,7 @@ function updatePreview() {
       \xB7 becomes contracted <strong>${prettyDate2(preview.becomes_contracted_on)}</strong>
       \xB7 ${preview.projected_outcome_label}
       <div class="meta">${preview.contracted_hours_statement || ""}</div>
+      ${preview.side_window_note ? `<div class="meta">${preview.side_window_note}</div>` : ""}
     `;
     setStatus(changeStatus, "");
   } catch (error) {

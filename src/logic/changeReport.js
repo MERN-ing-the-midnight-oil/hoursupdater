@@ -1,25 +1,9 @@
 import { createId } from './createId.js';
 import { buildPayrollRoundingBreakdown } from './timeUtils.js';
 
-/**
- * @typedef {import('./stateMachine.js').ChangeEvent} ChangeEvent
- * @typedef {import('./timeUtils.js').buildPayrollRoundingBreakdown} BreakdownFn
- */
 
-/**
- * Before/after payroll math for the shared "see the math" UI.
- * Single path via buildPayrollRoundingBreakdown — used by Change Reports and Admin queue.
- *
- * @param {Record<string, string | null>} before_segments
- * @param {Record<string, string | null>} after_segments
- * @returns {{
- *   before: ReturnType<typeof buildPayrollRoundingBreakdown>,
- *   after: ReturnType<typeof buildPayrollRoundingBreakdown>,
- *   statement: string,
- *   contracted_hours_changed: boolean,
- *   contracted_hours_delta_minutes: number,
- * }}
- */
+// Before/after payroll math for the shared "see the math" UI.
+// Single path via buildPayrollRoundingBreakdown — used by Change Reports and Admin queue.
 export function buildSeeTheMathFromSegments(before_segments, after_segments) {
   const before = buildPayrollRoundingBreakdown(before_segments);
   const after = buildPayrollRoundingBreakdown(after_segments);
@@ -32,10 +16,10 @@ export function buildSeeTheMathFromSegments(before_segments, after_segments) {
 
   let statement;
   if (contracted_hours_changed) {
-    const sign = contracted_hours_delta_minutes > 0 ? '+' : '';
     statement =
-      `Contracted hours changed by ${sign}${contracted_hours_delta_minutes} minutes ` +
-      `(${before.payroll_rounded_total_minutes} → ${after.payroll_rounded_total_minutes}).`;
+      `Contracted hours changed from ${formatContractHours(before.payroll_rounded_total_minutes)} ` +
+      `to ${formatContractHours(after.payroll_rounded_total_minutes)} ` +
+      `(${formatSignedContractHours(contracted_hours_delta_minutes)}).`;
   } else if (schedule_changed) {
     statement =
       `Schedule changed (exact total ${before.exact_total_minutes} → ` +
@@ -57,20 +41,43 @@ export function buildSeeTheMathFromSegments(before_segments, after_segments) {
   };
 }
 
-/**
- * @param {{
- *   route_id: string,
- *   driver_name: string | null,
- *   driver_id?: string | null,
- *   outcome: 'STABLE' | 'BID_PENDING' | 'BUMP_ELIGIBLE',
- *   finalized_at: string,
- *   window_opened_date: string | null,
- *   before_segments: Record<string, string | null>,
- *   after_segments: Record<string, string | null>,
- *   contributing_changes: Array<ChangeEvent & { effective_delta_minutes?: number }>,
- *   forced_october_1?: boolean,
- * }} input
- */
+// Hours and minutes, matching the route note ("4 hr 15 min").
+export function formatContractHours(minutes) {
+  const sign = minutes < 0 ? '−' : '';
+  const abs = Math.abs(minutes);
+  const hours = Math.floor(abs / 60);
+  const mins = abs % 60;
+  if (hours === 0) return `${sign}${mins} min`;
+  if (mins === 0) return `${sign}${hours} hr`;
+  return `${sign}${hours} hr ${mins} min`;
+}
+
+export function formatSignedContractHours(minutes) {
+  if (minutes === 0) return '0 min';
+  const sign = minutes > 0 ? '+' : '−';
+  return `${sign}${formatContractHours(Math.abs(minutes))}`;
+}
+
+// Open-window note. Compares the official contract with the rounded total
+// of the schedule as it stands, which can differ from the latest punch.
+export function describeOpenWindowContractHours(currentMinutes, predictedMinutes) {
+  const current = formatContractHours(currentMinutes);
+  const predicted = formatContractHours(predictedMinutes);
+  const delta = predictedMinutes - currentMinutes;
+  if (delta === 0) {
+    return (
+      `Predicted contracted hours stay ${predicted}, the same as the current contracted hours. ` +
+      `The latest logged change did not move the rounded total.`
+    );
+  }
+  const direction = delta > 0 ? 'up' : 'down';
+  return (
+    `Predicted contracted hours are ${predicted}, ${direction} from the current contracted hours of ${current} ` +
+    `(${formatSignedContractHours(delta)}). ` +
+    `This is the rounded total for the whole schedule, not the size of the latest logged change.`
+  );
+}
+
 export function buildChangeReport(input) {
   const math = buildSeeTheMathFromSegments(
     input.before_segments,
@@ -121,14 +128,8 @@ export function buildChangeReport(input) {
   };
 }
 
-/**
- * Plain-language email draft for a human to review/send (mailto:).
- * Does not claim interim pay during BID_PENDING (open question #1).
- *
- * @param {ReturnType<typeof buildChangeReport>} report
- * @param {{ name: string, email: string | null } | null} driver
- * @returns {{ can_send: boolean, disabled_reason: string | null, mailto_url: string | null, subject: string, body: string }}
- */
+// Plain-language email draft for a human to review/send (mailto:).
+// Does not claim interim pay during BID_PENDING (open question #1).
 export function buildDriverEmailDraft(report, driver) {
   const subject =
     report.outcome === 'BID_PENDING'
@@ -213,12 +214,7 @@ export function buildDriverEmailDraft(report, driver) {
   };
 }
 
-/**
- * Stable key for matching regenerated Change Reports across rebuilds
- * (report ids are new UUIDs each rebuild).
- * @param {{ outcome?: string, window_opened_date?: string | null, contributing_changes?: Array<{ id?: string }> }} report
- * @returns {string}
- */
+// Stable key for matching regenerated Change Reports across rebuilds
 export function changeReportMatchKey(report) {
   const ids = (report.contributing_changes ?? [])
     .map((change) => change.id)
@@ -228,21 +224,14 @@ export function changeReportMatchKey(report) {
   return `${report.outcome ?? ''}|${report.window_opened_date ?? ''}|${ids}`;
 }
 
-/**
- * Copy payroll_notified_at from prior reports onto rebuilt reports matched by key.
- * @param {import('./stateMachine.js').RouteStateMap} priorState
- * @param {import('./stateMachine.js').RouteStateMap} nextState
- * @returns {import('./stateMachine.js').RouteStateMap}
- */
+// Copy payroll_notified_at from prior reports onto rebuilt reports matched by key.
 export function preservePayrollNotifiedAt(priorState, nextState) {
-  /** @type {import('./stateMachine.js').RouteStateMap} */
   const updated = { ...nextState };
   for (const [routeId, next] of Object.entries(nextState)) {
     const prior = priorState[routeId];
     if (!prior?.change_reports?.length || !next?.change_reports?.length) {
       continue;
     }
-    /** @type {Map<string, string>} */
     const priorByKey = new Map();
     for (const report of prior.change_reports) {
       if (report?.payroll_notified_at) {
@@ -269,14 +258,7 @@ export function preservePayrollNotifiedAt(priorState, nextState) {
   return updated;
 }
 
-/**
- * Fill a payroll message template. Unknown / missing placeholders become empty.
- * Supported: {{route_id}}, {{driver_name}}, {{driver_email}}.
- *
- * @param {string} template
- * @param {{ route_id?: string | null, driver_name?: string | null, driver_email?: string | null }} values
- * @returns {string}
- */
+// Fill a payroll message template. Unknown / missing placeholders become empty.
 export function fillPayrollMessageTemplate(template, values) {
   const map = {
     route_id: values.route_id?.trim() || '',
@@ -288,21 +270,8 @@ export function fillPayrollMessageTemplate(template, values) {
   );
 }
 
-/**
- * Mailto draft for payroll when a BID_PENDING Change Report exists.
- * App never sends — human reviews the draft.
- *
- * @param {{
- *   id?: string,
- *   route_id: string,
- *   driver_name?: string | null,
- *   driver_id?: string | null,
- *   outcome?: string,
- * }} report
- * @param {{ payroll_email: string, payroll_cc?: string, message_template: string }} settings
- * @param {{ name?: string | null, email?: string | null } | null} driver
- * @returns {{ can_send: boolean, disabled_reason: string | null, mailto_url: string | null, subject: string, body: string }}
- */
+// Mailto draft for payroll when a BID_PENDING Change Report exists.
+// App never sends — human reviews the draft.
 export function buildPayrollEmailDraft(report, settings, driver) {
   const routeId = report.route_id?.trim() || '';
   const driverName =

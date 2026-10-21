@@ -1,20 +1,9 @@
-/**
- * A public clock-record link for one driver. The token is the only secret.
- * The page built from it shows that driver's clocks and nothing else.
- */
-
 import { CLOCK_RECORD_COLUMNS } from './driverClockRecord.js';
 
-/**
- * @param {unknown} name
- */
 export function driverClockKey(name) {
   return String(name ?? '').trim().toLowerCase();
 }
 
-/**
- * @param {unknown} name
- */
 export function clockRecordFilename(name) {
   const slug = driverClockKey(name)
     .replace(/[^a-z0-9]+/g, '-')
@@ -22,18 +11,12 @@ export function clockRecordFilename(name) {
   return `${slug || 'driver'}-clock-records.csv`;
 }
 
-/**
- * @param {unknown} value
- */
 function csvCell(value) {
   const text = String(value ?? '');
   if (/[",\r\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
   return text;
 }
 
-/**
- * @param {Array<{ rows: object[] }>} sheets
- */
 export function clockRecordCsv(sheets) {
   const header = CLOCK_RECORD_COLUMNS.map((column) => column.label);
   const lines = [header.join(',')];
@@ -45,11 +28,7 @@ export function clockRecordCsv(sheets) {
   return `${lines.join('\r\n')}\r\n`;
 }
 
-/**
- * Plain-text copy for an email body. Days with no clocks are left out.
- * @param {string} driverName
- * @param {Array<{ label: string, rows: object[] }>} sheets
- */
+// Plain-text copy for an email body. Days with no clocks are left out.
 export function clockRecordMessage(driverName, sheets) {
   const lines = [`Clock records for ${String(driverName || 'driver').trim() || 'driver'}`, ''];
   for (const sheet of sheets) {
@@ -72,18 +51,12 @@ export function clockRecordMessage(driverName, sheets) {
   return `${lines.join('\n').trim()}\n`;
 }
 
-/**
- * @param {unknown} value
- */
 export function looksLikeEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? '').trim());
 }
 
-/**
- * Where a phone should open the clock page. A kiosk on localhost is not
- * reachable from a phone, so that case uses an address on this network.
- * @param {{ protocol?: string, host?: string, port?: number, addresses?: string[] }} input
- */
+// Where a phone should open the clock page. A kiosk on localhost is not
+// reachable from a phone, so that case uses an address on this network.
 export function clockShareOrigin({ protocol = 'http', host = '', port = 3849, addresses = [] } = {}) {
   const bare = String(host ?? '').trim();
   const hostname = bare.startsWith('[')
@@ -100,10 +73,22 @@ export function clockShareOrigin({ protocol = 'http', host = '', port = 3849, ad
   return `http://${ip}:${port}`;
 }
 
-/**
- * @param {string} origin
- * @param {string} token
- */
+// Origin a phone can open. The published site is its own address. A kiosk on
+// this computer is not, because a phone cannot reach localhost.
+export function pageShareOrigin(origin) {
+  const base = String(origin || '').trim().replace(/\/$/, '');
+  let url;
+  try {
+    url = new URL(base);
+  } catch {
+    return '';
+  }
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  if (!host || host === 'localhost' || host === '127.0.0.1' || host === '::1') return '';
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+  return base;
+}
+
 export function clockShareUrl(origin, token) {
   const base = String(origin || '').replace(/\/$/, '');
   const link = String(token || '').trim();

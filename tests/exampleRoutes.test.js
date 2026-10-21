@@ -83,7 +83,7 @@ test('sample offices gain Disney weekend and evening clocks once', () => {
 });
 
 test('the fictional office is a sample even after its route ids change', () => {
-  assert.equal(isSampleOffice({ exampleVersion: 5, profiles: { 'new-id': { name: 'S1' } } }), true);
+  assert.equal(isSampleOffice({ exampleVersion: 6, profiles: { 'new-id': { name: 'S1' } } }), true);
   assert.equal(isSampleOffice({ exampleVersion: 0, profiles: {} }), true);
   assert.equal(
     isSampleOffice({ exampleVersion: 0, profiles: { 'real-route': { name: '50' } } }),

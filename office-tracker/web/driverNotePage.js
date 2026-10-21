@@ -1,9 +1,5 @@
-/**
- * Phone page for today's punches. The driver taps a punched row to change
- * its notes and reasons. There is no punch control.
- */
-
 import { formatTimecardMinutes } from '../src/timecardEntries.js';
+import { readClockNote, readClockNoteDay, saveClockNote } from './noteShareClient.js';
 
 const title = document.querySelector('#driver-note-title');
 const lead = document.querySelector('#driver-note-lead');
@@ -24,18 +20,11 @@ const dayToken = params.get('d')?.trim() || '';
 const linkToken = params.get('t')?.trim() || '';
 let activeToken = linkToken;
 
-/** @type {{ revision: number, note: string, reasons: Array<{ id: string, label: string, minutes: number }>, catalog: Array<{ id: string, label: string }> } | null} */
 let slot = null;
-/** @type {{ driverName: string, date: string, closed: boolean, rows: object[] } | null} */
 let day = null;
 let saving = false;
-/** @type {ReturnType<typeof setTimeout> | null} */
 let noteTimer = null;
 
-/**
- * @param {string} message
- * @param {'error' | ''} [kind]
- */
 function setStatus(message, kind = '') {
   if (!status) return;
   status.hidden = !message;
@@ -43,10 +32,6 @@ function setStatus(message, kind = '') {
   status.className = `status${kind ? ` is-${kind}` : ''}`;
 }
 
-/**
- * @param {Array<{ id: string, label: string, minutes: number }>} left
- * @param {Array<{ id: string, label: string, minutes: number }>} right
- */
 function sameReasons(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -136,10 +121,6 @@ function hideHint() {
   hint.textContent = '';
 }
 
-/**
- * @param {object} data
- * @param {{ keepNote?: boolean }} [options]
- */
 function applySlot(data, options = {}) {
   const reasons = Array.isArray(data.reasons) ? data.reasons : [];
   const catalog = Array.isArray(data.catalog) ? data.catalog : [];
@@ -188,9 +169,9 @@ async function loadSlot() {
     setStatus('This link does not open a note.', 'error');
     return;
   }
-  const response = await fetch(`/api/clock-note/${encodeURIComponent(activeToken)}`, { cache: 'no-store' });
-  const body = await response.json().catch(() => null);
-  if (!response.ok || !body) {
+  const result = await readClockNote(activeToken);
+  const body = result.body;
+  if (!result.ok || !body) {
     setStatus(body?.error || 'This notes link is not valid.', 'error');
     if (form) form.hidden = true;
     return;
@@ -217,24 +198,16 @@ async function saveSlot() {
       minutes: reason.minutes,
     })),
   };
-  let response = await fetch(`/api/clock-note/${encodeURIComponent(savingToken)}`, {
-    method: 'PUT',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  let body = await response.json().catch(() => null);
-  if (response.status === 409 && body?.revision != null) {
+  let result = await saveClockNote(savingToken, payload);
+  let body = result.body;
+  if (result.status === 409 && body?.revision != null) {
     payload.revision = body.revision;
-    response = await fetch(`/api/clock-note/${encodeURIComponent(savingToken)}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    body = await response.json().catch(() => null);
+    result = await saveClockNote(savingToken, payload);
+    body = result.body;
   }
   saving = false;
   if (activeToken !== savingToken) return;
-  if (!response.ok || !body) {
+  if (!result.ok || !body) {
     setStatus(body?.error || 'That note could not be saved.', 'error');
     return;
   }
@@ -250,18 +223,12 @@ function queueNoteSave() {
   }, 400);
 }
 
-/**
- * @param {string} date
- */
 function dayHeading(date) {
   const parsed = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T12:00:00`) : null;
   if (!parsed || Number.isNaN(parsed.getTime())) return 'Today';
   return parsed.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 }
 
-/**
- * @param {Array<{ label?: string, minutes?: number }>} reasons
- */
 function reasonPreview(reasons) {
   return reasons
     .map((reason) => {
@@ -290,9 +257,6 @@ function showDayList() {
   }
 }
 
-/**
- * @param {object} row
- */
 function openRow(row) {
   activeToken = String(row.token || '');
   slot = null;
@@ -346,9 +310,9 @@ function paintDay() {
 
 async function loadDay() {
   if (!dayToken) return;
-  const response = await fetch(`/api/clock-note-day/${encodeURIComponent(dayToken)}`, { cache: 'no-store' });
-  const body = await response.json().catch(() => null);
-  if (!response.ok || !body) {
+  const result = await readClockNoteDay(dayToken);
+  const body = result.body;
+  if (!result.ok || !body) {
     setStatus(body?.error || 'This notes link is not valid.', 'error');
     if (daySection) daySection.hidden = true;
     if (form) form.hidden = true;

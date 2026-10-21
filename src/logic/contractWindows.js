@@ -1,26 +1,26 @@
-/**
- * Art. 3.08 window timing — when a logged time change becomes contracted,
- * goes to bid, or becomes bump-eligible.
- *
- * Assumptions (CBA-faithful, documented so they are not silent):
- * - "Written determination" uses the change's effective_date (when Routing
- *   logged the decrease). There is no separate notice-sent timestamp.
- * - The CBA names 15-minute and 30-minute bands. Magnitudes 1–29 follow the
- *   15-minute lock-in clock; 30+ follow bid/bump.
- * - After October 1, district and union read both increases and decreases as
- *   cumulative over 15 school days, not as separate single events. An under-30
- *   decrease stays open for those 15 school days. A later change inside the
- *   window is added in. 20 + 15 = 35, which is the 30-minute rule.
- * - Further changes still reset the countdown from that latest change and
- *   re-sum exact minutes (existing Rule 3). The new net then picks the
- *   matching Art. 3.08 clock.
- * - +30 that finishes its 15 school days after April waits for the next
- *   October–April last-five-school-day posting window (Art. 3.08(b)(1)
- *   posting months).
- * - An office "Force Oct 1 Contract" mark skips those rules. The schedule
- *   becomes contracted on October 1 of its school year, whatever the size
- *   of the change and whether 15 school days would finish before that date.
- */
+// Art. 3.08 window timing — when a logged time change becomes contracted,
+// goes to bid, or becomes bump-eligible.
+// Assumptions (CBA-faithful, documented so they are not silent):
+// - "Written determination" uses the change's effective_date (when Routing
+// logged the decrease). There is no separate notice-sent timestamp.
+// - The CBA names 15-minute and 30-minute bands. Magnitudes 1–29 follow the
+// 15-minute lock-in clock; 30+ follow bid/bump.
+// - After October 1, district and union read both increases and decreases as
+// cumulative over 15 school days, not as separate single events. An under-30
+// decrease stays open for those 15 school days. A later change inside the
+// window is added in. 20 + 15 = 35, which is the 30-minute rule.
+// - While the running total is under 30 minutes, a further change resets the
+// countdown and re-sums exact minutes (existing Rule 3). The new net then
+// picks the matching Art. 3.08 clock.
+// - Once a 30-minute increase is already counting toward bid, a later change
+// that leaves the total at or above 30 minutes does not move that bid date.
+// That change runs its own countdown.
+// - +30 that finishes its 15 school days after April waits for the next
+// October–April last-five-school-day posting window (Art. 3.08(b)(1)
+// posting months).
+// - An office "Force Oct 1 Contract" mark skips those rules. The schedule
+// becomes contracted on October 1 of its school year, whatever the size
+// of the change and whether 15 school days would finish before that date.
 
 import {
   BID_THRESHOLD_MINUTES,
@@ -35,49 +35,27 @@ import {
 } from './calendar.js';
 import { toDateString } from './timeUtils.js';
 
-/**
- * @typedef {
- *   | 'pre_october_1_lock'
- *   | 'pre_october_1_bid'
- *   | 'pre_october_1_bump'
- *   | 'post_october_1_increase_lock'
- *   | 'post_october_1_decrease_lock'
- *   | 'post_october_1_bid'
- *   | 'post_october_1_bump'
- *   | 'forced_october_1_contract'
- * } ContractWindowRule
- *
- * @typedef {{
- *   regime: 'pre_october_1' | 'post_october_1',
- *   rule: ContractWindowRule,
- *   citation: string,
- *   window_expires_date: string,
- *   becomes_effective_on: string,
- * }} ContractWindowPlan
- */
+// | 'pre_october_1_lock'
+// | 'pre_october_1_bid'
+// | 'pre_october_1_bump'
+// | 'post_october_1_increase_lock'
+// | 'post_october_1_decrease_lock'
+// | 'post_october_1_bid'
+// | 'post_october_1_bump'
+// | 'forced_october_1_contract'
 
 const BID_POSTING_MONTH_SET = new Set(MONTHLY_BID_POSTING_MONTHS);
 
-/**
- * True when an office toggle, workbook cell, or stored flag asks to contract
- * this schedule on October 1. Missing and "off" are the default.
- *
- * @param {unknown} value
- * @returns {boolean}
- */
+// True when an office toggle, workbook cell, or stored flag asks to contract
+// this schedule on October 1. Missing and "off" are the default.
 export function isForcedOctober1Contract(value) {
   if (value === true || value === 1) return true;
   const text = String(value ?? '').trim().toLowerCase();
   return text === 'on' || text === 'yes' || text === 'true' || text === '1';
 }
 
-/**
- * October 1 contract, ignoring change size and the 15-school-day countdown.
- * The window stays open through the day before that October 1.
- *
- * @param {string | Date} changeDate
- * @returns {ContractWindowPlan}
- */
+// October 1 contract, ignoring change size and the 15-school-day countdown.
+// The window stays open through the day before that October 1.
 export function forcedOctober1ContractPlan(changeDate) {
   const start = toDateString(changeDate);
   const oct1 = october1ForDate(start);
@@ -89,13 +67,8 @@ export function forcedOctober1ContractPlan(changeDate) {
   };
 }
 
-/**
- * October 1 of the school year containing `date`.
- * School year is July–June (Sept 2026 → 2026-10-01; Jan 2027 → 2026-10-01).
- *
- * @param {string | Date} date
- * @returns {string}
- */
+// October 1 of the school year containing `date`.
+// School year is July–June (Sept 2026 → 2026-10-01; Jan 2027 → 2026-10-01).
 export function october1ForDate(date) {
   const iso = toDateString(date);
   const year = Number(iso.slice(0, 4));
@@ -104,25 +77,14 @@ export function october1ForDate(date) {
   return `${startYear}-10-01`;
 }
 
-/**
- * True through the day before October 1 (Art. 3.08(a)(8) review period).
- * October 1 itself uses the after-October-1 monthly rules.
- *
- * @param {string | Date} date
- * @returns {boolean}
- */
+// True through the day before October 1 (Art. 3.08(a)(8) review period).
+// October 1 itself uses the after-October-1 monthly rules.
 export function isPreOctober1ReviewPeriod(date) {
   return toDateString(date) < october1ForDate(date);
 }
 
-/**
- * Last-five school days of each Oct–April month, in date order.
- *
- * @param {import('./calendar.js').SchoolCalendar | string[] | import('./calendar.js').SchoolCalendarDay[]} calendar
- * @returns {string[]}
- */
+// Last-five school days of each Oct–April month, in date order.
 export function monthlyBidPostingDays(calendar) {
-  /** @type {Map<string, string[]>} */
   const byMonth = new Map();
   for (const day of getSchoolDays(calendar)) {
     const month = Number(day.slice(5, 7));
@@ -138,7 +100,6 @@ export function monthlyBidPostingDays(calendar) {
     }
   }
 
-  /** @type {string[]} */
   const posting = [];
   for (const group of byMonth.values()) {
     posting.push(...group.slice(-5));
@@ -146,13 +107,7 @@ export function monthlyBidPostingDays(calendar) {
   return posting.sort();
 }
 
-/**
- * First Oct–April last-five school day on or after `date`.
- *
- * @param {import('./calendar.js').SchoolCalendar | string[] | import('./calendar.js').SchoolCalendarDay[]} calendar
- * @param {string | Date} date
- * @returns {string}
- */
+// First Oct–April last-five school day on or after `date`.
 export function firstMonthlyBidPostingOnOrAfter(calendar, date) {
   const start = toDateString(date);
   const found = monthlyBidPostingDays(calendar).find((day) => day >= start);
@@ -165,10 +120,6 @@ export function firstMonthlyBidPostingOnOrAfter(calendar, date) {
   return found;
 }
 
-/**
- * @param {string} effectiveOn
- * @returns {{ window_expires_date: string, becomes_effective_on: string }}
- */
 function openThroughDayBefore(effectiveOn) {
   return {
     window_expires_date: previousCalendarDate(effectiveOn),
@@ -176,17 +127,8 @@ function openThroughDayBefore(effectiveOn) {
   };
 }
 
-/**
- * Timing plan for a change on `changeDate` whose running exact drift is `drift`.
- *
- * `window_expires_date` is the last day the window is still open
- * (`isWindowExpired` is true the calendar day after that).
- *
- * @param {import('./calendar.js').SchoolCalendar | string[] | import('./calendar.js').SchoolCalendarDay[]} calendar
- * @param {string | Date} changeDate
- * @param {number} drift
- * @returns {ContractWindowPlan}
- */
+// Timing plan for a change on `changeDate` whose running exact drift is `drift`.
+// `window_expires_date` is the last day the window is still open
 export function contractWindowPlan(calendar, changeDate, drift) {
   const start = toDateString(changeDate);
   const oct1 = october1ForDate(start);
@@ -271,12 +213,6 @@ export function contractWindowPlan(calendar, changeDate, drift) {
   };
 }
 
-/**
- * @param {import('./calendar.js').SchoolCalendar | string[] | import('./calendar.js').SchoolCalendarDay[]} calendar
- * @param {string | Date} changeDate
- * @param {number} drift
- * @returns {string}
- */
 export function computeWindowExpiresDate(calendar, changeDate, drift) {
   return contractWindowPlan(calendar, changeDate, drift).window_expires_date;
 }

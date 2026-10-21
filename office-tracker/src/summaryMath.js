@@ -1,19 +1,14 @@
-/**
- * Quarter-hour steps behind a Driver Pay period info day cell.
- * EX DRIVER is the clocked quarter hours beyond that day's contract hours.
- * The table shows contract hours, the clocks, the snap, EX HOURS, and clock notes.
- * Other pay-status rows are not calculated here.
- */
+// Quarter-hour steps behind a Driver Pay period info day cell.
+// EX DRIVER is the clocked quarter hours beyond that day's contract hours.
+// The table shows contract hours, the clocks, the snap, overtime for each clock and for the day, EX HOURS, and clock notes.
+// Pointing at a calculated number shows the math.
+// Other pay-status rows are not calculated here.
 
 import { parseClockTime, roundClockToQuarterHour } from '../../src/logic/timeUtils.js';
 import { normalizeOvertimeRules } from './overtimeRules.js';
 import { quarterHoursFromDailyMinutes, quarterHoursFromMinutes } from './payrollTimes.js';
 import { CLOCK_ROUNDING_DAILY, CLOCK_ROUNDING_SNAP, normalizeClockRounding } from '../web/store.js';
 
-/**
- * @param {string} clockIn
- * @param {string} clockOut
- */
 function minutesApart(clockIn, clockOut) {
   const start = parseClockTime(clockIn);
   let end = parseClockTime(clockOut);
@@ -21,10 +16,7 @@ function minutesApart(clockIn, clockOut) {
   return end - start;
 }
 
-/**
- * Hours text used on the summary. Blank, zero, and non-numbers stay blank.
- * @param {unknown} hours
- */
+// Hours text used on the summary. Blank, zero, and non-numbers stay blank.
 export function formatQuarterHourText(hours) {
   if (hours == null || hours === '' || !Number.isFinite(Number(hours))) return '';
   const snapped = Math.round(Number(hours) * 4) / 4;
@@ -32,15 +24,10 @@ export function formatQuarterHourText(hours) {
   return snapped.toFixed(2);
 }
 
-/**
- * Written clocks, the clocks the minutes are counted from, and the quarter hours.
- * Snapping moves each clock to the nearest quarter hour first.
- * Rounding each span keeps the written clocks and rounds that span's minutes.
- * Rounding only the daily total keeps the written clocks and leaves the span unrounded.
- * @param {unknown} rawIn
- * @param {unknown} rawOut
- * @param {boolean | string} [rounding]
- */
+// Written clocks, the clocks the minutes are counted from, and the quarter hours.
+// Snapping moves each clock to the nearest quarter hour first.
+// Rounding each span keeps the written clocks and rounds that span's minutes.
+// Rounding only the daily total keeps the written clocks and leaves the span unrounded.
 export function clockQuarterStep(rawIn, rawOut, rounding = false) {
   const writtenIn = String(rawIn ?? '').trim();
   const writtenOut = String(rawOut ?? '').trim();
@@ -71,25 +58,17 @@ export function clockQuarterStep(rawIn, rawOut, rounding = false) {
   }
 }
 
-/**
- * EX DRIVER for one day on the district summary. Blank when the contract
- * hours are missing, or when the clocked time does not go past them.
- * @param {number | null | undefined} clocked
- * @param {unknown} contractText
- */
+// EX DRIVER for one day on the district summary. Blank when the contract
+// hours are missing, or when the clocked time does not go past them.
 export function exDriverDayHours(clocked, contractText) {
   const difference = exHoursDifference(clocked, contractText);
   if (!difference || difference.startsWith('-')) return '';
   return difference;
 }
 
-/**
- * Billable clock hours minus that day's contract hours. Negative when the
- * billable hours are under the contract. Blank when either figure is missing,
- * and blank when they are equal.
- * @param {number | null | undefined} clocked
- * @param {unknown} contractText
- */
+// Billable clock hours minus that day's contract hours. Negative when the
+// billable hours are under the contract. Blank when either figure is missing,
+// and blank when they are equal.
 export function exHoursDifference(clocked, contractText) {
   if (clocked == null || !Number.isFinite(Number(clocked))) return '';
   const text = String(contractText ?? '').trim();
@@ -99,10 +78,7 @@ export function exHoursDifference(clocked, contractText) {
   return formatQuarterHourText(Number(clocked) - contract);
 }
 
-/**
- * File name for the landscape letter PDF attached to the driver email.
- * @param {string} driverName
- */
+// File name for the landscape letter PDF attached to the driver email.
 export function mathPdfBasename(driverName) {
   const slug = String(driverName ?? '')
     .trim()
@@ -120,28 +96,16 @@ function escapeHtml(value) {
     .replace(/"/g, '&quot;');
 }
 
-/**
- * One slot for each consecutive clock-in and clock-out, in the order they were punched.
- * @param {Array<{ pairs?: Array<unknown> }>} days
- */
+// One slot for each consecutive clock-in and clock-out, in the order they were punched.
 function pairSlots(days) {
   const total = days.reduce((max, day) => Math.max(max, (day.pairs || []).length), 0);
   return Array.from({ length: total }, (_, index) => ({ index, total }));
 }
 
-/**
- * @param {{ pairs?: Array<Record<string, unknown>> }} day
- * @param {number} index
- */
 function pairAt(day, index) {
   return (day.pairs || [])[index] || null;
 }
 
-/**
- * @param {number} index
- * @param {number} total
- * @param {'in' | 'out' | 'rounded-in' | 'rounded-out' | 'contract-in' | 'contract-out' | 'contract-hours' | 'ex-driver' | 'actual' | 'rounded' | 'snap' | 'actual-ot' | 'rounded-ot' | 'snap-ot'} kind
- */
 function slotLabel(index, total, kind) {
   const suffix = total > 1 ? ` ${index + 1}` : '';
   if (kind === 'in') return `Clock In${suffix}`;
@@ -160,26 +124,16 @@ function slotLabel(index, total, kind) {
   return `Snap minutes${suffix}`;
 }
 
-/**
- * @param {number | null | undefined} minutes
- */
 function minuteText(minutes) {
   if (minutes == null || !Number.isFinite(Number(minutes))) return '';
   return String(minutes);
 }
 
-/**
- * @param {Record<string, unknown> | null | undefined} pair
- */
 function pairHasOvertime(pair) {
   if (!pair) return false;
   return ['actualOvertimeMinutes', 'roundedOvertimeMinutes', 'snapOvertimeMinutes'].some((key) => Number(pair[key]) > 0);
 }
 
-/**
- * @param {Record<string, unknown> | null | undefined} pair
- * @param {string} key
- */
 function overtimeMinuteText(pair, key) {
   if (!pairHasOvertime(pair)) return '';
   const minutes = pair?.[key];
@@ -187,29 +141,127 @@ function overtimeMinuteText(pair, key) {
   return String(minutes);
 }
 
-/**
- * @param {Record<string, unknown> | null | undefined} pair
- * @param {'actualOvertimeMinutes' | 'snapOvertimeMinutes'} key
- */
-function overtimeTip(pair, key) {
+function clockMinutesFromLabel(clock) {
+  const match = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(String(clock || '').trim());
+  if (!match) return null;
+  let hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const suffix = match[3].toUpperCase();
+  if (hours > 12 || minutes > 59) return null;
+  if (suffix === 'AM') hours = hours === 12 ? 0 : hours;
+  else if (hours !== 12) hours += 12;
+  return hours * 60 + minutes;
+}
+
+function joinList(items) {
+  const text = items.map((value) => String(value)).filter(Boolean);
+  if (text.length <= 1) return text[0] || '';
+  if (text.length === 2) return `${text[0]} and ${text[1]}`;
+  return `${text.slice(0, -1).join(', ')}, and ${text[text.length - 1]}`;
+}
+
+function snapClockTip(written, rounded) {
+  if (!written || !rounded || written === rounded) return '';
+  return `${rounded} is ${written} snapped to the nearest quarter hour.`;
+}
+
+function spanHoursTip(hours, start, end) {
+  const shown = String(hours || '').trim();
+  const from = String(start || '').trim();
+  const to = String(end || '').trim();
+  if (!shown || !from || !to) return '';
+  const startMin = clockMinutesFromLabel(from);
+  const endMin = clockMinutesFromLabel(to);
+  if (startMin == null || endMin == null || endMin <= startMin) return `${shown} is ${to} minus ${from}.`;
+  const exact = (endMin - startMin) / 60;
+  const rounded = Math.abs(exact - Number(shown)) > 0.001 ? ', rounded to the nearest quarter hour' : '';
+  return `${shown} is ${to} minus ${from}${rounded}.`;
+}
+
+function minutesApartTip(minutes, start, end) {
+  if (minutes == null || !Number.isFinite(Number(minutes))) return '';
+  const from = String(start || '').trim();
+  const to = String(end || '').trim();
+  if (!from || !to) return '';
+  return `${minutes} is ${to} minus ${from}.`;
+}
+
+function quarterMinuteTip(rounded, actual) {
+  if (rounded == null || !Number.isFinite(Number(rounded))) return '';
+  const exact = Number(actual);
+  if (!Number.isFinite(exact) || exact === Number(rounded)) return '';
+  return `${rounded} is ${exact} minutes rounded to the nearest quarter hour.`;
+}
+
+function snapMinutesTip(pair) {
+  const minutes = pair.snapMinutes;
+  if (minutes == null || !Number.isFinite(Number(minutes))) return '';
+  const from = String(pair.roundedIn || '').trim();
+  const to = String(pair.roundedOut || '').trim();
+  if (!from || !to) return '';
+  const moved = [];
+  const writtenIn = String(pair.writtenIn || '').trim();
+  const writtenOut = String(pair.writtenOut || '').trim();
+  if (writtenIn && writtenIn !== from) moved.push(`${writtenIn} snapped to ${from}`);
+  if (writtenOut && writtenOut !== to) moved.push(`${writtenOut} snapped to ${to}`);
+  const base = `${minutes} is ${to} minus ${from}`;
+  if (!moved.length) return `${base}.`;
+  return `${base}. ${joinList(moved)}.`;
+}
+
+// Counted clock hours for one run, in the same rounding EX DRIVER uses.
+function countedRunHours(pair, rounding) {
+  const minutes = rounding === 'separate' ? Number(pair.roundedMinutes) : Number(pair.snapMinutes);
+  if (!Number.isFinite(minutes)) return '';
+  return formatQuarterHourText(quarterHoursFromMinutes(minutes));
+}
+
+function exDriverTip(pair, rounding) {
+  const residual = String(pair.exDriver || '').trim();
+  const contract = String(pair.contractHours || '').trim();
+  if (!residual || !contract) return '';
+  const counted = countedRunHours(pair, rounding);
+  if (!counted) return `${residual} is the subtraction of ${contract} contracted hours from the counted clock hours for this run.`;
+  return `${residual} is the subtraction of ${contract} (contracted hours) from ${counted} (counted clock hours for this run).`;
+}
+
+function overtimeSpanTip(pair, key, start, end) {
   const minutes = Number(pair?.[key]);
   if (!pair || !Number.isFinite(minutes) || minutes <= 0) return '';
   const reasons = key === 'snapOvertimeMinutes' ? pair.snapOvertimeReasons : pair.overtimeReasons;
   const why = Array.isArray(reasons) ? reasons.filter(Boolean).join(', ') : '';
-  return why ? `${minutes} overtime minutes: ${why}.` : `${minutes} overtime minutes.`;
+  const because = why ? `: ${why}` : '';
+  if (key === 'roundedOvertimeMinutes') {
+    const actual = Number(pair.actualOvertimeMinutes);
+    if (Number.isFinite(actual) && actual !== minutes) {
+      return `${minutes} is ${actual} overtime minutes rounded to the nearest quarter hour${because}.`;
+    }
+  }
+  const from = String(start || '').trim();
+  const to = String(end || '').trim();
+  if (from && to) return `${minutes} overtime minutes from ${from} to ${to}${because}.`;
+  return `${minutes} overtime minutes${because}.`;
 }
 
-/**
- * @param {Array<{ pairs?: Array<Record<string, unknown>> }>} days
- * @param {number} index
- */
+function pairCellTip(pair, kind, rounding) {
+  if (!pair) return '';
+  if (kind === 'rounded-in') return snapClockTip(String(pair.writtenIn || ''), String(pair.roundedIn || ''));
+  if (kind === 'rounded-out') return snapClockTip(String(pair.writtenOut || ''), String(pair.roundedOut || ''));
+  if (kind === 'contract-hours') return spanHoursTip(pair.contractHours, pair.contractIn, pair.contractOut);
+  if (kind === 'ex-driver') return exDriverTip(pair, rounding);
+  if (kind === 'actual') return minutesApartTip(pair.actualMinutes, pair.writtenIn, pair.writtenOut);
+  if (kind === 'rounded') return quarterMinuteTip(pair.roundedMinutes, pair.actualMinutes);
+  if (kind === 'snap') return snapMinutesTip(pair);
+  if (kind === 'actual-ot') return overtimeSpanTip(pair, 'actualOvertimeMinutes', pair.writtenIn, pair.writtenOut);
+  if (kind === 'rounded-ot') return overtimeSpanTip(pair, 'roundedOvertimeMinutes', pair.writtenIn, pair.writtenOut);
+  if (kind === 'snap-ot') return overtimeSpanTip(pair, 'snapOvertimeMinutes', pair.roundedIn, pair.roundedOut);
+  return '';
+}
+
 function slotHasOvertime(days, index) {
   return days.some((day) => pairHasOvertime(pairAt(day, index)));
 }
 
-/**
- * @param {Array<{ residual?: string }>} days
- */
 function sumExHours(days) {
   const present = days.map((day) => day.residual).filter((value) => value);
   if (!present.length) return '';
@@ -218,11 +270,7 @@ function sumExHours(days) {
   return (Math.round(total * 4) / 4).toFixed(2);
 }
 
-/**
- * Overtime hours for the pay period, using the rounding method that payroll counts.
- * @param {Array<{ pairs?: Array<Record<string, unknown>> }>} days
- * @param {'snap' | 'daily' | 'separate'} rounding
- */
+// Overtime hours for the pay period, using the rounding method that payroll counts.
 function sumOvertimeHours(days, rounding) {
   if (rounding === 'daily') {
     const hours = days.reduce((sum, day) => {
@@ -239,10 +287,6 @@ function sumOvertimeHours(days, rounding) {
   return quarterHoursFromMinutes(minutes) || 0;
 }
 
-/**
- * @param {number} hours
- * @param {number} multiplier
- */
 function overtimeTotalText(hours, multiplier) {
   const shown = (Math.round(Number(hours) * 100) / 100).toFixed(2);
   const factor = Number(multiplier);
@@ -251,42 +295,85 @@ function overtimeTotalText(hours, multiplier) {
   return `${shown} × ${factor} = ${paid}`;
 }
 
-/**
- * @param {number} hours
- * @param {number} multiplier
- * @param {'snap' | 'daily' | 'separate'} rounding
- */
-function overtimeTotalTip(hours, multiplier, rounding) {
+// The overtime minutes payroll counts for one day.
+function dayOvertimeMinutes(day, rounding) {
+  const key = rounding === 'snap' ? 'snapOvertimeMinutes' : rounding === 'separate' ? 'roundedOvertimeMinutes' : 'actualOvertimeMinutes';
+  return (day.pairs || []).reduce((total, pair) => total + Number(pair?.[key] || 0), 0);
+}
+
+// Overtime hours for one day, using the same rounding as that day's part of the pay-period total.
+function dayOvertimeHours(day, rounding) {
+  const minutes = dayOvertimeMinutes(day, rounding);
+  if (!minutes) return 0;
+  if (rounding === 'daily') return quarterHoursFromDailyMinutes([minutes]) || 0;
+  return quarterHoursFromMinutes(minutes) || 0;
+}
+
+function formatOvertimeHours(hours) {
+  if (!hours) return '';
+  return (Math.round(hours * 100) / 100).toFixed(2);
+}
+
+function overtimeMinuteName(rounding) {
+  if (rounding === 'snap') return 'snap overtime minutes';
+  if (rounding === 'separate') return 'quarter-hour overtime minutes';
+  return 'actual overtime minutes';
+}
+
+function dayOvertimeTip(day, rounding) {
+  const key = rounding === 'snap' ? 'snapOvertimeMinutes' : rounding === 'separate' ? 'roundedOvertimeMinutes' : 'actualOvertimeMinutes';
+  const parts = (day.pairs || [])
+    .map((pair) => {
+      const minutes = Number(pair?.[key] || 0);
+      if (!minutes) return null;
+      const from = String((rounding === 'snap' ? pair.roundedIn : pair.writtenIn) || '').trim();
+      const to = String((rounding === 'snap' ? pair.roundedOut : pair.writtenOut) || '').trim();
+      return { minutes, from, to };
+    })
+    .filter(Boolean);
+  if (!parts.length) return '';
+  const hours = formatOvertimeHours(dayOvertimeHours(day, rounding));
+  const noun = overtimeMinuteName(rounding);
+  const exact = parts.reduce((total, part) => total + part.minutes, 0);
+  const rounded = rounding === 'daily' && Math.abs(exact / 60 - Number(hours)) > 0.001 ? ', rounded to the nearest quarter hour' : '';
+  if (parts.length === 1) {
+    const span = parts[0].from && parts[0].to ? ` from ${parts[0].from} to ${parts[0].to}` : '';
+    return `${hours} is ${parts[0].minutes} ${noun}${span}${rounded}.`;
+  }
+  return `${hours} is the sum of ${joinList(parts.map((part) => String(part.minutes)))} ${noun}${rounded}.`;
+}
+
+function overtimeTotalTip(days, hours, multiplier, rounding) {
   const shown = (Math.round(Number(hours) * 100) / 100).toFixed(2);
-  const basis =
-    rounding === 'snap'
-      ? 'snap overtime minutes'
-      : rounding === 'separate'
-        ? 'quarter-hour overtime minutes'
-        : 'actual overtime minutes, rounded to the quarter hour each day';
+  const noun = overtimeMinuteName(rounding);
+  const pieces = days
+    .map((day) => {
+      const minutes = dayOvertimeMinutes(day, rounding);
+      return minutes ? `${minutes} on day ${day.day}` : '';
+    })
+    .filter(Boolean);
+  const minuteSum = days.reduce((total, day) => total + dayOvertimeMinutes(day, rounding), 0);
+  let basis;
+  if (!minuteSum) {
+    basis = `${shown} overtime hours. No clock in this pay period has overtime minutes.`;
+  } else if (rounding === 'daily') {
+    basis = `${shown} overtime hours is ${minuteSum} ${noun} (${joinList(pieces)}), rounded to the quarter hour on each day and then added.`;
+  } else {
+    basis = `${shown} overtime hours is ${minuteSum} ${noun} (${joinList(pieces)}), rounded to the nearest quarter hour.`;
+  }
   const factor = Number(multiplier);
   const paid =
     Number.isFinite(factor) && factor !== 1
       ? ` The ${factor} multiplier makes that ${(Math.round(Number(hours) * factor * 100) / 100).toFixed(2)} pay hours.`
       : '';
-  return `${shown} overtime hours from the ${basis}.${paid}`;
+  return `${basis}${paid}`;
 }
 
-/**
- * @param {number[]} minutes
- */
 function minuteList(minutes) {
-  const text = minutes.map((value) => String(value));
-  if (text.length <= 1) return text[0] || '';
-  if (text.length === 2) return `${text[0]} and ${text[1]}`;
-  return `${text.slice(0, -1).join(', ')}, and ${text[text.length - 1]}`;
+  return joinList(minutes.map((value) => String(value)));
 }
 
-/**
- * The minutes that were added for that day's billable hours.
- * @param {{ pairs?: Array<Record<string, unknown>> }} day
- * @param {'snap' | 'daily' | 'separate'} rounding
- */
+// The minutes that were added for that day's billable hours.
 function billableMinutes(day, rounding) {
   const key = rounding === 'snap' ? 'snapMinutes' : rounding === 'separate' ? 'roundedMinutes' : 'actualMinutes';
   return (day.pairs || [])
@@ -295,10 +382,6 @@ function billableMinutes(day, rounding) {
     .map((value) => Number(value));
 }
 
-/**
- * @param {{ clockedHours?: string, pairs?: Array<Record<string, unknown>> }} day
- * @param {'snap' | 'daily' | 'separate'} rounding
- */
 function billableTip(day, rounding) {
   const hours = String(day.clockedHours || '').trim();
   const minutes = billableMinutes(day, rounding);
@@ -310,9 +393,6 @@ function billableTip(day, rounding) {
   return `${hours} is the sum of ${minuteList(minutes)} minutes from that day${tail}.`;
 }
 
-/**
- * @param {{ residual?: string, contractHours?: string, clockedHours?: string }} day
- */
 function exHoursTip(day) {
   const residual = String(day.residual || '').trim();
   const contract = String(day.contractHours || '').trim();
@@ -321,44 +401,101 @@ function exHoursTip(day) {
   return `${residual} is the subtraction of ${contract} (contract hours) from ${clocked} (the total billable clock hours).`;
 }
 
-/**
- * @param {string} row
- * @param {string} label
- * @param {Array<{ day: number }>} days
- * @param {(day: { day: number, contractHours?: string, residual?: string }) => string} value
- * @param {string} [className]
- * @param {(day: { day: number }) => string} [tipFor]
- */
-function mathRow(row, label, days, value, className = '', tipFor) {
+function contractDayTip(day) {
+  const hours = String(day.contractHours || '').trim();
+  if (!hours) return '';
+  const runs = (day.routes || []).flatMap((route) => route.runs || []).filter((run) => String(run.hours || '').trim());
+  if (runs.length === 1) return spanHoursTip(hours, runs[0].writtenIn, runs[0].writtenOut);
+  if (runs.length > 1) {
+    const parts = runs.map((run) => {
+      const label = String(run.label || '').trim();
+      return label ? `${run.hours} ${label}` : String(run.hours);
+    });
+    const sum = runs.reduce((total, run) => total + Number(run.hours), 0);
+    const rounded = Math.abs(sum - Number(hours)) > 0.001 ? ', rounded to the nearest quarter hour' : '';
+    return `${hours} is the sum of ${joinList(parts)}${rounded}.`;
+  }
+  return `${hours} is this day's contracted hours.`;
+}
+
+function exHoursTotalTip(days, total) {
+  if (!total) return '';
+  const parts = days.map((day) => String(day.residual || '').trim()).filter(Boolean);
+  if (!parts.length) return '';
+  if (parts.length === 1) return `${total} is the EX HOURS for that day.`;
+  return `${total} is the sum of ${joinList(parts)} from the EX HOURS row.`;
+}
+
+// Distinct greens, light enough to keep black text readable.
+// Day totals are placed at opposite ends so a contract change stands out.
+const CONTRACT_GREENS = ['#e5f7ea', '#c9f0d2', '#a3e4b4', '#6fd492', '#3ec06c', '#17924a'];
+
+function uniqueHours(values) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))].sort(
+    (a, b) => Number(a) - Number(b) || a.localeCompare(b)
+  );
+}
+
+function spreadSlots(count, available) {
+  const used = [];
+  for (let index = 0; index < count; index += 1) {
+    const ideal =
+      count === 1
+        ? available[Math.floor((available.length - 1) / 2)]
+        : available[Math.round((index * (available.length - 1)) / (count - 1))];
+    const slot = used.includes(ideal) ? available.find((item) => !used.includes(item)) ?? ideal : ideal;
+    used.push(slot);
+  }
+  return used;
+}
+
+// One green when every contract-hour figure matches. A different shade for each different figure.
+// The day's contract hours are spaced across the palette first, so 5.75 and 6.50 do not share a shade.
+function contractGreenStyles(days) {
+  const dayValues = uniqueHours(days.map((day) => day.contractHours));
+  const pairValues = uniqueHours(days.flatMap((day) => (day.pairs || []).map((pair) => pair?.contractHours))).filter(
+    (value) => !dayValues.includes(value)
+  );
+  const styles = new Map();
+  if (dayValues.length + pairValues.length <= 1) {
+    const only = dayValues[0] || pairValues[0];
+    if (only) styles.set(only, 'background:#b7e4c7');
+    return styles;
+  }
+  const daySlots = spreadSlots(
+    dayValues.length,
+    CONTRACT_GREENS.map((_, index) => index)
+  );
+  dayValues.forEach((value, index) => styles.set(value, `background:${CONTRACT_GREENS[daySlots[index]]}`));
+  const free = CONTRACT_GREENS.map((_, index) => index).filter((index) => !daySlots.includes(index));
+  const pairSlots = spreadSlots(pairValues.length, free.length ? free : CONTRACT_GREENS.map((_, index) => index));
+  pairValues.forEach((value, index) => styles.set(value, `background:${CONTRACT_GREENS[pairSlots[index]]}`));
+  return styles;
+}
+
+function contractGreen(shades, value) {
+  return shades.get(String(value || '').trim()) || '';
+}
+
+function mathRow(row, label, days, value, className = '', tipFor, styleFor) {
   const cells = days
     .map((day) => {
       const tip = tipFor ? String(tipFor(day) || '') : '';
-      const attr = tip ? ` data-math="${escapeHtml(tip)}" tabindex="0"` : '';
-      return `<td data-row="${row}" data-day="${day.day}"${attr}>${value(day)}</td>`;
+      const style = styleFor ? String(styleFor(day) || '') : '';
+      const attr = [
+        tip ? `data-math="${escapeHtml(tip)}" tabindex="0"` : '',
+        style ? `style="${escapeHtml(style)}"` : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      return `<td data-row="${row}" data-day="${day.day}"${attr ? ` ${attr}` : ''}>${value(day)}</td>`;
     })
     .join('');
   const cls = className ? ` class="${className}"` : '';
   return `<tr${cls}><th scope="row">${escapeHtml(label)}</th>${cells}</tr>`;
 }
 
-/**
- * One table. Columns are the days in the pay period.
- * @param {{
- *   driverName?: string,
- *   rounding?: 'snap' | 'daily' | 'separate',
- *   roundClocks?: boolean,
- *   periods?: Array<{
- *     label?: string,
- *     days?: Array<{
- *       day: number,
- *       contractHours?: string,
- *       residual?: string,
- *       pairs?: Array<Record<string, string>>,
- *       unpaired?: Array<{ action?: string, clock?: string, snapped?: string }>,
- *     }>,
- *   }>,
- * }} model
- */
+// One table. Columns are the days in the pay period.
 export function renderMonthlySummaryMathHtml(model) {
   const driverName = String(model?.driverName || 'Driver');
   const email = String(model?.email || '').trim();
@@ -387,6 +524,11 @@ export function renderMonthlySummaryMathHtml(model) {
     th, td { border: 1px solid #222; padding: 0.28rem 0.2rem; text-align: center; vertical-align: middle; white-space: normal; overflow-wrap: break-word; font-size: clamp(11px, 1.05vw, 15px); }
     thead th:first-child, tbody th, tfoot th { width: 22%; text-align: left; }
     thead th { background: #f4f4f4; }
+    tr.holidays th { background: #f7f4ea; }
+    tr.holidays th.is-holiday { writing-mode: vertical-rl; text-orientation: mixed; white-space: nowrap; overflow-wrap: normal; word-break: keep-all; background: #fde8ea; font-weight: 700; font-size: 12px; letter-spacing: 0.03em; padding: 0.45rem 0.1rem; }
+    tr.weekdays th { font-weight: 700; letter-spacing: 0; padding: 0.18rem 0; }
+    tr.weekdays th:not(:first-child) { white-space: nowrap; font-size: clamp(8px, 0.85vw, 12px); }
+    tr.weekdays th:first-child { white-space: normal; }
     tbody th { background: #fafafa; }
     tr.pair-a th, tr.pair-a td { background: #d7e4f4; }
     tr.pair-b th, tr.pair-b td { background: #f6e4c8; }
@@ -403,7 +545,7 @@ export function renderMonthlySummaryMathHtml(model) {
     tr.replaced s { text-decoration: line-through; }
     tr.ot.used th, tr.ot.used td { background: #ffe08a; font-weight: 700; }
     td[data-math] { cursor: help; }
-    #math-hover { position: fixed; z-index: 5; max-width: 18rem; padding: 0.45rem 0.6rem; background: #1c1e22; color: #fff; border-radius: 6px; font-size: 13px; line-height: 1.35; pointer-events: none; box-shadow: 0 8px 20px rgba(0,0,0,0.2); }
+    #math-hover { position: fixed; z-index: 5; max-width: 22rem; padding: 0.45rem 0.6rem; background: #1c1e22; color: #fff; border-radius: 6px; font-size: 13px; line-height: 1.35; pointer-events: none; box-shadow: 0 8px 20px rgba(0,0,0,0.2); }
     #math-hover[hidden] { display: none; }
     tfoot th, tfoot td { background: #e7e7e7; font-weight: 700; text-align: left; }
     .clock-notes { flex: none; max-height: 32vh; margin-top: 0.55rem; padding-top: 0.4rem; border-top: 2px solid #222; overflow: auto; text-align: left; }
@@ -500,25 +642,7 @@ export function renderMonthlySummaryMathHtml(model) {
 </html>`;
 }
 
-/**
- * @param {string} driverName
- * @param {{
- *   label?: string,
- *   days?: Array<{
- *     day: number,
- *     contractHours?: string,
- *     residual?: string,
- *     pairs?: Array<Record<string, string>>,
- *     unpaired?: Array<{ action?: string, clock?: string, snapped?: string }>,
- *   }>,
- * }} period
- * @param {'snap' | 'daily' | 'separate'} rounding
- * @param {ReturnType<typeof normalizeOvertimeRules>} overtimeRules
- */
-/**
- * Clock notes and contract-change notes for the admin, in day order.
- * @param {Array<{ day: number, dateLabel?: string, notes?: Array<{ when?: string, text?: string }> }>} days
- */
+// Clock notes and contract-change notes for the admin, in day order.
 function clockNotesSection(days) {
   const items = [];
   for (const day of days) {
@@ -539,10 +663,7 @@ function clockNotesSection(days) {
   return `<section class="clock-notes"><h2>Clock notes</h2><ul>${rows}</ul></section>`;
 }
 
-/**
- * The pay-period tables, including clock notes, without the printable page chrome.
- * @param {Parameters<typeof renderMonthlySummaryMathHtml>[0]} model
- */
+// The pay-period tables, including clock notes, without the printable page chrome.
 export function payPeriodInfoMarkup(model) {
   const driverName = String(model?.driverName || 'Driver');
   const rounding = normalizeClockRounding(
@@ -553,11 +674,8 @@ export function payPeriodInfoMarkup(model) {
   return periods.map((period) => periodTable(driverName, period, rounding, overtimeRules)).join('');
 }
 
-/**
- * One row for each earlier clock time a later punch replaced.
- * The counted time stays on Clock In or Clock Out. This cell keeps the old time.
- * @param {Array<{ day: number, replacedClocks?: Array<{ action?: string, clock?: string }> }>} days
- */
+// One row for each earlier clock time a later punch replaced.
+// The counted time stays on Clock In or Clock Out. This cell keeps the old time.
 function earlierClockRows(days) {
   return ['in', 'out']
     .map((action) => {
@@ -591,23 +709,40 @@ function earlierClockRows(days) {
 
 function periodTable(driverName, period, rounding, overtimeRules) {
   const days = Array.isArray(period.days) ? period.days : [];
+  const holidays = days
+    .map((day) => {
+      const name = String(day.holiday || '').trim();
+      const mark = name ? ' class="is-holiday"' : '';
+      const tip = name ? ` title="${escapeHtml(name)}"` : '';
+      return `<th scope="col" data-day="${day.day}"${mark}${tip}>${escapeHtml(name)}</th>`;
+    })
+    .join('');
+  const weekdays = days
+    .map((day) => `<th scope="col" data-day="${day.day}">${escapeHtml(day.weekday || '')}</th>`)
+    .join('');
   const head = days.map((day) => `<th scope="col">${day.day}</th>`).join('');
-  const contract = mathRow('contract', 'Contract hours', days, (day) => escapeHtml(day.contractHours || ''), 'contract');
+  const shades = contractGreenStyles(days);
+  const contract = mathRow(
+    'contract',
+    'Contract hours',
+    days,
+    (day) => escapeHtml(day.contractHours || ''),
+    'contract',
+    contractDayTip,
+    (day) => contractGreen(shades, day.contractHours)
+  );
   const slots = pairSlots(days);
   const clockRows = slots
     .map((slot) => {
       const id = `pair-${slot.index}`;
       const find = (day) => pairAt(day, slot.index);
       const band = slot.index % 2 === 0 ? 'pair-a' : 'pair-b';
-      /** @type {Array<'in' | 'out' | 'rounded-in' | 'rounded-out' | 'contract-in' | 'contract-out' | 'contract-hours' | 'ex-driver' | 'actual' | 'rounded' | 'snap' | 'actual-ot' | 'rounded-ot' | 'snap-ot'>} */
       const kinds = ['in', 'out', 'rounded-in', 'rounded-out', 'contract-in', 'contract-out', 'contract-hours', 'ex-driver', 'actual'];
       if (rounding === 'separate') kinds.push('rounded');
       kinds.push('snap');
-      if (slotHasOvertime(days, slot.index)) {
-        kinds.push('actual-ot');
-        if (rounding === 'separate') kinds.push('rounded-ot');
-        if (rounding === 'snap') kinds.push('snap-ot');
-      }
+      if (slotHasOvertime(days, slot.index) || rounding === 'daily') kinds.push('actual-ot');
+      if (rounding === 'separate') kinds.push('rounded-ot');
+      if (rounding === 'snap') kinds.push('snap-ot');
       return kinds
         .map((kind, index) => {
           const edge = index === 0 ? 'pair-start' : index === kinds.length - 1 ? 'pair-end' : '';
@@ -648,10 +783,10 @@ function periodTable(driverName, period, rounding, overtimeRules) {
             if (kind === 'snap-ot') return overtimeMinuteText(pair, 'snapOvertimeMinutes');
             return minuteText(pair?.snapMinutes);
           };
-          const tipFor = overtime
-            ? (day) => overtimeTip(find(day), kind === 'snap-ot' ? 'snapOvertimeMinutes' : 'actualOvertimeMinutes')
-            : undefined;
-          return mathRow(id + '-' + kind, slotLabel(slot.index, slot.total, kind), days, value, className, tipFor);
+          const tipFor = (day) => pairCellTip(find(day), kind, rounding);
+          const styleFor =
+            kind === 'contract-hours' ? (day) => contractGreen(shades, find(day)?.contractHours) : undefined;
+          return mathRow(id + '-' + kind, slotLabel(slot.index, slot.total, kind), days, value, className, tipFor, styleFor);
         })
         .join('');
     })
@@ -666,9 +801,18 @@ function periodTable(driverName, period, rounding, overtimeRules) {
     (day) => billableTip(day, rounding)
   );
   const exHours = mathRow('ex-hours', 'EX HOURS', days, (day) => escapeHtml(day.residual || ''), 'ex', exHoursTip);
+  const dailyOt = mathRow(
+    'daily-ot',
+    'OT',
+    days,
+    (day) => escapeHtml(formatOvertimeHours(dayOvertimeHours(day, rounding))),
+    'ot',
+    (day) => dayOvertimeTip(day, rounding)
+  );
   const total = sumExHours(days);
   const overtimeTotal = sumOvertimeHours(days, rounding);
   const overtimeLabel = overtimeTotalText(overtimeTotal, overtimeRules.multiplier);
+  const exTotalTip = exHoursTotalTip(days, total);
   const who = [driverName, period.label].filter(Boolean).join(' · ');
   return `<article>
     <h1>Driver Pay period info</h1>
@@ -676,6 +820,14 @@ function periodTable(driverName, period, rounding, overtimeRules) {
     <div class="table-scroll">
       <table>
         <thead>
+          <tr class="holidays">
+            <th scope="row">Holiday</th>
+            ${holidays}
+          </tr>
+          <tr class="weekdays">
+            <th scope="row">Day of the week</th>
+            ${weekdays}
+          </tr>
           <tr>
             <th scope="col"></th>
             ${head}
@@ -687,15 +839,16 @@ function periodTable(driverName, period, rounding, overtimeRules) {
           ${billable}
           ${contract}
           ${exHours}
+          ${dailyOt}
         </tbody>
         <tfoot>
           <tr>
             <th scope="row">Total EX HOURS</th>
-            <td colspan="${days.length}" data-total="ex-hours">${escapeHtml(total)}</td>
+            <td colspan="${days.length}" data-total="ex-hours"${exTotalTip ? ` data-math="${escapeHtml(exTotalTip)}" tabindex="0"` : ''}>${escapeHtml(total)}</td>
           </tr>
           <tr>
             <th scope="row">Total OT</th>
-            <td colspan="${days.length}" data-total="overtime" data-math="${escapeHtml(overtimeTotalTip(overtimeTotal, overtimeRules.multiplier, rounding))}">${escapeHtml(overtimeLabel)}</td>
+            <td colspan="${days.length}" data-total="overtime" data-math="${escapeHtml(overtimeTotalTip(days, overtimeTotal, overtimeRules.multiplier, rounding))}">${escapeHtml(overtimeLabel)}</td>
           </tr>
         </tfoot>
       </table>

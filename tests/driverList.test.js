@@ -339,6 +339,17 @@ test('a clock record keeps its reason codes and a missing list uses the starting
   ])[0];
   assert.equal(withWork.work_type, 'middle-school-sports');
   assert.equal(
+    normalizeOfficePunches([{ ...punches[0], id: 'punch-extra-2', run: 'OTHER', extra_index: 2 }])[0].extra_index,
+    2
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      normalizeOfficePunches([{ ...punches[0], id: 'punch-extra-1', run: 'OTHER', extra_index: 1 }])[0],
+      'extra_index'
+    ),
+    false
+  );
+  assert.equal(
     normalizeOfficePunches([{ ...punches[0], id: 'punch-ticket', trip_ticket: '  4821 ' }])[0].trip_ticket,
     '4821'
   );

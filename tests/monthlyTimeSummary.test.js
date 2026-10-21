@@ -780,15 +780,18 @@ test('EX DRIVER is the clocked time beyond that day contract hours', () => {
   assert.match(html, /<th scope="row">Rounded clock out<\/th>/);
   assert.match(html, /<th scope="row">Contracted clock in<\/th>/);
   assert.match(html, /<th scope="row">EX DRIVER<\/th>/);
-  assert.match(html, /data-row="pair-0-rounded-in" data-day="8">6:00 AM</);
-  assert.match(html, /data-row="pair-0-rounded-out" data-day="8">12:45 PM</);
+  assert.match(html, /data-row="pair-0-rounded-in" data-day="8"[^>]*>6:00 AM</);
+  assert.match(html, /data-row="pair-0-rounded-out" data-day="8"[^>]*>12:45 PM</);
   assert.doesNotMatch(html, /AM Route|PM Route/);
   assert.match(html, /data-row="pair-0-in" data-day="8">6:07 AM</);
   assert.match(html, /data-row="pair-0-out" data-day="8">12:38 PM</);
-  assert.match(html, /data-row="pair-0-actual" data-day="8">391</);
+  assert.match(html, /data-row="pair-0-actual" data-day="8"[^>]*data-math="391 is 12:38 PM minus 6:07 AM\."[^>]*>391</);
+  assert.match(html, /data-math="405 is 12:45 PM minus 6:00 AM\. 6:07 AM snapped to 6:00 AM and 12:38 PM snapped to 12:45 PM\."/);
+  assert.match(html, /data-math="6:00 AM is 6:07 AM snapped to the nearest quarter hour\."/);
+  assert.match(html, /data-math="12:45 PM is 12:38 PM snapped to the nearest quarter hour\."/);
   assert.doesNotMatch(html, /Quarter-hour minutes/);
   assert.match(html, /<tr class="pair pair-a pair-start">[\s\S]*data-row="pair-0-in" data-day="8">6:07 AM</);
-  assert.match(html, /<tr class="[^"]*\bused\b[^"]*">[\s\S]*data-row="pair-0-snap" data-day="8">405</);
+  assert.match(html, /<tr class="[^"]*\bused\b[^"]*">[\s\S]*data-row="pair-0-snap" data-day="8"[^>]*>405</);
   assert.match(html, /data-row="billable" data-day="8"[^>]*>6\.75</);
   assert.match(html, /data-math="6\.75 is the sum of 405 minutes from that day\."/);
   assert.match(html, /data-row="billable"[\s\S]*<th scope="row">Contract hours<\/th>[\s\S]*<th scope="row">EX HOURS<\/th>/);
@@ -798,7 +801,7 @@ test('EX DRIVER is the clocked time beyond that day contract hours', () => {
     html,
     /data-math="1\.25 is the subtraction of 5\.50 \(contract hours\) from 6\.75 \(the total billable clock hours\)\."/
   );
-  assert.match(html, /data-total="ex-hours">1\.25</);
+  assert.match(html, /data-total="ex-hours"[^>]*>1\.25</);
 
   const two = buildMonthlySummaryMath({
     driverName: 'Goofy Goof',
@@ -1003,8 +1006,8 @@ test('time under the contract, or clocks with no contract, leave EX DRIVER blank
   assert.equal(short.contractHours, '5.50');
   assert.equal(short.residual, '-3.50');
   const mathHtml = renderMonthlySummaryMathHtml(math);
-  assert.match(mathHtml, /data-row="billable"[\s\S]*data-row="contract" data-day="8">5\.50[\s\S]*data-row="ex-hours" data-day="8"[^>]*>-3\.50/);
-  assert.match(mathHtml, /data-total="ex-hours">-3\.50/);
+  assert.match(mathHtml, /data-row="billable"[\s\S]*data-row="contract" data-day="8"[^>]*>5\.50[\s\S]*data-row="ex-hours" data-day="8"[^>]*>-3\.50/);
+  assert.match(mathHtml, /data-total="ex-hours"[^>]*>-3\.50/);
 
   const open = buildMonthlyTimeSummary({
     driverName: 'Goofy Goof',
@@ -1349,4 +1352,166 @@ test('Donald Duck has a full September 1–15 example with a mid-period contract
   assert.match(html, /data-row="pair-1-ex-driver" data-day="10"[^>]*>0\.50</);
   assert.match(html, /<h2>Clock notes<\/h2>/);
   assert.doesNotMatch(html, />math</i);
+  const contractStyle = (day) => {
+    const match = html.match(new RegExp(`data-row="contract" data-day="${day}"[^>]*style="([^"]+)"`));
+    return match?.[1] || '';
+  };
+  assert.equal(contractStyle(1), contractStyle(4));
+  assert.notEqual(contractStyle(1), '');
+  assert.notEqual(contractStyle(1), contractStyle(8));
+  assert.match(contractStyle(1), /background:/);
+  assert.match(contractStyle(8), /background:/);
+});
+
+test('Donald Duck September 16–30 shows where each overtime hour comes from', () => {
+  const state = exampleOfficeState();
+  const math = buildMonthlySummaryMath({
+    driverName: 'Donald Duck',
+    driverId: 'driver-donald-duck',
+    rounding: 'snap',
+    now: new Date(2026, 8, 30, 12, 0),
+    focus: { year: 2026, monthIndex: 8, periodId: '2' },
+    officeState: state,
+    punches: state.punches,
+  });
+  const day = (number) => math.periods[0].days.find((item) => item.day === number);
+  assert.equal(day(16).pairs.length, 3);
+  assert.equal(day(16).pairs.some((pair) => pair.snapOvertimeMinutes), false);
+  assert.equal(day(17).pairs[0].actualOvertimeMinutes, 38);
+  assert.equal(day(17).pairs[0].snapOvertimeMinutes, 45);
+  assert.deepEqual(day(17).pairs[0].overtimeReasons, ['before 5:30 AM']);
+  assert.equal(day(18).pairs[2].snapOvertimeMinutes, 75);
+  assert.ok(day(18).pairs[2].overtimeReasons.includes('at or after 5:30 PM'));
+  assert.ok(day(18).pairs[2].overtimeReasons.includes('over 8 hours in the day'));
+  assert.equal(day(19).pairs[0].snapOvertimeMinutes, 270);
+  assert.deepEqual(day(19).pairs[0].overtimeReasons, ['Saturday']);
+  assert.equal(day(20).pairs[0].snapOvertimeMinutes, 120);
+  assert.equal(day(20).pairs[1].snapOvertimeMinutes, 135);
+  assert.deepEqual(day(20).pairs[0].overtimeReasons, ['Sunday']);
+  assert.equal(day(21).pairs[2].snapOvertimeMinutes, 30);
+  assert.deepEqual(day(21).pairs[2].overtimeReasons, ['at or after 5:30 PM']);
+  assert.equal(day(22).pairs[2].snapOvertimeMinutes, 45);
+  assert.deepEqual(day(22).pairs[2].overtimeReasons, ['over 8 hours in the day']);
+  assert.equal(day(24).pairs[0].snapOvertimeMinutes, 30);
+  assert.equal(day(24).pairs[2].snapOvertimeMinutes, 30);
+  const html = renderMonthlySummaryMathHtml(math);
+  assert.match(html, /<th scope="row">Snap overtime minutes 1<\/th>/);
+  assert.match(html, /<th scope="row">OT<\/th>/);
+  assert.match(html, /data-row="daily-ot" data-day="17"[^>]*>0\.75</);
+  assert.match(html, /data-row="daily-ot" data-day="18"[^>]*>1\.25</);
+  assert.match(html, /data-row="daily-ot" data-day="19"[^>]*>4\.50</);
+  assert.match(html, /data-row="daily-ot" data-day="20"[^>]*>4\.25</);
+  assert.match(html, /data-row="daily-ot" data-day="21"[^>]*>0\.50</);
+  assert.match(html, /data-row="daily-ot" data-day="22"[^>]*>0\.75</);
+  assert.match(html, /data-row="daily-ot" data-day="24"[^>]*>1\.00</);
+  assert.match(html, /data-row="daily-ot" data-day="16"[^>]*><\/td>/);
+  assert.match(html, /45 snap overtime minutes from 4:45 AM to 8:45 AM/);
+  assert.match(html, /the sum of 120 and 135 snap overtime minutes/);
+  assert.match(html, /In the yard before 5:30 for a bus check/);
+  assert.match(html, /Saturday field trip/);
+  assert.match(html, /Sunday charter, morning loop/);
+  assert.match(html, /Sunday charter, afternoon loop/);
+  assert.match(html, /data-total="overtime"[^>]*>13\.00 × 1\.5 = 19\.50</);
+  const lateStyle = (number) => {
+    const match = html.match(new RegExp(`data-row="contract" data-day="${number}"[^>]*style="([^"]+)"`));
+    return match?.[1] || '';
+  };
+  const runStyle = (row, number) => {
+    const match = html.match(new RegExp(`data-row="${row}" data-day="${number}"[^>]*style="([^"]+)"`));
+    return match?.[1] || '';
+  };
+  assert.equal(lateStyle(16), lateStyle(30));
+  assert.notEqual(lateStyle(16), '');
+  assert.equal(runStyle('pair-0-contract-hours', 16), runStyle('pair-0-contract-hours', 30));
+  assert.notEqual(lateStyle(16), runStyle('pair-0-contract-hours', 16));
+});
+
+test('contract hours stay one green when every value is the same', () => {
+  const html = renderMonthlySummaryMathHtml(
+    buildMonthlySummaryMath({
+      driverName: 'Goofy Goof',
+      driverId: 'driver-goofy-goof',
+      rounding: 'snap',
+      now: new Date(2026, 9, 10, 12, 0),
+      focus: { year: 2026, monthIndex: 9, periodId: '1' },
+      officeState: contractedRoute([['AM', '6:00-9:00']]),
+      punches: [
+        {
+          id: 'in',
+          driver_name: 'Goofy Goof',
+          action: 'in',
+          run: 'AM',
+          punched_at: new Date(2026, 9, 8, 6, 0).toISOString(),
+          pay_status: 'ex-driver',
+        },
+        {
+          id: 'out',
+          driver_name: 'Goofy Goof',
+          action: 'out',
+          run: 'AM',
+          punched_at: new Date(2026, 9, 8, 9, 0).toISOString(),
+        },
+      ],
+    })
+  );
+  const styles = [...html.matchAll(/data-row="(?:contract|pair-\d+-contract-hours)" data-day="\d+"[^>]*style="([^"]+)"/g)].map(
+    (match) => match[1]
+  );
+  assert.ok(styles.length > 1);
+  assert.equal(new Set(styles).size, 1);
+  assert.equal(styles[0], 'background:#b7e4c7');
+});
+
+test('pay period info shows each holiday in a row above the dates', () => {
+  const september = buildMonthlySummaryMath({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    now: new Date(2026, 8, 20, 12, 0),
+    focus: { year: 2026, monthIndex: 8, periodId: '1' },
+    punches: [],
+  });
+  const septemberDays = september.periods[0].days;
+  assert.equal(septemberDays.find((day) => day.day === 7).holiday, 'Labor Day');
+  assert.equal(septemberDays.find((day) => day.day === 8).holiday, '');
+  const october = buildMonthlySummaryMath({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    now: new Date(2026, 9, 20, 12, 0),
+    focus: { year: 2026, monthIndex: 9, periodId: '1' },
+    punches: [],
+  });
+  assert.equal(october.periods[0].days.find((day) => day.day === 12).holiday, '');
+  const html = renderMonthlySummaryMathHtml(september);
+  const holidayAt = html.indexOf('<tr class="holidays">');
+  const dateAt = html.indexOf('<th scope="col">1</th>');
+  assert.ok(holidayAt >= 0 && dateAt > holidayAt);
+  const holidayRow = html.slice(holidayAt, html.indexOf('</tr>', holidayAt));
+  assert.match(holidayRow, /<th scope="row">Holiday<\/th>/);
+  assert.match(holidayRow, /data-day="7" class="is-holiday" title="Labor Day">Labor Day<\/th>/);
+  assert.match(holidayRow, /data-day="8"><\/th>/);
+});
+
+test('pay period info lists the weekday above each calendar day', () => {
+  const september = buildMonthlySummaryMath({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    now: new Date(2026, 8, 20, 12, 0),
+    focus: { year: 2026, monthIndex: 8, periodId: '1' },
+    punches: [],
+  });
+  const days = september.periods[0].days;
+  assert.equal(days.find((day) => day.day === 1).weekday, 'TUES');
+  assert.equal(days.find((day) => day.day === 3).weekday, 'THR');
+  assert.equal(days.find((day) => day.day === 6).weekday, 'SUN');
+  assert.equal(days.find((day) => day.day === 7).weekday, 'MON');
+  const html = renderMonthlySummaryMathHtml(september);
+  const weekdayAt = html.indexOf('<tr class="weekdays">');
+  const dateAt = html.indexOf('<th scope="col">1</th>');
+  assert.ok(weekdayAt >= 0 && dateAt > weekdayAt);
+  const weekdayRow = html.slice(weekdayAt, html.indexOf('</tr>', weekdayAt));
+  assert.match(weekdayRow, /<th scope="row">Day of the week<\/th>/);
+  assert.match(
+    weekdayRow,
+    /data-day="1">TUES<\/th>.*data-day="2">WED<\/th>.*data-day="3">THR<\/th>.*data-day="4">FRI<\/th>.*data-day="5">SAT<\/th>.*data-day="6">SUN<\/th>.*data-day="7">MON<\/th>/
+  );
 });

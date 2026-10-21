@@ -1,8 +1,6 @@
-/**
- * Paper backup of clock ins and clock outs.
- * The print is the recent window, grouped by driver, in 10-point type.
- * Year-to-date is a separate download of every clock record since January 1.
- */
+// Paper backup of clock ins and clock outs.
+// The print is the recent window, grouped by driver, in 10-point type.
+// Year-to-date is a separate download of every clock record since January 1.
 
 import { formatTimecardMinutes } from './timecardEntries.js';
 
@@ -10,15 +8,16 @@ export const DEFAULT_BACKUP_HOURS = 24;
 export const MIN_BACKUP_HOURS = 1;
 export const MAX_BACKUP_HOURS = 24 * 31;
 
-/** Rows down one column of a letter page at 10-point type, under a one-line heading. */
-export const PAPER_COLUMN_ROWS = 58;
-/** A sealed page is the left column, then the right column. */
-export const PAPER_PAGE_SIZE = PAPER_COLUMN_ROWS * 2;
+// Rows down one column of a letter page.
+// Record lines are 8-point.
+export const PAPER_COLUMN_ROWS = 70;
+// Portrait letter columns that still show the time, the in or out,
+// and 20 characters of the driver name.
+export const PAPER_COLUMN_COUNT = 3;
+export const PAPER_NAME_CHARACTERS = 20;
+export const PAPER_PAGE_SIZE = PAPER_COLUMN_ROWS * PAPER_COLUMN_COUNT;
 
-/**
- * Whole hours for the paper window. A blank or unusable value is 24 hours.
- * @param {unknown} raw
- */
+// Whole hours for the paper window. A blank or unusable value is 24 hours.
 export function normalizeBackupHours(raw) {
   if (raw == null || String(raw).trim() === '') return DEFAULT_BACKUP_HOURS;
   const value = Number(raw);
@@ -29,17 +28,11 @@ export function normalizeBackupHours(raw) {
   return hours;
 }
 
-/**
- * Reminders are on unless the office turns them off.
- * @param {unknown} raw
- */
+// Reminders are on unless the office turns them off.
 export function normalizePaperBackupReminders(raw) {
   return !(raw === false || raw === 'false' || raw === 0 || raw === '0');
 }
 
-/**
- * @param {unknown} raw
- */
 export function normalizePaperBackup(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const printed = String(source.lastPrintedAt || '').trim();
@@ -52,12 +45,8 @@ export function normalizePaperBackup(raw) {
   };
 }
 
-/**
- * Local settings win. The later print time wins, so one computer's backup
- * clears the reminder for the office.
- * @param {unknown} remoteRaw
- * @param {unknown} localRaw
- */
+// Local settings win. The later print time wins, so one computer's backup
+// clears the reminder for the office.
 export function mergePaperBackup(remoteRaw, localRaw) {
   const remote = normalizePaperBackup(remoteRaw);
   const local = normalizePaperBackup(localRaw);
@@ -69,10 +58,6 @@ export function mergePaperBackup(remoteRaw, localRaw) {
   };
 }
 
-/**
- * @param {string} left
- * @param {string} right
- */
 function laterStamp(left, right) {
   const a = Date.parse(left);
   const b = Date.parse(right);
@@ -82,18 +67,12 @@ function laterStamp(left, right) {
   return new Date(Math.max(a, b)).toISOString();
 }
 
-/**
- * @param {unknown} raw
- */
 function isoStamp(raw) {
   const text = String(raw || '').trim();
   const when = new Date(text);
   return text && !Number.isNaN(when.getTime()) ? when.toISOString() : '';
 }
 
-/**
- * @param {unknown} raw
- */
 function normalizePaperRow(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const at = isoStamp(raw.punched_at);
@@ -109,12 +88,8 @@ function normalizePaperRow(raw) {
   };
 }
 
-/**
- * @param {unknown} raw
- */
 export function normalizePaperPages(raw) {
   if (!Array.isArray(raw)) return [];
-  /** @type {Array<{ id: string, sealedAt: string, printedAt: string, rows: object[] }>} */
   const pages = [];
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue;
@@ -133,13 +108,8 @@ export function normalizePaperPages(raw) {
   return pages;
 }
 
-/**
- * Same page id keeps one snapshot. A later print time wins.
- * @param {unknown} remotePages
- * @param {unknown} localPages
- */
+// Same page id keeps one snapshot. A later print time wins.
 export function mergePaperPages(remotePages, localPages) {
-  /** @type {Map<string, { id: string, sealedAt: string, printedAt: string, rows: object[] }>} */
   const byId = new Map();
   for (const page of [...normalizePaperPages(remotePages), ...normalizePaperPages(localPages)]) {
     const current = byId.get(page.id);
@@ -155,9 +125,6 @@ export function mergePaperPages(remotePages, localPages) {
   return [...byId.values()].sort((a, b) => a.sealedAt.localeCompare(b.sealedAt) || a.id.localeCompare(b.id));
 }
 
-/**
- * @param {object} punch
- */
 function paperRowId(punch) {
   const id = String(punch?.id || '').trim();
   if (id) return id;
@@ -165,9 +132,6 @@ function paperRowId(punch) {
   return at ? `at:${at}` : '';
 }
 
-/**
- * @param {object} punch
- */
 function paperRowFromPunch(punch) {
   return normalizePaperRow({
     id: paperRowId(punch),
@@ -178,20 +142,12 @@ function paperRowFromPunch(punch) {
   });
 }
 
-/**
- * @param {object[]} rows
- */
 function newestFirst(rows) {
   return [...rows].sort((a, b) => String(b.punched_at).localeCompare(String(a.punched_at)) || String(b.id).localeCompare(String(a.id)));
 }
 
-/**
- * Seal every full page of clock records that is not already on a page.
- * Rows on a page run newest to oldest. The open page is the remainder.
- * @param {object[] | null | undefined} punches
- * @param {unknown} savedPages
- * @param {{ pageSize?: number }} [options]
- */
+// Seal every full page of clock records that is not already on a page.
+// Rows on a page run newest to oldest. The open page is the remainder.
 export function syncPaperPages(punches, savedPages, options = {}) {
   const pageSize = options.pageSize || PAPER_PAGE_SIZE;
   const pages = normalizePaperPages(savedPages);
@@ -221,44 +177,26 @@ export function syncPaperPages(punches, savedPages, options = {}) {
   return { pages: sealed, open: newestFirst(fresh) };
 }
 
-/**
- * @param {Array<{ printedAt?: string }>} pages
- */
 export function waitingPaperPages(pages) {
   return normalizePaperPages(pages).filter((page) => !page.printedAt);
 }
 
-/**
- * @param {Array<{ printedAt?: string }>} pages
- */
 export function printedPaperPages(pages) {
   return normalizePaperPages(pages).filter((page) => page.printedAt);
 }
 
-/**
- * @param {Date | string | number} now
- * @param {unknown} hours
- */
 export function backupRange(now, hours) {
   const end = now instanceof Date ? now : new Date(now);
   const start = new Date(end.getTime() - normalizeBackupHours(hours) * 60 * 60 * 1000);
   return { start, end };
 }
 
-/**
- * January 1 of the local year through `now`.
- * @param {Date | string | number} now
- */
+// January 1 of the local year through `now`.
 export function yearToDateRange(now) {
   const end = now instanceof Date ? now : new Date(now);
   return { start: new Date(end.getFullYear(), 0, 1), end };
 }
 
-/**
- * @param {object[] | null | undefined} punches
- * @param {Date} start
- * @param {Date} end
- */
 export function punchesInRange(punches, start, end) {
   const from = start.getTime();
   const to = end.getTime();
@@ -269,9 +207,6 @@ export function punchesInRange(punches, start, end) {
   });
 }
 
-/**
- * @param {unknown} run
- */
 export function paperRunLabel(run) {
   if (run === 'AM') return 'AM';
   if (run === 'MIDDAY') return 'Mid';
@@ -280,16 +215,10 @@ export function paperRunLabel(run) {
   return '';
 }
 
-/**
- * @param {Date} date
- */
 export function formatPaperDate(date) {
   return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
 }
 
-/**
- * @param {Date} date
- */
 export function formatPaperTime(date) {
   let hours = date.getHours();
   const minutes = String(date.getMinutes()).padStart(2, '0');
@@ -299,19 +228,12 @@ export function formatPaperTime(date) {
   return `${hours}:${minutes} ${suffix}`;
 }
 
-/**
- * @param {Date} date
- */
 export function formatPaperWhen(date) {
   return `${formatPaperDate(date)} ${formatPaperTime(date)}`;
 }
 
-/**
- * Driver name, then oldest clock first inside that name.
- * @param {object[]} punches
- */
+// Driver name, then oldest clock first inside that name.
 export function groupPunchesByDriver(punches) {
-  /** @type {Map<string, { name: string, punches: object[] }>} */
   const groups = new Map();
   for (const punch of punches) {
     const name = String(punch?.driver_name || '').trim() || 'Unknown';
@@ -333,32 +255,17 @@ export function groupPunchesByDriver(punches) {
   return listed;
 }
 
-/**
- * @param {{
- *   reminders?: unknown,
- *   lastPrintedAt?: unknown,
- *   hours?: unknown,
- *   punches?: object[] | null,
- *   now: Date,
- * }} input
- */
 export function paperBackupReminderDue({ reminders, pages }) {
   if (!normalizePaperBackupReminders(reminders)) return false;
   return waitingPaperPages(pages).length > 0;
 }
 
-/**
- * @param {number} count
- */
 export function paperBackupReminderText(count) {
   const pages = Math.max(0, Math.round(Number(count) || 0));
   if (pages === 1) return '1 page of clock records is waiting to print.';
   return `${pages} pages of clock records are waiting to print.`;
 }
 
-/**
- * @param {string} value
- */
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -367,14 +274,10 @@ function escapeHtml(value) {
     .replace(/"/g, '&quot;');
 }
 
-/**
- * Split driver groups into two columns of similar length.
- * @param {Array<{ name: string, punches: object[] }>} groups
- */
+// Split driver groups into two columns of similar length.
 function paperColumns(groups) {
   const weight = (group) => group.punches.length + 1;
   const total = groups.reduce((sum, group) => sum + weight(group), 0);
-  /** @type {Array<{ name: string, punches: object[] }>} */
   const left = [];
   let used = 0;
   let index = 0;
@@ -387,10 +290,7 @@ function paperColumns(groups) {
   return [left, groups.slice(index)];
 }
 
-/**
- * When, and in or out. A run stays on the in/out cell so the row is two columns.
- * @param {object} punch
- */
+// When, and in or out. A run stays on the in/out cell so the row is two columns.
 function paperPunchCells(punch) {
   const at = new Date(punch.punched_at);
   const when = Number.isNaN(at.getTime()) ? '' : formatPaperWhen(at);
@@ -399,10 +299,7 @@ function paperPunchCells(punch) {
   return { when, kind: run ? `${kind} ${run}` : kind };
 }
 
-/**
- * Newest time through oldest time, matching the order down the page.
- * @param {object[]} rows
- */
+// Newest time through oldest time, matching the order down the page.
 export function paperPageSpan(rows) {
   if (!rows?.length) return '';
   const newest = new Date(rows[0].punched_at);
@@ -411,21 +308,35 @@ export function paperPageSpan(rows) {
   return `${formatPaperWhen(newest)} – ${formatPaperWhen(oldest)}`;
 }
 
-/**
- * @param {object} row
- */
-function paperRecordRowHtml(row) {
-  const cells = paperPunchCells(row);
-  return `<tr><td>${escapeHtml(cells.when)}</td><td>${escapeHtml(row.driver_name || '')}</td><td>${escapeHtml(cells.kind)}</td></tr>`;
+// Month and day plus the time. The page heading already carries the year.
+function formatPaperRowWhen(date) {
+  return `${date.getMonth() + 1}/${date.getDate()} ${formatPaperTime(date)}`;
 }
 
-/**
- * One or more sealed pages. Each page reads newest to oldest down the left column, then the right.
- * @param {Array<{ title?: string, rows: object[] }>} pages
- * @param {{ columnRows?: number }} [options]
- */
+// The printed name keeps the first 20 characters.
+function paperNameText(name) {
+  const chars = [...name];
+  if (chars.length <= PAPER_NAME_CHARACTERS) return name;
+  return chars.slice(0, PAPER_NAME_CHARACTERS).join('');
+}
+
+function paperRecordRowHtml(row) {
+  const at = new Date(row.punched_at);
+  const when = Number.isNaN(at.getTime()) ? '' : formatPaperRowWhen(at);
+  const cells = paperPunchCells(row);
+  const name = String(row.driver_name || '');
+  return `<tr><td class="paper-when">${escapeHtml(when)}</td><td class="paper-name" title="${escapeHtml(name)}">${escapeHtml(paperNameText(name))}</td><td class="paper-kind">${escapeHtml(cells.kind)}</td></tr>`;
+}
+
+// Left to right, each column newest to oldest.
+function splitPaperPageColumns(rows, columnRows, columnCount) {
+  return Array.from({ length: columnCount }, (_, index) => rows.slice(index * columnRows, (index + 1) * columnRows));
+}
+
+// One or more sealed pages. Each page reads newest to oldest down the columns, left to right.
 export function paperPagesHtml(pages, options = {}) {
   const columnRows = options.columnRows || PAPER_COLUMN_ROWS;
+  const columnCount = options.columnCount || PAPER_COLUMN_COUNT;
   const list = Array.isArray(pages) ? pages : [];
   if (!list.length) {
     return '<div class="paper-backup-print" style="font-size:10pt;line-height:1.15"><p class="paper-empty">No paper records to print.</p></div>';
@@ -433,7 +344,7 @@ export function paperPagesHtml(pages, options = {}) {
   const body = list
     .map((page, index) => {
       const rows = Array.isArray(page.rows) ? page.rows : [];
-      const columns = [rows.slice(0, columnRows), rows.slice(columnRows)];
+      const columns = splitPaperPageColumns(rows, columnRows, columnCount);
       const title = page.title || `Page ${index + 1}`;
       return `<section class="paper-page"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(paperPageSpan(rows))}</p><div class="paper-columns">${columns
         .map((column) => `<div class="paper-col"><table><tbody>${column.map(paperRecordRowHtml).join('')}</tbody></table></div>`)
@@ -443,11 +354,6 @@ export function paperPagesHtml(pages, options = {}) {
   return `<div class="paper-backup-print" style="font-size:10pt;line-height:1.15">${body}</div>`;
 }
 
-/**
- * @param {unknown} pages
- * @param {string[]} ids
- * @param {string} printedAt
- */
 export function markPaperPagesPrinted(pages, ids, printedAt) {
   const chosen = new Set(ids);
   const at = isoStamp(printedAt) || new Date().toISOString();
@@ -456,9 +362,6 @@ export function markPaperPagesPrinted(pages, ids, printedAt) {
   );
 }
 
-/**
- * @param {Array<{ name: string, punches: object[] }>} groups
- */
 function paperColumnHtml(groups) {
   return groups
     .map((group) => {
@@ -473,12 +376,8 @@ function paperColumnHtml(groups) {
     .join('');
 }
 
-/**
- * Two columns of clock records. Each row is the time and the in or out.
- * Notes, reason codes, and substitute status stay off the paper.
- * @param {Array<{ name: string, punches: object[] }>} groups
- * @param {{ hours: number, start: Date, end: Date }} range
- */
+// Two columns of clock records. Each row is the time and the in or out.
+// Notes, reason codes, and substitute status stay off the paper.
 export function paperBackupHtml(groups, range) {
   const hours = normalizeBackupHours(range.hours);
   const heading = `Last ${hours} hour${hours === 1 ? '' : 's'} · ${formatPaperWhen(range.start)} – ${formatPaperWhen(range.end)}`;
@@ -490,19 +389,13 @@ export function paperBackupHtml(groups, range) {
   return `<div class="paper-backup-print" style="font-size:10pt;line-height:1.15"><h1>Paper clock backup</h1><p>${escapeHtml(heading)}</p>${body}</div>`;
 }
 
-/**
- * @param {string} value
- */
 function csvCell(value) {
   const text = String(value ?? '');
   if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
   return text;
 }
 
-/**
- * Every clock record in the groups, driver by driver.
- * @param {Array<{ name: string, punches: object[] }>} groups
- */
+// Every clock record in the groups, driver by driver.
 export function paperBackupCsv(groups) {
   const lines = ['Driver,Date,Time,Kind,Run,Note,Reason codes,Substitute'];
   for (const group of groups) {
@@ -536,9 +429,6 @@ export function paperBackupCsv(groups) {
   return `${lines.join('\r\n')}\r\n`;
 }
 
-/**
- * @param {Date} now
- */
 export function yearToDateFilename(now) {
   const year = (now instanceof Date ? now : new Date(now)).getFullYear();
   return `Clock records ${year} year-to-date.csv`;

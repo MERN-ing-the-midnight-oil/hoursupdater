@@ -14,9 +14,6 @@ const RUNS = {
   pm: 'PM',
 };
 
-/**
- * @param {unknown} value
- */
 function csvCell(value) {
   const text = value == null ? '' : String(value);
   if (/[",\r\n]/.test(text)) {
@@ -25,18 +22,12 @@ function csvCell(value) {
   return text;
 }
 
-/**
- * @param {string} csv
- * @returns {string[][]}
- */
 export function parseCsv(csv) {
   const text = String(csv ?? '')
     .replace(/^\uFEFF/, '')
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n');
-  /** @type {string[][]} */
   const rows = [];
-  /** @type {string[]} */
   let cells = [];
   let current = '';
   let quoted = false;
@@ -74,9 +65,6 @@ export function parseCsv(csv) {
   return rows;
 }
 
-/**
- * @param {string} run
- */
 function normalizeRun(run) {
   const key = String(run ?? '')
     .trim()
@@ -88,9 +76,6 @@ function normalizeRun(run) {
   return segment;
 }
 
-/**
- * @param {string} kind
- */
 function normalizeKind(kind) {
   const value = String(kind ?? '')
     .trim()
@@ -107,24 +92,11 @@ function normalizeKind(kind) {
   );
 }
 
-/**
- * @param {{
- *   version: number,
- *   currentProfileId: string | null,
- *   profiles: Record<string, object>,
- * }} state
- */
-/**
- * One row per run, in route order. Kind is "start" or "change".
- * @param {{
- *   profiles?: Record<string, object>,
- * }} state
- */
+// One row per run, in route order. Kind is "start" or "change".
 export function clockRowsFromState(state) {
   const profiles = Object.values(state?.profiles ?? {}).sort((a, b) =>
     compareRouteNumbers(a.name, b.name)
   );
-  /** @type {Array<{ route: string, driver: string, kind: string, date: string, run: string, clockIn: string, clockOut: string, note: string }>} */
   const rows = [];
   for (const profile of profiles) {
     const route = String(profile.name ?? '').trim();
@@ -152,11 +124,6 @@ export function clockRowsFromState(state) {
   return rows;
 }
 
-/**
- * @param {{
- *   profiles?: Record<string, object>,
- * }} state
- */
 export function buildRoutesCsv(state) {
   const lines = [HEADERS.map(csvCell).join(',')];
   for (const row of clockRowsFromState(state)) {
@@ -169,14 +136,6 @@ export function buildRoutesCsv(state) {
   return `\uFEFF${lines.join('\r\n')}\r\n`;
 }
 
-/**
- * @param {string} csv
- * @param {{ currentRoute?: string | null }} [options]
- */
-/**
- * @param {string[]} header
- * @param {string[]} names
- */
 function headerIndex(header, names) {
   for (const name of names) {
     const index = header.indexOf(name);
@@ -185,10 +144,6 @@ function headerIndex(header, names) {
   return -1;
 }
 
-/**
- * @param {string} csv
- * @param {{ currentRoute?: string | null, drivers?: object[] }} [options]
- */
 export function stateFromRoutesCsv(csv, options = {}) {
   const table = parseCsv(csv);
   if (!table.length) {
@@ -230,24 +185,7 @@ export function stateFromRoutesCsv(csv, options = {}) {
   );
 }
 
-/**
- * @param {Array<{
- *   line?: number,
- *   route?: string,
- *   driver?: string,
- *   kind?: string,
- *   date?: string,
- *   run?: string,
- *   clockIn?: string,
- *   clockOut?: string,
- *   note?: string,
- *   cleared?: boolean,
- *   forceOct1?: unknown,
- * }>} rawRows
- * @param {{ currentRoute?: string | null, drivers?: object[] }} [options]
- */
 export function stateFromClockRows(rawRows, options = {}) {
-  /** @type {Map<string, { route: string, driver: string, rows: object[] }>} */
   const groups = new Map();
 
   rawRows.forEach((raw, rowOffset) => {
@@ -329,7 +267,6 @@ export function stateFromClockRows(rawRows, options = {}) {
     throw new Error('That file has no routes.');
   }
 
-  /** @type {Record<string, object>} */
   const profiles = {};
   for (const group of groups.values()) {
     const starts = group.rows.filter((row) => row.kind === 'start');
@@ -339,7 +276,6 @@ export function stateFromClockRows(rawRows, options = {}) {
     if (!starts.length) {
       throw new Error(`Route ${group.route} needs at least one Starting times row.`);
     }
-    /** @type {Record<string, { date: string, range: string, order: number }>} */
     const startBySegment = {};
     for (const row of starts) {
       startBySegment[row.segment] = row;
@@ -352,7 +288,6 @@ export function stateFromClockRows(rawRows, options = {}) {
     const startDate = starts
       .map((row) => row.date)
       .sort()[0];
-    /** @type {Record<string, string>} */
     const current = {};
     const submittedBase = `${startDate}T12:00:00.000Z`;
     const seeds = Object.entries(startBySegment)
@@ -439,7 +374,6 @@ export function stateFromClockRows(rawRows, options = {}) {
   const current =
     ordered.find((profile) => String(profile.name).toLowerCase() === wanted) ??
     ordered[0];
-  /** @type {{ version: number, currentProfileId: string | null, profiles: Record<string, object>, drivers?: object[] }} */
   const state = {
     version: 1,
     currentProfileId: current?.id ?? null,

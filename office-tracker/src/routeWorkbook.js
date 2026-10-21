@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
-import { buildBps2026_2027Calendar } from '../../employee-tracker/src/bpsCalendar2026.js';
+import { buildBellingham2026_2027Calendar } from '../../employee-tracker/src/bellinghamCalendar2026.js';
+import { calendarForOfficeState } from '../../src/logic/schoolYear.js';
 import { formatClockMinutes, localDateString, normalizeClockTime } from '../../employee-tracker/src/clockTimes.js';
 import {
   buildEmployeeSnapshot,
@@ -33,9 +34,8 @@ const SCHEDULE_HEADERS = [
   'Midday end',
   'PM start',
   'PM end',
-  'Hours',
-  'Contracted',
-  'Contract Hours',
+  'Scheduled Hours',
+  'Date, if Contracted',
   'Notice sent?',
 ];
 
@@ -64,9 +64,6 @@ const CHANGED_FILL = {
 };
 const LABEL_FONT = { bold: true, size: 12, color: { argb: 'FF1A4F86' } };
 
-/**
- * @param {unknown} value
- */
 function unwrap(value) {
   if (value == null) return '';
   if (value instanceof Date) return value;
@@ -80,36 +77,23 @@ function unwrap(value) {
   return value;
 }
 
-/**
- * @param {unknown} value
- */
 function cellText(value) {
   const raw = unwrap(value);
   if (raw instanceof Date) return '';
   return raw == null ? '' : String(raw).trim();
 }
 
-/**
- * @param {string} iso
- */
 function excelDate(iso) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? ''));
   if (!match) return iso || '';
   return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
 }
 
-/**
- * @param {string} clock
- */
 function excelTime(clock) {
   const minutes = parseClockTime(normalizeClockTime(clock));
   return minutes / (24 * 60);
 }
 
-/**
- * @param {ExcelJS.Worksheet} sheet
- * @param {string[]} headers
- */
 function writeHeader(sheet, headers) {
   const row = sheet.addRow(headers);
   row.height = 22;
@@ -125,9 +109,6 @@ function writeHeader(sheet, headers) {
   };
 }
 
-/**
- * @param {string} name
- */
 function driverIdFor(name) {
   return `driver-${String(name)
     .trim()
@@ -135,12 +116,8 @@ function driverIdFor(name) {
     .replace(/[^a-z0-9]+/g, '-')}`;
 }
 
-/**
- * @param {object} state
- */
 function driversForWorkbook(state) {
   const omitted = new Set(omittedDriverKeys(state?.omittedDrivers));
-  /** @type {Map<string, { name: string, firstName: string, lastName: string, email: string }>} */
   const byName = new Map();
   for (const driver of driversFromState(state)) {
     const name = String(driver.name ?? '').trim();
@@ -166,11 +143,7 @@ function driversForWorkbook(state) {
   return [...byName.values()].sort(compareDrivers);
 }
 
-/**
- * Excel sheet names cannot contain : \ / ? * [ ] and are limited to 31 characters.
- * @param {string} route
- * @param {Set<string>} used
- */
+// Excel sheet names cannot contain : \ / ? * [ ] and are limited to 31 characters.
 function sheetNameForRoute(route, used) {
   let base = String(route ?? '')
     .split('')
@@ -196,19 +169,11 @@ function sheetNameForRoute(route, used) {
   return name;
 }
 
-/**
- * @param {string} asOf
- */
 function asOfDate(asOf) {
   const value = String(asOf ?? '').trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : localDateString();
 }
 
-/**
- * @param {object} profile
- * @param {string} asOf
- * @param {import('../../src/logic/calendar.js').SchoolCalendar} calendar
- */
 function scheduleHistoryFor(profile, asOf, calendar) {
   const changeLog = profile?.changeLog ?? [];
   const entry = rebuildEmployeeRouteState(changeLog, calendar, asOf);
@@ -223,47 +188,27 @@ function scheduleHistoryFor(profile, asOf, calendar) {
   );
 }
 
-/**
- * @param {object} row
- * @param {{ contractedDate: string }} column
- */
 function contractedCellText(row, column) {
-  /** @type {string[]} */
   const lines = [column.contractedDate];
   const note = row.kind === 'change' ? String(row.note ?? '').trim() : '';
   if (note) lines.push(`Note: ${note.replace(/\s*\n\s*/g, ' ')}`);
   return lines.join('\n');
 }
 
-/**
- * @param {object} row
- * @param {Set<string>} sent
- */
 function noticeCell(row, sent) {
   if (row.kind !== 'change' || !row.change_id) return '';
   return sent.has(String(row.change_id)) ? 'Yes' : 'No';
 }
 
-/**
- * @param {object} row
- */
 function forceOct1Cell(row) {
   if (row.kind !== 'change') return '';
   return row.force_oct1_contract ? 'On' : 'Off';
 }
 
-/**
- * @param {string} clock
- */
 function excelClock(clock) {
   return clock ? excelTime(clock) : null;
 }
 
-/**
- * @param {ExcelJS.Worksheet} sheet
- * @param {string} label
- * @param {string} value
- */
 function writeLabelRow(sheet, label, value) {
   const row = sheet.addRow([label, value]);
   row.getCell(1).font = LABEL_FONT;
@@ -273,10 +218,6 @@ function writeLabelRow(sheet, label, value) {
   return row;
 }
 
-/**
- * @param {ExcelJS.Worksheet} sheet
- * @param {Array<{ driver_name: string, from: string, until: string | null }>} assignments
- */
 function writeAssignmentTable(sheet, assignments) {
   const header = sheet.addRow(['Driver', 'From', 'Until']);
   header.eachCell((cell) => {
@@ -293,19 +234,12 @@ function writeAssignmentTable(sheet, assignments) {
   }
 }
 
-/**
- * @param {ExcelJS.Workbook} workbook
- * @param {object} profile
- * @param {object[]} history
- * @param {Set<string>} sent
- * @param {Set<string>} usedNames
- */
 function writeRouteSheet(workbook, profile, history, sent, usedNames) {
   const route = String(profile.name ?? '').trim();
   const sheet = workbook.addWorksheet(sheetNameForRoute(route, usedNames), {
     pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
   });
-  [18, 24, 14, 14, 16, 16, 14, 14, 14, 22, 16, 16].forEach((width, index) => {
+  [18, 24, 14, 14, 16, 16, 14, 14, 18, 24, 16].forEach((width, index) => {
     sheet.getColumn(index + 1).width = width;
   });
 
@@ -349,7 +283,6 @@ function writeRouteSheet(workbook, profile, history, sent, usedNames) {
       excelClock(schedule.PM?.clock_out),
       column.hours,
       contractedCellText(row, column),
-      column.contractHours,
       noticeCell(row, sent),
     ]);
     for (let col = 1; col <= SCHEDULE_HEADERS.length; col += 1) {
@@ -357,7 +290,7 @@ function writeRouteSheet(workbook, profile, history, sent, usedNames) {
       cell.alignment = {
         vertical: 'middle',
         wrapText: col === 10,
-        horizontal: col === 12 ? 'center' : 'left',
+        horizontal: col === 11 ? 'center' : 'left',
       };
       if (shaded) cell.fill = BAND_FILL;
     }
@@ -367,15 +300,16 @@ function writeRouteSheet(workbook, profile, history, sent, usedNames) {
         added.getCell(col).numFmt = 'h:mm AM/PM';
       }
     }
-    const changed = RUN_COLUMNS.find((run) => run.id === row.segment);
-    if (changed) {
-      for (const col of [changed.start, changed.end]) {
+    for (const run of RUN_COLUMNS) {
+      if (row.segment !== run.id && !row.segments?.includes(run.id)) continue;
+      for (const col of [run.start, run.end]) {
         const cell = added.getCell(col);
         cell.font = { bold: true };
         cell.fill = CHANGED_FILL;
       }
     }
-    if (String(added.getCell(10).value ?? '').includes('\n')) added.height = 48;
+    const wraps = String(added.getCell(10).value ?? '').includes('\n');
+    if (wraps) added.height = 48;
     shaded = !shaded;
   });
 
@@ -387,11 +321,6 @@ function writeRouteSheet(workbook, profile, history, sent, usedNames) {
   return sheet;
 }
 
-/**
- * @param {object} state
- * @param {{ title?: string, createdAt?: Date, asOf?: string }} [options]
- * @returns {Promise<Buffer>}
- */
 export async function buildRouteWorkbook(state, options = {}) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Teamster Time Changes Dashboard';
@@ -400,7 +329,7 @@ export async function buildRouteWorkbook(state, options = {}) {
   workbook.created = options.createdAt || new Date();
 
   const asOf = asOfDate(options.asOf || state?.asOf);
-  const calendar = buildBps2026_2027Calendar().calendar;
+  const calendar = calendarForOfficeState(state) || buildBellingham2026_2027Calendar().calendar;
   const sent = new Set(
     (Array.isArray(state?.noticeSentIds) ? state.noticeSentIds : [])
       .map((id) => String(id || ''))
@@ -453,13 +382,13 @@ export async function buildRouteWorkbook(state, options = {}) {
     [''],
     ['Route clock times', { bold: true, size: 14 }],
     [
-      'The column headings match Route clock times in the dashboard: Force Oct 1 Contract, New Schedule Started, AM start, AM end, Midday start, Midday end, PM start, PM end, Hours, Contracted, Contract Hours, and Notice sent?.',
+      'The column headings match Route clock times in the dashboard: Force Oct 1 Contract, New Schedule Started, AM start, AM end, Midday start, Midday end, PM start, PM end, Scheduled Hours, Date, if Contracted, and Notice sent?.',
     ],
     [
-      'The first row of times is the established starting schedule. Later rows are changes, oldest to newest. Bold highlighted times are the run that changed.',
+      'The first row of times is the established starting schedule. Later rows are changes, oldest to newest. Runs that moved on the same date share one row, and bold highlighted times are the runs that changed.',
     ],
     [
-      'Force Oct 1 Contract is On or Off. On contracts that schedule on October 1 and skips the usual rules for the size of the change and the 15-school-day countdown. Off is the usual rules. Hours is the rounded total of the clock times on that row. Contracted is the date those hours became the contract, or "predicted: mm/dd/yyyy". Contract Hours is the official total, which stays at the previous figure until that date. A line that starts with Note: is the note for that change. Notice sent? is Yes when a notice was sent for that change.',
+      'Force Oct 1 Contract is On or Off. On contracts that schedule on October 1 and skips the usual rules for the size of the change and the 15-school-day countdown. Off is the usual rules. Scheduled Hours is the rounded total of the clock times on that row. Date, if Contracted is the date those hours became the contract, or "predicted: mm/dd/yyyy" for the next contracted date if no further change is logged. A later change with a different date says "new predicted: mm/dd/yyyy", and the date it replaces says "old predicted: mm/dd/yyyy". A line that starts with Note: is the note for that change. Notice sent? is Yes when a notice was sent for that change.',
     ],
     [
       'This sheet is a copy of the dashboard. Change clock times in the dashboard. Do not rename the column headings.',
@@ -484,10 +413,6 @@ export async function buildRouteWorkbook(state, options = {}) {
   return workbookFileBytes(await workbook.xlsx.writeBuffer());
 }
 
-/**
- * @param {unknown} value
- * @param {string} label
- */
 function isoDateFromCell(value, label) {
   const raw = unwrap(value);
   if (raw instanceof Date) {
@@ -511,9 +436,6 @@ function isoDateFromCell(value, label) {
   throw new Error(`${label} must be a date (got "${text}").`);
 }
 
-/**
- * @param {unknown} value
- */
 export function clockFromCell(value) {
   const raw = unwrap(value);
   if (raw == null || raw === '') return '';
@@ -538,12 +460,7 @@ export function clockFromCell(value) {
   return normalizeClockTime(text);
 }
 
-/**
- * @param {string[]} labels
- * @param {Record<string, string[]>} columns
- */
 function matchHeaders(labels, columns) {
-  /** @type {Record<string, number>} */
   const index = {};
   for (const [key, names] of Object.entries(columns)) {
     const found = labels.findIndex((label) => names.includes(label));
@@ -553,14 +470,10 @@ function matchHeaders(labels, columns) {
   return index;
 }
 
-/**
- * @param {ExcelJS.Worksheet} sheet
- */
 function clockHeader(sheet) {
   const last = Math.min(sheet.rowCount || 1, 8);
   for (let rowNumber = 1; rowNumber <= last; rowNumber += 1) {
     const row = sheet.getRow(rowNumber);
-    /** @type {string[]} */
     const labels = [];
     row.eachCell({ includeEmpty: true }, (cell, col) => {
       labels[col - 1] = cellText(cell.value).toLowerCase();
@@ -580,12 +493,7 @@ function clockHeader(sheet) {
   return null;
 }
 
-/**
- * @param {ExcelJS.Worksheet} sheet
- * @param {{ rowNumber: number, index: Record<string, number> }} header
- */
 function clockRowsFromSheet(sheet, header) {
-  /** @type {Array<{ line: number, route: string, driver: string, kind: string, date: string, run: string, clockIn: string, clockOut: string, note: string }>} */
   const rows = [];
   const at = (row, index) => (index < 0 ? '' : unwrap(row.getCell(index + 1).value));
   sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
@@ -629,9 +537,6 @@ function clockRowsFromSheet(sheet, header) {
   return rows;
 }
 
-/**
- * @param {ExcelJS.Workbook} workbook
- */
 function driversFromWorkbook(workbook) {
   const sheet =
     workbook.worksheets.find((item) => item.name.trim().toLowerCase() === DRIVERS_SHEET.toLowerCase()) ??
@@ -652,7 +557,6 @@ function driversFromWorkbook(workbook) {
   if (firstCol < 0 && nameCol < 0) return [];
   const phoneCol = labels.findIndex((label) => label === 'phone');
   const emailCol = labels.findIndex((label) => label === 'email');
-  /** @type {Array<{ id: string, name: string, firstName: string, lastName: string, phone: string, email: string }>} */
   const drivers = [];
   const seen = new Set();
   sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
@@ -676,9 +580,6 @@ function driversFromWorkbook(workbook) {
   return drivers;
 }
 
-/**
- * @param {unknown} value
- */
 function isEmptyCell(value) {
   const raw = unwrap(value);
   if (raw == null || raw === '') return true;
@@ -686,9 +587,6 @@ function isEmptyCell(value) {
   return String(raw).trim() === '';
 }
 
-/**
- * @param {unknown} value
- */
 function noteFromContracted(value) {
   const text = cellText(value).replace(/\r\n/g, '\n');
   const lined = text.match(/(?:^|\n)\s*Note:\s*([\s\S]*)$/i);
@@ -697,14 +595,10 @@ function noteFromContracted(value) {
   return inline ? inline[1].trim() : '';
 }
 
-/**
- * @param {ExcelJS.Worksheet} sheet
- */
 function scheduleHeader(sheet) {
   const last = Math.min(sheet.rowCount || 1, 40);
   for (let rowNumber = 1; rowNumber <= last; rowNumber += 1) {
     const row = sheet.getRow(rowNumber);
-    /** @type {string[]} */
     const labels = [];
     row.eachCell({ includeEmpty: true }, (cell, col) => {
       labels[col - 1] = cellText(cell.value).toLowerCase();
@@ -722,18 +616,15 @@ function scheduleHeader(sheet) {
     return {
       rowNumber,
       index,
-      contracted: labels.findIndex((label) => label === 'contracted'),
+      contracted: labels.findIndex(
+        (label) => label === 'contracted' || label === 'date, if contracted'
+      ),
       force: labels.findIndex((label) => label === 'force oct 1 contract'),
     };
   }
   return null;
 }
 
-/**
- * @param {Array<{ driver: string, from: string, until: string }>} assignments
- * @param {string} fallback
- * @param {string} date
- */
 function driverForAssignments(assignments, fallback, date) {
   if (!assignments.length) return fallback;
   const match = [...assignments]
@@ -742,15 +633,10 @@ function driverForAssignments(assignments, fallback, date) {
   return match?.driver || fallback || assignments.at(-1)?.driver || '';
 }
 
-/**
- * @param {ExcelJS.Worksheet} sheet
- * @param {number} headerRow
- */
 function readPreamble(sheet, headerRow) {
   let route = '';
   let driver = '';
   let note = '';
-  /** @type {Array<{ driver: string, from: string, until: string }>} */
   const assignments = [];
   let inTable = false;
   for (let rowNumber = 1; rowNumber < headerRow; rowNumber += 1) {
@@ -792,25 +678,18 @@ function readPreamble(sheet, headerRow) {
   return { route, driver, assignments, note };
 }
 
-/**
- * @param {ExcelJS.Worksheet} sheet
- * @param {{ rowNumber: number, index: Record<string, number>, contracted: number }} header
- */
 function clockRowsFromScheduleSheet(sheet, header) {
   const { route, driver, assignments, note } = readPreamble(sheet, header.rowNumber);
   if (!route) {
     throw new Error(`Sheet "${sheet.name}" is missing a route number.`);
   }
   const fallback = driver || assignments.at(-1)?.driver || '';
-  /** @type {Array<{ line: number, route: string, driver: string, kind: string, date: string, run: string, clockIn: string, clockOut: string, note: string }>} */
   const rows = [];
-  /** @type {Record<string, { clockIn: string, clockOut: string } | null>} */
   let previous = { AM: null, MIDDAY: null, PM: null };
   let seen = false;
   sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
     if (rowNumber <= header.rowNumber) return;
     const dateRaw = row.getCell(header.index.date + 1).value;
-    /** @type {Record<string, { clockIn: string, clockOut: string } | null>} */
     const runs = {};
     let any = false;
     for (const run of RUN_COLUMNS) {
@@ -914,10 +793,6 @@ function clockRowsFromScheduleSheet(sheet, header) {
   return { rows, route, note };
 }
 
-/**
- * @param {{ profiles?: Record<string, object> }} state
- * @param {Map<string, string>} notes
- */
 function attachRouteNotes(state, notes) {
   for (const profile of Object.values(state.profiles ?? {})) {
     const note = notes.get(String(profile.name ?? '').trim().toLowerCase());
@@ -926,10 +801,6 @@ function attachRouteNotes(state, notes) {
   return state;
 }
 
-/**
- * @param {Buffer | Uint8Array | ArrayBuffer} bytes
- * @param {{ currentRoute?: string | null }} [options]
- */
 export async function stateFromRouteWorkbook(bytes, options = {}) {
   const workbook = new ExcelJS.Workbook();
   try {
@@ -943,7 +814,6 @@ export async function stateFromRouteWorkbook(bytes, options = {}) {
     .map((sheet) => ({ sheet, header: scheduleHeader(sheet) }))
     .filter((item) => item.header);
   if (scheduleSheets.length) {
-    /** @type {Map<string, string>} */
     const notes = new Map();
     const rows = scheduleSheets.flatMap(({ sheet, header }) => {
       const parsed = clockRowsFromScheduleSheet(sheet, header);

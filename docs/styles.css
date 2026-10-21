@@ -1292,7 +1292,7 @@ h1.hero-title {
     gap: 0.55rem 0.75rem;
   }
 
-  .stat-row li:last-child {
+  .stat-row li:last-child:nth-child(odd) {
     grid-column: 1 / -1;
   }
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildBps2026_2027Calendar } from '../employee-tracker/src/bpsCalendar2026.js';
+import { buildBellingham2026_2027Calendar } from '../employee-tracker/src/bellinghamCalendar2026.js';
 import { getSchoolDays } from '../src/logic/calendar.js';
 import {
   EARLY_RELEASE_DEFAULT_CLOCK,
@@ -15,7 +15,7 @@ import {
 import { clockInKey, flashingClockInKeys } from '../src/logic/lateClockFlash.js';
 import { importState, loadState, mergeSharedDriverList, saveState } from '../office-tracker/web/store.js';
 
-const schoolDays = getSchoolDays(buildBps2026_2027Calendar().calendar);
+const schoolDays = getSchoolDays(buildBellingham2026_2027Calendar().calendar);
 const s10 = 'LOW, SHS/BHS, LOW';
 
 function memoryStorage() {
@@ -52,10 +52,11 @@ test('known school codes come from the route notes, in alphabetical order', () =
   );
 });
 
-test('early release is Thursday when school is in session, and November 25, 2026', () => {
+test('early dismissal is Thursday when school is in session, and the last day June 11, 2027', () => {
   assert.equal(isEarlyReleaseDate('2026-10-08', schoolDays), true);
   assert.equal(isEarlyReleaseDate('2026-10-09', schoolDays), false);
-  assert.equal(isEarlyReleaseDate('2026-11-25', schoolDays), true);
+  assert.equal(isEarlyReleaseDate('2026-11-25', schoolDays), false);
+  assert.equal(isEarlyReleaseDate('2027-06-11', schoolDays), true);
   assert.equal(isEarlyReleaseDate('2026-11-26', schoolDays), false);
   assert.equal(isEarlyReleaseDate('2026-12-24', schoolDays), false);
 });
@@ -86,7 +87,7 @@ test('early release PM clock-in follows the first school and starts at 11:55 AM'
     pmClockForDate({
       regularClock: '14:05',
       note: s10,
-      date: '2026-11-25',
+      date: '2027-06-11',
       schoolDays,
       times: { LOW: '11:40', BHS: '12:30' },
     }),

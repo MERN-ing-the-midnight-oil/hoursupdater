@@ -1,10 +1,8 @@
-/**
- * Door clock: a driver picks their name, enters a PIN, and records either a
- * clock-in or a clock-out. Each tap is its own record. A record can carry one
- * note, stamped when it was written, and any number of reason codes from the
- * office list. This log does not decide whether they were already in or out,
- * and it does not change contracted route clocks.
- */
+// Door clock: a driver picks their name, enters a PIN, and records either a
+// clock-in or a clock-out. Each tap is its own record. A record can carry one
+// note, stamped when it was written, and any number of reason codes from the
+// office list. This log does not decide whether they were already in or out,
+// and it does not change contracted route clocks.
 
 import { createId } from './createId.js';
 
@@ -13,16 +11,12 @@ const LOCK_CODE_PATTERN = /^[A-Za-z0-9]{4,64}$/;
 export const NOTE_MAX = 500;
 export const REASON_LABEL_MAX = 120;
 
-/** Lock code that leaves the driver clock screen. Not a driver PIN. */
+// Lock code that leaves the driver clock screen. Not a driver PIN.
 export const DEFAULT_KIOSK_CODE = 'TimeChanges2026';
 
-/** PIN every driver starts with. A saved 4-digit PIN replaces this. */
+// PIN every driver starts with. A saved 4-digit PIN replaces this.
 export const DEFAULT_DRIVER_PIN = '1234';
 
-/**
- * @param {Record<string, string> | null | undefined} pins
- * @param {string} driverId
- */
 export function driverClockPin(pins, driverId) {
   const saved = pins && typeof pins === 'object' ? String(pins[driverId] ?? '').trim() : '';
   return PIN_PATTERN.test(saved) ? saved : DEFAULT_DRIVER_PIN;
@@ -30,49 +24,13 @@ export function driverClockPin(pins, driverId) {
 
 export const KIOSK_COOKIE = 'clock_kiosk';
 
-/**
- * @typedef {'in' | 'out'} ClockAction
- *
- * @typedef {{
- *   id: string,
- *   label: string,
- * }} ReasonCode
- *
- * @typedef {{
- *   id: string,
- *   label: string,
- *   minutes?: number,
- * }} PunchReasonCode
- *
- * @typedef {{
- *   id: string,
- *   driver_id: string,
- *   driver_name: string,
- *   action: ClockAction,
- *   punched_at: string,
- *   note: string,
- *   note_at: string | null,
- *   reason_codes: PunchReasonCode[],
- * }} ClockPunch
- *
- * @typedef {{ pin: string, updated_at: string }} PinRecord
- * @typedef {Record<string, PinRecord>} PinFile
- */
 
-/**
- * @param {string} message
- * @param {number} [status]
- */
 function fail(message, status = 400) {
   const error = new Error(message);
   error.status = status;
   throw error;
 }
 
-/**
- * @param {unknown} pin
- * @returns {string}
- */
 export function assertPin(pin) {
   const value = String(pin ?? '').trim();
   if (!PIN_PATTERN.test(value)) {
@@ -81,10 +39,6 @@ export function assertPin(pin) {
   return value;
 }
 
-/**
- * @param {unknown} value
- * @returns {string}
- */
 export function assertTimestamp(value) {
   const text = String(value ?? '').trim();
   const time = Date.parse(text);
@@ -94,10 +48,6 @@ export function assertTimestamp(value) {
   return new Date(time).toISOString();
 }
 
-/**
- * @param {unknown} action
- * @returns {ClockAction}
- */
 export function assertAction(action) {
   if (action !== 'in' && action !== 'out') {
     fail('Choose clock in or clock out.');
@@ -105,10 +55,6 @@ export function assertAction(action) {
   return action;
 }
 
-/**
- * @param {unknown} value
- * @returns {string}
- */
 export function assertNote(value) {
   const text = String(value ?? '').trim();
   if (text.length > NOTE_MAX) {
@@ -117,12 +63,6 @@ export function assertNote(value) {
   return text;
 }
 
-/**
- * @param {ReasonCode[]} codes
- * @param {unknown} label
- * @param {string} [exceptId]
- * @returns {string}
- */
 function assertReasonLabel(codes, label, exceptId = '') {
   const text = String(label ?? '').trim();
   if (!text) fail('Enter a reason code.');
@@ -136,27 +76,21 @@ function assertReasonLabel(codes, label, exceptId = '') {
   return text;
 }
 
-/**
- * @param {unknown} raw
- * @returns {PunchReasonCode[]}
- */
 function normalizePunchReasonCodes(raw) {
   if (raw == null) return [];
   if (!Array.isArray(raw)) fail('Reason codes must be a list.');
-  /** @type {PunchReasonCode[]} */
   const codes = [];
   const seen = new Set();
   for (const item of raw) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
       fail('Each reason code needs a name.');
     }
-    const record = /** @type {Record<string, unknown>} */ (item);
+    const record = (item);
     const id = String(record.id || '').trim();
     const label = String(record.label || '').trim();
     if (!id || !label) fail('Each reason code needs a name.');
     if (seen.has(id)) continue;
     seen.add(id);
-    /** @type {PunchReasonCode} */
     const code = { id, label };
     const minutes = Number(record.minutes);
     if (Number.isInteger(minutes) && minutes >= 0 && minutes <= 24 * 60) code.minutes = minutes;
@@ -165,15 +99,11 @@ function normalizePunchReasonCodes(raw) {
   return codes;
 }
 
-/**
- * @param {unknown} raw
- * @returns {ReasonCode[]}
- */
 export function normalizeReasonCodeList(raw) {
   const list = Array.isArray(raw)
     ? raw
-    : raw && typeof raw === 'object' && Array.isArray(/** @type {{ codes?: unknown }} */ (raw).codes)
-      ? /** @type {{ codes: unknown[] }} */ (raw).codes
+    : raw && typeof raw === 'object' && Array.isArray( (raw).codes)
+      ? (raw).codes
       : null;
   if (!list) {
     if (raw == null) return [];
@@ -182,12 +112,7 @@ export function normalizeReasonCodeList(raw) {
   return normalizePunchReasonCodes(list);
 }
 
-/**
- * Keep a recorded length of time when the reason stays on the punch.
- * @param {{ id: string, label: string }} code
- * @param {{ minutes?: number } | undefined} kept
- * @returns {PunchReasonCode}
- */
+// Keep a recorded length of time when the reason stays on the punch.
 function reasonWithMinutes(code, kept) {
   const minutes = Number(kept?.minutes);
   if (Number.isInteger(minutes) && minutes >= 0 && minutes <= 24 * 60) {
@@ -196,19 +121,12 @@ function reasonWithMinutes(code, kept) {
   return { id: code.id, label: code.label };
 }
 
-/**
- * Keep codes already stored on the record when they have left the office list.
- * New picks must still be on that list.
- * @param {PunchReasonCode[]} current
- * @param {unknown} rawIds
- * @param {ReasonCode[]} catalog
- * @returns {PunchReasonCode[]}
- */
+// Keep codes already stored on the record when they have left the office list.
+// New picks must still be on that list.
 export function selectReasonCodes(current, rawIds, catalog) {
   if (!Array.isArray(rawIds)) fail('Reason codes must be a list.');
   const live = new Map(normalizeReasonCodeList(catalog).map((code) => [code.id, code]));
   const previous = new Map(normalizePunchReasonCodes(current).map((code) => [code.id, code]));
-  /** @type {PunchReasonCode[]} */
   const next = [];
   const seen = new Set();
   for (const rawId of rawIds) {
@@ -230,7 +148,7 @@ export function selectReasonCodes(current, rawIds, catalog) {
   return next;
 }
 
-/** The timecard list, before other paid time from the contract was added. */
+// The timecard list, before other paid time from the contract was added.
 const TIMECARD_REASON_CODES = [
   { id: 'reason-new-student', label: 'New Student' },
   { id: 'reason-traffic', label: 'Traffic/Construction/Accident' },
@@ -247,7 +165,7 @@ const TIMECARD_REASON_CODES = [
   { id: 'reason-fueling-bus', label: 'Fueling Bus' },
 ];
 
-/** Other paid time added beside the timecard codes, before trip tickets. */
+// Other paid time added beside the timecard codes, before trip tickets.
 const OTHER_PAID_TIME_CODES = [
   { id: 'reason-bus-cleaning', label: 'Bus cleaning' },
   { id: 'reason-in-service', label: 'In-service' },
@@ -261,18 +179,18 @@ const OTHER_PAID_TIME_CODES = [
   { id: 'reason-food-service', label: 'Food service delivery' },
 ];
 
-/** The combined list from before Trip Ticket Number was added at the top. */
+// The combined list from before Trip Ticket Number was added at the top.
 const PREVIOUS_COMBINED_REASON_CODES = [...TIMECARD_REASON_CODES, ...OTHER_PAID_TIME_CODES];
 
 export const TRIP_TICKET_REASON_ID = 'reason-trip-ticket';
 
-/** Starting list for the door clock. The office can rename, add, or remove these. */
+// Starting list for the door clock. The office can rename, add, or remove these.
 export const DEFAULT_REASON_CODES = [
   { id: TRIP_TICKET_REASON_ID, label: 'Trip Ticket Number' },
   ...PREVIOUS_COMBINED_REASON_CODES,
 ];
 
-/** The previous starter list, replaced by the timecard posted in the office. */
+// The previous starter list, replaced by the timecard posted in the office.
 const RETIRED_DEFAULT_REASON_CODES = [
   { id: 'reason-fueling-bus', label: 'Fueling Bus' },
   { id: 'reason-traffic', label: 'Traffic' },
@@ -281,35 +199,22 @@ const RETIRED_DEFAULT_REASON_CODES = [
   { id: 'reason-paperwork', label: 'Paperwork' },
 ];
 
-/**
- * True when the office still has the starter list from before the timecard codes.
- * A renamed, added, or removed code means the office has edited the list.
- * @param {Array<{ id?: string, label?: string }>} codes
- */
+// True when the office still has the starter list from before the timecard codes.
+// A renamed, added, or removed code means the office has edited the list.
 export function isRetiredDefaultReasonList(codes) {
   return sameReasonList(codes, RETIRED_DEFAULT_REASON_CODES);
 }
 
-/**
- * True when the office still has the timecard list from before other paid time was added.
- * @param {Array<{ id?: string, label?: string }>} codes
- */
+// True when the office still has the timecard list from before other paid time was added.
 export function isTimecardReasonList(codes) {
   return sameReasonList(codes, TIMECARD_REASON_CODES);
 }
 
-/**
- * True when the office still has the combined list from before trip tickets.
- * @param {Array<{ id?: string, label?: string }>} codes
- */
+// True when the office still has the combined list from before trip tickets.
 export function isPreviousCombinedReasonList(codes) {
   return sameReasonList(codes, PREVIOUS_COMBINED_REASON_CODES);
 }
 
-/**
- * @param {Array<{ id?: string, label?: string }>} codes
- * @param {Array<{ id: string, label: string }>} expected
- */
 function sameReasonList(codes, expected) {
   if (!Array.isArray(codes) || codes.length !== expected.length) return false;
   const key = (code) => `${code.id}\0${code.label}`;
@@ -318,22 +223,11 @@ function sameReasonList(codes, expected) {
   return saved.every((item, index) => item === starter[index]);
 }
 
-/**
- * @param {ReasonCode[]} codes
- * @param {unknown} label
- * @returns {ReasonCode[]}
- */
 export function addReasonCode(codes, label) {
   const list = normalizeReasonCodeList(codes);
   return [...list, { id: createId(), label: assertReasonLabel(list, label) }];
 }
 
-/**
- * @param {ReasonCode[]} codes
- * @param {string} id
- * @param {unknown} label
- * @returns {ReasonCode[]}
- */
 export function renameReasonCode(codes, id, label) {
   const list = normalizeReasonCodeList(codes);
   const codeId = String(id || '').trim();
@@ -344,11 +238,6 @@ export function renameReasonCode(codes, id, label) {
   return next;
 }
 
-/**
- * @param {ReasonCode[]} codes
- * @param {string} id
- * @returns {ReasonCode[]}
- */
 export function removeReasonCode(codes, id) {
   const list = normalizeReasonCodeList(codes);
   const codeId = String(id || '').trim();
@@ -357,13 +246,7 @@ export function removeReasonCode(codes, id) {
   return next;
 }
 
-/**
- * A renamed code keeps the same meaning, so records show the new name.
- * @param {ClockPunch[]} punches
- * @param {string} codeId
- * @param {string} label
- * @returns {ClockPunch[]}
- */
+// A renamed code keeps the same meaning, so records show the new name.
 export function relabelReasonCode(punches, codeId, label) {
   const id = String(codeId || '').trim();
   const text = String(label || '').trim();
@@ -375,25 +258,20 @@ export function relabelReasonCode(punches, codeId, label) {
   }));
 }
 
-/**
- * PINs are stored as written so the office can look them up.
- * An older hashed entry has no recoverable number, so it is dropped.
- * @param {unknown} raw
- * @returns {PinFile}
- */
+// PINs are stored as written so the office can look them up.
+// An older hashed entry has no recoverable number, so it is dropped.
 export function normalizePinFile(raw) {
   if (raw == null) return {};
   if (typeof raw !== 'object' || Array.isArray(raw)) {
     fail('clock-pins.json must contain a JSON object.');
   }
-  /** @type {PinFile} */
   const pins = {};
   for (const [driverId, value] of Object.entries(raw)) {
     const id = String(driverId || '').trim();
     if (!id || !value || typeof value !== 'object' || Array.isArray(value)) {
       fail('Each PIN entry needs a driver and a PIN.');
     }
-    const record = /** @type {Record<string, unknown>} */ (value);
+    const record = (value);
     const pin = String(record.pin ?? '').trim();
     if (!PIN_PATTERN.test(pin)) {
       if (record.hash && (record.pin == null || pin === '')) continue;
@@ -409,13 +287,6 @@ export function normalizePinFile(raw) {
   return pins;
 }
 
-/**
- * @param {PinFile} pins
- * @param {string} driverId
- * @param {unknown} pin
- * @param {string} now
- * @returns {PinFile}
- */
 export function setPin(pins, driverId, pin, now) {
   const id = String(driverId || '').trim();
   if (!id) fail('Driver not found.', 404);
@@ -425,11 +296,6 @@ export function setPin(pins, driverId, pin, now) {
   };
 }
 
-/**
- * @param {PinFile} pins
- * @param {string} driverId
- * @param {unknown} pin
- */
 export function assertPinMatches(pins, driverId, pin) {
   const stored = normalizePinFile(pins)[driverId];
   if (!stored) {
@@ -440,15 +306,11 @@ export function assertPinMatches(pins, driverId, pin) {
   }
 }
 
-/**
- * @param {unknown} raw
- * @returns {ClockPunch}
- */
 export function normalizePunch(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     fail('Each punch must be an object.');
   }
-  const record = /** @type {Record<string, unknown>} */ (raw);
+  const record = (raw);
   const id = String(record.id || '').trim();
   const driver_id = String(record.driver_id || '').trim();
   const driver_name = String(record.driver_name || '').trim();
@@ -469,34 +331,16 @@ export function normalizePunch(raw) {
   };
 }
 
-/**
- * @param {unknown} raw
- * @returns {ClockPunch[]}
- */
 export function normalizePunchLog(raw) {
   const list = Array.isArray(raw)
     ? raw
-    : raw && typeof raw === 'object' && Array.isArray(/** @type {{ punches?: unknown }} */ (raw).punches)
-      ? /** @type {{ punches: unknown[] }} */ (raw).punches
+    : raw && typeof raw === 'object' && Array.isArray( (raw).punches)
+      ? (raw).punches
       : null;
   if (!list) fail('clock-punches.json must contain a JSON array.');
   return list.map((row) => normalizePunch(row));
 }
 
-/**
- * @param {ClockPunch[]} punches
- * @param {{
- *   driver_id: string,
- *   driver_name: string,
- *   action: unknown,
- *   punched_at: string,
- *   note?: unknown,
- *   now?: string,
- *   reason_code_ids?: unknown,
- *   catalog?: ReasonCode[],
- * }} input
- * @returns {{ punches: ClockPunch[], punch: ClockPunch }}
- */
 export function appendPunch(punches, input) {
   const note = assertNote(input.note);
   const punched_at = input.punched_at;
@@ -513,17 +357,6 @@ export function appendPunch(punches, input) {
   return { punches: [...normalizePunchLog(punches), punch], punch };
 }
 
-/**
- * @param {ClockPunch[]} punches
- * @param {string} id
- * @param {{
- *   action?: unknown,
- *   punched_at?: unknown,
- *   note?: unknown,
- *   reason_code_ids?: unknown,
- * }} patch
- * @param {{ now?: string, catalog?: ReasonCode[] }} [context]
- */
 export function changePunch(punches, id, patch, context = {}) {
   const list = normalizePunchLog(punches);
   const index = list.findIndex((row) => row.id === id);
@@ -546,19 +379,8 @@ export function changePunch(punches, id, patch, context = {}) {
   return { punches: updated, punch: next };
 }
 
-/**
- * A driver may write the note and choose reason codes on their own record.
- * The note time changes only when the words change.
- * @param {ClockPunch[]} punches
- * @param {string} id
- * @param {{
- *   driver_id: string,
- *   note?: unknown,
- *   reason_code_ids?: unknown,
- *   catalog: ReasonCode[],
- *   now: string,
- * }} input
- */
+// A driver may write the note and choose reason codes on their own record.
+// The note time changes only when the words change.
 export function annotatePunch(punches, id, input) {
   const list = normalizePunchLog(punches);
   const index = list.findIndex((row) => row.id === id);
@@ -578,12 +400,6 @@ export function annotatePunch(punches, id, input) {
   );
 }
 
-/**
- * @param {ClockPunch} current
- * @param {unknown} note
- * @param {string | undefined} now
- * @returns {{ note: string, note_at: string | null }}
- */
 function applyNote(current, note, now) {
   if (note === undefined) {
     return { note: current.note, note_at: current.note_at };
@@ -598,11 +414,6 @@ function applyNote(current, note, now) {
   };
 }
 
-/**
- * @param {ClockPunch[]} punches
- * @param {string} id
- * @returns {ClockPunch[]}
- */
 export function removePunch(punches, id) {
   const list = normalizePunchLog(punches);
   const next = list.filter((row) => row.id !== id);
@@ -610,11 +421,6 @@ export function removePunch(punches, id) {
   return next;
 }
 
-/**
- * @param {Record<string, { driver_id?: string | null }> | null | undefined} routeState
- * @param {string} driverId
- * @returns {string[]}
- */
 export function routesForDriver(routeState, driverId) {
   if (!routeState || typeof routeState !== 'object') return [];
   return Object.entries(routeState)
@@ -623,32 +429,20 @@ export function routesForDriver(routeState, driverId) {
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }
 
-/**
- * Each driver's latest punch: in or out. Drivers with no punch are omitted.
- * @param {ClockPunch[]} punches
- * @returns {Record<string, 'in' | 'out'>}
- */
+// Each driver's latest punch: in or out. Drivers with no punch are omitted.
 export function latestStatusByDriver(punches) {
-  /** @type {Map<string, ClockPunch>} */
   const latest = new Map();
   for (const punch of normalizePunchLog(punches)) {
     const prev = latest.get(punch.driver_id);
     if (!prev || punch.punched_at >= prev.punched_at) latest.set(punch.driver_id, punch);
   }
-  /** @type {Record<string, 'in' | 'out'>} */
   const status = {};
   for (const [driverId, punch] of latest) status[driverId] = punch.action;
   return status;
 }
 
-/**
- * Names for the door screen. The door list omits the PIN itself.
- * The office list includes it when includePin is set.
- * @param {Array<{ driver_id: string, name: string }>} drivers
- * @param {Record<string, { driver_id?: string | null }> | null | undefined} routeState
- * @param {PinFile} pins
- * @param {{ includePin?: boolean, statusByDriver?: Record<string, 'in' | 'out'> }} [options]
- */
+// Names for the door screen. The door list omits the PIN itself.
+// The office list includes it when includePin is set.
 export function buildRoster(drivers, routeState, pins, options = {}) {
   const pinFile = normalizePinFile(pins);
   const includePin = options.includePin === true;
@@ -658,7 +452,6 @@ export function buildRoster(drivers, routeState, pins, options = {}) {
     .map((driver) => {
       const stored = pinFile[driver.driver_id];
       const status = statusByDriver[driver.driver_id];
-      /** @type {{ driver_id: string, name: string, routes: string[], pin_set: boolean, clock_status: 'in' | 'out', pin?: string | null }} */
       const row = {
         driver_id: driver.driver_id,
         name: driver.name,
@@ -672,53 +465,36 @@ export function buildRoster(drivers, routeState, pins, options = {}) {
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 }
 
-/**
- * @param {unknown} code
- */
 export function validLockCode(code) {
   return LOCK_CODE_PATTERN.test(String(code ?? '').trim());
 }
 
 export function normalizeKioskSettings(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  const unlock_pin = String(/** @type {{ unlock_pin?: unknown }} */ (source).unlock_pin ?? '').trim();
+  const unlock_pin = String( (source).unlock_pin ?? '').trim();
   return {
     unlock_pin: validLockCode(unlock_pin) ? unlock_pin : DEFAULT_KIOSK_CODE,
   };
 }
 
-/**
- * @param {{ unlock_pin: string }} settings
- * @param {unknown} code
- */
 export function assertKioskCode(settings, code) {
   if (String(code ?? '').trim() !== settings.unlock_pin) {
     fail('That lock code does not match.', 401);
   }
 }
 
-/**
- * @param {string | undefined} cookieHeader
- */
 export function requestHasKioskLock(cookieHeader) {
   return String(cookieHeader || '')
     .split(';')
     .some((part) => part.trim() === `${KIOSK_COOKIE}=1`);
 }
 
-/**
- * @param {boolean} locked
- */
 export function kioskCookieHeader(locked) {
   const base = `${KIOSK_COOKIE}=${locked ? '1' : ''}; Path=/; HttpOnly; SameSite=Lax`;
   return locked ? base : `${base}; Max-Age=0`;
 }
 
-/**
- * Newest first. Prefer the directory name when the driver is still on file.
- * @param {ClockPunch[]} punches
- * @param {Array<{ driver_id: string, name: string }>} drivers
- */
+// Newest first. Prefer the directory name when the driver is still on file.
 export function presentPunches(punches, drivers) {
   const names = new Map((drivers ?? []).map((driver) => [driver.driver_id, driver.name]));
   return normalizePunchLog(punches)

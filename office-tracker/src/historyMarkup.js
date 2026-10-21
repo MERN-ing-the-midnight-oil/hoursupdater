@@ -1,4 +1,4 @@
-import { formatDurationLabel, localDateString } from '../../employee-tracker/src/clockTimes.js';
+import { formatDurationLabel, localDateString, normalizeClockTime } from '../../employee-tracker/src/clockTimes.js';
 import { getSchoolDays } from '../../src/logic/calendar.js';
 import { buildPayrollRoundingBreakdown } from '../../src/logic/timeUtils.js';
 import {
@@ -7,6 +7,7 @@ import {
   changeDetailLines,
   changeHoverLines,
   clockHistoryLabel,
+  scheduleChangeKindHtml,
 } from '../../employee-tracker/src/clockHistory.js';
 
 export const OFFICE_HISTORY_TONES = [
@@ -26,9 +27,6 @@ const RUNS = [
   { id: 'PM', label: 'PM' },
 ];
 
-/**
- * @param {unknown} value
- */
 export function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -37,9 +35,6 @@ export function escapeHtml(value) {
     .replaceAll('"', '&quot;');
 }
 
-/**
- * @param {string | null | undefined} iso
- */
 export function prettyDate(iso) {
   if (!iso) return '—';
   return new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', {
@@ -50,25 +45,17 @@ export function prettyDate(iso) {
   });
 }
 
-/**
- * Numeric month/day/year, matching the date fields on the same table.
- * @param {string | null | undefined} iso
- */
+// Numeric month/day/year, matching the date fields on the same table.
 export function monthDayYear(iso) {
   const match = String(iso ?? '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return '—';
   return `${match[2]}/${match[3]}/${match[1]}`;
 }
 
-/**
- * Payroll-rounded daily total for one schedule row.
- * Each run is rounded to the nearest 15 minutes, those amounts are added,
- * and that sum is rounded again.
- * @param {Record<string, { range?: string } | null | undefined> | null | undefined} schedule
- * @returns {number | null}
- */
+// Payroll-rounded daily total for one schedule row.
+// Each run is rounded to the nearest 15 minutes, those amounts are added,
+// and that sum is rounded again.
 export function scheduleRoundedMinutes(schedule) {
-  /** @type {Record<string, string>} */
   const segments = {};
   for (const run of RUNS) {
     const range = schedule?.[run.id]?.range;
@@ -78,65 +65,80 @@ export function scheduleRoundedMinutes(schedule) {
   return buildPayrollRoundingBreakdown(segments).payroll_rounded_total_minutes;
 }
 
-/**
- * @param {number | null} minutes
- */
 function hoursText(minutes) {
   return minutes == null ? '—' : formatDurationLabel(minutes);
 }
 
-/**
- * Date this row's schedule became the contract, or a predicted date.
- * @param {object} row
- */
-export function contractedDateText(row) {
+// Date this row's schedule became the contract, or a predicted date.
+// "predicted" is the next contracted date if no further change is logged.
+// A later change that carries a different date is "new predicted".
+// The date it replaces is "old predicted".
+export function contractedDateText(row, role = 'predicted') {
   const status = row.contracted?.status;
   const on = row.contracted?.becomes_on;
+  if (status === 'side_countdown') return '—';
   if (status === 'predicted') {
-    return on ? `predicted: ${monthDayYear(on)}` : 'predicted';
+    if (!on) return 'predicted';
+    const date = monthDayYear(on);
+    if (role === 'new') return `new predicted: ${date}`;
+    if (role === 'old') return `old predicted: ${date}`;
+    return `predicted: ${date}`;
   }
   if (on && status !== 'superseded') return monthDayYear(on);
   if (row.kind === 'initial' && row.date) return monthDayYear(row.date);
   return '—';
 }
 
-/**
- * Hours is the rounded total of the clock times on that row.
- * Contract hours stay at the previous official figure until a row
- * records the date those hours became contracted.
- * @param {object[]} rows
- * @returns {Array<{ hours: string, contractedDate: string, contractHours: string }>}
- */
-export function contractColumnsForHistory(rows) {
-  /** @type {number | null} */
-  let official = null;
-  return (rows || []).map((row) => {
-    const scheduleMinutes = scheduleRoundedMinutes(row.schedule);
-    const status = row.contracted?.status;
-    const closes =
-      row.kind === 'initial' ||
-      (Boolean(row.contracted?.becomes_on) && status !== 'predicted' && status !== 'superseded');
-    if (closes) official = scheduleMinutes;
-    return {
-      hours: hoursText(scheduleMinutes),
-      contractedDate: contractedDateText(row),
-      contractHours: hoursText(official),
-    };
+// The latest predicted date is the standing forecast.
+// When it differs from an earlier predicted date, that latest row is
+// "new predicted" and each earlier one is "old predicted".
+function predictedDateRoles(rows) {
+  const predicted = [];
+  (rows || []).forEach((row, index) => {
+    if (row?.contracted?.status === 'predicted' && row.contracted?.becomes_on) {
+      predicted.push({ index, on: String(row.contracted.becomes_on).slice(0, 10) });
+    }
   });
+  const roles = new Map();
+  if (!predicted.length) return roles;
+  const latest = predicted[predicted.length - 1];
+  const replaced = predicted.some((item) => item.on !== latest.on);
+  for (const item of predicted) {
+    if (!replaced) roles.set(item.index, 'predicted');
+    else roles.set(item.index, item.index === latest.index ? 'new' : 'old');
+  }
+  return roles;
 }
 
-/**
- * @param {number} index
- * @param {string[]} [tones]
- */
+// Scheduled Hours is the rounded total of the clock times on that row.
+export function contractColumnsForHistory(rows) {
+  const roles = predictedDateRoles(rows);
+  return (rows || []).map((row, index) => ({
+    hours: hoursText(scheduleRoundedMinutes(row.schedule)),
+    contractedDate: contractedDateText(row, roles.get(index)),
+  }));
+}
+
 export function toneForRow(index, tones = OFFICE_HISTORY_TONES) {
   return tones[index % tones.length];
 }
 
-/**
- * @param {object[]} rows
- * @param {string[]} [tones]
- */
+// Comparable clock text. A blank stays blank. 06:10 and 6:10 are the same time.
+export function scheduleClockKey(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  try {
+    return normalizeClockTime(text);
+  } catch {
+    return text;
+  }
+}
+
+// True when this clock is not the same time as the one in the previous row.
+export function scheduleClockDiffers(current, previous) {
+  return scheduleClockKey(current) !== scheduleClockKey(previous);
+}
+
 export function historyLegendHtml(rows, tones = OFFICE_HISTORY_TONES) {
   return (
     (rows || [])
@@ -155,11 +157,7 @@ export function historyLegendHtml(rows, tones = OFFICE_HISTORY_TONES) {
   );
 }
 
-/**
- * Read-only clock-time history. The office screen keeps its own editable table.
- * @param {object | null | undefined} snapshot
- * @param {string[]} [tones]
- */
+// Read-only clock-time history. The office screen keeps its own editable table.
 export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES) {
   const rows = snapshot?.schedule_history || [];
   if (!rows.length) {
@@ -170,13 +168,9 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES)
   const columns = contractColumnsForHistory(rows);
   const body = rows
     .map((row, index) => {
+      const previous = index > 0 ? rows[index - 1] : null;
       const predicted = row.contracted?.status === 'predicted';
-      const kind =
-        row.kind === 'initial'
-          ? 'Established'
-          : `${row.segment === 'MIDDAY' ? 'Midday' : row.segment} change${
-              row.delta_label ? ` · ${row.delta_label}` : ''
-            }`;
+      const kind = scheduleChangeKindHtml(row, escapeHtml);
       const column = columns[index];
       const contractedDetail = row.contracted?.projected_outcome_label
         ? `<span class="contracted-detail">${escapeHtml(row.contracted.projected_outcome_label)}</span>`
@@ -186,18 +180,23 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES)
         <td>${row.kind === 'change' ? (row.force_oct1_contract ? 'On' : 'Off') : ''}</td>
         <th scope="row">
           ${escapeHtml(prettyDate(row.date))}
-          <span class="row-kind">${escapeHtml(kind)}</span>
+          ${kind}
         </th>
         ${RUNS.map((run) => {
           const item = row.schedule?.[run.id];
-          const changed = row.segment === run.id;
+          const changed = row.segment === run.id || row.segments?.includes(run.id);
           return ['clock_in', 'clock_out']
-            .map(
-              (which) =>
-                `<td${changed ? ' class="is-changed"' : ''}><span class="times">${escapeHtml(
-                  item?.[which] || '—'
-                )}</span></td>`
-            )
+            .map((which) => {
+              const value = item?.[which] || '';
+              const prior = previous?.schedule?.[run.id]?.[which] || '';
+              const differs = Boolean(previous) && scheduleClockDiffers(value, prior);
+              const classes = [changed ? 'is-changed' : '', differs ? 'is-time-diff' : ''].filter(Boolean);
+              const classAttr = classes.length ? ` class="${classes.join(' ')}"` : '';
+              const title = differs ? ' title="Different from the row above"' : '';
+              return `<td${classAttr}><span class="times${differs ? ' is-time-diff' : ''}"${title}>${escapeHtml(
+                value || '—'
+              )}</span></td>`;
+            })
             .join('');
         }).join('')}
         <td class="hours-figure">${escapeHtml(column.hours)}</td>
@@ -206,7 +205,6 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES)
           ${contractedDetail}
           ${note}
         </td>
-        <td class="hours-figure">${escapeHtml(column.contractHours)}</td>
       </tr>`;
     })
     .join('');
@@ -221,30 +219,22 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES)
         <th scope="col">Midday end</th>
         <th scope="col">PM start</th>
         <th scope="col">PM end</th>
-        <th scope="col">Hours</th>
-        <th scope="col">Contracted</th>
-        <th scope="col">Contract Hours</th>
+        <th scope="col">Scheduled Hours</th>
+        <th scope="col">Date, if Contracted</th>
       </tr>
     </thead>
     <tbody>${body}</tbody>
   </table>`;
 }
 
-/**
- * YYYY-MM for a grouped calendar month.
- * @param {{ month?: string, days?: Array<{ date?: string }> }} month
- */
+// YYYY-MM for a grouped calendar month.
 function calendarMonthKey(month) {
   if (/^\d{4}-\d{2}$/.test(month?.month || '')) return month.month;
   const date = month?.days?.[0]?.date || '';
   return date.slice(0, 7);
 }
 
-/**
- * Past months, the month of asOf, and the following month.
- * @param {Array<{ month?: string, days?: Array<{ date?: string }> }>} months
- * @param {string} [asOf]
- */
+// Past months, the month of asOf, and the following month.
 export function historyMonthsThroughNext(months, asOf) {
   const iso = /^\d{4}-\d{2}-\d{2}$/.test(String(asOf || '')) ? asOf : localDateString();
   const year = Number(iso.slice(0, 4));
@@ -258,9 +248,6 @@ export function historyMonthsThroughNext(months, asOf) {
   });
 }
 
-/**
- * @param {{ calendar: object, rows: object[], asOf?: string, tones?: string[] }} options
- */
 export function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTORY_TONES }) {
   const schoolDays = getSchoolDays(calendar);
   const marks = buildClockHistoryMarks(rows, { schoolDays, tones });
@@ -380,11 +367,6 @@ export function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTOR
     .join('');
 }
 
-/**
- * @param {Array<{ start: string, end: string }>} ranges
- * @param {Array<{ date: string }>} monthDays
- * @param {number} pad
- */
 function bidRectMarkup(ranges, monthDays, pad) {
   const html = [];
   for (const range of ranges) {
@@ -393,7 +375,6 @@ function bidRectMarkup(ranges, monthDays, pad) {
       if (day.date >= range.start && day.date <= range.end) indexes.push(index);
     });
     if (!indexes.length) continue;
-    /** @type {{ row: number, startCol: number, endCol: number } | null} */
     let segment = null;
     const segments = [];
     for (const index of indexes) {

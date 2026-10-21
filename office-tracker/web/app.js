@@ -3,6 +3,7 @@ import {
   buildSnapshot,
   calendarPayload,
   currentSnapshot,
+  useSchoolYearCalendar,
   deleteChange,
   getAsOfDate,
   peopleList,
@@ -53,7 +54,6 @@ import {
 } from '../src/payrollTimes.js';
 import { contractedRunMinutes } from '../src/leaveRequests.js';
 import { rebuildEmployeeRouteState } from '../../employee-tracker/src/snapshot.js';
-import { buildRouteWorkbook } from '../src/routeWorkbook.js';
 import {
   startAccounts,
   currentAccount,
@@ -67,8 +67,7 @@ import { attributionForChange } from './attribution.js';
 import { recentRouteChanges } from '../src/recentChanges.js';
 import { ensureExampleRoutes, isSampleOffice } from './exampleRoutes.js';
 import { mountClockDesk } from './clockDesk.js';
-import { mountPaperBackup } from './paperBackup.js';
-import { mountTimeclock } from './timeclockKiosk.js';
+import { isExternalTimeclockSearch, TIMECLOCK_LOCK_KEY } from './timeclockScreen.js';
 import {
   CLOCK_IN_TYPES,
   driverPayStatusChoices,
@@ -88,6 +87,7 @@ bindCalculatorStore({
 import { localDateString } from '../../employee-tracker/src/clockTimes.js';
 import { getSchoolDays } from '../../src/logic/calendar.js';
 import { earlyReleaseClock, isEarlyReleaseDate } from '../../src/logic/earlyRelease.js';
+import { earlyReleaseRulesForState, savedSchoolYear } from '../../src/logic/schoolYear.js';
 import { assignRouteDriver, assignmentOnDate, dayBefore, driverForDate, driverOwnsRoute, routeAssignments, sameDriver } from '../src/assignments.js';
 import { duplicateRunRoutes, joinRunLabels, runClocksFromOriginalRoute, runTypeLabel } from '../src/duplicateRuns.js';
 import { sectionsForDriver } from '../src/driverPacket.js';
@@ -116,8 +116,6 @@ import {
   routeHistoryMail,
   timeChangeNoticeDocument,
 } from '../src/noticeMail.js';
-import { downloadCalendarPdf } from './noticeCalendarPdf.js';
-import { downloadTextPdf } from './noticeDocumentPdf.js';
 import { initCitations } from '../../employee-tracker/web/citations.js';
 import {
   calendarMonthsHtml,
@@ -125,9 +123,11 @@ import {
   escapeHtml,
   historyLegendHtml,
   prettyDate,
+  scheduleClockDiffers,
   scheduleHistoryTableHtml,
   toneForRow,
 } from '../src/historyMarkup.js';
+import { scheduleChangeKindHtml } from '../../employee-tracker/src/clockHistory.js';
 
 const APP_TITLE = 'Teamster Tracker';
 const PAGE_TITLE = `Time Changes · ${APP_TITLE}`;
@@ -154,7 +154,6 @@ const recentChangesCount = document.querySelector('#recent-changes-count');
 const recentChangesNewer = document.querySelector('#recent-changes-newer');
 const recentChangesOlder = document.querySelector('#recent-changes-older');
 const recentChangesLive = document.querySelector('#recent-changes-live');
-/** @type {ReturnType<typeof recentRouteChanges>} */
 let recentChangeItems = [];
 let recentChangeIndex = -1;
 const changeForm = document.querySelector('#change-form');
@@ -176,6 +175,8 @@ const payrollView = document.querySelector('#payroll-view');
 const clockingView = document.querySelector('#clocking-view');
 const paperBackupView = document.querySelector('#paper-backup-view');
 const timeclockSettingsView = document.querySelector('#timeclock-settings-view');
+const trackerSettingsView = document.querySelector('#tracker-settings-view');
+const trackerSettingsOpen = document.querySelector('#tracker-settings-open');
 const adminReminderTab = document.querySelector('#admin-reminder-tab');
 const driverNoticeTab = document.querySelector('#driver-notice-tab');
 const adminReminderView = document.querySelector('#admin-reminder-view');
@@ -235,7 +236,38 @@ function iconEl(name) {
   return wrap.firstElementChild;
 }
 
+function markSectionChrome() {
+  const onDrivers = activeSheet === 'drivers' && !addingPerson;
+  const onPayroll = activeSheet === 'payroll' && !addingPerson;
+  const onClocking = activeSheet === 'clocking' && !addingPerson;
+  const onClockSettings = activeSheet === 'clock-settings' && !addingPerson;
+  const onPaperBackup = activeSheet === 'paper-backup' && !addingPerson;
+  const onSettings = activeSheet === 'settings' && !addingPerson;
+  const onOfficeApp = onPayroll || onClocking || onClockSettings || onPaperBackup;
+  const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
+  const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
+  driversTab.classList.toggle('is-active', onDrivers);
+  driversTab.setAttribute('aria-selected', onDrivers ? 'true' : 'false');
+  dashboardApp?.classList.toggle('is-active', !onOfficeApp && !onSettings);
+  payrollTab?.classList.toggle('is-active', onPayroll);
+  clockingTab?.classList.toggle('is-active', onClocking || onClockSettings || onPaperBackup);
+  dashboardApp?.removeAttribute('aria-current');
+  payrollTab?.removeAttribute('aria-current');
+  clockingTab?.removeAttribute('aria-current');
+  if (onPayroll) payrollTab?.setAttribute('aria-current', 'page');
+  else if (onClocking || onClockSettings || onPaperBackup) clockingTab?.setAttribute('aria-current', 'page');
+  else if (!onSettings) dashboardApp?.setAttribute('aria-current', 'page');
+  trackerSettingsOpen?.classList.toggle('is-active', onSettings);
+  if (onSettings) trackerSettingsOpen?.setAttribute('aria-current', 'page');
+  else trackerSettingsOpen?.removeAttribute('aria-current');
+  adminReminderTab?.classList.toggle('is-active', onAdminReminder);
+  adminReminderTab?.setAttribute('aria-selected', onAdminReminder ? 'true' : 'false');
+  driverNoticeTab?.classList.toggle('is-active', onDriverNotice);
+  driverNoticeTab?.setAttribute('aria-selected', onDriverNotice ? 'true' : 'false');
+}
+
 function renderRouteTabs() {
+  markSectionChrome();
   const onDrivers = activeSheet === 'drivers' && !addingPerson;
   const onAll = activeSheet === 'all' && !addingPerson;
   const onDriverHistory = activeSheet === 'driver-history' && !addingPerson;
@@ -243,6 +275,7 @@ function renderRouteTabs() {
   const onClocking = activeSheet === 'clocking' && !addingPerson;
   const onClockSettings = activeSheet === 'clock-settings' && !addingPerson;
   const onPaperBackup = activeSheet === 'paper-backup' && !addingPerson;
+  const onSettings = activeSheet === 'settings' && !addingPerson;
   const onOfficeApp = onPayroll || onClocking || onClockSettings || onPaperBackup;
   const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
@@ -252,24 +285,10 @@ function renderRouteTabs() {
     !onAll &&
     !onDriverHistory &&
     !onOfficeApp &&
+    !onSettings &&
     !onAdminReminder &&
     !onDriverNotice;
   const currentId = onRoute ? getCurrentProfile()?.id : null;
-  driversTab.classList.toggle('is-active', onDrivers);
-  driversTab.setAttribute('aria-selected', onDrivers ? 'true' : 'false');
-  dashboardApp?.classList.toggle('is-active', !onOfficeApp);
-  payrollTab?.classList.toggle('is-active', onPayroll);
-  clockingTab?.classList.toggle('is-active', onClocking || onClockSettings || onPaperBackup);
-  dashboardApp?.removeAttribute('aria-current');
-  payrollTab?.removeAttribute('aria-current');
-  clockingTab?.removeAttribute('aria-current');
-  if (onPayroll) payrollTab?.setAttribute('aria-current', 'page');
-  else if (onClocking || onClockSettings || onPaperBackup) clockingTab?.setAttribute('aria-current', 'page');
-  else dashboardApp?.setAttribute('aria-current', 'page');
-  adminReminderTab?.classList.toggle('is-active', onAdminReminder);
-  adminReminderTab?.setAttribute('aria-selected', onAdminReminder ? 'true' : 'false');
-  driverNoticeTab?.classList.toggle('is-active', onDriverNotice);
-  driverNoticeTab?.setAttribute('aria-selected', onDriverNotice ? 'true' : 'false');
   const routes = [...peopleList()].sort((a, b) => compareRouteNumbers(a.name, b.name));
   routeTabs.innerHTML = '';
   const all = document.createElement('button');
@@ -312,6 +331,7 @@ function chooseRoute(id) {
     activeSheet !== 'clocking' &&
     activeSheet !== 'clock-settings' &&
     activeSheet !== 'paper-backup' &&
+    activeSheet !== 'settings' &&
     activeSheet !== 'admin-reminder' &&
     activeSheet !== 'driver-notice' &&
     current?.id === id
@@ -364,7 +384,7 @@ function openOfficeWindow(app) {
       status.hidden = false;
       status.textContent = clocking
         ? 'Allow pop-up windows for this site, then open Clock records again.'
-        : 'Allow pop-up windows for this site, then open Drivers again.';
+        : 'Allow pop-up windows for this site, then open Driver Clock Records again.';
     }
     return;
   }
@@ -404,25 +424,56 @@ function showClocking() {
   clockingView?.scrollIntoView({ block: 'start' });
 }
 
-function showClockSettings() {
+async function showClockSettings() {
   rememberOfficeSheet();
   addingPerson = false;
   viewingDriver = '';
   activeSheet = 'clock-settings';
-  loadAll();
-  timeclockSettingsView?.scrollIntoView({ block: 'start' });
+  try {
+    await ensureTimeclock();
+    loadAll();
+    timeclockSettingsView?.scrollIntoView({ block: 'start' });
+  } catch (error) {
+    setStatus(fileStatus, error.message || 'Could not open timeclock settings.', 'error');
+  }
 }
 
-function showPaperBackup() {
+async function showPaperBackup() {
   rememberOfficeSheet();
   addingPerson = false;
   viewingDriver = '';
   activeSheet = 'paper-backup';
-  loadAll();
-  paperBackupView?.scrollIntoView({ block: 'start' });
+  try {
+    await ensurePaperBackup();
+    loadAll();
+    paperBackupView?.scrollIntoView({ block: 'start' });
+  } catch (error) {
+    setStatus(fileStatus, error.message || 'Could not open paper records.', 'error');
+  }
+}
+
+async function showTrackerSettings() {
+  if (activeSheet === 'settings') {
+    showDrivers();
+    return;
+  }
+  addingPerson = false;
+  viewingDriver = '';
+  activeSheet = 'settings';
+  try {
+    await ensureTimeclock();
+    loadAll();
+    trackerSettingsView?.scrollIntoView({ block: 'start' });
+  } catch (error) {
+    setStatus(fileStatus, error.message || 'Could not open settings.', 'error');
+  }
 }
 
 function showDashboardApp() {
+  if (activeSheet === 'settings') {
+    showDrivers();
+    return;
+  }
   if (
     activeSheet !== 'payroll' &&
     activeSheet !== 'clocking' &&
@@ -477,6 +528,41 @@ function showDriverNotice() {
 
 driversTab.addEventListener('click', showDrivers);
 dashboardApp?.addEventListener('click', showDashboardApp);
+trackerSettingsOpen?.addEventListener('click', showTrackerSettings);
+
+const TERMS_SEEN_KEY = 'teamster-tracker-terms-seen';
+const termsDialog = document.querySelector('#terms-dialog');
+
+function termsAlreadySeen() {
+  try {
+    return localStorage.getItem(TERMS_SEEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function rememberTermsSeen() {
+  try {
+    localStorage.setItem(TERMS_SEEN_KEY, '1');
+  } catch {
+    // This browser is not storing the reminder, so the message can appear again.
+  }
+}
+
+function openTermsDialog() {
+  if (!termsDialog || termsDialog.open) return;
+  termsDialog.showModal();
+}
+
+document.querySelector('#terms-open')?.addEventListener('click', openTermsDialog);
+document.querySelector('#terms-close')?.addEventListener('click', () => termsDialog?.close());
+document.querySelector('#terms-ok')?.addEventListener('click', () => termsDialog?.close());
+termsDialog?.addEventListener('click', (event) => {
+  if (event.target === termsDialog) termsDialog.close();
+});
+termsDialog?.addEventListener('close', rememberTermsSeen);
+
+if (!termsAlreadySeen()) openTermsDialog();
 payrollTab?.addEventListener('click', showPayroll);
 clockingTab?.addEventListener('click', showClocking);
 document.querySelector('#open-drivers')?.addEventListener('click', () => openOfficeWindow('payroll'));
@@ -489,14 +575,9 @@ document.querySelector('#paper-backup-back')?.addEventListener('click', showCloc
 adminReminderTab?.addEventListener('click', showAdminReminder);
 driverNoticeTab?.addEventListener('click', showDriverNotice);
 
-/** @type {Array<{ email: string, name: string }>} */
 let reminderInvitees = [];
-/** @type {Array<{ id: string, email: string, name: string }>} */
 let officeUsers = [];
 
-/**
- * @param {{ email: string, name?: string }} user
- */
 function userChoiceLabel(user) {
   const email = user.email;
   const name = String(user.name || '').trim();
@@ -602,7 +683,6 @@ function selectedMemorandumId() {
 }
 
 function collectMemorandumTemplates() {
-  /** @type {Record<string, { subject: string, body: string }>} */
   const templates = {};
   for (const block of document.querySelectorAll('#driver-notice-memoranda .email-content-option')) {
     const id = block.dataset.id;
@@ -636,12 +716,6 @@ function driverNoticePreviewText() {
   return `Sample email\n${mail.subject}\n\n${mail.body}${attachment}`;
 }
 
-/**
- * @param {HTMLElement} editor
- * @param {string} labelText
- * @param {string} controlId
- * @param {HTMLElement} control
- */
 function appendTemplateField(editor, labelText, controlId, control) {
   const field = document.createElement('div');
   field.className = 'field';
@@ -860,6 +934,7 @@ function beginAddRoute() {
   if (clockingView) clockingView.hidden = true;
   if (paperBackupView) paperBackupView.hidden = true;
   if (timeclockSettingsView) timeclockSettingsView.hidden = true;
+  if (trackerSettingsView) trackerSettingsView.hidden = true;
   if (adminReminderView) adminReminderView.hidden = true;
   if (driverNoticeView) driverNoticeView.hidden = true;
   if (routeTabs) routeTabs.hidden = false;
@@ -1107,12 +1182,21 @@ function renderHero() {
   const officeNote = String(profile?.note ?? '').trim();
   const routeLabel = name ? `Route ${name}` : '';
 
+  const showPredicted =
+    windowInfo?.status === 'ACCUMULATING' && snapshot.scheduled?.if_locked_label;
+  const contractedCaption = showPredicted ? 'Current contracted hours' : 'Contracted hours';
+  const predictedStat = showPredicted
+    ? `<li><span>Predicted contracted hours</span><strong>${snapshot.scheduled.if_locked_label}</strong></li>`
+    : '';
+
   hero.innerHTML = `
     <p class="hero-kicker">${routeLabel ? `${routeLabel}${driver ? ` · ${escapeHtml(driver)}` : ''} · ` : ''}${windowInfo?.status_label || 'Not set up'}</p>
     <h1 class="hero-title">${title}</h1>
     <p class="hero-detail">${windowInfo?.headline || ''}</p>
+    ${windowInfo?.side_window_note ? `<p class="hero-detail">${escapeHtml(windowInfo.side_window_note)}</p>` : ''}
     <ul class="stat-row">
-      <li><span>Contracted hours</span><strong>${contracted?.label || '—'}</strong></li>
+      <li><span>${contractedCaption}</span><strong>${contracted?.label || '—'}</strong></li>
+      ${predictedStat}
       <li><span>Accumulated difference</span><strong>${windowInfo?.cumulative_drift_label || '0 min'}</strong></li>
       <li><span>School days left in window</span><strong>${
         windowInfo?.days_remaining == null ? '—' : windowInfo.days_remaining
@@ -1145,7 +1229,7 @@ function renderScheduleHistory() {
   const rows = snapshot.schedule_history || [];
   const noticeHint = ' Saving a change offers to send the notice. Send notice on the row can send it again. If that notice was already sent, you will be warned first. The email uses the chosen memorandum and downloads a calendar PDF. Attach that PDF if you want the driver to see the calendar. The complete time change history can be downloaded too, when that attachment is turned on. Notice sent is marked Yes.';
   const hoursHint =
-    ' Hours is the rounded total of the clock times on that row. Contracted is the date that schedule became the contract, or a predicted date. Contract Hours is the official total, which stays at the previous figure until that date.';
+    ' Scheduled Hours is the rounded total of the clock times on that row. Date, if Contracted is the date that schedule became the contract, or a predicted date.';
   const forceHint =
     ' Force Oct 1 Contract starts off. Turn it on to contract that schedule on October 1, skipping the usual rules for the size of the change and the 15-school-day countdown.';
   scheduleLead.textContent = start
@@ -1163,7 +1247,7 @@ function renderScheduleHistory() {
   const body = scheduleHistory.querySelector('tbody');
   if (!rows.length) {
     body.innerHTML =
-      '<tr><td colspan="13" class="empty">No clock times recorded yet.</td></tr>';
+      '<tr><td colspan="12" class="empty">No clock times recorded yet.</td></tr>';
     return;
   }
 
@@ -1172,14 +1256,7 @@ function renderScheduleHistory() {
     rows
       .map((row, index) => {
         const predicted = row.contracted?.status === 'predicted';
-        const kind =
-          row.kind === 'initial'
-            ? 'Established'
-            : row.segments?.length > 1
-              ? 'Schedule change'
-              : `${row.segment === 'MIDDAY' ? 'Midday' : row.segment} change${
-                  row.delta_label ? ` · ${row.delta_label}` : ''
-                }`;
+        const kind = scheduleChangeKindHtml(row, escapeHtml);
         const column = columns[index];
         const actions =
           row.kind === 'change'
@@ -1193,7 +1270,7 @@ function renderScheduleHistory() {
         <td class="oct1-cell">${row.kind === 'change' ? forceOct1Toggle(row.force_oct1_contract) : ''}</td>
         <th scope="row">
           ${scheduleDateField(row.date, { allowNull: row.kind === 'change' })}
-          <span class="row-kind">${escapeHtml(kind)}</span>
+          ${kind}
         </th>
         ${RUNS.map((run) => {
           const item = row.schedule?.[run.id];
@@ -1219,12 +1296,32 @@ function renderScheduleHistory() {
             ${contractedInfoControl(row)}
           </div>
         </td>
-        <td class="hours-figure">${escapeHtml(column.contractHours)}</td>
         ${noticeSentCell(row)}
         <td>${actions}</td>
       </tr>`;
       })
       .join('') + entryRowMarkup(rows);
+  markScheduleTimeDiffs();
+}
+
+function markScheduleTimeDiffs() {
+  const rows = [...scheduleHistory.querySelectorAll('tbody tr')].filter((row) =>
+    row.querySelector('input[type="time"]')
+  );
+  rows.forEach((row, index) => {
+    const previous = rows[index - 1];
+    for (const input of row.querySelectorAll('input[type="time"]')) {
+      const run = input.dataset.run;
+      const which = input.dataset.which;
+      const prior = previous?.querySelector(
+        `input[type="time"][data-run="${run}"][data-which="${which}"]`
+      );
+      const differs = Boolean(previous) && scheduleClockDiffers(input.value, prior?.value);
+      input.classList.toggle('is-time-diff', differs);
+      if (differs) input.title = 'Different from the row above';
+      else if (input.title === 'Different from the row above') input.removeAttribute('title');
+    }
+  });
 }
 
 function scheduleDateField(value, { id = '', className = 'js-history-date', label = 'New schedule started', allowNull = true } = {}) {
@@ -1357,7 +1454,7 @@ function entryRowMarkup(rows) {
   const schedule = latestSchedule(rows);
   const lastDate = rows[rows.length - 1]?.date || '';
   const timeField = (run, which, value) =>
-    `<input id="entry_${run.id}_${which}" class="entry-input" type="time" step="60" aria-label="${run.label} ${
+    `<input id="entry_${run.id}_${which}" class="entry-input" type="time" step="60" data-run="${run.id}" data-which="${which}" aria-label="${run.label} ${
       which === 'in' ? 'start' : 'end'
     }" value="${value ? toTimeInput(value) : ''}" />`;
   return `<tr class="is-entry is-new-change">
@@ -1377,7 +1474,6 @@ function entryRowMarkup(rows) {
         <input id="entry_editor" class="entry-input" type="text" placeholder="Optional" />
       </label>
     </td>
-    <td></td>
     <td></td>
     <td>
       <button type="button" id="add-change-row">Add this change</button>
@@ -1425,9 +1521,6 @@ function locateChange(changeId) {
   return null;
 }
 
-/**
- * @param {{ profile: object, row: object, history: object[] }} located
- */
 async function deliverChangeNotice(located) {
   const { profile, row, history } = located;
   const changeId = row?.change_id;
@@ -1512,9 +1605,6 @@ async function sendChangeNotice(button) {
   await runChangeNotice(changeId, button);
 }
 
-/**
- * @param {{ to: string, subject: string, body: string }} mail
- */
 function openNoticeMail(mail) {
   const href = `mailto:${encodeURIComponent(mail.to)}?subject=${encodeURIComponent(mail.subject)}&body=${encodeURIComponent(mail.body)}`;
   const link = document.createElement('a');
@@ -1525,9 +1615,6 @@ function openNoticeMail(mail) {
   link.remove();
 }
 
-/**
- * @param {string[]} filenames
- */
 function explainNoticeDownloads(filenames) {
   const dialog = document.querySelector('#notice-download-dialog');
   const message = document.querySelector('#notice-download-message');
@@ -1541,38 +1628,23 @@ function explainNoticeDownloads(filenames) {
   if (!dialog.open) dialog.showModal();
 }
 
-/**
- * @param {object | null | undefined} source
- */
 function changeIdsOn(source) {
   return new Set(
     (source?.schedule_history || []).map((row) => row.change_id).filter(Boolean)
   );
 }
 
-/**
- * @param {Set<string>} beforeIds
- * @param {object | null | undefined} source
- */
 function addedChangeIds(beforeIds, source) {
   return (source?.schedule_history || [])
     .map((row) => row.change_id)
     .filter((id) => id && !beforeIds.has(id));
 }
 
-/**
- * @param {string} changeId
- * @param {object | null | undefined} [source]
- */
 function predictedContractDate(changeId, source = snapshot) {
   const row = (source?.schedule_history || []).find((item) => item.change_id === changeId);
   return isPredictedContract(row) ? row.contracted.becomes_on : null;
 }
 
-/**
- * @param {BlobPart} text
- * @param {string} filename
- */
 function downloadTextFile(text, filename) {
   const blob = new Blob([text], { type: 'text/calendar;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -1583,13 +1655,10 @@ function downloadTextFile(text, filename) {
   URL.revokeObjectURL(url);
 }
 
-/**
- * Predicted contract reminders for every route, one item per change.
- */
+// Predicted contract reminders for every route, one item per change.
 function officeContractReminders() {
   const settings = loadContractReminder();
   const calendar = calendarPayload();
-  /** @type {NonNullable<ReturnType<typeof prepareContractReminder>>[]} */
   const items = [];
   for (const profile of listProfiles()) {
     const routeName = String(profile?.name || '').trim();
@@ -1612,13 +1681,9 @@ function officeContractReminders() {
   return items;
 }
 
-/**
- * @param {Array<{ reminderDate: string, routes?: string[], cancelled?: boolean, updated?: boolean }>} events
- */
 function publishedReminderMessage(events) {
   const active = events.filter((event) => !event.cancelled);
   const cancelled = events.filter((event) => event.cancelled);
-  /** @type {string[]} */
   const parts = [];
   if (active.length) {
     const action = active.every((event) => event.updated)
@@ -1644,10 +1709,6 @@ function publishedReminderMessage(events) {
   return parts.join(' ');
 }
 
-/**
- * @param {ReturnType<typeof planReminderPublish>} events
- * @param {string} stamp
- */
 function publishReminderItems(events, stamp) {
   const settings = loadContractReminder();
   const list = events || [];
@@ -1691,10 +1752,8 @@ function publishReminderItems(events, stamp) {
   return { kind: 'ok', message: publishedReminderMessage(list) };
 }
 
-/**
- * Download a calendar file for each reminder day that is new or different.
- * The file is created when a contract date is predicted. It is not held until that day.
- */
+// Download a calendar file for each reminder day that is new or different.
+// The file is created when a contract date is predicted. It is not held until that day.
 function downloadDueContractReminders() {
   const settings = loadContractReminder();
   if (!settings.autoCreate) return null;
@@ -1716,14 +1775,10 @@ function downloadDueContractReminders() {
   }
 }
 
-/**
- * History rows touched by these change ids. Several runs saved together share one row.
- * @param {string[]} changeIds
- */
+// History rows touched by these change ids. Several runs saved together share one row.
 function noticeRowsForChangeIds(changeIds) {
   const wanted = new Set((changeIds || []).filter(Boolean));
   if (!wanted.size) return [];
-  /** @type {object[]} */
   const chosen = [];
   const seen = new Set();
   for (const row of snapshot?.schedule_history || []) {
@@ -1736,9 +1791,6 @@ function noticeRowsForChangeIds(changeIds) {
   return chosen;
 }
 
-/**
- * @param {object} row
- */
 function noticeOfferMessage(row) {
   const route = String(getCurrentProfile()?.name || '').trim();
   const run = row.segment === 'MIDDAY' ? 'Midday' : row.segment || 'schedule';
@@ -1746,7 +1798,6 @@ function noticeOfferMessage(row) {
   return `Send a notice for the ${run} change${where}?`;
 }
 
-/** @type {string[]} */
 let noticeOfferQueue = [];
 let noticeOfferSending = false;
 
@@ -1766,9 +1817,6 @@ function showNoticeOffer() {
   if (!dialog.open) dialog.showModal();
 }
 
-/**
- * @param {string[]} changeIds
- */
 function queueNoticeOffer(changeIds) {
   const ids = noticeRowsForChangeIds(changeIds).map((row) => row.change_id);
   if (!ids.length) {
@@ -1832,7 +1880,6 @@ async function createAutomaticNotices() {
 function commitEntryRow() {
   const date = document.querySelector('#entry_date')?.value || null;
   const current = snapshot?.schedule || {};
-  /** @type {Array<{ segment: string, clock_in: string, clock_out: string }>} */
   const changed = [];
   for (const run of RUNS) {
     const clockIn = document.querySelector(`#entry_${run.id}_in`)?.value || '';
@@ -2090,9 +2137,9 @@ function renderDriverInfo(force = false) {
         <td>${infoInput(driver, 'email', driver.email, 'email', 'Email', 'autocomplete="email" placeholder="name@example.com"')}</td>
         <td>${infoInput(driver, 'phone', driver.phone, 'tel', 'Phone', 'autocomplete="tel"')}</td>
         <td class="driver-info-routes">${escapeHtml(routeLabelForDriver(driver.name))}</td>
-        <td>${infoInput(driver, 'serial', driver.pay?.serial || '', 'text', 'Serial number', 'maxlength="20" autocomplete="off"')}</td>
-        <td>${infoInput(driver, 'rate', driver.pay?.rate || '', 'text', 'Hourly rate', 'inputmode="decimal" maxlength="7" placeholder="0.00" autocomplete="off"')}</td>
-        <td>${infoInput(driver, 'account', driver.pay?.account || '', 'text', 'Payroll account', 'maxlength="40" autocomplete="off"')}</td>
+        <td>${infoInput(driver, 'serial', driver.pay?.serial || '', 'text', 'Serial number', 'autocomplete="off"')}</td>
+        <td>${infoInput(driver, 'rate', driver.pay?.rate || '', 'number', 'Hourly rate', 'min="0" step="any" inputmode="decimal" placeholder="0.00" autocomplete="off"')}</td>
+        <td>${infoInput(driver, 'account', driver.pay?.account || '', 'text', 'Payroll account', 'autocomplete="off"')}</td>
         <td data-info-statuses>${driverInfoStatusMarkup(driver, lines)}</td>
       </tr>`
     )
@@ -2133,6 +2180,11 @@ async function commitDriverInfoField(input) {
   const field = input.dataset.infoField || '';
   if (!driver || !field) return;
   if (field === 'rate') {
+    if (input.validity?.badInput) {
+      input.value = driver.pay?.rate || '';
+      setInfoNote('Enter an hourly rate like 37.74.', 'error');
+      return;
+    }
     const raw = input.value.trim();
     const rate = normalizeDriverPay({ rate: raw }).rate;
     if (raw && !rate) {
@@ -2402,8 +2454,15 @@ function renderDriverHistory() {
     .join('');
 }
 
+function downloadCalendarPdf(filename) {
+  return import('./noticeCalendarPdf.js').then((mod) => mod.downloadCalendarPdf(filename));
+}
+
+function downloadTextPdf(filename, text) {
+  return import('./noticeDocumentPdf.js').then((mod) => mod.downloadTextPdf(filename, text));
+}
+
 function renderApp() {
-  renderRouteTabs();
   const onDrivers = activeSheet === 'drivers' && !addingPerson;
   const onAll = activeSheet === 'all' && !addingPerson;
   const onDriverHistory = activeSheet === 'driver-history' && !addingPerson;
@@ -2411,6 +2470,7 @@ function renderApp() {
   const onClocking = activeSheet === 'clocking' && !addingPerson;
   const onClockSettings = activeSheet === 'clock-settings' && !addingPerson;
   const onPaperBackup = activeSheet === 'paper-backup' && !addingPerson;
+  const onSettings = activeSheet === 'settings' && !addingPerson;
   const onOfficeApp = onPayroll || onClocking || onClockSettings || onPaperBackup;
   const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
@@ -2418,6 +2478,7 @@ function renderApp() {
   document.body.classList.toggle('is-payroll-app', onPayroll || (payrollWindow && onDriverHistory));
   document.body.classList.toggle('is-clocking-app', onClocking || onClockSettings || onPaperBackup);
   document.body.classList.toggle('is-paper-backup', onPaperBackup);
+  document.body.classList.toggle('is-tracker-settings', onSettings);
   const themeColor =
     onPayroll || (payrollWindow && onDriverHistory)
       ? '#12887a'
@@ -2425,11 +2486,15 @@ function renderApp() {
         ? '#1a4f8b'
         : '#6428f0';
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor);
-  if (routeTabs) routeTabs.hidden = onOfficeApp || driversWindow;
+  const hideRouteTabs = onOfficeApp || onSettings || driversWindow;
+  if (routeTabs) routeTabs.hidden = hideRouteTabs;
+  if (hideRouteTabs) markSectionChrome();
+  else renderRouteTabs();
   if (payrollView) payrollView.hidden = !onPayroll;
   if (clockingView) clockingView.hidden = !onClocking;
   if (paperBackupView) paperBackupView.hidden = !onPaperBackup;
   if (timeclockSettingsView) timeclockSettingsView.hidden = !onClockSettings;
+  if (trackerSettingsView) trackerSettingsView.hidden = !onSettings;
   if (adminReminderView) adminReminderView.hidden = !onAdminReminder;
   if (driverNoticeView) driverNoticeView.hidden = !onDriverNotice;
   if (driversWindow && onDriverHistory) {
@@ -2437,12 +2502,23 @@ function renderApp() {
     if (clockingView) clockingView.hidden = true;
     if (paperBackupView) paperBackupView.hidden = true;
     if (timeclockSettingsView) timeclockSettingsView.hidden = true;
+    if (trackerSettingsView) trackerSettingsView.hidden = true;
     driversView.hidden = true;
     allRoutesView.hidden = true;
     driverHistoryView.hidden = false;
     setupView.hidden = true;
     appView.hidden = true;
     renderDriverHistory();
+    return;
+  }
+  if (onSettings) {
+    driversView.hidden = true;
+    allRoutesView.hidden = true;
+    driverHistoryView.hidden = true;
+    setupView.hidden = true;
+    appView.hidden = true;
+    document.title = `Calendar Year · ${APP_TITLE}`;
+    timeclockDesk.refresh();
     return;
   }
   if (onClockSettings) {
@@ -2462,7 +2538,7 @@ function renderApp() {
     setupView.hidden = true;
     appView.hidden = true;
     document.title = `Paper records · ${APP_TITLE}`;
-    paperBackup.refresh();
+    paperBackupDesk.refresh();
     return;
   }
   if (onPayroll || onClocking) {
@@ -2472,13 +2548,23 @@ function renderApp() {
     setupView.hidden = true;
     appView.hidden = true;
     clockDesk.refresh();
-    timeclockDesk.refresh();
-    if (onClocking) paperBackup.refresh();
     if (onPayroll) renderDriverInfo();
+    if (onClocking) refreshPaperRecords();
+    // Payroll settings, pay-period info, and the timeclock share one module.
+    // Opening Payroll has to load it, or those buttons have nothing to run.
+    if (!driversWindow) {
+      void ensureTimeclock()
+        .then((desk) => {
+          if (activeSheet === 'payroll' || activeSheet === 'clocking') desk.refresh();
+        })
+        .catch((error) => {
+          reportOfficeToolError(error);
+        });
+    }
     const openDriver = clockDesk.openDriver();
     const appName = onClocking ? 'Clocking' : 'Payroll';
     if (driversWindow) {
-      const windowLabel = driversApp === 'clocking' ? 'Clock records' : 'Drivers';
+      const windowLabel = driversApp === 'clocking' ? 'Clock records' : 'Driver Clock Records';
       document.title = openDriver ? `${openDriver} · ${windowLabel} · ${APP_TITLE}` : `${windowLabel} · ${APP_TITLE}`;
       return;
     }
@@ -2531,7 +2617,12 @@ function renderApp() {
   fillChangeFormFromSegment();
 }
 
+function syncSchoolYearCalendar() {
+  useSchoolYearCalendar(savedSchoolYear(loadState()));
+}
+
 function loadAll() {
+  syncSchoolYearCalendar();
   startEditForm.hidden = true;
   changeEditForm.hidden = true;
   snapshot = addingPerson ? buildSnapshot(null) : currentSnapshot();
@@ -2573,6 +2664,7 @@ function updatePreview() {
       · becomes contracted <strong>${prettyDate(preview.becomes_contracted_on)}</strong>
       · ${preview.projected_outcome_label}
       <div class="meta">${preview.contracted_hours_statement || ''}</div>
+      ${preview.side_window_note ? `<div class="meta">${escapeHtml(preview.side_window_note)}</div>` : ''}
     `;
     setStatus(changeStatus, '');
   } catch (error) {
@@ -2661,10 +2753,6 @@ document.querySelector('#reset-btn').addEventListener('click', () => {
   loadAll();
 });
 
-/**
- * @param {BlobPart} bytes
- * @param {string} filename
- */
 function downloadWorkbook(bytes, filename) {
   const blob = new Blob([bytes], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -2677,10 +2765,6 @@ function downloadWorkbook(bytes, filename) {
   URL.revokeObjectURL(url);
 }
 
-/**
- * @param {number} changed
- * @param {boolean} remembered
- */
 function payrollCompareStatus(changed, remembered) {
   if (!remembered) {
     return 'This payroll file is saved. The next file will highlight rows that differ from it.';
@@ -2692,9 +2776,6 @@ function payrollCompareStatus(changed, remembered) {
   return `${changed} rows are bold and highlighted. They differ from the last payroll file this office created.`;
 }
 
-/**
- * @param {{ labels: string[], hasBaseline: boolean }} choice
- */
 function renderPayrollHighlightChoices({ labels, hasBaseline }) {
   const list = document.querySelector('#payroll-highlight-routes');
   const lead = document.querySelector('#payroll-highlight-lead');
@@ -2709,10 +2790,6 @@ function renderPayrollHighlightChoices({ labels, hasBaseline }) {
     : 'This office has not saved a payroll file yet. Nothing will be highlighted. Creating this file remembers it, and the next file will highlight every row that changed.';
 }
 
-/**
- * @param {{ labels: string[], hasBaseline: boolean }} choice
- * @returns {Promise<boolean>}
- */
 function confirmPayrollHighlights(choice) {
   const dialog = document.querySelector('#payroll-compare-dialog');
   const createBtn = document.querySelector('#payroll-compare-create');
@@ -2753,7 +2830,6 @@ document.querySelector('#payroll-export-btn').addEventListener('click', async ()
     if (!create) return;
     const createdAt = new Date();
     const filename = payrollWorkbookFilename(createdAt);
-    /** @type {{ changedCount?: number }} */
     const result = {};
     const bytes = await buildPayrollWorkbook(state, {
       title: workbookTitleFromFilename(filename),
@@ -2783,6 +2859,7 @@ document.querySelector('#export-btn').addEventListener('click', async () => {
   try {
     const createdAt = new Date();
     const filename = stampedWorkbookFilename(ROUTE_DATA_FILE_BASE, createdAt);
+    const { buildRouteWorkbook } = await import('../src/routeWorkbook.js');
     const bytes = await buildRouteWorkbook(
       {
         ...loadState(),
@@ -3157,7 +3234,12 @@ document.addEventListener('click', (event) => {
 window.addEventListener('scroll', placeOpenStamp, true);
 window.addEventListener('resize', placeOpenStamp);
 
+scheduleHistory.addEventListener('input', (event) => {
+  if (event.target.closest('input[type="time"]')) markScheduleTimeDiffs();
+});
+
 scheduleHistory.addEventListener('change', (event) => {
+  if (event.target.closest('input[type="time"]')) markScheduleTimeDiffs();
   const input = event.target.closest('.js-history-date, .js-history-time, .js-force-oct1');
   if (!input || input.closest('.is-new-change')) return;
   saveHistoryEdit(input);
@@ -3420,9 +3502,6 @@ function scrollRecentChanges(delta) {
   recentChangesTrack.scrollTo({ left: next * width, behavior: 'smooth' });
 }
 
-/**
- * @param {Parameters<typeof recentRouteChanges>[0]} state
- */
 function showRecentRouteChanges(state) {
   if (!recentChangesBox || !recentChangesTrack) return;
   recentChangeItems = recentRouteChanges(state);
@@ -3462,10 +3541,8 @@ recentChangesBox?.addEventListener('keydown', (event) => {
   }
 });
 
-/**
- * Replace the fictional sample with employee-data/office-state.json when that
- * file has been copied to the dashboard as starter-office.json.
- */
+// Replace the fictional sample with employee-data/office-state.json when that
+// file has been copied to the dashboard as starter-office.json.
 async function adoptStarterOffice() {
   if (!isSampleOffice(loadState())) return;
   let response;
@@ -3538,7 +3615,34 @@ async function adoptStarterOffice() {
   });
 }
 
-let refreshPaperRecords = () => {};
+let timeclockDesk = { refresh() {} };
+let paperBackupDesk = { refresh() {} };
+let timeclockMount = null;
+let paperMount = null;
+let timeclockMounted = false;
+
+function refreshPaperRecords() {
+  if (activeSheet !== 'clocking' && activeSheet !== 'paper-backup') return;
+  void ensurePaperBackup().then((desk) => {
+    if (activeSheet === 'clocking' || activeSheet === 'paper-backup') desk.refresh();
+  });
+}
+
+function ensurePaperBackup() {
+  if (!paperMount) {
+    paperMount = import('./paperBackup.js').then(({ mountPaperBackup }) => {
+      paperBackupDesk = mountPaperBackup({
+        readState: loadState,
+        writeState(state) {
+          saveState(state);
+          if (activeSheet === 'clock-settings' || activeSheet === 'settings') timeclockDesk.refresh();
+        },
+      });
+      return paperBackupDesk;
+    });
+  }
+  return paperMount;
+}
 
 const clockDesk = mountClockDesk({
   readState: loadState,
@@ -3571,20 +3675,13 @@ const clockDesk = mountClockDesk({
   },
 });
 
-/**
- * Clock-in for each run on the schedule in effect today. A bad route is skipped
- * so one profile cannot take down the driver screen.
- * On an early release day, `earlyReleaseTimes` replaces the PM clock-in with the
- * time for the first school on the route. Null keeps the regular PM clock-in.
- * @param {object} profile
- * @param {string} today
- * @param {unknown} earlyReleaseTimes
- * @returns {Record<string, string>}
- */
+// Clock-in for each run on the schedule in effect today. A bad route is skipped
+// so one profile cannot take down the driver screen.
+// On an early release day, `earlyReleaseTimes` replaces the PM clock-in with the
+// time for the first school on the route. Null keeps the regular PM clock-in.
 function routeClocksByRun(profile, today, earlyReleaseTimes) {
   try {
     const schedule = buildSnapshot(profile, today)?.schedule || {};
-    /** @type {Record<string, string>} */
     const clocks = {};
     for (const segment of ['AM', 'MIDDAY', 'PM']) {
       const clockIn = schedule[segment]?.clock_in;
@@ -3600,27 +3697,32 @@ function routeClocksByRun(profile, today, earlyReleaseTimes) {
   }
 }
 
-const timeclockDesk = mountTimeclock({
+function ensureTimeclock() {
+  if (!timeclockMount) {
+    timeclockMount = import('./timeclockKiosk.js').then(({ mountTimeclock }) => {
+      timeclockDesk = mountTimeclock({
   readState: loadState,
-  writeState(state) {
+    writeState(state) {
+    const before = JSON.stringify(savedSchoolYear(loadState()));
     saveState(state);
-    clockDesk.refresh();
+    syncSchoolYearCalendar();
+    if (activeSheet === 'payroll' || activeSheet === 'clocking') clockDesk.refresh();
     refreshPaperRecords();
+    if (JSON.stringify(savedSchoolYear(state)) !== before) loadAll();
   },
   listPeople() {
     const state = loadState();
     const today = localDateString();
     let earlyReleaseTimes = null;
     try {
-      if (isEarlyReleaseDate(today, getSchoolDays(calendarPayload()))) {
+      syncSchoolYearCalendar();
+      if (isEarlyReleaseDate(today, getSchoolDays(calendarPayload()), earlyReleaseRulesForState(state))) {
         earlyReleaseTimes = state.clockEarlyReleaseTimes;
       }
     } catch {
       earlyReleaseTimes = null;
     }
-    /** @type {Map<string, string[]>} */
     const routesByName = new Map();
-    /** @type {Map<string, Array<{ name: string, assignedFrom: string, clocks: Record<string, string> }>>} */
     const heldByName = new Map();
     for (const profile of Object.values(state.profiles || {})) {
       const name = String(profile?.driver_name || '').trim().toLowerCase();
@@ -3662,27 +3764,195 @@ const timeclockDesk = mountTimeclock({
       }
     });
   },
-});
+      });
+      timeclockMounted = true;
+      return timeclockDesk;
+    });
+  }
+  return timeclockMount;
+}
 
-const paperBackup = mountPaperBackup({
+function timeclockNeededNow() {
+  if (isExternalTimeclockSearch(location.search)) return true;
+  try {
+    return sessionStorage.getItem(TIMECLOCK_LOCK_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
-  readState: loadState,
-  writeState(state) {
-    saveState(state);
-    timeclockDesk.refresh();
-  },
-});
-refreshPaperRecords = () => paperBackup.refresh();
+function revealOffice() {
+  document.body.classList.remove('is-booting');
+}
+
+function paintLocalOffice() {
+  try {
+    loadAll();
+  } catch (error) {
+    setStatus(setupStatus, error.message, 'error');
+    setupView.hidden = false;
+  }
+}
+
+function reportOfficeToolError(error) {
+  const message =
+    error instanceof Error && error.message
+      ? error.message
+      : activeSheet === 'payroll'
+        ? 'Could not open Payroll tools.'
+        : 'Could not open the timeclock.';
+  if (activeSheet === 'payroll') {
+    const mathStatus = document.querySelector('#math-maker-status');
+    if (mathStatus) {
+      setStatus(mathStatus, message, 'error');
+      return;
+    }
+  }
+  if (fileStatus) setStatus(fileStatus, message, 'error');
+}
+
+// Payroll buttons are wired when the timeclock module loads.
+// A click in that gap is kept and run once the module is ready,
+// so a submit button cannot reload the page first.
+function armPayrollTools() {
+  const root = document.querySelector('#payroll-view');
+  if (!(root instanceof HTMLElement)) return;
+  let waiting = false;
+
+  function heldButton(target) {
+    if (!(target instanceof Element)) return null;
+    const button = target.closest('button');
+    if (!(button instanceof HTMLButtonElement) || !root.contains(button)) return null;
+    if (button.id === 'open-drivers') return null;
+    if (
+      button.closest(
+        '#payroll-tools, #summary-tool, #pay-period-settings, #pay-status-settings, #quarter-clock-payroll, #overtime-rules-payroll'
+      )
+    ) {
+      return button;
+    }
+    return null;
+  }
+
+  function runWhenReady(button, form = null, submitter = null) {
+    if (waiting) return;
+    waiting = true;
+    void ensureTimeclock()
+      .then(() => {
+        waiting = false;
+        if (!timeclockMounted) return;
+        if (form) {
+          if (submitter) form.requestSubmit(submitter);
+          else form.requestSubmit();
+          return;
+        }
+        button?.click();
+      })
+      .catch((error) => {
+        waiting = false;
+        reportOfficeToolError(error);
+      });
+  }
+
+  root.addEventListener(
+    'click',
+    (event) => {
+      if (timeclockMounted) return;
+      const button = heldButton(event.target);
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      runWhenReady(button);
+    },
+    true
+  );
+
+  root.addEventListener(
+    'submit',
+    (event) => {
+      if (timeclockMounted) return;
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement)) return;
+      const inPayrollTools = form.closest(
+        '#summary-tool, #pay-period-settings, #pay-status-settings, #quarter-clock-payroll, #overtime-rules-payroll'
+      );
+      if (!inPayrollTools) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const submitter = event.submitter instanceof HTMLElement ? event.submitter : null;
+      runWhenReady(null, form, submitter);
+    },
+    true
+  );
+}
+
+// The Start Timeclock button is on the page before its screen has loaded.
+// A click during that gap starts the load, then runs the button once it is ready.
+function armTimeclockLaunch(selector) {
+  const button = document.querySelector(selector);
+  if (!button) return;
+  let waiting = false;
+  button.addEventListener('click', () => {
+    if (timeclockMounted || waiting) return;
+    waiting = true;
+    void ensureTimeclock()
+      .then(() => {
+        waiting = false;
+        if (timeclockMounted) button.click();
+      })
+      .catch(() => {
+        waiting = false;
+      });
+  });
+}
+
+function refreshDeskFromAnotherWindow() {
+  if (activeSheet === 'payroll' || activeSheet === 'clocking') {
+    clockDesk.refresh();
+    if (activeSheet === 'payroll') renderDriverInfo();
+    if (activeSheet === 'clocking') refreshPaperRecords();
+    return;
+  }
+  if (activeSheet === 'paper-backup') {
+    refreshPaperRecords();
+    return;
+  }
+  if (activeSheet === 'settings' || activeSheet === 'clock-settings') {
+    void ensureTimeclock().then((desk) => {
+      if (activeSheet === 'settings' || activeSheet === 'clock-settings') desk.refresh();
+    });
+    return;
+  }
+  if (!startEditForm.hidden || !changeEditForm.hidden) return;
+  snapshot = addingPerson ? buildSnapshot(null) : currentSnapshot();
+  renderApp();
+}
 
 window.addEventListener('storage', (event) => {
   if (event.key !== STORAGE_KEY) return;
-  clockDesk.refresh();
-  timeclockDesk.refresh();
-  paperBackup.refresh();
-  if (activeSheet === 'payroll') renderDriverInfo();
+  syncSchoolYearCalendar();
+  refreshDeskFromAnotherWindow();
 });
 
 renderSetupRuns();
+armPayrollTools();
+armTimeclockLaunch('#start-timeclock');
+if (timeclockNeededNow()) document.body.dataset.holdBoot = 'timeclock';
+paintLocalOffice();
+if (document.body.dataset.holdBoot === 'timeclock') {
+  void ensureTimeclock()
+    .then(() => {
+      delete document.body.dataset.holdBoot;
+      revealOffice();
+    })
+    .catch((error) => {
+      delete document.body.dataset.holdBoot;
+      revealOffice();
+      setStatus(setupStatus, error.message || 'Could not open the timeclock.', 'error');
+    });
+} else {
+  revealOffice();
+}
 startAccounts({
   onReady() {
     (async () => {
@@ -3690,7 +3960,12 @@ startAccounts({
         ensureExampleRoutes();
         await adoptStarterOffice();
         beginSessionRouteTracking();
-        loadAll();
+        const active = document.activeElement;
+        const editingField =
+          active instanceof HTMLInputElement ||
+          active instanceof HTMLTextAreaElement ||
+          active instanceof HTMLSelectElement;
+        if (!editingField) loadAll();
         await createAutomaticNotices();
       } catch (error) {
         setStatus(setupStatus, error.message, 'error');
@@ -3705,7 +3980,7 @@ startAccounts({
     if (activeSheet === 'driver-notice') fillDriverNoticeSettings();
   },
 }).catch((error) => {
-  document.body.classList.remove('is-booting');
+  if (document.body.dataset.holdBoot !== 'timeclock') document.body.classList.remove('is-booting');
   setStatus(setupStatus, error.message || 'Could not start accounts.', 'error');
   setupView.hidden = false;
 });

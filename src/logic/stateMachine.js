@@ -17,248 +17,63 @@ import {
 } from './timeUtils.js';
 import { buildChangeReport } from './changeReport.js';
 
-/**
- * @typedef {'AM' | 'MIDDAY' | 'PM'} Segment
- * @typedef {'STABLE' | 'ACCUMULATING' | 'LOCKED_PENDING' | 'BID_PENDING' | 'BUMP_ELIGIBLE' | 'NEEDS_REVIEW'} RouteStatus
- * @typedef {string} ReasonCategory
- */
 
-/**
- * @typedef {Object} RoutingAdjustment
- * @property {string} reason - from adjustment-reasons.json
- * @property {string} adjusted_by
- * @property {string} adjusted_at - ISO datetime
- */
 
-/**
- * Route time change submitted by Routing. type is omitted or "CHANGE".
- * @typedef {Object} ChangeEvent
- * @property {string} id
- * @property {'CHANGE'} [type]
- * @property {string} route_id
- * @property {string} driver_name - empty/whitespace when Unassigned (e.g. new route with no driver yet)
- * @property {string | null} [driver_id]
- * @property {Segment} segment
- * @property {string} submitted_at
- * @property {string} effective_date
- * @property {string} previous_time
- * @property {string} new_time
- * @property {number} computed_delta_minutes - raw auto-calculated value; never edited
- * @property {number} delta_minutes - value used in math (equals computed unless routing-adjusted)
- * @property {RoutingAdjustment | null} routing_adjustment
- * @property {ReasonCategory} reason_category
- * @property {string} note - optional free-text explanation
- * @property {string} entered_by - from staff-names.json
- * @property {boolean} [force_oct1_contract] - office override: contract on October 1
- */
+// Route time change submitted by Routing. type is omitted or "CHANGE".
 
-/**
- * Admin amendment to an earlier ChangeEvent. Append-only; never edits the original.
- * @typedef {Object} AdjustmentEvent
- * @property {string} id
- * @property {'ADJUSTMENT'} type
- * @property {string} target_change_id
- * @property {number} previous_delta
- * @property {number} new_delta
- * @property {string} reason - from adjustment-reasons.json
- * @property {string} note - required explanation for this write
- * @property {string} adjusted_by - from staff-names.json
- * @property {string} adjusted_at - ISO datetime
- */
+// Admin amendment to an earlier ChangeEvent. Append-only; never edits the original.
 
-/**
- * Admin reassignment of which driver currently holds a route.
- * Does not touch window status, drift, or countdown. Null new_* = Unassigned.
- * Historical ChangeEvents / ADJUSTMENTs / reports are never rewritten.
- * @typedef {Object} ReassignmentEvent
- * @property {string} id
- * @property {'REASSIGNMENT'} type
- * @property {string} route_id
- * @property {string | null} previous_driver_id
- * @property {string | null} previous_driver_name
- * @property {string | null} new_driver_id
- * @property {string | null} new_driver_name
- * @property {string} note - required free-text explanation for every write
- * @property {'routine' | 'bid_awarded'} [resolution] - bid_awarded = this reassignment resolves a BID_PENDING route
- * @property {string} reassigned_by - from staff-names.json
- * @property {string} reassigned_at - ISO datetime
- */
+// Admin reassignment of which driver currently holds a route.
+// Does not touch window status, drift, or countdown. Null new_* = Unassigned.
+// Historical ChangeEvents / ADJUSTMENTs / reports are never rewritten.
 
-/**
- * One-shot roster seed (drivers + routes + first assignments). Not a CHANGE —
- * rebuild ignores this entry; seeded STABLE routes live in route-state.
- * @typedef {Object} BulkImportEvent
- * @property {string} id
- * @property {'BULK_IMPORT'} type
- * @property {string} imported_at - ISO datetime
- * @property {string} [entered_by] - optional; from staff-names.json when set
- * @property {string} [note] - optional explanation for the whole batch
- * @property {{ driver_id: string, name: string, email: string | null }[]} created_drivers
- * @property {{ driver_id: string, name: string, email: string | null }[]} [updated_drivers]
- * @property {{ route_id: string, driver_id: string | null, driver_name: string, segments: Record<Segment, string | null> }[]} created_routes
- * @property {{ route_id: string, driver_id: string | null, driver_name: string, segments: Record<Segment, string | null> }[]} [overwritten_routes]
- * @property {number[]} [skipped_row_numbers]
- */
+// One-shot roster seed (drivers + routes + first assignments). Not a CHANGE —
+// rebuild ignores this entry; seeded STABLE routes live in route-state.
 
-/**
- * Admin resolution of an open NEEDS_REVIEW. Append-only; scoped to one discrepancy.
- * Rebuild honors keep_prior / accept_computed only while the same discrepancy
- * (causing adjustment + status pair) is still the current conflict.
- * @typedef {Object} NeedsReviewResolutionEvent
- * @property {string} id
- * @property {'NEEDS_REVIEW_RESOLUTION'} type
- * @property {string} route_id
- * @property {'keep_prior' | 'accept_computed'} resolution
- * @property {string | null} causing_adjustment_id
- * @property {'STABLE' | 'BID_PENDING' | 'BUMP_ELIGIBLE'} previous_finalized_status
- * @property {'STABLE' | 'BID_PENDING' | 'BUMP_ELIGIBLE' | 'ACCUMULATING'} computed_status
- * @property {string} note - required free-text explanation
- * @property {string} resolved_by - from staff-names.json
- * @property {string} resolved_at - ISO datetime
- */
+// Admin resolution of an open NEEDS_REVIEW. Append-only; scoped to one discrepancy.
+// Rebuild honors keep_prior / accept_computed only while the same discrepancy
 
-/**
- * Admin resolution of BUMP_ELIGIBLE (original decrease or displacement chain).
- * Append-only; the app never invents these — Admin always decides.
- * @typedef {Object} BumpDecisionEvent
- * @property {string} id
- * @property {'BUMP_DECISION'} type
- * @property {string} route_id - route the electing/deciding driver is resolving
- * @property {'keep_assignment' | 'elect_bump' | 'accept_unassigned'} decision
- * @property {'original_decrease' | 'displacement'} bump_kind
- * @property {string} bump_chain_id
- * @property {number} bump_chain_link - 1-based link index for this decision
- * @property {string | null} electing_driver_id
- * @property {string | null} electing_driver_name
- * @property {string | null} [target_route_id]
- * @property {string | null} [target_driver_id]
- * @property {string | null} [target_driver_name]
- * @property {string} note
- * @property {string} decided_by
- * @property {string} decided_at - ISO datetime
- */
+// Admin resolution of BUMP_ELIGIBLE (original decrease or displacement chain).
+// Append-only; the app never invents these — Admin always decides.
 
-/**
- * Admin resolution of Art. 3.01 same-date seniority lots.
- * Append-only audit; does not affect route rebuild.
- * @typedef {Object} SeniorityTieResolutionEvent
- * @property {string} id
- * @property {'SENIORITY_TIE_RESOLUTION'} type
- * @property {string} hire_date - YYYY-MM-DD
- * @property {{ driver_id: string, driver_name: string, tie_break: number }[]} assignments
- * @property {string} note - required free-text explanation
- * @property {string} resolved_by - from staff-names.json
- * @property {string} resolved_at - ISO datetime
- */
+// Admin resolution of Art. 3.01 same-date seniority lots.
+// Append-only audit; does not affect route rebuild.
 
-/** @typedef {ChangeEvent | AdjustmentEvent | ReassignmentEvent | BulkImportEvent | NeedsReviewResolutionEvent | BumpDecisionEvent | SeniorityTieResolutionEvent} LogEntry */
 
-/**
- * Held when an ADJUSTMENT would flip a finalized route's status after the
- * window has already closed / an action was communicated. Admin must resolve.
- * @typedef {Object} ReconciliationInfo
- * @property {'STABLE' | 'BID_PENDING' | 'BUMP_ELIGIBLE'} previous_finalized_status
- * @property {'STABLE' | 'BID_PENDING' | 'BUMP_ELIGIBLE' | 'ACCUMULATING'} computed_status
- * @property {number} computed_cumulative_drift_minutes
- * @property {number | null} computed_payroll_rounded_total_minutes
- * @property {string | null} causing_adjustment_id
- * @property {boolean} letter_or_action_exists
- * @property {string} raised_at - ISO datetime when NEEDS_REVIEW was first set
- */
+// Held when an ADJUSTMENT would flip a finalized route's status after the
+// window has already closed / an action was communicated. Admin must resolve.
 
-/**
- * Audit trail for review flag lifecycle (self-resolve, and Admin resolve).
- * @typedef {Object} ReviewHistoryEntry
- * @property {'NEEDS_REVIEW_SELF_RESOLVED' | 'NEEDS_REVIEW_ADMIN_RESOLVED'} event
- * @property {'accept_computed' | 'keep_prior'} [resolution]
- * @property {string | null} previous_flag_raised_at
- * @property {string} resolved_at
- * @property {string | null} causing_adjustment_id
- * @property {string | null} [resolved_by]
- * @property {string | null} [resolution_event_id]
- * @property {string | null} [note]
- */
+// Audit trail for review flag lifecycle (self-resolve, and Admin resolve).
 
-/**
- * @typedef {Object} RouteStateEntry
- * @property {string | null} driver_name - null/empty when Unassigned
- * @property {string | null} [driver_id]
- * @property {Record<Segment, string | null>} segments
- * @property {Record<Segment, string | null>} baseline_segments
- * @property {RouteStatus} status
- * @property {string | null} window_opened_date
- * @property {string | null} window_expires_date
- * @property {import('./contractWindows.js').ContractWindowRule | null} [window_rule]
- * @property {number} cumulative_drift_minutes - running sum of unrounded deltas; never round before summing
- * @property {string[]} contributing_change_ids
- * @property {number | null} payroll_rounded_total_minutes - rounded AM+MD+PM total at last finalization
- * @property {string | null} [bump_decision_due_date] - school-day deadline to elect bump (BUMP_ELIGIBLE)
- * @property {string | null} [bump_chain_id] - shared id across a vacancy chain
- * @property {number | null} [bump_chain_link] - 1-based link index in that chain
- * @property {'original_decrease' | 'displacement' | null} [bump_kind]
- * @property {string | null} [bid_response_due_date] - Art. 3.08(c)(1) 2-school-day sign-up deadline (BID_PENDING)
- * @property {string | null} [paper_bid_start_date] - Admin-set effective start date for paper sign-up sheet header
- * @property {{
- *   drivers_notified_at: string | null,
- *   finalized_at: string | null,
- *   eligible_responders: Array<{
- *     driver_id: string,
- *     name: string,
- *     initials: string,
- *     signed_at: string,
- *     seniority_rank: number | null,
- *   }> | null,
- *   match_issues?: Array<{
- *     form_email: string,
- *     form_name: string,
- *     route_id: string,
- *     initials: string,
- *     signed_at: string,
- *     kind: 'unmatched' | 'ambiguous',
- *     suggestions: string[],
- *   }> | null,
- *   workbook_mtime: string | null,
- * } | null} [bid_signup]
- * @property {ReconciliationInfo | null} [reconciliation]
- * @property {string[]} [pending_change_ids] - ChangeEvents logged while NEEDS_REVIEW; held until resolve
- * @property {ReviewHistoryEntry[]} [review_history]
- * @property {object[]} [change_reports] - finalized window Change Reports (see buildChangeReport)
- * @property {string} last_updated
- */
 
-/** @typedef {Record<string, RouteStateEntry>} RouteStateMap */
+// A change logged while a 30-minute increase is already counting toward bid.
+// Its minutes stay out of that bid clock. It has its own close date.
 
-/** @param {LogEntry} entry */
+
 export function isAdjustmentEvent(entry) {
   return entry?.type === 'ADJUSTMENT';
 }
 
-/** @param {LogEntry} entry */
 export function isReassignmentEvent(entry) {
   return entry?.type === 'REASSIGNMENT';
 }
 
-/** @param {LogEntry} entry */
 export function isBulkImportEvent(entry) {
   return entry?.type === 'BULK_IMPORT';
 }
 
-/** @param {LogEntry} entry */
 export function isNeedsReviewResolutionEvent(entry) {
   return entry?.type === 'NEEDS_REVIEW_RESOLUTION';
 }
 
-/** @param {LogEntry} entry */
 export function isBumpDecisionEvent(entry) {
   return entry?.type === 'BUMP_DECISION';
 }
 
-/** @param {LogEntry} entry */
 export function isSeniorityTieResolutionEvent(entry) {
   return entry?.type === 'SENIORITY_TIE_RESOLUTION';
 }
 
-/** @param {LogEntry} entry */
 export function isChangeEvent(entry) {
   return (
     !isAdjustmentEvent(entry) &&
@@ -270,18 +85,8 @@ export function isChangeEvent(entry) {
   );
 }
 
-/**
- * Whether a logged Admin resolution matches the discrepancy rebuild is looking at.
- * Scoped — a newer causing adjustment or different status pair is a fresh conflict.
- *
- * @param {NeedsReviewResolutionEvent} resolution
- * @param {{
- *   causing_adjustment_id: string | null,
- *   previous_finalized_status: string,
- *   computed_status: string,
- * }} discrepancy
- * @returns {boolean}
- */
+// Whether a logged Admin resolution matches the discrepancy rebuild is looking at.
+// Scoped — a newer causing adjustment or different status pair is a fresh conflict.
 export function resolutionMatchesDiscrepancy(resolution, discrepancy) {
   return (
     (resolution.causing_adjustment_id ?? null) ===
@@ -292,17 +97,7 @@ export function resolutionMatchesDiscrepancy(resolution, discrepancy) {
   );
 }
 
-/**
- * Latest NEEDS_REVIEW_RESOLUTION for this route that matches the discrepancy.
- * @param {LogEntry[]} changeLog
- * @param {string} routeId
- * @param {{
- *   causing_adjustment_id: string | null,
- *   previous_finalized_status: string,
- *   computed_status: string,
- * }} discrepancy
- * @returns {NeedsReviewResolutionEvent | null}
- */
+// Latest NEEDS_REVIEW_RESOLUTION for this route that matches the discrepancy.
 export function findMatchingNeedsReviewResolution(
   changeLog,
   routeId,
@@ -310,25 +105,16 @@ export function findMatchingNeedsReviewResolution(
 ) {
   const matches = changeLog
     .filter(isNeedsReviewResolutionEvent)
-    .map((entry) => /** @type {NeedsReviewResolutionEvent} */ (entry))
+    .map((entry) => (entry))
     .filter((entry) => entry.route_id === routeId)
     .filter((entry) => resolutionMatchesDiscrepancy(entry, discrepancy))
     .sort((a, b) => a.resolved_at.localeCompare(b.resolved_at));
   return matches.at(-1) ?? null;
 }
 
-/**
- * Live lookup: who holds this route as of a timestamp, from the append-only log.
- * CHANGE stamps the driver at submission; REASSIGNMENT overrides going forward
- * (including explicit Unassigned). Never trust a stale route-state snapshot alone.
- *
- * @param {LogEntry[]} changeLog
- * @param {string} routeId
- * @param {string} asOfTimestamp - ISO datetime
- * @returns {{ found: boolean, driver_id: string | null, driver_name: string | null, at: string | null }}
- */
+// Live lookup: who holds this route as of a timestamp, from the append-only log.
+// CHANGE stamps the driver at submission; REASSIGNMENT overrides going forward
 export function resolveDriverAssignment(changeLog, routeId, asOfTimestamp) {
-  /** @type {{ found: boolean, driver_id: string | null, driver_name: string | null, at: string | null }} */
   let best = {
     found: false,
     driver_id: null,
@@ -338,7 +124,7 @@ export function resolveDriverAssignment(changeLog, routeId, asOfTimestamp) {
 
   for (const entry of changeLog) {
     if (isChangeEvent(entry)) {
-      const change = /** @type {ChangeEvent} */ (entry);
+      const change = (entry);
       if (change.route_id !== routeId) continue;
       const at = change.submitted_at;
       if (!at || at > asOfTimestamp) continue;
@@ -354,7 +140,7 @@ export function resolveDriverAssignment(changeLog, routeId, asOfTimestamp) {
     }
 
     if (isReassignmentEvent(entry)) {
-      const reassignment = /** @type {ReassignmentEvent} */ (entry);
+      const reassignment = (entry);
       if (reassignment.route_id !== routeId) continue;
       const at = reassignment.reassigned_at;
       if (!at || at > asOfTimestamp) continue;
@@ -372,12 +158,8 @@ export function resolveDriverAssignment(changeLog, routeId, asOfTimestamp) {
   return best;
 }
 
-/**
- * Inclusive end of an as-of civil day (for including same-day event stamps).
- * Date-only strings become 23:59:59.999Z; Date objects keep their instant.
- * @param {string | Date} asOfDate
- * @returns {string}
- */
+// Inclusive end of an as-of civil day (for including same-day event stamps).
+// Date-only strings become 23:59:59.999Z; Date objects keep their instant.
 function asOfInclusiveTimestamp(asOfDate) {
   if (asOfDate instanceof Date) {
     return asOfDate.toISOString();
@@ -389,20 +171,12 @@ function asOfInclusiveTimestamp(asOfDate) {
   return new Date(trimmed).toISOString();
 }
 
-/**
- * Overlay live driver assignment onto route state from the change log.
- * Window / drift / status are untouched.
- *
- * @param {RouteStateMap} routeStateMap
- * @param {LogEntry[]} changeLog
- * @param {string | Date} asOfDate
- * @returns {RouteStateMap}
- */
+// Overlay live driver assignment onto route state from the change log.
+// Window / drift / status are untouched.
 export function applyResolvedDrivers(routeStateMap, changeLog, asOfDate) {
   // Date-only asOf must include events stamped later the same day (Admin
   // reassign / bid award), not only those at midnight.
   const asOfIso = asOfInclusiveTimestamp(asOfDate);
-  /** @type {RouteStateMap} */
   const updated = {};
   for (const [routeId, entry] of Object.entries(routeStateMap)) {
     const resolved = resolveDriverAssignment(changeLog, routeId, asOfIso);
@@ -419,20 +193,13 @@ export function applyResolvedDrivers(routeStateMap, changeLog, asOfDate) {
   return updated;
 }
 
-/**
- * When a BID_PENDING route has a later reassignment marked bid_awarded,
- * clear into STABLE (baseline catches up). Ordinary reassignments leave status alone.
- *
- * @param {RouteStateMap} routeStateMap
- * @param {LogEntry[]} changeLog
- * @returns {RouteStateMap}
- */
+// When a BID_PENDING route has a later reassignment marked bid_awarded,
+// clear into STABLE (baseline catches up). Ordinary reassignments leave status alone.
 export function applyBidAwardResolutions(routeStateMap, changeLog) {
-  /** @type {Map<string, ReassignmentEvent>} */
   const latestAwardByRoute = new Map();
   for (const entry of changeLog) {
     if (!isReassignmentEvent(entry)) continue;
-    const reassignment = /** @type {ReassignmentEvent} */ (entry);
+    const reassignment = (entry);
     if (reassignment.resolution !== 'bid_awarded') continue;
     const prev = latestAwardByRoute.get(reassignment.route_id);
     if (!prev || reassignment.reassigned_at >= prev.reassigned_at) {
@@ -443,7 +210,6 @@ export function applyBidAwardResolutions(routeStateMap, changeLog) {
     return routeStateMap;
   }
 
-  /** @type {RouteStateMap} */
   const updated = { ...routeStateMap };
   for (const [routeId, award] of latestAwardByRoute) {
     const entry = updated[routeId];
@@ -471,6 +237,7 @@ export function applyBidAwardResolutions(routeStateMap, changeLog) {
     next.baseline_segments = { ...next.segments };
     next.cumulative_drift_minutes = 0;
     next.contributing_change_ids = [];
+    next.side_windows = [];
     next.window_opened_date = null;
     next.window_expires_date = null;
     next.window_rule = null;
@@ -488,21 +255,20 @@ export function applyBidAwardResolutions(routeStateMap, changeLog) {
   return updated;
 }
 
-/** @returns {Record<Segment, string | null>} */
 export function emptySegments() {
   return { AM: null, MIDDAY: null, PM: null };
 }
 
-/**
- * @param {RouteStateEntry} routeState
- * @returns {RouteStateEntry}
- */
 export function cloneRouteState(routeState) {
   return {
     ...routeState,
     segments: { ...routeState.segments },
     baseline_segments: { ...routeState.baseline_segments },
     contributing_change_ids: [...routeState.contributing_change_ids],
+    side_windows: (routeState.side_windows ?? []).map((side) => ({
+      ...side,
+      contributing_change_ids: [...(side.contributing_change_ids ?? [])],
+    })),
     pending_change_ids: [...(routeState.pending_change_ids ?? [])],
     review_history: [...(routeState.review_history ?? [])],
     change_reports: [...(routeState.change_reports ?? [])],
@@ -512,11 +278,7 @@ export function cloneRouteState(routeState) {
   };
 }
 
-/**
- * Bootstrap a route that has no prior state using the first change event.
- * @param {ChangeEvent} changeEvent
- * @returns {RouteStateEntry}
- */
+// Bootstrap a route that has no prior state using the first change event.
 export function createInitialRouteState(changeEvent) {
   const segments = emptySegments();
   const baseline_segments = emptySegments();
@@ -534,6 +296,7 @@ export function createInitialRouteState(changeEvent) {
     window_rule: null,
     cumulative_drift_minutes: 0,
     contributing_change_ids: [],
+    side_windows: [],
     payroll_rounded_total_minutes: null,
     bump_decision_due_date: null,
     bump_chain_id: null,
@@ -549,14 +312,8 @@ export function createInitialRouteState(changeEvent) {
   };
 }
 
-/**
- * Window finalization outcome from exact cumulative drift.
- * Magnitude uses the 30-minute threshold; sign distinguishes bid posting
- * (increase) from bump-eligible (decrease) per Art. 3.08(a)(8)(a)/(b).
- *
- * @param {number} exactDrift
- * @returns {'STABLE' | 'BID_PENDING' | 'BUMP_ELIGIBLE'}
- */
+// Window finalization outcome from exact cumulative drift.
+// Magnitude uses the 30-minute threshold; sign distinguishes bid posting
 export function windowFinalizationOutcome(exactDrift) {
   if (Math.abs(exactDrift) < BID_THRESHOLD_MINUTES) {
     return 'STABLE';
@@ -564,36 +321,24 @@ export function windowFinalizationOutcome(exactDrift) {
   return exactDrift > 0 ? 'BID_PENDING' : 'BUMP_ELIGIBLE';
 }
 
-/**
- * Apply window expiration when 15 school days have passed with no extension.
- * Rule 4: compare the exact unrounded cumulative_drift_minutes against the
- * 30-minute bid threshold — never a rounded version of it.
- *
- * Payroll contracted hours: at finalization only, sum this route's own exact
- * AM+MIDDAY+PM segment durations and round that total fresh via
- * roundToQuarterHourForPayroll(). Never round a delta, never round per-segment,
- * never build on a prior rounded value.
- *
- * When changeLog + routeId are provided, appends a Change Report to the route.
- *
- * @param {RouteStateEntry} routeState
- * @param {string | Date} asOfDate
- * @param {{
- *   routeId?: string,
- *   changeLog?: LogEntry[],
- *   effectiveDeltas?: Map<string, number>,
- *   schoolCalendar?: import('./calendar.js').SchoolCalendar | string[],
- * }} [options]
- * @returns {RouteStateEntry}
- */
+// Apply window expiration when 15 school days have passed with no extension.
+// Rule 4: compare the exact unrounded cumulative_drift_minutes against the
+// 30-minute bid threshold — never a rounded version of it.
+// Payroll contracted hours: at finalization only, sum this route's own exact
+// AM+MIDDAY+PM segment durations and round that total fresh via
+// roundToQuarterHourForPayroll(). Never round a delta, never round per-segment,
+// never build on a prior rounded value.
+// When changeLog + routeId are provided, appends a Change Report to the route.
 export function applyWindowExpiration(routeState, asOfDate, options = {}) {
+  const withSideWindows = expireDueSideWindows(routeState, asOfDate, options);
   if (
-    routeState.status !== 'ACCUMULATING' &&
-    routeState.status !== 'BID_PENDING' &&
-    routeState.status !== 'BUMP_ELIGIBLE'
+    withSideWindows.status !== 'ACCUMULATING' &&
+    withSideWindows.status !== 'BID_PENDING' &&
+    withSideWindows.status !== 'BUMP_ELIGIBLE'
   ) {
-    return routeState;
+    return withSideWindows;
   }
+  routeState = withSideWindows;
 
   if (!isWindowExpired(asOfDate, routeState.window_expires_date)) {
     return routeState;
@@ -612,11 +357,10 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
   if (options.changeLog && options.routeId) {
     const effectiveDeltas =
       options.effectiveDeltas ?? resolveEffectiveDeltas(options.changeLog);
-    /** @type {Map<string, ChangeEvent>} */
     const byId = new Map();
     for (const entry of options.changeLog) {
       if (isChangeEvent(entry)) {
-        byId.set(entry.id, /** @type {ChangeEvent} */ (entry));
+        byId.set(entry.id, (entry));
       }
     }
     const contributing_changes = state.contributing_change_ids
@@ -678,6 +422,7 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
     state.window_expires_date = null;
     state.window_rule = null;
     state.contributing_change_ids = [];
+    state.side_windows = [];
     state.bump_decision_due_date = null;
     state.bump_chain_id = null;
     state.bump_chain_link = null;
@@ -731,11 +476,7 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
   return state;
 }
 
-/**
- * Whether a route has an open accumulation window on the given date.
- * @param {RouteStateEntry} routeState
- * @param {string | Date} asOfDate
- */
+// Whether a route has an open accumulation window on the given date.
 export function hasOpenAccumulationWindow(routeState, asOfDate) {
   if (
     routeState.status !== 'ACCUMULATING' &&
@@ -750,29 +491,23 @@ export function hasOpenAccumulationWindow(routeState, asOfDate) {
   );
 }
 
-/**
- * Resolve the effective (possibly Admin-adjusted) delta for each ChangeEvent.
- * Starts from each event's delta_minutes, then applies ADJUSTMENT entries in
- * adjusted_at order (last write wins). Does not change the 6 rules — only
- * which exact unrounded number feeds them.
- *
- * @param {LogEntry[]} changeLog
- * @returns {Map<string, number>}
- */
+// Resolve the effective (possibly Admin-adjusted) delta for each ChangeEvent.
+// Starts from each event's delta_minutes, then applies ADJUSTMENT entries in
+// adjusted_at order (last write wins). Does not change the 6 rules — only
+// which exact unrounded number feeds them.
 export function resolveEffectiveDeltas(changeLog) {
-  /** @type {Map<string, number>} */
   const deltas = new Map();
 
   for (const entry of changeLog) {
     if (isChangeEvent(entry)) {
-      const change = /** @type {ChangeEvent} */ (entry);
+      const change = (entry);
       deltas.set(change.id, change.delta_minutes);
     }
   }
 
   const adjustments = changeLog
     .filter(isAdjustmentEvent)
-    .map((entry) => /** @type {AdjustmentEvent} */ (entry))
+    .map((entry) => (entry))
     .sort((a, b) => a.adjusted_at.localeCompare(b.adjusted_at));
 
   for (const adjustment of adjustments) {
@@ -782,28 +517,110 @@ export function resolveEffectiveDeltas(changeLog) {
   return deltas;
 }
 
-/**
- * Office override on the change being applied. Skips size and countdown rules
- * for this schedule. A later change uses its own mark.
- *
- * @param {ChangeEvent} changeEvent
- * @returns {boolean}
- */
+// Office override on the change being applied. Skips size and countdown rules
+// for this schedule. A later change uses its own mark.
 function forcesOctober1Contract(changeEvent) {
   return isForcedOctober1Contract(changeEvent?.force_oct1_contract);
 }
 
-/**
- * Apply a single change event to one route's state (pure function).
- *
- * @param {RouteStateEntry | null | undefined} routeState
- * @param {ChangeEvent} changeEvent
- * @param {import('./calendar.js').SchoolCalendar | string[]} schoolCalendar
- * @param {string | Date} [asOfDate] - defaults to change effective_date
- * @param {number} [deltaOverride] - effective delta after Admin ADJUSTMENT resolution
- * @param {{ changeLog?: LogEntry[], effectiveDeltas?: Map<string, number> }} [options]
- * @returns {RouteStateEntry}
- */
+// Minutes on countdowns that were split off an open bid.
+function sideWindowDrift(state) {
+  return (state.side_windows ?? []).reduce(
+    (sum, side) => sum + (side.drift_minutes || 0),
+    0
+  );
+}
+
+// True when this change leaves an already-qualified 30-minute increase
+// at or above 30 minutes. The bid date stays. The change gets its own clock.
+function keepsBidAboveThreshold(state, delta) {
+  const rule = state.window_rule;
+  if (rule !== 'post_october_1_bid' && rule !== 'pre_october_1_bid') {
+    return false;
+  }
+  if ((state.cumulative_drift_minutes ?? 0) < BID_THRESHOLD_MINUTES) {
+    return false;
+  }
+  const total =
+    (state.cumulative_drift_minutes ?? 0) + sideWindowDrift(state) + delta;
+  return total >= BID_THRESHOLD_MINUTES;
+}
+
+// Pull split-off changes back into the open bid window.
+// Used when a later change drops the route under 30 minutes.
+function foldSideWindows(state) {
+  for (const side of state.side_windows ?? []) {
+    state.cumulative_drift_minutes += side.drift_minutes || 0;
+    state.contributing_change_ids.push(...(side.contributing_change_ids ?? []));
+  }
+  state.side_windows = [];
+}
+
+// Close side countdowns whose own date has passed. The bid window is left alone.
+function expireDueSideWindows(routeState, asOfDate, options = {}) {
+  const pending = routeState.side_windows ?? [];
+  if (!pending.some((side) => isWindowExpired(asOfDate, side.expires_date))) {
+    return routeState;
+  }
+  const state = cloneRouteState(routeState);
+  const keep = [];
+  for (const side of state.side_windows ?? []) {
+    if (!isWindowExpired(asOfDate, side.expires_date)) {
+      keep.push(side);
+      continue;
+    }
+    const report = buildSeparateCountdownReport(state, side, options);
+    if (report) {
+      state.change_reports = [...(state.change_reports ?? []), report];
+    }
+  }
+  state.side_windows = keep;
+  return state;
+}
+
+// Record that a split-off change finished its own countdown.
+// Does not move contracted hours or the bid window.
+function buildSeparateCountdownReport(state, side, options) {
+  if (!options.changeLog || !options.routeId) {
+    return null;
+  }
+  const ids = new Set(side.contributing_change_ids ?? []);
+  const changes = options.changeLog.filter(
+    (entry) => isChangeEvent(entry) && ids.has(entry.id)
+  );
+  if (!changes.length) {
+    return null;
+  }
+  const effectiveDeltas =
+    options.effectiveDeltas ?? resolveEffectiveDeltas(options.changeLog);
+  const contributing_changes = changes.map((change) => ({
+    ...change,
+    effective_delta_minutes: effectiveDeltas.has(change.id)
+      ? effectiveDeltas.get(change.id)
+      : change.delta_minutes,
+  }));
+  const before = { ...state.segments };
+  for (const change of changes) {
+    if (state.segments[change.segment] === change.new_time) {
+      before[change.segment] = change.previous_time;
+    }
+  }
+  const closedOn = nextCalendarDate(side.expires_date);
+  const report = buildChangeReport({
+    route_id: options.routeId,
+    driver_name: state.driver_name,
+    driver_id: state.driver_id ?? null,
+    outcome: windowFinalizationOutcome(side.drift_minutes),
+    finalized_at: `${closedOn}T00:00:00.000Z`,
+    window_opened_date: side.opened_date,
+    before_segments: before,
+    after_segments: { ...state.segments },
+    contributing_changes,
+  });
+  return { ...report, separate_countdown: true };
+}
+
+// Apply a single change event to one route's state (pure function).
 export function applyChangeToRoute(
   routeState,
   changeEvent,
@@ -851,7 +668,36 @@ export function applyChangeToRoute(
     return state;
   }
 
+  if (
+    !forcesOctober1Contract(changeEvent) &&
+    hasOpenAccumulationWindow(state, changeDate) &&
+    keepsBidAboveThreshold(state, delta)
+  ) {
+    // Already qualified for bid. A change that stays at or above 30 minutes
+    // does not move that date. It runs its own countdown.
+    const aside = contractWindowPlan(schoolCalendar, changeDate, delta);
+    state.side_windows = [
+      ...(state.side_windows ?? []),
+      {
+        id: changeEvent.id,
+        opened_date: changeDate,
+        expires_date: aside.window_expires_date,
+        becomes_on: aside.becomes_effective_on,
+        rule: aside.rule,
+        drift_minutes: delta,
+        contributing_change_ids: [changeEvent.id],
+      },
+    ];
+    return applyWindowExpiration(state, changeDate, {
+      routeId: changeEvent.route_id,
+      changeLog: options.changeLog,
+      effectiveDeltas: options.effectiveDeltas,
+      schoolCalendar,
+    });
+  }
+
   if (hasOpenAccumulationWindow(state, changeDate)) {
+    foldSideWindows(state);
     // Rule 3: extend existing window (sum exact deltas; round later if at all)
     state.cumulative_drift_minutes += delta;
     state.contributing_change_ids.push(changeEvent.id);
@@ -904,15 +750,8 @@ export function applyChangeToRoute(
   });
 }
 
-/**
- * Expire windows across all routes as of a given date (no new change applied).
- * @param {RouteStateMap} routeStateMap
- * @param {string | Date} asOfDate
- * @param {{ changeLog?: LogEntry[], effectiveDeltas?: Map<string, number>, schoolCalendar?: import('./calendar.js').SchoolCalendar | string[] }} [options]
- * @returns {RouteStateMap}
- */
+// Expire windows across all routes as of a given date (no new change applied).
 export function applyAllWindowExpirations(routeStateMap, asOfDate, options = {}) {
-  /** @type {RouteStateMap} */
   const updated = {};
   for (const [routeId, entry] of Object.entries(routeStateMap)) {
     updated[routeId] = applyWindowExpiration(entry, asOfDate, {
@@ -925,13 +764,9 @@ export function applyAllWindowExpirations(routeStateMap, asOfDate, options = {})
   return updated;
 }
 
-/**
- * A route is "finalized" once its accumulation window has closed into a
- * lock-in (STABLE with a payroll figure), a bid flag (BID_PENDING), a bump
- * option (BUMP_ELIGIBLE), or it is already waiting on Admin review of such a flip.
- * @param {RouteStateEntry | null | undefined} entry
- * @returns {boolean}
- */
+// A route is "finalized" once its accumulation window has closed into a
+// lock-in (STABLE with a payroll figure), a bid flag (BID_PENDING), a bump
+// option (BUMP_ELIGIBLE), or it is already waiting on Admin review of such a flip.
 export function isFinalizedRouteEntry(entry) {
   if (!entry) {
     return false;
@@ -948,11 +783,7 @@ export function isFinalizedRouteEntry(entry) {
   );
 }
 
-/**
- * The real-world-facing finalized status that was (or is being) communicated.
- * @param {RouteStateEntry} entry
- * @returns {'STABLE' | 'BID_PENDING' | 'BUMP_ELIGIBLE' | null}
- */
+// The real-world-facing finalized status that was (or is being) communicated.
 export function getPreviousFinalizedStatus(entry) {
   if (entry.status === 'NEEDS_REVIEW') {
     return entry.reconciliation?.previous_finalized_status ?? null;
@@ -969,36 +800,27 @@ export function getPreviousFinalizedStatus(entry) {
   return null;
 }
 
-/**
- * Most recent ADJUSTMENT that targets a ChangeEvent on this route.
- * @param {LogEntry[]} changeLog
- * @param {string} routeId
- * @returns {AdjustmentEvent | null}
- */
+// Most recent ADJUSTMENT that targets a ChangeEvent on this route.
 export function findCausingAdjustment(changeLog, routeId) {
   const changeIds = new Set(
     changeLog
       .filter(isChangeEvent)
-      .map((entry) => /** @type {ChangeEvent} */ (entry))
+      .map((entry) => (entry))
       .filter((change) => change.route_id === routeId)
       .map((change) => change.id)
   );
 
   const adjustments = changeLog
     .filter(isAdjustmentEvent)
-    .map((entry) => /** @type {AdjustmentEvent} */ (entry))
+    .map((entry) => (entry))
     .filter((adjustment) => changeIds.has(adjustment.target_change_id))
     .sort((a, b) => a.adjusted_at.localeCompare(b.adjusted_at));
 
   return adjustments.at(-1) ?? null;
 }
 
-/**
- * Timestamp after which new ChangeEvents are held while NEEDS_REVIEW is open.
- * Per-route only — other routes are unaffected.
- * @param {RouteStateEntry | null | undefined} prior
- * @returns {string | null}
- */
+// Timestamp after which new ChangeEvents are held while NEEDS_REVIEW is open.
+// Per-route only — other routes are unaffected.
 export function getReviewHoldAfter(prior) {
   if (!prior || prior.status !== 'NEEDS_REVIEW') {
     return null;
@@ -1006,12 +828,7 @@ export function getReviewHoldAfter(prior) {
   return prior.reconciliation?.raised_at ?? prior.last_updated;
 }
 
-/**
- * Split route changes into those eligible for window math vs held for later.
- * @param {ChangeEvent[]} routeChanges
- * @param {string | null} holdAfter
- * @returns {{ base: ChangeEvent[], pending: ChangeEvent[] }}
- */
+// Split route changes into those eligible for window math vs held for later.
 export function splitBaseAndPendingChanges(routeChanges, holdAfter) {
   if (!holdAfter) {
     return { base: routeChanges, pending: [] };
@@ -1022,18 +839,8 @@ export function splitBaseAndPendingChanges(routeChanges, holdAfter) {
   };
 }
 
-/**
- * Apply queued ChangeEvents in arrival order after a NEEDS_REVIEW is resolved.
- * Uses the existing applyChangeToRoute / applyWindowExpiration path unchanged.
- *
- * @param {RouteStateEntry} routeState
- * @param {ChangeEvent[]} pendingChanges
- * @param {import('./calendar.js').SchoolCalendar | string[]} schoolCalendar
- * @param {Map<string, number>} [effectiveDeltas]
- * @param {string | Date} [asOfDate]
- * @param {{ changeLog?: LogEntry[] }} [options]
- * @returns {RouteStateEntry}
- */
+// Apply queued ChangeEvents in arrival order after a NEEDS_REVIEW is resolved.
+// Uses the existing applyChangeToRoute / applyWindowExpiration path unchanged.
 export function applyPendingChanges(
   routeState,
   pendingChanges,
@@ -1076,10 +883,6 @@ export function applyPendingChanges(
   });
 }
 
-/**
- * @param {string | Date} asOfDate
- * @returns {string}
- */
 function toIsoTimestamp(asOfDate) {
   if (asOfDate instanceof Date) {
     return asOfDate.toISOString();
@@ -1091,26 +894,11 @@ function toIsoTimestamp(asOfDate) {
   return new Date(trimmed).toISOString();
 }
 
-/**
- * When an ADJUSTMENT would flip a finalized route's status, preserve the
- * previously communicated state and flag NEEDS_REVIEW for Admin. Open-window
- * routes (ACCUMULATING) keep the silently recomputed state.
- *
- * Self-resolved discrepancies append a review_history note, then drain any
- * pending ChangeEvents for that route in arrival order.
- *
- * @param {RouteStateMap} priorRouteState
- * @param {RouteStateMap} computedRouteState - base-only rebuild (pending excluded when under review)
- * @param {LogEntry[]} changeLog
- * @param {{
- *   lettersByRouteId?: Record<string, boolean>,
- *   pendingByRoute?: Record<string, ChangeEvent[]>,
- *   schoolCalendar?: import('./calendar.js').SchoolCalendar | string[],
- *   effectiveDeltas?: Map<string, number>,
- *   asOfDate?: string | Date,
- * }} [options]
- * @returns {RouteStateMap}
- */
+// When an ADJUSTMENT would flip a finalized route's status, preserve the
+// previously communicated state and flag NEEDS_REVIEW for Admin. Open-window
+// routes (ACCUMULATING) keep the silently recomputed state.
+// Self-resolved discrepancies append a review_history note, then drain any
+// pending ChangeEvents for that route in arrival order.
 export function reconcileFinalizedStatusFlips(
   priorRouteState,
   computedRouteState,
@@ -1124,7 +912,6 @@ export function reconcileFinalizedStatusFlips(
   const asOfDate = options.asOfDate ?? new Date();
   const resolvedAt = toIsoTimestamp(asOfDate);
 
-  /** @type {RouteStateMap} */
   const result = { ...computedRouteState };
 
   const routeIds = new Set([
@@ -1166,7 +953,6 @@ export function reconcileFinalizedStatusFlips(
 
     // Discrepancy cleared — leave an audit trace, then process any held changes.
     if (computedStatus === previousFinalized) {
-      /** @type {ReviewHistoryEntry | null} */
       let historyNote = null;
       if (prior.status === 'NEEDS_REVIEW') {
         historyNote = {
@@ -1297,11 +1083,6 @@ export function reconcileFinalizedStatusFlips(
   return result;
 }
 
-/**
- * @param {RouteStateEntry} prior
- * @param {NeedsReviewResolutionEvent} resolution
- * @returns {ReviewHistoryEntry}
- */
 function historyNoteFromResolution(prior, resolution) {
   return {
     event: 'NEEDS_REVIEW_ADMIN_RESOLVED',
@@ -1318,12 +1099,7 @@ function historyNoteFromResolution(prior, resolution) {
   };
 }
 
-/**
- * Avoid duplicating the same Admin resolution note on every rebuild.
- * @param {RouteStateEntry} prior
- * @param {ReviewHistoryEntry} historyNote
- * @returns {ReviewHistoryEntry[]}
- */
+// Avoid duplicating the same Admin resolution note on every rebuild.
 function withAdminHistory(prior, historyNote) {
   const existing = [...(prior.review_history ?? [])];
   if (
@@ -1337,24 +1113,14 @@ function withAdminHistory(prior, historyNote) {
   return [...existing, historyNote];
 }
 
-/**
- * Rebuild route-state from the full change log in chronological order.
- * ADJUSTMENT entries amend the effective delta of a prior ChangeEvent; they
- * do not open/extend windows themselves.
- *
- * Pass `priorRouteState` so that ADJUSTMENTs which would flip an already-finalized
- * status become NEEDS_REVIEW. While a route is in NEEDS_REVIEW, new ChangeEvents
- * for that route are logged but held in pending_change_ids until review resolves.
- * Other routes are unaffected. Window/threshold math is unchanged — only eligibility
- * to open/advance a window is gated.
- *
- * @param {LogEntry[]} changeLog
- * @param {RouteStateMap} [initialState]
- * @param {import('./calendar.js').SchoolCalendar | string[]} schoolCalendar
- * @param {string | Date} [asOfDate]
- * @param {{ priorRouteState?: RouteStateMap, lettersByRouteId?: Record<string, boolean> }} [options]
- * @returns {RouteStateMap}
- */
+// Rebuild route-state from the full change log in chronological order.
+// ADJUSTMENT entries amend the effective delta of a prior ChangeEvent; they
+// do not open/extend windows themselves.
+// Pass `priorRouteState` so that ADJUSTMENTs which would flip an already-finalized
+// status become NEEDS_REVIEW. While a route is in NEEDS_REVIEW, new ChangeEvents
+// for that route are logged but held in pending_change_ids until review resolves.
+// Other routes are unaffected. Window/threshold math is unchanged — only eligibility
+// to open/advance a window is gated.
 export function rebuildRouteStateFromChangeLog(
   changeLog,
   initialState = {},
@@ -1365,15 +1131,13 @@ export function rebuildRouteStateFromChangeLog(
   const effectiveDeltas = resolveEffectiveDeltas(changeLog);
   const priorRouteState = options.priorRouteState ?? {};
 
-  /** @type {Record<string, ChangeEvent[]>} */
   const changesByRoute = {};
   for (const entry of changeLog) {
     if (!isChangeEvent(entry)) continue;
-    const change = /** @type {ChangeEvent} */ (entry);
+    const change = (entry);
     if (!changesByRoute[change.route_id]) changesByRoute[change.route_id] = [];
     changesByRoute[change.route_id].push(change);
   }
-  /** @type {Record<string, string>} */
   const anchorByRoute = {};
   for (const [routeId, routeChanges] of Object.entries(changesByRoute)) {
     const anchor = routeChanges
@@ -1390,9 +1154,7 @@ export function rebuildRouteStateFromChangeLog(
     });
   }
 
-  /** @type {Record<string, ChangeEvent[]>} */
   const pendingByRoute = {};
-  /** @type {RouteStateMap} */
   let state = { ...initialState };
 
   for (const [routeId, routeChanges] of Object.entries(changesByRoute)) {
@@ -1444,19 +1206,12 @@ export function rebuildRouteStateFromChangeLog(
   );
 }
 
-/**
- * Validate a ChangeEvent before append.
- * @param {Partial<ChangeEvent>} event
- * @param {string[]} [allowedAdjustmentReasons] - from adjustment-reasons.json
- * @param {string[]} [allowedStaffNames] - from staff-names.json
- * @returns {string[]}
- */
+// Validate a ChangeEvent before append.
 export function validateChangeEvent(
   event,
   allowedAdjustmentReasons = [],
   allowedStaffNames = []
 ) {
-  /** @type {string[]} */
   const errors = [];
 
   if (!event.route_id?.trim()) {
@@ -1546,19 +1301,12 @@ export function validateChangeEvent(
   return errors;
 }
 
-/**
- * Validate an Admin ADJUSTMENT event before append.
- * @param {Partial<AdjustmentEvent>} event
- * @param {string[]} [allowedAdjustmentReasons]
- * @param {string[]} [allowedStaffNames]
- * @returns {string[]}
- */
+// Validate an Admin ADJUSTMENT event before append.
 export function validateAdjustmentEvent(
   event,
   allowedAdjustmentReasons = [],
   allowedStaffNames = []
 ) {
-  /** @type {string[]} */
   const errors = [];
 
   if (event.type !== 'ADJUSTMENT') {
@@ -1601,14 +1349,8 @@ export function validateAdjustmentEvent(
   return errors;
 }
 
-/**
- * Validate an Admin REASSIGNMENT event before append.
- * @param {Partial<ReassignmentEvent>} event
- * @param {string[]} [allowedStaffNames]
- * @returns {string[]}
- */
+// Validate an Admin REASSIGNMENT event before append.
 export function validateReassignmentEvent(event, allowedStaffNames = []) {
-  /** @type {string[]} */
   const errors = [];
 
   if (event.type !== 'REASSIGNMENT') {
@@ -1656,17 +1398,11 @@ export function validateReassignmentEvent(event, allowedStaffNames = []) {
   return errors;
 }
 
-/**
- * Validate an Admin NEEDS_REVIEW_RESOLUTION event before append.
- * @param {Partial<NeedsReviewResolutionEvent>} event
- * @param {string[]} [allowedStaffNames]
- * @returns {string[]}
- */
+// Validate an Admin NEEDS_REVIEW_RESOLUTION event before append.
 export function validateNeedsReviewResolutionEvent(
   event,
   allowedStaffNames = []
 ) {
-  /** @type {string[]} */
   const errors = [];
 
   if (event.type !== 'NEEDS_REVIEW_RESOLUTION') {
@@ -1707,17 +1443,11 @@ export function validateNeedsReviewResolutionEvent(
   return errors;
 }
 
-/**
- * Validate an Admin SENIORITY_TIE_RESOLUTION event before append.
- * @param {Partial<SeniorityTieResolutionEvent>} event
- * @param {string[]} [allowedStaffNames]
- * @returns {string[]}
- */
+// Validate an Admin SENIORITY_TIE_RESOLUTION event before append.
 export function validateSeniorityTieResolutionEvent(
   event,
   allowedStaffNames = []
 ) {
-  /** @type {string[]} */
   const errors = [];
 
   if (event.type !== 'SENIORITY_TIE_RESOLUTION') {
@@ -1729,9 +1459,7 @@ export function validateSeniorityTieResolutionEvent(
   if (!Array.isArray(event.assignments) || event.assignments.length < 2) {
     errors.push('assignments must list at least two drivers.');
   } else {
-    /** @type {Set<number>} */
     const ranks = new Set();
-    /** @type {Set<string>} */
     const ids = new Set();
     for (const row of event.assignments) {
       const driverId = String(row?.driver_id || '').trim();
@@ -1739,10 +1467,10 @@ export function validateSeniorityTieResolutionEvent(
       const tieBreak = row?.tie_break;
       if (!driverId) errors.push('Each assignment needs driver_id.');
       if (!driverName) errors.push('Each assignment needs driver_name.');
-      if (!Number.isInteger(tieBreak) || /** @type {number} */ (tieBreak) < 1) {
+      if (!Number.isInteger(tieBreak) || (tieBreak) < 1) {
         errors.push('Each assignment needs a positive integer tie_break.');
       } else {
-        ranks.add(/** @type {number} */ (tieBreak));
+        ranks.add( (tieBreak));
       }
       if (driverId) {
         if (ids.has(driverId)) {

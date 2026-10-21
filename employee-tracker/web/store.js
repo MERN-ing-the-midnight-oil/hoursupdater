@@ -1,9 +1,6 @@
 export const STORAGE_KEY = 'my-hours-tracker.v1';
 export const DISMISSED_NOTIFICATIONS_KEY = 'my-hours-tracker.notify-dismissed.v1';
 
-/**
- * @param {Storage} [storage]
- */
 export function emptyState() {
   return {
     version: 1,
@@ -12,9 +9,6 @@ export function emptyState() {
   };
 }
 
-/**
- * @param {Storage} [storage]
- */
 export function loadState(storage = globalThis.localStorage) {
   try {
     const raw = storage?.getItem(STORAGE_KEY);
@@ -35,18 +29,11 @@ export function loadState(storage = globalThis.localStorage) {
   }
 }
 
-/**
- * @param {ReturnType<typeof emptyState>} state
- * @param {Storage} [storage]
- */
 export function saveState(state, storage = globalThis.localStorage) {
   storage.setItem(STORAGE_KEY, JSON.stringify(state));
   return state;
 }
 
-/**
- * @param {Storage} [storage]
- */
 export function listProfiles(storage = globalThis.localStorage) {
   const state = loadState(storage);
   return Object.values(state.profiles).sort((a, b) => {
@@ -58,9 +45,6 @@ export function listProfiles(storage = globalThis.localStorage) {
   });
 }
 
-/**
- * @param {Storage} [storage]
- */
 export function getCurrentProfile(storage = globalThis.localStorage) {
   const state = loadState(storage);
   if (!state.currentProfileId) {
@@ -69,10 +53,6 @@ export function getCurrentProfile(storage = globalThis.localStorage) {
   return state.profiles[state.currentProfileId] ?? null;
 }
 
-/**
- * @param {string} id
- * @param {Storage} [storage]
- */
 export function setCurrentProfile(id, storage = globalThis.localStorage) {
   const state = loadState(storage);
   if (!state.profiles[id]) {
@@ -83,10 +63,6 @@ export function setCurrentProfile(id, storage = globalThis.localStorage) {
   return state.profiles[id];
 }
 
-/**
- * @param {object} profile
- * @param {Storage} [storage]
- */
 export function saveProfile(profile, storage = globalThis.localStorage) {
   const state = loadState(storage);
   state.profiles[profile.id] = profile;
@@ -95,10 +71,6 @@ export function saveProfile(profile, storage = globalThis.localStorage) {
   return profile;
 }
 
-/**
- * @param {string} id
- * @param {Storage} [storage]
- */
 export function deleteProfile(id, storage = globalThis.localStorage) {
   const state = loadState(storage);
   delete state.profiles[id];
@@ -112,24 +84,16 @@ export function deleteProfile(id, storage = globalThis.localStorage) {
     : null;
 }
 
-/**
- * @param {Storage} [storage]
- */
 export function exportState(storage = globalThis.localStorage) {
   return JSON.stringify(loadState(storage), null, 2);
 }
 
-/**
- * @param {unknown} raw
- * @returns {Record<string, string[]>}
- */
 function parseDismissedMap(raw) {
   try {
     const parsed = raw ? JSON.parse(String(raw)) : {};
     if (!parsed || typeof parsed !== 'object') {
       return {};
     }
-    /** @type {Record<string, string[]>} */
     const map = {};
     for (const [profileId, ids] of Object.entries(parsed)) {
       if (!Array.isArray(ids)) continue;
@@ -141,11 +105,6 @@ function parseDismissedMap(raw) {
   }
 }
 
-/**
- * @param {string | null | undefined} profileId
- * @param {Storage} [storage]
- * @returns {string[]}
- */
 export function listDismissedNotificationIds(
   profileId,
   storage = globalThis.localStorage
@@ -157,12 +116,6 @@ export function listDismissedNotificationIds(
   return map[profileId] ?? [];
 }
 
-/**
- * @param {string} profileId
- * @param {string} notificationId
- * @param {Storage} [storage]
- * @returns {string[]}
- */
 export function dismissNotificationId(
   profileId,
   notificationId,
@@ -182,10 +135,6 @@ export function dismissNotificationId(
   return next;
 }
 
-/**
- * @param {string} json
- * @param {Storage} [storage]
- */
 export function importState(json, storage = globalThis.localStorage) {
   let parsed;
   try {

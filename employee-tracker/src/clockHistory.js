@@ -2,7 +2,7 @@ import { addSchoolDays } from '../../src/logic/calendar.js';
 import { BID_THRESHOLD_MINUTES, WINDOW_SCHOOL_DAYS } from '../../src/logic/constants.js';
 import { monthlyBidPostingDays, october1ForDate } from '../../src/logic/contractWindows.js';
 
-/** One color per clock-time row, reused if there are more rows than colors. */
+// One color per clock-time row, reused if there are more rows than colors.
 export const CLOCK_HISTORY_TONES = [
   '#1f5c4a',
   '#2f5f9e',
@@ -14,38 +14,47 @@ export const CLOCK_HISTORY_TONES = [
   '#8a5a2b',
 ];
 
-/**
- * @param {string} iso
- * @param {number} days
- * @returns {string}
- */
 export function shiftIsoDate(iso, days) {
   const [year, month, day] = iso.split('-').map(Number);
   const date = new Date(Date.UTC(year, month - 1, day + days));
   return date.toISOString().slice(0, 10);
 }
 
-/**
- * @param {object} row
- * @returns {string}
- */
-export function clockHistoryLabel(row) {
-  if (row?.kind === 'initial') return 'Established';
-  const segment = row?.segments?.length > 1
-    ? 'Schedule'
-    : row?.segment === 'MIDDAY'
-      ? 'Midday'
-      : row?.segment || 'Schedule';
-  const delta = row?.delta_label ? ` ${row.delta_label}` : '';
-  return `${segment} change${delta}`;
+// Running total for this row, kept beside the row's own minute change.
+function cumulativeChangeBeside(row) {
+  if (row?.kind !== 'change') return null;
+  const label = String(row?.cumulative_drift_label ?? '').trim();
+  return label || null;
 }
 
-/**
- * The 15 school days strictly after `from`. Empty if the calendar runs out.
- * @param {string[]} schoolDays
- * @param {string} from
- * @returns {string[]}
- */
+// Lines under New Schedule Started. The first line is this row's own
+// minute change. It does not name AM, midday, or PM as separate changes.
+// The second line is the cumulative change for the review window.
+export function scheduleChangeKindLines(row) {
+  if (row?.kind === 'initial') return ['Established'];
+  const lines = [row?.delta_label ? `Change · ${row.delta_label}` : 'Change'];
+  const cumulative = cumulativeChangeBeside(row);
+  if (cumulative) lines.push(`Cumulative change · ${cumulative}`);
+  return lines;
+}
+
+export function scheduleChangeKind(row) {
+  return scheduleChangeKindLines(row).join('\n');
+}
+
+export function scheduleChangeKindHtml(row, escapeHtml) {
+  const escape = typeof escapeHtml === 'function' ? escapeHtml : (value) => String(value ?? '');
+  return scheduleChangeKindLines(row)
+    .map((line) => `<span class="row-kind">${escape(line)}</span>`)
+    .join('');
+}
+
+export function clockHistoryLabel(row) {
+  if (row?.kind === 'initial') return 'Established';
+  return row?.delta_label || 'Change';
+}
+
+// The 15 school days strictly after `from`. Empty if the calendar runs out.
 function fifteenSchoolDaysAfter(schoolDays, from) {
   try {
     const end = addSchoolDays(schoolDays, from, WINDOW_SCHOOL_DAYS);
@@ -55,16 +64,10 @@ function fifteenSchoolDaysAfter(schoolDays, from) {
   }
 }
 
-/**
- * A 15-school-day review window applies after October 1, and before October 1
- * only when a 30-minute increase can finish those 15 school days first.
- * Under-30 changes before October 1 wait until October 1. A 30-minute
- * decrease before October 1 is bump-eligible the day it is written.
- *
- * @param {object} row
- * @param {string[]} fifteen
- * @returns {boolean}
- */
+// A 15-school-day review window applies after October 1, and before October 1
+// only when a 30-minute increase can finish those 15 school days first.
+// Under-30 changes before October 1 wait until October 1. A 30-minute
+// decrease before October 1 is bump-eligible the day it is written.
 function usesFifteenDayWindow(row, fifteen) {
   if (row?.force_oct1_contract) return false;
   if (row?.kind !== 'change' || !row.date || !fifteen.length) return false;
@@ -84,15 +87,9 @@ function usesFifteenDayWindow(row, fifteen) {
   return false;
 }
 
-/**
- * One end-of-month bid period: the last five school days of an October–April
- * month, from the first of those days through the last.
- *
- * @param {string[]} schoolDays
- * @returns {{ start: string, end: string, schoolDays: string[] }[]}
- */
+// One end-of-month bid period: the last five school days of an October–April
+// month, from the first of those days through the last.
 export function bidPeriodRanges(schoolDays) {
-  /** @type {Map<string, string[]>} */
   const byMonth = new Map();
   for (const day of monthlyBidPostingDays(schoolDays)) {
     const key = day.slice(0, 7);
@@ -107,28 +104,12 @@ export function bidPeriodRanges(schoolDays) {
   }));
 }
 
-/**
- * Calendar days after the numbered count — or after the change day, when
- * there is no 15-day count — until the resolution date. The arrow points at
- * that date and does not cover it. A later change replaces this row, so it
- * has no resolution arrow.
- *
- * @param {object} row
- * @param {string[]} fifteen
- * @param {string | null} nextDate
- * @returns {{ start: string, end: string } | null}
- */
-/**
- * A lock-in date, not a bid posting or a bump. The calendar draws a box
- * around that whole day.
- *
- * @param {object} row
- * @returns {boolean}
- */
-/**
- * @param {object} row
- * @returns {boolean}
- */
+// Calendar days after the numbered count — or after the change day, when
+// there is no 15-day count — until the resolution date. The arrow points at
+// that date and does not cover it. A later change replaces this row, so it
+// has no resolution arrow.
+// A lock-in date, not a bid posting or a bump. The calendar draws a box
+// around that whole day.
 function resolvesAsBid(row) {
   const outcome = row?.contracted?.projected_outcome;
   const status = row?.contracted?.status;
@@ -155,14 +136,9 @@ function resolutionArrow(row, fifteen, nextDate) {
   return { start, end: becomes };
 }
 
-/**
- * Hover copy for a calendar day that belongs to a logged change.
- * The cumulative line is included only when earlier changes in that same
- * window make the running total different from this change alone.
- *
- * @param {{ isChange?: boolean, label?: string, cumulativeLabel?: string | null } | null | undefined} mark
- * @returns {string[]}
- */
+// Hover copy for a calendar day that belongs to a logged change.
+// The cumulative line is included only when earlier changes in that same
+// window make the running total different from this change alone.
 export function changeHoverLines(mark) {
   if (!mark?.isChange) return [];
   const lines = [`Current change: ${mark.label}`];
@@ -172,11 +148,7 @@ export function changeHoverLines(mark) {
   return lines;
 }
 
-/**
- * Extra change facts for the tap popup: clock times, note, and contracted status.
- * @param {object | null | undefined} row
- * @returns {string[]}
- */
+// Extra change facts for the tap popup: clock times, note, and contracted status.
 export function changeDetailLines(row) {
   if (!row || row.kind !== 'change') return [];
   const segment = row.segment === 'MIDDAY' ? 'Midday' : row.segment || 'Run';
@@ -192,10 +164,6 @@ export function changeDetailLines(row) {
   return lines;
 }
 
-/**
- * @param {object} row
- * @returns {{ isChange: boolean, cumulativeLabel: string | null }}
- */
 function changeHoverFlags(row) {
   const isChange = row?.kind === 'change';
   const cumulative = row?.cumulative_drift_minutes;
@@ -212,12 +180,6 @@ function changeHoverFlags(row) {
   };
 }
 
-/**
- * @param {number} toneIndex
- * @param {string} tone
- * @param {string} label
- * @param {{ established?: boolean, window?: boolean, windowDay?: number | null, arrow?: boolean, arrowHead?: boolean, resolvesOn?: string | null, goesToBid?: boolean, contractedDay?: boolean, arrowOrigin?: boolean, arrowFromWindow?: boolean, isChange?: boolean, cumulativeLabel?: string | null }} [flags]
- */
 function historyMark(toneIndex, tone, label, flags = {}) {
   return {
     toneIndex,
@@ -239,19 +201,12 @@ function historyMark(toneIndex, tone, label, flags = {}) {
   };
 }
 
-/**
- * Calendar marks for each clock-time row.
- * The row color covers the day those times were established and, when a
- * 15-school-day count applies, each school day in that count. Those school
- * days are numbered. Days still left before those times become contracted are
- * an arrow pointing at a box around that day.
- *
- * @param {object[]} rows
- * @param {{ schoolDays: string[], tones?: string[] }} options
- * @returns {Map<string, { toneIndex: number, tone: string, label: string, established: boolean, window: boolean, windowDay: number | null, arrow: boolean, arrowHead: boolean, resolvesOn: string | null, contractedDay: boolean }>}
- */
+// Calendar marks for each clock-time row.
+// The row color covers the day those times were established and, when a
+// 15-school-day count applies, each school day in that count. Those school
+// days are numbered. Days still left before those times become contracted are
+// an arrow pointing at a box around that day.
 export function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY_TONES }) {
-  /** @type {Map<string, ReturnType<typeof historyMark>>} */
   const marks = new Map();
   const days = [...schoolDays].sort();
   const list = rows ?? [];

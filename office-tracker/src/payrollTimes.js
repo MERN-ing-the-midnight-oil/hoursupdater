@@ -1,5 +1,5 @@
-import ExcelJS from 'exceljs';
-import { buildBps2026_2027Calendar } from '../../employee-tracker/src/bpsCalendar2026.js';
+import { buildBellingham2026_2027Calendar } from '../../employee-tracker/src/bellinghamCalendar2026.js';
+import { calendarForOfficeState } from '../../src/logic/schoolYear.js';
 import { formatClockAmPm, formatClockMinutes, localDateString, normalizeClockTime } from '../../employee-tracker/src/clockTimes.js';
 import { describeSchedule, rebuildEmployeeRouteState } from '../../employee-tracker/src/snapshot.js';
 import { parseClockTime, roundClockToQuarterHour } from '../../src/logic/timeUtils.js';
@@ -20,6 +20,11 @@ import {
   compareRouteNumbers,
   normalizeClockRounding,
 } from '../web/store.js';
+
+async function loadExcelJS() {
+  const loaded = await import('exceljs');
+  return loaded.default ?? loaded;
+}
 
 export const PAYROLL_SHEET = 'Payroll Driver Times';
 
@@ -47,19 +52,15 @@ export const PAYROLL_HEADERS = [
   'Full Day rounded quarter hours',
 ];
 
-/** Shows 4.0, 4.25, 4.5, or 4.75. */
+// Shows 4.0, 4.25, 4.5, or 4.75.
 const QUARTER_HOUR_FORMAT = '0.0#';
 
-/**
- * Character-widths that fit a laptop or desktop window at normal zoom.
- * Text columns give up space first when a long email would push past this.
- */
+// Character-widths that fit a laptop or desktop window at normal zoom.
+// Text columns give up space first when a long email would push past this.
 const PAYROLL_WIDTH_BUDGET = 250;
 
-/**
- * Width follows the values, not the header. The minimum keeps a formatted
- * number visible and leaves room for the longest word in the header to wrap.
- */
+// Width follows the values, not the header. The minimum keeps a formatted
+// number visible and leaves room for the longest word in the header to wrap.
 const PAYROLL_COLUMN_FIT = [
   { min: 16, max: 28, pad: 2 },
   { min: 8, max: 16, pad: 2 },
@@ -96,14 +97,13 @@ const CHANGED_FILL = {
 };
 const BLACK_TEXT = 'FF000000';
 
-/** Pale column tints. Headers and values both use black text. */
+// Pale column tints. Headers and values both use black text.
 export const PAYROLL_RUN_COLORS = {
   AM: { fill: 'FFFFF8DC', font: BLACK_TEXT },
   MIDDAY: { fill: 'FFFFF1E6', font: BLACK_TEXT },
   PM: { fill: 'FFEAF3FB', font: BLACK_TEXT },
 };
 
-/** @type {Array<'AM' | 'MIDDAY' | 'PM' | null>} */
 const COLUMN_RUN = [
   null,
   null,
@@ -128,10 +128,6 @@ const COLUMN_RUN = [
   null,
 ];
 
-/**
- * @param {string} header
- * @returns {'AM' | 'MIDDAY' | 'PM' | null}
- */
 export function payrollHeaderRun(header) {
   const index = PAYROLL_HEADERS.indexOf(header);
   if (index < 0) return null;
@@ -150,10 +146,7 @@ const RUNS = [
   { id: 'PM', inKey: 'pmIn', outKey: 'pmOut', quarterKey: 'pmQuarterClocks', minutesKey: 'pmTotalMinutes' },
 ];
 
-/**
- * First word is the first name. Everything after it is the last name.
- * @param {string} name
- */
+// First word is the first name. Everything after it is the last name.
 export function splitDriverName(name) {
   const trimmed = String(name ?? '').trim().replace(/\s+/g, ' ');
   if (!trimmed) return { firstName: '', lastName: '' };
@@ -165,15 +158,11 @@ export function splitDriverName(name) {
   };
 }
 
-/**
- * Clock times that match the contracted hours on the dashboard.
- * An open review window still pays the last contracted schedule.
- * After the window closes, the current schedule is the contracted one,
- * including a lock-in, a bid, or a bump.
- * @param {import('../../src/logic/stateMachine.js').RouteStateEntry | null | undefined} entry
- */
+// Clock times that match the contracted hours on the dashboard.
+// An open review window still pays the last contracted schedule.
+// After the window closes, the current schedule is the contracted one,
+// including a lock-in, a bid, or a bump.
 export function contractedSegments(entry) {
-  /** @type {Record<'AM' | 'MIDDAY' | 'PM', string | null>} */
   const empty = { AM: null, MIDDAY: null, PM: null };
   if (!entry) return empty;
   const source =
@@ -187,17 +176,11 @@ export function contractedSegments(entry) {
   };
 }
 
-/**
- * @param {string} clock
- */
 function excelTime(clock) {
   return parseClockTime(clock) / (24 * 60);
 }
 
-/**
- * Same driver on the same route. Email identifies the person when it is present.
- * @param {{ email?: string, firstName?: string, lastName?: string, route?: string }} row
- */
+// Same driver on the same route. Email identifies the person when it is present.
 export function payrollRowKey(row) {
   const route = String(row?.route ?? '').trim().toLowerCase();
   const email = String(row?.email ?? '').trim().toLowerCase();
@@ -207,12 +190,8 @@ export function payrollRowKey(row) {
   return `${first}|${last}|${route}`;
 }
 
-/**
- * Nearest quarter hour of a run's total minutes, expressed in hours.
- * 135 minutes is 2.25. 127 minutes is 2.0.
- * @param {number | null | undefined} minutes
- * @returns {number | null}
- */
+// Nearest quarter hour of a run's total minutes, expressed in hours.
+// 135 minutes is 2.25. 127 minutes is 2.0.
 export function quarterHoursFromMinutes(minutes) {
   if (minutes == null || minutes === '') return null;
   const number = Number(minutes);
@@ -220,24 +199,16 @@ export function quarterHoursFromMinutes(minutes) {
   return Math.round(number / 15) / 4;
 }
 
-/**
- * Nearest quarter hour of one day's exact minutes, expressed in hours.
- * 321 minutes is 5.25. A day with no minutes stays blank.
- * @param {Array<number | null | undefined>} parts
- * @returns {number | null}
- */
+// Nearest quarter hour of one day's exact minutes, expressed in hours.
+// 321 minutes is 5.25. A day with no minutes stays blank.
 export function quarterHoursFromDailyMinutes(parts) {
   const present = (parts ?? []).filter((value) => value != null && value !== '' && Number.isFinite(Number(value)));
   if (!present.length) return null;
   return quarterHoursFromMinutes(present.reduce((total, value) => total + Number(value), 0));
 }
 
-/**
- * Sum of the three already-rounded run totals. This is not rounded again.
- * A missing run is left out. 2 + 1 + 2.25 is 5.25.
- * @param {Array<number | null | undefined>} parts
- * @returns {number | null}
- */
+// Sum of the three already-rounded run totals. This is not rounded again.
+// A missing run is left out. 2 + 1 + 2.25 is 5.25.
 export function sumRoundedQuarterHours(parts) {
   const present = (parts ?? []).filter((value) => value != null && value !== '');
   if (!present.length) return null;
@@ -246,10 +217,6 @@ export function sumRoundedQuarterHours(parts) {
   return Math.round(sum * 4) / 4;
 }
 
-/**
- * 4.0, 4.25, 4.5, or 4.75.
- * @param {number | null | undefined} hours
- */
 export function formatQuarterHours(hours) {
   if (hours == null || hours === '') return '';
   const number = Number(hours);
@@ -262,28 +229,19 @@ export function formatQuarterHours(hours) {
   return `${negative ? '-' : ''}${whole}${fraction}`;
 }
 
-/**
- * @param {number | null | undefined} value
- */
 function minutesToken(value) {
   if (value == null || value === '') return '';
   const number = Number(value);
   return Number.isFinite(number) ? String(Math.round(number)) : '';
 }
 
-/**
- * @param {string | null | undefined} clock
- */
 function clockToken(clock) {
   const text = String(clock ?? '').trim();
   if (!text) return '';
   return normalizeClockTime(text);
 }
 
-/**
- * Values payroll would compare, ignoring highlight formatting.
- * @param {object} row
- */
+// Values payroll would compare, ignoring highlight formatting.
 export function payrollRowSignature(row) {
   return [
     String(row.email ?? '').trim().toLowerCase(),
@@ -310,18 +268,12 @@ export function payrollRowSignature(row) {
   ].join('|');
 }
 
-/**
- * Keys of current rows that are new or no longer match the last file sent to payroll.
- * @param {object[]} currentRows
- * @param {object[]} previousRows
- */
+// Keys of current rows that are new or no longer match the last file sent to payroll.
 export function changedPayrollKeys(currentRows, previousRows) {
-  /** @type {Map<string, string>} */
   const previous = new Map();
   for (const row of previousRows ?? []) {
     previous.set(payrollRowKey(row), payrollRowSignature(row));
   }
-  /** @type {string[]} */
   const keys = [];
   for (const row of currentRows ?? []) {
     const key = payrollRowKey(row);
@@ -330,10 +282,7 @@ export function changedPayrollKeys(currentRows, previousRows) {
   return keys;
 }
 
-/**
- * The fields a later payroll file compares. Highlight formatting is left out.
- * @param {object[] | null | undefined} rows
- */
+// The fields a later payroll file compares. Highlight formatting is left out.
 export function payrollBaselineRows(rows) {
   return (rows ?? []).map((row) => ({
     email: String(row?.email ?? '').trim(),
@@ -360,21 +309,13 @@ export function payrollBaselineRows(rows) {
   }));
 }
 
-/**
- * @param {unknown} value
- * @returns {number | null}
- */
 function baselineNumber(value) {
   if (value == null || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
 
-/**
- * Labels for rows that are new or no longer match the last payroll file.
- * @param {object[]} currentRows
- * @param {object[] | null | undefined} previousRows
- */
+// Labels for rows that are new or no longer match the last payroll file.
 export function changedPayrollLabels(currentRows, previousRows) {
   const keys = new Set(changedPayrollKeys(currentRows, previousRows));
   return (currentRows ?? [])
@@ -388,9 +329,6 @@ export function changedPayrollLabels(currentRows, previousRows) {
     .sort((a, b) => compareRouteNumbers(a, b));
 }
 
-/**
- * @param {unknown} value
- */
 function unwrapCell(value) {
   if (value == null) return '';
   if (value instanceof Date) return value;
@@ -404,18 +342,12 @@ function unwrapCell(value) {
   return value;
 }
 
-/**
- * @param {unknown} value
- */
 function cellText(value) {
   const raw = unwrapCell(value);
   if (raw instanceof Date) return '';
   return raw == null ? '' : String(raw).trim();
 }
 
-/**
- * @param {unknown} value
- */
 function clockFromCell(value) {
   const raw = unwrapCell(value);
   if (raw == null || raw === '') return '';
@@ -440,9 +372,6 @@ function clockFromCell(value) {
   return normalizeClockTime(text);
 }
 
-/**
- * @param {unknown} value
- */
 function numberFromCell(value) {
   const raw = unwrapCell(value);
   if (raw == null || raw === '') return null;
@@ -466,25 +395,17 @@ const PAYROLL_IDENTITY_HEADERS = [
   'Contracted PM clock out',
 ];
 
-/**
- * Older files stored one exact total per run and one rounded daily hour figure.
- * @param {Map<string, number>} found
- */
+// Older files stored one exact total per run and one rounded daily hour figure.
 function hasPayrollMinuteColumns(found) {
   const hasNew = found.has('am total minutes') || found.has('am total');
   const hasOld = found.has('am minutes');
   return hasNew || hasOld;
 }
 
-/**
- * Column numbers keyed by header. Contract started may be absent on an older file.
- * Minute columns accept the current names and the previous payroll file.
- * @param {ExcelJS.Worksheet} sheet
- * @returns {Map<string, number> | null}
- */
+// Column numbers keyed by header. Contract started may be absent on an older file.
+// Minute columns accept the current names and the previous payroll file.
 function payrollColumnIndex(sheet) {
   const header = sheet.getRow(1);
-  /** @type {Map<string, number>} */
   const found = new Map();
   header.eachCell({ includeEmpty: false }, (cell, column) => {
     const label = cellText(cell.value).toLowerCase();
@@ -497,10 +418,6 @@ function payrollColumnIndex(sheet) {
   return found;
 }
 
-/**
- * @param {Map<string, number>} columns
- * @param {string[]} labels
- */
 function columnFor(columns, labels) {
   for (const label of labels) {
     const column = columns.get(label.toLowerCase());
@@ -509,9 +426,6 @@ function columnFor(columns, labels) {
   return 0;
 }
 
-/**
- * @param {unknown} value
- */
 function dateFromCell(value) {
   const raw = unwrapCell(value);
   if (raw == null || raw === '') return '';
@@ -532,29 +446,18 @@ function dateFromCell(value) {
   return `${us[3]}-${String(Number(us[1])).padStart(2, '0')}-${String(Number(us[2])).padStart(2, '0')}`;
 }
 
-/**
- * @param {string} iso
- */
 function excelDate(iso) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? ''));
   if (!match) return null;
   return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
 }
 
-/**
- * @param {Record<string, string | null | undefined>} left
- * @param {Record<string, string | null | undefined>} right
- */
 function sameSegments(left, right) {
   return RUNS.every((run) => (left?.[run.id] || null) === (right?.[run.id] || null));
 }
 
-/**
- * The day the contracted clock times on this row became the official schedule.
- * A change still inside its review window keeps the earlier contract date.
- * @param {import('../../src/logic/stateMachine.js').RouteStateEntry | null | undefined} entry
- * @param {{ startDate?: string | null, changeLog?: object[] }} [source]
- */
+// The day the contracted clock times on this row became the official schedule.
+// A change still inside its review window keeps the earlier contract date.
 export function contractStartedOn(entry, source = {}) {
   const contracted = contractedSegments(entry);
   if (!RUNS.some((run) => contracted[run.id])) return '';
@@ -580,10 +483,8 @@ export function contractStartedOn(entry, source = {}) {
   return started;
 }
 
-/**
- * @param {Buffer | ArrayBuffer | Uint8Array} buffer
- */
 export async function rowsFromPayrollWorkbook(buffer) {
+  const ExcelJS = await loadExcelJS();
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer);
   const sheet =
@@ -594,17 +495,11 @@ export async function rowsFromPayrollWorkbook(buffer) {
       'That file is not a Payroll Driver Times spreadsheet. Upload the file that was last sent to payroll.'
     );
   }
-  /**
-   * @param {ExcelJS.Row} row
-   * @param {string[]} labels
-   * @param {(value: unknown) => string | number | null} read
-   */
   const cell = (row, labels, read) => {
     const column = columnFor(columns, labels);
     if (!column) return read === numberFromCell ? null : '';
     return read(row.getCell(column).value);
   };
-  /** @type {object[]} */
   const rows = [];
   sheet.eachRow((row, index) => {
     if (index === 1) return;
@@ -660,12 +555,7 @@ export async function rowsFromPayrollWorkbook(buffer) {
   return rows;
 }
 
-/**
- * Quarter-hour columns are already in hours. Older files stored rounded minutes.
- * @param {ExcelJS.Row} row
- * @param {string[]} hourLabels
- * @param {string[]} minuteLabels
- */
+// Quarter-hour columns are already in hours. Older files stored rounded minutes.
 function readRoundedQuarterHours(row, hourLabels, minuteLabels) {
   const columns = row.worksheet && payrollColumnIndex(row.worksheet);
   if (!columns) return null;
@@ -680,10 +570,7 @@ function readRoundedQuarterHours(row, hourLabels, minuteLabels) {
   return quarterHoursFromMinutes(numberFromCell(row.getCell(minuteColumn).value));
 }
 
-/**
- * Excel's h:mm AM/PM display. 16:15 is "4:15 PM".
- * @param {string | null | undefined} clock
- */
+// Excel's h:mm AM/PM display. 16:15 is "4:15 PM".
 function clockExcelLabel(clock) {
   const text = String(clock ?? '').trim();
   if (!text) return '';
@@ -694,20 +581,14 @@ function clockExcelLabel(clock) {
   return `${hour12}:${String(minutes % 60).padStart(2, '0')} ${suffix}`;
 }
 
-/**
- * Excel's m/d/yyyy display.
- * @param {string | null | undefined} iso
- */
+// Excel's m/d/yyyy display.
 function contractDateLabel(iso) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? ''));
   if (!match) return '';
   return `${Number(match[2])}/${Number(match[3])}/${match[1]}`;
 }
 
-/**
- * What payroll sees in the cell, used to size the column.
- * @param {object} row
- */
+// What payroll sees in the cell, used to size the column.
 function payrollCellLabels(row) {
   const minutes = (value) => (value == null || value === '' ? '' : String(value));
   return [
@@ -735,10 +616,6 @@ function payrollCellLabels(row) {
   ];
 }
 
-/**
- * @param {object[]} rows
- * @returns {number[]}
- */
 function payrollColumnWidths(rows) {
   const longest = PAYROLL_HEADERS.map(() => 0);
   for (const row of rows ?? []) {
@@ -763,10 +640,6 @@ function payrollColumnWidths(rows) {
   return widths;
 }
 
-/**
- * @param {string} label
- * @param {number} width
- */
 function headerLineCount(label, width) {
   const capacity = Math.max(1, Math.floor(width));
   const words = String(label).split(/\s+/).filter(Boolean);
@@ -786,11 +659,6 @@ function headerLineCount(label, width) {
   return lines;
 }
 
-/**
- * @param {ExcelJS.Worksheet} sheet
- * @param {object[]} rows
- * @param {ExcelJS.Row} header
- */
 function fitPayrollColumns(sheet, rows, header) {
   const widths = payrollColumnWidths(rows);
   widths.forEach((width, index) => {
@@ -802,9 +670,6 @@ function fitPayrollColumns(sheet, rows, header) {
   header.height = Math.max(36, lines * 14);
 }
 
-/**
- * @param {string} argb
- */
 function solidFill(argb) {
   return {
     type: 'pattern',
@@ -813,10 +678,6 @@ function solidFill(argb) {
   };
 }
 
-/**
- * @param {ExcelJS.Cell} cell
- * @param {'AM' | 'MIDDAY' | 'PM'} run
- */
 function paintRunCell(cell, run) {
   const colors = PAYROLL_RUN_COLORS[run];
   cell.fill = solidFill(colors.fill);
@@ -824,9 +685,6 @@ function paintRunCell(cell, run) {
   cell.font = { ...font, color: { argb: colors.font } };
 }
 
-/**
- * @param {ExcelJS.Row} row
- */
 function paintRunColumns(row) {
   COLUMN_RUN.forEach((run, index) => {
     if (!run) return;
@@ -834,10 +692,7 @@ function paintRunColumns(row) {
   });
 }
 
-/**
- * Name columns turn yellow. Run columns keep their color and turn bold.
- * @param {ExcelJS.Row} row
- */
+// Name columns turn yellow. Run columns keep their color and turn bold.
 function highlightChangedRow(row) {
   for (let column = 1; column <= PAYROLL_HEADERS.length; column += 1) {
     const cell = row.getCell(column);
@@ -847,19 +702,13 @@ function highlightChangedRow(row) {
   }
 }
 
-/**
- * @param {object} state
- * @param {{ asOf?: string, calendar?: import('../../src/logic/calendar.js').SchoolCalendar, roundClocks?: boolean | string, rounding?: string }} [options]
- */
 export function payrollDriverRows(state, options = {}) {
   const asOf = options.asOf || localDateString();
-  const calendar = options.calendar || buildBps2026_2027Calendar().calendar;
+  const calendar = options.calendar || calendarForOfficeState(state) || buildBellingham2026_2027Calendar().calendar;
   const directory = new Map(
     driversFromState(state).map((driver) => [driver.name.trim().toLowerCase(), driver])
   );
-  /** @type {Set<string>} */
   const assigned = new Set();
-  /** @type {ReturnType<typeof rowForRoute>[]} */
   const rows = [];
 
   const rounding = roundingFromOptions(options, clockRoundingMode(state));
@@ -902,11 +751,7 @@ export function payrollDriverRows(state, options = {}) {
   return rows;
 }
 
-/**
- * Payroll rows for one driver. The name is the first and last name joined.
- * @param {object[] | null | undefined} rows
- * @param {string | null | undefined} name
- */
+// Payroll rows for one driver. The name is the first and last name joined.
 export function payrollRowsForDriver(rows, name) {
   const wanted = String(name ?? '').trim().toLowerCase();
   if (!wanted) return [];
@@ -916,14 +761,9 @@ export function payrollRowsForDriver(rows, name) {
   });
 }
 
-/**
- * Pay-period spreadsheets for one driver, newest period first.
- * Each day with a completed clock pair is a Payroll Driver Times row.
- * A period with no completed pair uses the contracted clocks.
- * @param {object} state
- * @param {string | null | undefined} driverName
- * @param {{ asOf?: string, calendar?: import('../../src/logic/calendar.js').SchoolCalendar, roundClocks?: boolean | string, rounding?: string, now?: Date }} [options]
- */
+// Pay-period spreadsheets for one driver, newest period first.
+// Each day with a completed clock pair is a Payroll Driver Times row.
+// A period with no completed pair uses the contracted clocks.
 export function payrollPeriodSheetsForDriver(state, driverName, options = {}) {
   const wanted = String(driverName ?? '').trim();
   if (!wanted) return [];
@@ -934,7 +774,6 @@ export function payrollPeriodSheetsForDriver(state, driverName, options = {}) {
     (punch) => String(punch?.driver_name || '').trim().toLowerCase() === wanted.toLowerCase()
   );
   const { pairs } = pairClockPunches(mine);
-  /** @type {Map<string, object[]>} */
   const punchesByDay = new Map();
   for (const pair of pairs) {
     const key = localDateString(pair.start);
@@ -944,7 +783,6 @@ export function payrollPeriodSheetsForDriver(state, driverName, options = {}) {
   }
   return listPeriods(mine, now).map((period) => {
     const dates = semiMonthlyDates(period.year, period.monthIndex, period.half);
-    /** @type {object[]} */
     const rows = [];
     for (const date of dates) {
       const key = localDateString(date);
@@ -981,24 +819,14 @@ export function payrollPeriodSheetsForDriver(state, driverName, options = {}) {
   });
 }
 
-/**
- * @param {string} email
- * @param {string} name
- * @param {string} route
- * @param {import('../../src/logic/stateMachine.js').RouteStateEntry | null} entry
- * @param {{ startDate?: string | null, changeLog?: object[], punches?: object[], roundClocks?: boolean | string, rounding?: string }} [source]
- */
 function rowForRoute(email, name, route, entry, source = {}) {
   const { firstName, lastName } = splitDriverName(name);
   const punched = segmentsFromPunches(source.punches, name);
   const segments = punched || contractedSegments(entry);
   const schedule = describeSchedule(segments);
   const rounding = roundingFromOptions(source, CLOCK_ROUNDING_SNAP);
-  /** @type {Record<string, string>} */
   const clocks = {};
-  /** @type {Record<string, string>} */
   const quarterClocks = {};
-  /** @type {Record<string, number | null>} */
   const totals = {};
   for (const run of RUNS) {
     const piece = schedule[run.id];
@@ -1039,11 +867,7 @@ function rowForRoute(email, name, route, entry, source = {}) {
   };
 }
 
-/**
- * A passed choice wins. `false` is the older off switch, which rounds each span.
- * @param {{ rounding?: string, roundClocks?: boolean | string }} options
- * @param {'snap' | 'daily' | 'separate'} fallback
- */
+// A passed choice wins. `false` is the older off switch, which rounds each span.
 function roundingFromOptions(options, fallback) {
   if (options && Object.prototype.hasOwnProperty.call(options, 'rounding')) {
     return normalizeClockRounding(options.rounding);
@@ -1054,14 +878,9 @@ function roundingFromOptions(options, fallback) {
   return fallback;
 }
 
-/**
- * The clocks the minute total is counted from, and that count.
- * Snapping moves each clock to the nearest quarter hour first.
- * The other choices count from the clock as it was written.
- * @param {string} clockIn
- * @param {string} clockOut
- * @param {'snap' | 'daily' | 'separate'} rounding
- */
+// The clocks the minute total is counted from, and that count.
+// Snapping moves each clock to the nearest quarter hour first.
+// The other choices count from the clock as it was written.
 function clocksUsedForMinutes(clockIn, clockOut, rounding) {
   if (!clockIn || !clockOut) return { label: '', minutes: null };
   const snap = rounding === CLOCK_ROUNDING_SNAP;
@@ -1074,11 +893,6 @@ function clocksUsedForMinutes(clockIn, clockOut, rounding) {
   };
 }
 
-/**
- * @param {string} clockIn
- * @param {string} clockOut
- * @returns {number | null}
- */
 function clockMinutesApart(clockIn, clockOut) {
   const start = parseClockTime(clockIn);
   let end = parseClockTime(clockOut);
@@ -1086,16 +900,11 @@ function clockMinutesApart(clockIn, clockOut) {
   return end - start;
 }
 
-/**
- * Latest completed clock-in and clock-out in each run.
- * The driver chooses the route. A record with no choice still uses the clock time:
- * before 8:00 is AM, until 1:00 is midday, and after that is PM.
- * Other is not an AM, midday, or PM payroll column.
- * A driver with no completed pair on those routes keeps the contracted clocks.
- * @param {object[] | null | undefined} punches
- * @param {string} driverName
- * @returns {Record<'AM' | 'MIDDAY' | 'PM', string | null> | null}
- */
+// Latest completed clock-in and clock-out in each run.
+// The driver chooses the route. A record with no choice still uses the clock time:
+// before 8:00 is AM, until 1:00 is midday, and after that is PM.
+// Other is not an AM, midday, or PM payroll column.
+// A driver with no completed pair on those routes keeps the contracted clocks.
 function segmentsFromPunches(punches, driverName) {
   const wanted = String(driverName || '').trim().toLowerCase();
   const mine = (Array.isArray(punches) ? punches : []).filter(
@@ -1104,7 +913,6 @@ function segmentsFromPunches(punches, driverName) {
   if (!mine.length) return null;
   const { pairs } = pairClockPunches(mine);
   if (!pairs.length) return null;
-  /** @type {Record<string, { start: Date, end: Date }>} */
   const latest = {};
   for (const pair of pairs) {
     const run = runForClockPair(pair);
@@ -1121,20 +929,8 @@ function segmentsFromPunches(punches, driverName) {
   };
 }
 
-/**
- * @param {object} state
- * @param {{
- *   asOf?: string,
- *   calendar?: import('../../src/logic/calendar.js').SchoolCalendar,
- *   title?: string,
- *   createdAt?: Date,
- *   previousRows?: object[] | null,
- *   highlightRoutes?: string[] | null,
- *   result?: { changedCount?: number },
- * }} [options]
- * @returns {Promise<Buffer>}
- */
 export async function buildPayrollWorkbook(state, options = {}) {
+  const ExcelJS = await loadExcelJS();
   const asOf = state?.asOf || options.asOf;
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Teamster Time Changes Dashboard';

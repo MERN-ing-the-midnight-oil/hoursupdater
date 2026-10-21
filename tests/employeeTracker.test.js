@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { computeDeltaMinutes } from '../src/logic/timeUtils.js';
 import { addSchoolDays } from '../src/logic/calendar.js';
-import { buildBps2026_2027Calendar } from '../employee-tracker/src/bpsCalendar2026.js';
+import { buildBellingham2026_2027Calendar } from '../employee-tracker/src/bellinghamCalendar2026.js';
 import {
   formatClockAmPm,
   formatSegmentRange,
@@ -30,7 +30,7 @@ import {
   listDismissedNotificationIds,
 } from '../employee-tracker/web/store.js';
 
-const { calendar } = buildBps2026_2027Calendar();
+const { calendar } = buildBellingham2026_2027Calendar();
 
 function makeSeed(segment, range, date = '2026-09-08') {
   return {
@@ -212,6 +212,23 @@ describe('employee hours snapshot', () => {
 
     const stillOpen = rebuildEmployeeRouteState(log, calendar, '2026-10-07');
     assert.equal(stillOpen.status, 'ACCUMULATING');
+    const openSnap = buildEmployeeSnapshot({
+      profile,
+      changeLog: log,
+      entry: stillOpen,
+      calendar,
+      asOfDate: '2026-10-07',
+    });
+    assert.match(
+      openSnap.window.contracted_hours_statement,
+      /Predicted contracted hours are 2 hr 15 min, down from the current contracted hours of 2 hr 30 min/
+    );
+    assert.match(
+      openSnap.window.contracted_hours_statement,
+      /not the size of the latest logged change/
+    );
+    assert.equal(openSnap.scheduled.if_locked_label, '2 hr 15 min');
+    assert.equal(openSnap.contracted.label, '2 hr 30 min');
 
     const fifteenth = addSchoolDays(calendar, '2026-10-06', 15);
     const effective = addSchoolDays(calendar, fifteenth, 1);
@@ -396,6 +413,103 @@ describe('employee hours snapshot', () => {
     );
   });
 
+  it('combines AM and PM changes on the same date into one total', () => {
+    const log = [
+      makeSeed('AM', '7:00-8:00'),
+      makeSeed('PM', '14:00-16:00'),
+      makeChange({
+        id: 'pm-25',
+        segment: 'PM',
+        previous_time: '14:00-16:00',
+        new_time: '14:00-16:25',
+        effective_date: '2026-10-06',
+        submitted_at: '2026-10-06T15:00:00.000Z',
+        schedule_id: 'pm-only',
+      }),
+      makeChange({
+        id: 'am-5',
+        segment: 'AM',
+        previous_time: '7:00-8:00',
+        new_time: '7:00-8:05',
+        effective_date: '2026-10-06',
+        submitted_at: '2026-10-06T16:00:00.000Z',
+        schedule_id: 'am-only',
+      }),
+      makeChange({
+        id: 'later-pm',
+        segment: 'PM',
+        previous_time: '14:00-16:25',
+        new_time: '14:00-16:35',
+        effective_date: '2026-10-20',
+        submitted_at: '2026-10-20T15:00:00.000Z',
+        schedule_id: 'later-only',
+      }),
+    ];
+    const entry = rebuildEmployeeRouteState(log, calendar, '2026-10-21');
+    const snap = buildEmployeeSnapshot({
+      profile,
+      changeLog: log,
+      entry,
+      calendar,
+      asOfDate: '2026-10-21',
+    });
+    const changes = snap.schedule_history.filter((row) => row.kind === 'change');
+    assert.deepEqual(
+      changes.map((row) => [row.date, row.segment, row.delta_minutes, row.delta_label]),
+      [
+        ['2026-10-06', null, 30, '+30 min'],
+        ['2026-10-20', 'PM', 10, '+10 min'],
+      ]
+    );
+    const sameDay = changes.find((row) => row.date === '2026-10-06');
+    assert.deepEqual(sameDay.segments, ['PM', 'AM']);
+    assert.deepEqual(sameDay.change_ids, ['pm-25', 'am-5']);
+    assert.equal(sameDay.schedule.AM.clock_out, '8:05');
+    assert.equal(sameDay.schedule.PM.clock_out, '16:25');
+    assert.equal(sameDay.cumulative_drift_minutes, 30);
+  });
+
+  it('does not merge undated changes that were saved separately', () => {
+    const log = [
+      makeSeed('AM', '7:00-8:00'),
+      makeSeed('PM', '14:00-16:00'),
+      makeChange({
+        id: 'blank-am',
+        segment: 'AM',
+        previous_time: '7:00-8:00',
+        new_time: '7:00-8:10',
+        effective_date: null,
+        submitted_at: '2026-10-06T15:00:00.000Z',
+        schedule_id: 'blank-am',
+      }),
+      makeChange({
+        id: 'blank-pm',
+        segment: 'PM',
+        previous_time: '14:00-16:00',
+        new_time: '14:00-16:10',
+        effective_date: null,
+        submitted_at: '2026-10-06T16:00:00.000Z',
+        schedule_id: 'blank-pm',
+      }),
+    ];
+    const entry = rebuildEmployeeRouteState(log, calendar, '2026-10-06');
+    const snap = buildEmployeeSnapshot({
+      profile,
+      changeLog: log,
+      entry,
+      calendar,
+      asOfDate: '2026-10-06',
+    });
+    const changes = snap.schedule_history.filter((row) => row.kind === 'change');
+    assert.deepEqual(
+      changes.map((row) => [row.date, row.segment, row.delta_minutes]),
+      [
+        [null, 'AM', 10],
+        [null, 'PM', 10],
+      ]
+    );
+  });
+
   it('does not treat bid/bump window closes as contracted-time alerts', () => {
     const log = [
       makeSeed('AM', '6:00-8:00'),
@@ -429,7 +543,7 @@ describe('employee isolated data dir', () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
-  it('writes the built-in BPS calendar into a private folder', async () => {
+  it('writes the built-in Bellingham calendar into a private folder', async () => {
     const { ensureBuiltInCalendar } = await import(
       '../employee-tracker/src/storage.js'
     );
@@ -440,7 +554,7 @@ describe('employee isolated data dir', () => {
       'utf8'
     );
     const parsed = JSON.parse(raw);
-    assert.equal(parsed.school_days.length, 180);
+    assert.equal(parsed.school_days.length, 179);
   });
 });
 
@@ -648,7 +762,7 @@ describe('fictional example person', () => {
       ]
     );
     assert.equal(snap.schedule_history.at(-1).cumulative_drift_minutes, 30);
-    assert.equal(snap.schedule_history.at(-1).contracted.becomes_on, '2026-12-17');
+    assert.equal(snap.schedule_history.at(-1).contracted.becomes_on, '2026-12-14');
     assert.equal(snap.window.status, 'ACCUMULATING');
     assert.equal(snap.window.cumulative_drift_minutes, 30);
     assert.equal(snap.window.projected_outcome, 'BID_PENDING');
@@ -697,10 +811,10 @@ describe('fictional example person', () => {
       '../employee-tracker/src/clockHistory.js'
     );
     const { getSchoolDays } = await import('../src/logic/calendar.js');
-    const { buildBps2026_2027Calendar } = await import(
-      '../employee-tracker/src/bpsCalendar2026.js'
+    const { buildBellingham2026_2027Calendar } = await import(
+      '../employee-tracker/src/bellinghamCalendar2026.js'
     );
-    const schoolDays = getSchoolDays(buildBps2026_2027Calendar().calendar);
+    const schoolDays = getSchoolDays(buildBellingham2026_2027Calendar().calendar);
     const byName = Object.fromEntries(
       calendarExampleProfiles().map((profile) => [profile.name, profile])
     );
@@ -721,15 +835,13 @@ describe('fictional example person', () => {
     assert.equal(beforeCutMarks.get('2026-09-09')?.established, true);
     assert.equal(beforeCutMarks.has('2026-09-10'), false);
 
-    const afterAdd = buildSnapshot(byName['Ex after · +12 then +20'], '2026-11-16');
+    const afterAdd = buildSnapshot(byName['Ex after · +12 then +20'], '2026-10-20');
     const afterAddMarks = buildClockHistoryMarks(afterAdd.schedule_history, {
       schoolDays,
     });
-    assert.equal(afterAdd.window.becomes_contracted_on, '2026-11-20');
+    assert.equal(afterAdd.window.becomes_contracted_on, '2026-10-30');
     assert.equal(afterAddMarks.get('2026-10-05')?.windowDay, 1);
-    assert.equal(afterAddMarks.get('2026-10-30')?.windowDay, 15);
-    assert.equal(afterAddMarks.get('2026-11-19')?.arrowHead, true);
-    assert.equal(afterAddMarks.has('2026-11-20'), false);
+    assert.equal(afterAddMarks.get('2026-10-29')?.windowDay, 15);
 
     const laterView = buildSnapshot(byName['Ex before · small +12'], '2026-12-10');
     const laterMarks = buildClockHistoryMarks(laterView.schedule_history, { schoolDays });
@@ -739,14 +851,14 @@ describe('fictional example person', () => {
 
     const novBid = buildSnapshot(byName['Ex Nov · big +40'], '2026-12-10');
     const novBidMarks = buildClockHistoryMarks(novBid.schedule_history, { schoolDays });
-    assert.equal(novBid.window.becomes_contracted_on, '2026-12-17');
+    assert.equal(novBid.window.becomes_contracted_on, '2026-12-14');
     assert.equal(novBidMarks.get('2026-12-03')?.windowDay, 15);
     assert.equal(novBidMarks.get('2026-12-10')?.arrow, true);
-    assert.equal(novBidMarks.get('2026-12-16')?.arrowHead, true);
+    assert.equal(novBidMarks.get('2026-12-13')?.arrowHead, true);
 
     const decSmall = buildSnapshot(byName['Ex Dec · small +15'], '2026-12-10');
     const decSmallMarks = buildClockHistoryMarks(decSmall.schedule_history, { schoolDays });
-    assert.equal(decSmall.window.becomes_contracted_on, '2026-12-23');
+    assert.equal(decSmall.window.becomes_contracted_on, '2027-01-06');
     assert.equal(decSmallMarks.get('2026-12-10')?.windowDay, 7);
   });
 

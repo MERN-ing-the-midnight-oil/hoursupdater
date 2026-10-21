@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';
-import { buildBps2026_2027Calendar } from '../employee-tracker/src/bpsCalendar2026.js';
+import { buildBellingham2026_2027Calendar } from '../employee-tracker/src/bellinghamCalendar2026.js';
 import { rebuildEmployeeRouteState } from '../employee-tracker/src/snapshot.js';
 import { stateFromRoutesCsv } from '../office-tracker/src/routesCsv.js';
 import {
@@ -30,7 +30,7 @@ import {
   sessionModifiedRouteNames,
 } from '../office-tracker/web/store.js';
 
-const calendar = buildBps2026_2027Calendar().calendar;
+const calendar = buildBellingham2026_2027Calendar().calendar;
 
 const csv = [
   'Route,Driver,Kind,Date,Run,Clock in,Clock out,Note',
