@@ -10,6 +10,8 @@ import {
   memorandumById,
   memorandumMail,
   normalizeDriverNotice,
+  noticeCcAddress,
+  noticeMailto,
   noticeCalendarFilename,
   noticeFromChange,
   routeHistoryFilename,
@@ -129,6 +131,7 @@ test('a saved driver notice replaces the opening and keeps the change list', () 
   assert.equal(fresh.memorandumId, 'student-route-time');
   assert.deepEqual(fresh.memorandumTemplates, {});
   assert.equal(fresh.attachTimeChangeNotice, false);
+  assert.equal(fresh.secretaryCc, '');
   assert.equal(Object.hasOwn(fresh, 'noticeImmediately'), false);
   assert.equal(Object.hasOwn(fresh, 'noticeBeforeContract'), false);
   assert.equal(Object.hasOwn(fresh, 'schoolDaysBefore'), false);
@@ -395,4 +398,33 @@ test('sending a notice remembers that change id', () => {
   assert.deepEqual(loadSentChangeIds(storage), ['route-12-pm', 'route-118-pm']);
   assert.equal(isChangeNoticeSent('route-12-pm', storage), true);
   assert.equal(isChangeNoticeSent('', storage), false);
+});
+
+test('a saved secretary address is copied on the driver notice', () => {
+  const storage = memoryStorage();
+  const saved = saveDriverNotice({ secretaryCc: '  Jamie@bps.org  ' }, storage);
+  assert.equal(saved.secretaryCc, 'Jamie@bps.org');
+  assert.equal(loadDriverNotice(storage).secretaryCc, 'Jamie@bps.org');
+  assert.equal(normalizeDriverNotice({ secretaryCc: 'not an email' }).secretaryCc, '');
+  assert.equal(noticeCcAddress('ada@bps.org', saved.secretaryCc), 'Jamie@bps.org');
+  assert.equal(noticeCcAddress('Jamie@bps.org', 'jamie@bps.org'), '');
+
+  const href = noticeMailto({
+    to: 'ada@bps.org',
+    cc: saved.secretaryCc,
+    subject: 'Notice for Ada',
+    body: 'Hello Ada\nLine two',
+  });
+  assert.equal(
+    href,
+    'mailto:ada%40bps.org?cc=Jamie%40bps.org&subject=Notice%20for%20Ada&body=Hello%20Ada%0ALine%20two'
+  );
+  const samePerson = noticeMailto({
+    to: 'Jamie@bps.org',
+    cc: 'jamie@bps.org',
+    subject: 'Hi',
+    body: 'There',
+  });
+  assert.match(samePerson, /^mailto:Jamie%40bps\.org\?subject=/);
+  assert.doesNotMatch(samePerson, /[?&]cc=/);
 });

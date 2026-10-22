@@ -64,6 +64,11 @@ function yesNo(value, fallback) {
   return fallback;
 }
 
+function emailOrBlank(value) {
+  const email = String(value ?? '').trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : '';
+}
+
 // Wording saved for each memorandum. A blank or unchanged template stays on the usual text.
 export function normalizeMemorandumTemplates(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -104,9 +109,28 @@ export function normalizeDriverNotice(raw) {
     memorandumId: memorandumById(source.memorandumId).id,
     memorandumTemplates: normalizeMemorandumTemplates(source.memorandumTemplates),
     attachTimeChangeNotice: yesNo(source.attachTimeChangeNotice, false),
+    secretaryCc: emailOrBlank(source.secretaryCc),
     subject: subject || DEFAULT_DRIVER_NOTICE_SUBJECT,
     body: body || DEFAULT_DRIVER_NOTICE_BODY,
   };
+}
+
+// The secretary is copied unless that address is blank or already the driver.
+export function noticeCcAddress(to, cc) {
+  const copy = emailOrBlank(cc);
+  const recipient = String(to || '').trim();
+  if (!copy || copy.toLowerCase() === recipient.toLowerCase()) return '';
+  return copy;
+}
+
+// mailto draft for one driver notice. A secretary address is the Cc line.
+export function noticeMailto({ to, cc, subject, body }) {
+  const parts = [];
+  const copy = noticeCcAddress(to, cc);
+  if (copy) parts.push(`cc=${encodeURIComponent(copy)}`);
+  parts.push(`subject=${encodeURIComponent(subject ?? '')}`);
+  parts.push(`body=${encodeURIComponent(body ?? '')}`);
+  return `mailto:${encodeURIComponent(String(to || '').trim())}?${parts.join('&')}`;
 }
 
 const TYPE_FROM_STATUS = {

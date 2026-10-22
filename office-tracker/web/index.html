@@ -1419,13 +1419,20 @@
         <p class="lead">
           Send notice emails the memorandum you select. Click a memorandum to open
           its template and edit the wording. The address comes from the Driver Name
-          List. Saving a clock-time change offers to send that email. Send notice
-          on the change can send it again, and warns you if a notice was already
-          sent. The complete time change history can be downloaded as a PDF to
-          attach. A calendar PDF is downloaded as well. A sent notice is marked
-          Yes.
+          List. A secretary email saved here is copied on every notice. Saving a
+          clock-time change offers to send that email. Send notice on the change
+          can send it again, and warns you if a notice was already sent. The
+          complete time change history can be downloaded as a PDF to attach. A
+          calendar PDF is downloaded as well. A sent notice is marked Yes.
         </p>
         <form id="driver-notice-form" novalidate>
+          <div class="field">
+            <label for="driver-notice-secretary">Secretary email</label>
+            <input id="driver-notice-secretary" name="secretary" type="email" autocomplete="email" inputmode="email" />
+            <p class="field-hint">
+              Every driver time-change notice copies this address. Leave it blank to email only the driver.
+            </p>
+          </div>
           <fieldset class="email-content">
             <legend>Email content</legend>
             <p class="field-hint">
@@ -1479,9 +1486,10 @@
           update driver info on Payroll is the table for names, email, phone, serial number, hourly rate, payroll account, and pay status.
           Remove takes a name off this list. A route they still hold keeps that
           driver until you assign someone else.
-          Send notice on a clock-time change uses this email. It opens the
-          memorandum and downloads a calendar PDF you can attach. The complete
-          time change history is included only when that attachment is turned on.
+          Send notice on a clock-time change uses this email. The secretary saved
+          on Driver time-change notice is copied. It opens the memorandum and
+          downloads a calendar PDF you can attach. The complete time change
+          history is included only when that attachment is turned on.
         </p>
         <div class="table-wrap">
           <table class="schedule-history driver-sheet" id="driver-sheet">

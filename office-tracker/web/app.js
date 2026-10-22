@@ -110,7 +110,9 @@ import {
   isChangeNoticeSent,
   loadSentChangeIds,
   memorandumMail,
+  noticeCcAddress,
   noticeCalendarFilename,
+  noticeMailto,
   rememberChangeNoticeSent,
   routeHistoryFilename,
   routeHistoryMail,
@@ -713,7 +715,9 @@ function driverNoticePreviewText() {
   const attachment = checkedChoice('notice_attach')
     ? '\n\nA complete time change history PDF is also downloaded to attach.'
     : '';
-  return `Sample email\n${mail.subject}\n\n${mail.body}${attachment}`;
+  const copy = noticeCcAddress('sample.driver@example.com', document.querySelector('#driver-notice-secretary')?.value);
+  const ccLine = copy ? `Cc: ${copy}\n` : '';
+  return `Sample email\n${ccLine}${mail.subject}\n\n${mail.body}${attachment}`;
 }
 
 function appendTemplateField(editor, labelText, controlId, control) {
@@ -806,8 +810,10 @@ function fillDriverNoticeSettings() {
   const settings = loadDriverNotice();
   const subject = document.querySelector('#driver-notice-subject');
   const body = document.querySelector('#driver-notice-body');
+  const secretary = document.querySelector('#driver-notice-secretary');
   const status = document.querySelector('#driver-notice-status');
   setChoice('notice_attach', settings.attachTimeChangeNotice);
+  if (secretary) secretary.value = settings.secretaryCc;
   renderEmailContentOptions(settings.memorandumId, settings.memorandumTemplates);
   if (subject) subject.value = settings.subject;
   if (body) body.value = settings.body;
@@ -873,11 +879,17 @@ document.querySelector('#driver-notice-reset')?.addEventListener('click', () => 
 document.querySelector('#driver-notice-form')?.addEventListener('submit', async (event) => {
   event.preventDefault();
   const status = document.querySelector('#driver-notice-status');
+  const secretaryCc = document.querySelector('#driver-notice-secretary')?.value ?? '';
+  if (String(secretaryCc).trim() && !isEmailAddress(secretaryCc)) {
+    if (status) setStatus(status, 'Enter a valid email for the secretary, or leave it blank.', 'error');
+    return;
+  }
   try {
     saveDriverNotice({
       memorandumId: selectedMemorandumId(),
       memorandumTemplates: collectMemorandumTemplates(),
       attachTimeChangeNotice: checkedChoice('notice_attach'),
+      secretaryCc,
       subject: document.querySelector('#driver-notice-subject')?.value,
       body: document.querySelector('#driver-notice-body')?.value,
     });
@@ -1565,7 +1577,8 @@ async function deliverChangeNotice(located) {
       downloadTextPdf(notice.filename, notice.text);
       downloads.push(notice.filename);
     }
-    openNoticeMail({ to: email, subject: mail.subject, body: mail.body });
+    const cc = noticeCcAddress(email, noticeSettings.secretaryCc);
+    openNoticeMail({ to: email, cc, subject: mail.subject, body: mail.body });
     explainNoticeDownloads(downloads);
     rememberChangeNoticeSent(changeId);
     if ((snapshot?.schedule_history || []).some((item) => item.change_id === changeId)) {
@@ -1573,9 +1586,10 @@ async function deliverChangeNotice(located) {
     }
     const listed = downloads.join(' and ');
     const noun = downloads.length > 1 ? 'them' : 'it';
+    const copied = cc ? ` ${cc} is copied.` : '';
     return {
       ok: true,
-      message: `Please look for ${listed} in your downloads folder and attach ${noun}. Notice sent is Yes for this change.`,
+      message: `Please look for ${listed} in your downloads folder and attach ${noun}.${copied} Notice sent is Yes for this change.`,
     };
   } catch (error) {
     return { ok: false, message: error.message || 'Could not create that notice.' };
@@ -1606,7 +1620,7 @@ async function sendChangeNotice(button) {
 }
 
 function openNoticeMail(mail) {
-  const href = `mailto:${encodeURIComponent(mail.to)}?subject=${encodeURIComponent(mail.subject)}&body=${encodeURIComponent(mail.body)}`;
+  const href = noticeMailto(mail);
   const link = document.createElement('a');
   link.href = href;
   link.hidden = true;
