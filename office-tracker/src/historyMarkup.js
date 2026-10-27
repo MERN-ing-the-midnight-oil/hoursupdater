@@ -6,7 +6,6 @@ import {
   buildClockHistoryMarks,
   changeDetailLines,
   changeHoverLines,
-  clockHistoryLabel,
   scheduleChangeKindHtml,
 } from '../../employee-tracker/src/clockHistory.js';
 
@@ -110,13 +109,31 @@ function predictedDateRoles(rows) {
   return roles;
 }
 
+// A side countdown that leaves the bid in place keeps the standing date.
+function standingPredictedDate(rows, index) {
+  for (let cursor = index; cursor >= 0; cursor -= 1) {
+    const contracted = rows[cursor]?.contracted;
+    if (contracted?.status === 'predicted' && contracted.becomes_on) {
+      return contracted.becomes_on;
+    }
+  }
+  return null;
+}
+
 // Scheduled Hours is the rounded total of the clock times on that row.
 export function contractColumnsForHistory(rows) {
-  const roles = predictedDateRoles(rows);
-  return (rows || []).map((row, index) => ({
-    hours: hoursText(scheduleRoundedMinutes(row.schedule)),
-    contractedDate: contractedDateText(row, roles.get(index)),
-  }));
+  const list = rows || [];
+  const roles = predictedDateRoles(list);
+  return list.map((row, index) => {
+    const standing = row?.contracted?.status === 'side_countdown' ? standingPredictedDate(list, index) : null;
+    const contractedDate = standing
+      ? `predicted: ${monthDayYear(standing)}`
+      : contractedDateText(row, roles.get(index));
+    return {
+      hours: hoursText(scheduleRoundedMinutes(row.schedule)),
+      contractedDate,
+    };
+  });
 }
 
 export function toneForRow(index, tones = OFFICE_HISTORY_TONES) {
@@ -146,7 +163,10 @@ export function historyLegendHtml(rows, tones = OFFICE_HISTORY_TONES) {
         const tone = toneForRow(index, tones);
         return `<li style="--tone:${tone}">
         <span class="history-swatch" aria-hidden="true"></span>
-        ${prettyDate(row.date)} · ${escapeHtml(clockHistoryLabel(row))}
+        <span class="history-legend-text">
+          ${escapeHtml(prettyDate(row.date))}
+          ${scheduleChangeKindHtml(row, escapeHtml)}
+        </span>
       </li>`;
       })
       .join('') +
@@ -177,7 +197,6 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES)
         : '';
       const note = row.note ? `<span class="change-note">${escapeHtml(row.note)}</span>` : '';
       return `<tr class="is-history${predicted ? ' is-predicted' : ''}" style="--tone:${toneForRow(index, tones)}">
-        <td>${row.kind === 'change' ? (row.force_oct1_contract ? 'On' : 'Off') : ''}</td>
         <th scope="row">
           ${escapeHtml(prettyDate(row.date))}
           ${kind}
@@ -211,7 +230,6 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES)
   return `<table class="schedule-history">
     <thead>
       <tr>
-        <th scope="col">Force Oct 1 Contract</th>
         <th scope="col">New Schedule Started</th>
         <th scope="col">AM start</th>
         <th scope="col">AM end</th>

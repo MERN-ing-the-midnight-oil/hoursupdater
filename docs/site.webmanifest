@@ -1,7 +1,7 @@
 {
-  "name": "My Teamster Contract Date Calculator",
-  "short_name": "Date Calculator",
-  "description": "Personal Teamster date calculator",
+  "name": "Route change history",
+  "short_name": "Route history",
+  "description": "Read-only clock-time changes for drivers and routes",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

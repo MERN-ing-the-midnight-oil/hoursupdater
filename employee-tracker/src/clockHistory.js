@@ -117,7 +117,7 @@ function resolvesAsBid(row) {
 }
 
 function locksInAsContracted(row) {
-  if (row?.kind !== 'change' || !row.contracted?.becomes_on) return false;
+  if (row?.kind !== 'change' || !row.contracted?.becomes_on || keepsStandingForecast(row)) return false;
   const outcome = row.contracted?.projected_outcome;
   const status = row.contracted?.status;
   if (outcome === 'BID_PENDING' || outcome === 'BUMP_ELIGIBLE') return false;
@@ -125,8 +125,24 @@ function locksInAsContracted(row) {
   return true;
 }
 
+// A side countdown leaves the standing forecast where it is. It does not
+// start a new predicted contract date, and it does not cut the bid window short.
+function keepsStandingForecast(row) {
+  const status = row?.contracted?.status;
+  return status === 'side_countdown' || status === 'separate_countdown';
+}
+
+function nextReplacingDate(list, index) {
+  for (let cursor = index + 1; cursor < list.length; cursor += 1) {
+    const next = list[cursor];
+    if (!next?.date || keepsStandingForecast(next)) continue;
+    return next.date;
+  }
+  return null;
+}
+
 function resolutionArrow(row, fifteen, nextDate) {
-  if (nextDate || row?.kind !== 'change') return null;
+  if (nextDate || row?.kind !== 'change' || keepsStandingForecast(row)) return null;
   const becomes = row.contracted?.becomes_on;
   if (!becomes) return null;
   const start = usesFifteenDayWindow(row, fifteen)
@@ -218,7 +234,7 @@ export function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY
     const tone = palette[toneIndex];
     const label = clockHistoryLabel(row);
     const hover = { ...changeHoverFlags(row), sourceIndex: index };
-    const nextDate = list[index + 1]?.date || null;
+    const nextDate = nextReplacingDate(list, index);
     const fifteen = fifteenSchoolDaysAfter(days, row.date);
 
     marks.set(
@@ -228,6 +244,10 @@ export function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY
         established: true,
       })
     );
+
+    // The standing forecast keeps its countdown. This row only marks the day
+    // the later schedule started.
+    if (keepsStandingForecast(row)) return;
 
     if (usesFifteenDayWindow(row, fifteen)) {
       let windowDay = 0;

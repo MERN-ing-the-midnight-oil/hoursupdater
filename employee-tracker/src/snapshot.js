@@ -75,13 +75,13 @@ const WINDOW_RULE_HEADLINE = {
   post_october_1_bump:
     'After October 1 a 30-minute decrease is bump-eligible after it has lasted 15 school days (Art. 3.08(b)(2)).',
   forced_october_1_contract:
-    'Force Oct 1 Contract is on, so this schedule becomes contracted on October 1. The size of the change and the 15-school-day countdown are not used.',
+    'This schedule becomes contracted on October 1. The size of the change and the 15-school-day countdown are not used.',
 };
 
 const FORCED_OCT1_COPY = {
   label: 'Contracted on October 1',
   detail:
-    'Force Oct 1 Contract is on, so this schedule becomes contracted on October 1. The size of the change and the 15-school-day countdown are not used.',
+    'This schedule becomes contracted on October 1. The size of the change and the 15-school-day countdown are not used.',
 };
 
 const OUTCOME_COPY = {
@@ -303,16 +303,20 @@ function annotateCumulativeDrift(rows, entry) {
   const openIds = (entry?.contributing_change_ids ?? []).filter(
     (id) => byId.has(id) && !covered.has(id)
   );
-  if (openIds.length) groups.push(openIds);
+
+  // A side countdown did not replace the bid. Its row still shows the
+  // running total after that change, including the open bid and earlier
+  // side changes.
+  const sideGroups = [];
   for (const side of entry?.side_windows ?? []) {
     const ids = (side.contributing_change_ids ?? []).filter(
       (id) => byId.has(id) && !covered.has(id)
     );
-    if (ids.length) groups.push(ids);
+    if (ids.length) sideGroups.push(ids);
   }
 
-  for (const ids of groups) {
-    let sum = 0;
+  const writeSum = (ids, start) => {
+    let sum = start;
     for (const id of ids) {
       const row = byId.get(id);
       const piece = row.delta_by_id?.[id];
@@ -320,7 +324,12 @@ function annotateCumulativeDrift(rows, entry) {
       row.cumulative_drift_minutes = sum;
       row.cumulative_drift_label = formatSignedMinutes(sum);
     }
-  }
+    return sum;
+  };
+
+  for (const ids of groups) writeSum(ids, 0);
+  let carried = writeSum(openIds, 0);
+  for (const ids of sideGroups) carried = writeSum(ids, carried);
 }
 
 // A same-day row can mix the open bid with a later change that did not

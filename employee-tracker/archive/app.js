@@ -36,7 +36,6 @@ import {
   buildClockHistoryMarks,
   changeDetailLines,
   changeHoverLines,
-  clockHistoryLabel,
   scheduleChangeKindHtml,
 } from '../src/clockHistory.js';
 import { buildChangesCsv, changesCsvFilename } from '../src/changesCsv.js';
@@ -518,7 +517,10 @@ function renderHistoryLegend(rows) {
       const tone = toneForRow(index);
       return `<li style="--tone:${tone}">
         <span class="history-swatch" aria-hidden="true"></span>
-        ${prettyDate(row.date)} · ${escapeHtml(clockHistoryLabel(row))}
+        <span class="history-legend-text">
+          ${escapeHtml(prettyDate(row.date))}
+          ${scheduleChangeKindHtml(row, escapeHtml)}
+        </span>
       </li>`;
     })
     .join('') +

@@ -14,7 +14,7 @@ app.get('/', (_req, res) => {
 });
 
 app.listen(EMPLOYEE_PORT, () => {
-  console.log(`My Teamster Contract Date Calculator listening on http://localhost:${EMPLOYEE_PORT}`);
-  console.log('Static multi-user app (each person is stored in this browser).');
+  console.log(`Route change history listening on http://localhost:${EMPLOYEE_PORT}`);
+  console.log('Read-only page. Route history comes from the shared office record.');
   console.log('Leave this window open while you use the app.');
 });

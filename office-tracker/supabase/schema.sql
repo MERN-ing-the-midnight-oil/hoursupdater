@@ -1082,3 +1082,106 @@ grant execute on function public.open_clock_note_day(jsonb) to authenticated;
 grant execute on function public.read_clock_note(text) to anon, authenticated;
 grant execute on function public.read_clock_note_day(text) to anon, authenticated;
 grant execute on function public.save_clock_note(text, jsonb) to anon, authenticated;
+
+-- Read-only route history for the public driver page.
+-- The password is a bot gate. The result is route names, driver names,
+-- assignment dates, and clock-time changes. Punches, mail, and pay stay out.
+create or replace function public.public_route_history(pass text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  office jsonb;
+  profiles jsonb;
+begin
+  if pass is distinct from '07041776' then
+    return null;
+  end if;
+
+  select state into office
+  from public.office_state
+  where id = 'shared';
+
+  if office is null or jsonb_typeof(office->'profiles') <> 'object' then
+    return jsonb_build_object('schoolYear', null, 'profiles', '[]'::jsonb);
+  end if;
+
+  select coalesce(jsonb_agg(profile_row order by profile_row->>'name'), '[]'::jsonb)
+    into profiles
+  from (
+    select jsonb_strip_nulls(jsonb_build_object(
+      'id', coalesce(p.value->>'id', p.key),
+      'name', coalesce(p.value->>'name', ''),
+      'driver_name', coalesce(p.value->>'driver_name', ''),
+      'start_date', p.value->>'start_date',
+      'assignments', (
+        select coalesce(jsonb_agg(
+          jsonb_strip_nulls(jsonb_build_object(
+            'driver_name', coalesce(a.value->>'driver_name', ''),
+            'from', a.value->>'from',
+            'until', a.value->>'until'
+          ))
+          order by a.ordinality
+        ), '[]'::jsonb)
+        from jsonb_array_elements(
+          case
+            when jsonb_typeof(p.value->'assignments') = 'array' then p.value->'assignments'
+            else '[]'::jsonb
+          end
+        ) with ordinality as a(value, ordinality)
+        where coalesce(a.value->>'driver_name', '') <> ''
+          and coalesce(a.value->>'from', '') <> ''
+      ),
+      'changeLog', (
+        select coalesce(jsonb_agg(
+          jsonb_strip_nulls(jsonb_build_object(
+            'id', e.value->>'id',
+            'type', e.value->>'type',
+            'route_id', e.value->>'route_id',
+            'segment', e.value->>'segment',
+            'effective_date', e.value->>'effective_date',
+            'submitted_at', e.value->>'submitted_at',
+            'previous_time', e.value->>'previous_time',
+            'new_time', e.value->>'new_time',
+            'computed_delta_minutes', e.value->'computed_delta_minutes',
+            'delta_minutes', e.value->'delta_minutes',
+            'note', e.value->>'note',
+            'driver_name', e.value->>'driver_name',
+            'force_oct1_contract', e.value->'force_oct1_contract',
+            'reason_category', e.value->>'reason_category',
+            'routing_adjustment', case
+              when jsonb_typeof(e.value->'routing_adjustment') = 'object'
+                then jsonb_strip_nulls(jsonb_build_object(
+                  'reason', e.value #>> '{routing_adjustment,reason}'
+                ))
+              else null
+            end
+          ))
+          order by e.ordinality
+        ), '[]'::jsonb)
+        from jsonb_array_elements(
+          case
+            when jsonb_typeof(p.value->'changeLog') = 'array' then p.value->'changeLog'
+            else '[]'::jsonb
+          end
+        ) with ordinality as e(value, ordinality)
+      )
+    )) as profile_row
+    from jsonb_each(office->'profiles') as p(key, value)
+  ) built;
+
+  return jsonb_build_object(
+    'schoolYear', case
+      when jsonb_typeof(office->'schoolYear') = 'object' then office->'schoolYear'
+      else null
+    end,
+    'profiles', profiles
+  );
+end;
+$$;
+
+revoke all on function public.public_route_history(text) from public;
+grant execute on function public.public_route_history(text) to anon, authenticated;
