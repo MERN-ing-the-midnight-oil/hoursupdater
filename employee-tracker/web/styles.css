@@ -66,6 +66,30 @@ h3 { margin: 1.25rem 0 0.5rem; font-size: 1.2rem; }
   padding-bottom: 3rem;
 }
 
+.landing-qr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.landing-qr img {
+  width: 168px;
+  height: 168px;
+  flex: none;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.landing-qr p {
+  margin: 0;
+  max-width: 16rem;
+  color: var(--muted);
+  font-weight: 650;
+}
+
 .panel {
   background: var(--card);
   border: 1px solid var(--line);

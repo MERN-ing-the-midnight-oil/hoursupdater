@@ -23,6 +23,7 @@ await build({
 const staticAssets = [
   'index.html',
   'styles.css',
+  'share-qr.svg',
   'clock-hours-guide.html',
   'favicon.ico',
   'favicon.svg',
