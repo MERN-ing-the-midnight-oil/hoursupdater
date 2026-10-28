@@ -1,5 +1,5 @@
-import { BID_THRESHOLD_MINUTES, SEGMENTS } from '../../src/logic/constants.js';
-import { daysRemainingInWindow } from '../../src/logic/calendar.js';
+import { BID_THRESHOLD_MINUTES, SEGMENTS, WINDOW_SCHOOL_DAYS } from '../../src/logic/constants.js';
+import { addSchoolDays, daysRemainingInWindow, getSchoolDays } from '../../src/logic/calendar.js';
 import {
   buildSeeTheMathFromSegments,
   describeOpenWindowContractHours,
@@ -19,6 +19,11 @@ import {
   computeDeltaMinutes,
   toDateString,
 } from '../../src/logic/timeUtils.js';
+import {
+  bidPostingPhrase,
+  bidPostingSpan,
+  bidPostingSpanText,
+} from './clockHistory.js';
 import {
   dayAfter,
   formatDurationLabel,
@@ -332,6 +337,76 @@ function annotateCumulativeDrift(rows, entry) {
   for (const ids of sideGroups) carried = writeSum(ids, carried);
 }
 
+// Changes dated after `date` have not happened yet for this history row.
+// Undated changes and adjustments stay, because they anchor to an earlier day.
+function logThroughDate(changeLog, date) {
+  return (changeLog || []).filter((entry) => {
+    if (entry?.type && entry.type !== 'CHANGE') return true;
+    const effective = String(entry?.effective_date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(effective)) return true;
+    return effective <= date;
+  });
+}
+
+function earliestChangeDate(ids, datesById) {
+  let earliest = null;
+  for (const id of ids || []) {
+    const date = datesById.get(id);
+    if (date && (!earliest || date < earliest)) earliest = date;
+  }
+  return earliest;
+}
+
+// One open countdown keeps the date its clock first opened, and its own
+// minutes. A later change added into that clock does not rename it.
+// A change that does not move an already-qualified bid is a separate
+// countdown, named for the day that change started.
+function countdownsFromState(state, datesById) {
+  if (!state) return [];
+  const countdowns = [];
+  const windowOpen =
+    state.status === 'ACCUMULATING' &&
+    (state.contributing_change_ids?.length || state.window_opened_date);
+  if (windowOpen) {
+    const started =
+      state.window_opened_date || earliestChangeDate(state.contributing_change_ids, datesById);
+    if (started) {
+      countdowns.push({
+        started_on: started,
+        minutes: state.cumulative_drift_minutes ?? 0,
+      });
+    }
+  }
+  const sides = [...(state.side_windows ?? [])].sort((a, b) =>
+    String(a.opened_date || '').localeCompare(String(b.opened_date || ''))
+  );
+  for (const side of sides) {
+    const started = side.opened_date || earliestChangeDate(side.contributing_change_ids, datesById);
+    if (!started) continue;
+    countdowns.push({
+      started_on: started,
+      minutes: side.drift_minutes ?? 0,
+    });
+  }
+  return countdowns;
+}
+
+// As of each schedule row, every countdown still open that day.
+export function annotateOpenCountdowns(rows, changeLog, calendar) {
+  if (!calendar || !rows?.length) return rows;
+  const datesById = new Map();
+  for (const change of changeLog || []) {
+    const date = String(change?.effective_date || '').slice(0, 10);
+    if (change?.id && /^\d{4}-\d{2}-\d{2}$/.test(date)) datesById.set(change.id, date);
+  }
+  for (const row of rows) {
+    if (row?.kind !== 'change' || !row.date) continue;
+    const state = rebuildEmployeeRouteState(logThroughDate(changeLog, row.date), calendar, row.date);
+    row.countdowns = countdownsFromState(state, datesById);
+  }
+  return rows;
+}
+
 // A same-day row can mix the open bid with a later change that did not
 // move it. The date column follows the bid, not that later countdown.
 function contractedStatusForChanges(changes, context) {
@@ -473,6 +548,55 @@ function contractedStatusForChange(change, { reports, openIds, lastOpenId, entry
   };
 }
 
+// The date the rounded hours on this row change, or are predicted to change.
+// A monthly bid changes on the 15th school day after the change. Other rows
+// use the day those hours become the contract.
+function annotateContractHoursChange(history, schoolDays) {
+  for (const row of history || []) {
+    const contracted = row?.contracted;
+    if (!contracted) continue;
+    const on = contractHoursChangeOn(row, schoolDays);
+    if (on) contracted.hours_change_on = on;
+  }
+}
+
+function contractHoursChangeOn(row, schoolDays) {
+  const contracted = row?.contracted;
+  if (!contracted) return null;
+  const isBid =
+    contracted.projected_outcome === 'BID_PENDING' || contracted.status === 'bid_pending';
+  const changeDate = String(row.date || '').slice(0, 10);
+  if (isBid && /^\d{4}-\d{2}-\d{2}$/.test(changeDate)) {
+    try {
+      return addSchoolDays(schoolDays, changeDate, WINDOW_SCHOOL_DAYS);
+    } catch {
+      // A calendar that runs out keeps the stored contract date below.
+    }
+  }
+  const on = String(contracted.becomes_on || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(on) ? on : null;
+}
+
+// A monthly bid keeps the first posting day and the last school day of that
+// window, so the column can say "Predicted up for bid 11/20–11/30".
+function annotateBidPosting(history, schoolDays) {
+  for (const row of history || []) {
+    const contracted = row?.contracted;
+    if (!contracted?.becomes_on) continue;
+    const isBid =
+      contracted.projected_outcome === 'BID_PENDING' || contracted.status === 'bid_pending';
+    if (!isBid) continue;
+    const span = bidPostingSpan(schoolDays, contracted.becomes_on);
+    if (!span) continue;
+    contracted.bid_through = span.end;
+    if (contracted.status === 'predicted') {
+      contracted.label = bidPostingPhrase(span);
+    } else if (contracted.status === 'bid_pending') {
+      contracted.label = bidPostingPhrase(span, 'posted');
+    }
+  }
+}
+
 export function officialContractedMinutes(entry) {
   if (!entry) {
     return null;
@@ -533,6 +657,10 @@ export function buildEmployeeSnapshot({
     window,
     profile?.start_date ?? null
   );
+  annotateOpenCountdowns(schedule_history, changeLog, calendar);
+  const schoolDays = getSchoolDays(calendar);
+  annotateBidPosting(schedule_history, schoolDays);
+  annotateContractHoursChange(schedule_history, schoolDays);
 
   return {
     setup_complete,
@@ -594,6 +722,11 @@ function buildWindowView(entry, calendar, asOf) {
     : null;
   const becomesOn = open ? dayAfter(entry.window_expires_date) : null;
   const projectedOutcome = open ? (forced ? 'STABLE' : windowFinalizationOutcome(drift)) : null;
+  const bidSpan =
+    projectedOutcome === 'BID_PENDING' && becomesOn
+      ? bidPostingSpan(getSchoolDays(calendar), becomesOn)
+      : null;
+  const bidPhrase = bidSpan ? bidPostingPhrase(bidSpan) : null;
   const outcomeCopy = forced
     ? FORCED_OCT1_COPY
     : projectedOutcome
@@ -615,7 +748,13 @@ function buildWindowView(entry, calendar, asOf) {
       : null;
 
   let headline = copy.summary;
-  if (open && becomesOn && outcomeCopy) {
+  if (open && bidPhrase) {
+    const ruleNote =
+      WINDOW_RULE_HEADLINE[entry.window_rule] ??
+      'After October 1 a 30-minute increase is posted for bid during the last five school days of the month, October through April (Art. 3.08(b)(1)).';
+    headline =
+      `${ruleNote} If you do not log another change, the route is predicted up for bid ${bidPostingSpanText(bidSpan)}.`;
+  } else if (open && becomesOn && outcomeCopy) {
     const ruleNote =
       WINDOW_RULE_HEADLINE[entry.window_rule] ??
       'If you do not log another change, these times become contracted on the date below.';
@@ -639,6 +778,8 @@ function buildWindowView(entry, calendar, asOf) {
     expires_date: entry.window_expires_date ?? null,
     window_rule: entry.window_rule ?? null,
     becomes_contracted_on: becomesOn,
+    bid_posting_phrase: bidPhrase,
+    bid_through: bidSpan?.end ?? null,
     days_remaining: daysRemaining,
     cumulative_drift_minutes: drift,
     cumulative_drift_label: formatSignedMinutes(drift),
@@ -768,6 +909,10 @@ export function previewEmployeeChange({
       : contractWindowPlan(calendar, changeDate, nextDrift);
   const outcome = forced ? 'STABLE' : windowFinalizationOutcome(nextDrift);
   const outcomeCopy = forced ? FORCED_OCT1_COPY : OUTCOME_COPY[outcome];
+  const bidSpan =
+    outcome === 'BID_PENDING'
+      ? bidPostingSpan(getSchoolDays(calendar), plan.becomes_effective_on)
+      : null;
   const compared = closedReport
     ? null
     : buildSeeTheMathFromSegments(next.baseline_segments, next.segments);
@@ -801,6 +946,7 @@ export function previewEmployeeChange({
     delta_label: formatSignedMinutes(delta),
     window_expires_date: plan.window_expires_date,
     becomes_contracted_on: plan.becomes_effective_on,
+    bid_posting_phrase: bidSpan ? bidPostingPhrase(bidSpan) : null,
     cumulative_drift_minutes: nextDrift,
     cumulative_drift_label: formatSignedMinutes(nextDrift),
     projected_outcome: outcome,

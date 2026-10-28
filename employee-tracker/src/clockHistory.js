@@ -27,12 +27,44 @@ function cumulativeChangeBeside(row) {
   return label || null;
 }
 
+// Month/day for a countdown label, such as 10/20.
+export function countdownDateLabel(iso) {
+  const match = String(iso ?? '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return '';
+  return `${match[2]}/${match[3]}`;
+}
+
+// "+10 minutes" or "−15 minutes". Each countdown keeps its own total.
+export function countdownMinutesLabel(minutes) {
+  const value = Number(minutes);
+  if (!Number.isFinite(value)) return '';
+  const abs = Math.abs(value);
+  const unit = abs === 1 ? 'minute' : 'minutes';
+  if (value > 0) return `+${abs} ${unit}`;
+  if (value < 0) return `−${abs} ${unit}`;
+  return `0 ${unit}`;
+}
+
+export function countdownAccumulationLabel(startedOn, minutes) {
+  const date = countdownDateLabel(startedOn);
+  const amount = countdownMinutesLabel(minutes);
+  if (!date || !amount) return '';
+  return `${date} Countdown, ${amount}`;
+}
+
 // Lines under New Schedule Started. The first line is this row's own
 // minute change. It does not name AM, midday, or PM as separate changes.
-// The second line is the cumulative change for the review window.
+// Each open countdown follows, named by the date its clock started.
 export function scheduleChangeKindLines(row) {
   if (row?.kind === 'initial') return ['Established'];
   const lines = [row?.delta_label ? `Change · ${row.delta_label}` : 'Change'];
+  if (Array.isArray(row?.countdowns)) {
+    for (const countdown of row.countdowns) {
+      const label = countdownAccumulationLabel(countdown?.started_on, countdown?.minutes);
+      if (label) lines.push(label);
+    }
+    return lines;
+  }
   const cumulative = cumulativeChangeBeside(row);
   if (cumulative) lines.push(`Cumulative change · ${cumulative}`);
   return lines;
@@ -102,6 +134,41 @@ export function bidPeriodRanges(schoolDays) {
     end: days[days.length - 1],
     schoolDays: days,
   }));
+}
+
+function monthDay(iso) {
+  const match = String(iso ?? '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return '';
+  return `${match[2]}/${match[3]}`;
+}
+
+// The posting days still ahead once `becomesOn` is the first day this route
+// may be posted. That day can fall after the window opens, when the 15
+// school days finish inside the last five.
+export function bidPostingSpan(schoolDays, becomesOn) {
+  const day = String(becomesOn ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const period = bidPeriodRanges(schoolDays).find((range) => day >= range.start && day <= range.end);
+  if (!period) return null;
+  return { start: day, end: period.end };
+}
+
+export function bidPostingSpanText(span) {
+  const start = monthDay(span?.start);
+  const end = monthDay(span?.end);
+  if (!start) return '';
+  if (!end || start === end) return start;
+  return `${start}–${end}`;
+}
+
+// "Predicted up for bid 11/20–11/30". A closed window drops "Predicted".
+export function bidPostingPhrase(span, role = 'predicted') {
+  const dates = bidPostingSpanText(span);
+  if (!dates) return '';
+  if (role === 'new') return `New predicted up for bid ${dates}`;
+  if (role === 'old') return `Old predicted up for bid ${dates}`;
+  if (role === 'posted') return `Up for bid ${dates}`;
+  return `Predicted up for bid ${dates}`;
 }
 
 // Calendar days after the numbered count — or after the change day, when

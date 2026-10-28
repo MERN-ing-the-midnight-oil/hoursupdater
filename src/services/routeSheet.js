@@ -1,4 +1,5 @@
 import {
+  annotateOpenCountdowns,
   buildScheduleHistory,
   groupCalendarByMonth,
 } from '../../employee-tracker/src/snapshot.js';
@@ -78,6 +79,7 @@ export function buildRouteSheet({ routeId, entry, changeLog, calendar, asOf }) {
       .filter(Boolean)
       .sort()[0] || null;
   const rows = buildScheduleHistory(routeLog, entry, null, startDate);
+  annotateOpenCountdowns(rows, routeLog, calendar);
   const byId = new Map(routeLog.map((item) => [item.id, item]));
   const enriched = rows.map((row) => {
     const change = row.change_id ? byId.get(row.change_id) : null;

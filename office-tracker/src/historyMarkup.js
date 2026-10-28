@@ -3,6 +3,8 @@ import { getSchoolDays } from '../../src/logic/calendar.js';
 import { buildPayrollRoundingBreakdown } from '../../src/logic/timeUtils.js';
 import {
   bidPeriodRanges,
+  bidPostingPhrase,
+  bidPostingSpan,
   buildClockHistoryMarks,
   changeDetailLines,
   changeHoverLines,
@@ -51,6 +53,16 @@ export function monthDayYear(iso) {
   return `${match[2]}/${match[3]}/${match[1]}`;
 }
 
+// Short date for Contract Time Change, such as "Nov 4".
+export function shortMonthDay(iso) {
+  const match = String(iso ?? '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).toLocaleDateString(
+    'en-US',
+    { month: 'short', day: 'numeric' }
+  );
+}
+
 // Payroll-rounded daily total for one schedule row.
 // Each run is rounded to the nearest 15 minutes, those amounts are added,
 // and that sum is rounded again.
@@ -68,22 +80,61 @@ function hoursText(minutes) {
   return minutes == null ? '—' : formatDurationLabel(minutes);
 }
 
+// The date the rounded contracted hours changed, or the date they are
+// predicted to change, written as "Nov 4". A monthly bid uses the 15th
+// school day after the change. A row that rounds to the same total as the
+// row above did not change the contracted hours, so it has no date here.
+function contractTimeChangeText(rows, index) {
+  if (index <= 0) return '—';
+  const current = scheduleRoundedMinutes(rows[index]?.schedule);
+  const previous = scheduleRoundedMinutes(rows[index - 1]?.schedule);
+  if (current == null || previous == null || current === previous) return '—';
+  return shortMonthDay(rows[index]?.contracted?.hours_change_on) || '—';
+}
+
+function isBidContract(contracted) {
+  return contracted?.projected_outcome === 'BID_PENDING' || contracted?.status === 'bid_pending';
+}
+
+// Monthly bid window for this row. The stored end covers a custom school year.
+// School days cover a row that has not been annotated yet.
+function bidSpanForContract(contracted, schoolDays) {
+  if (!isBidContract(contracted)) return null;
+  const on = String(contracted?.becomes_on || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) return null;
+  if (schoolDays?.length) {
+    const span = bidPostingSpan(schoolDays, on);
+    if (span) return span;
+  }
+  const through = String(contracted?.bid_through || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(through) && through >= on) {
+    return { start: on, end: through };
+  }
+  return null;
+}
+
 // Date this row's schedule became the contract, or a predicted date.
 // "predicted" is the next contracted date if no further change is logged.
 // A later change that carries a different date is "new predicted".
 // The date it replaces is "old predicted".
-export function contractedDateText(row, role = 'predicted') {
+// A monthly bid names the posting window: "Predicted up for bid 11/20–11/30".
+export function contractedDateText(row, role = 'predicted', schoolDays) {
   const status = row.contracted?.status;
   const on = row.contracted?.becomes_on;
   if (status === 'side_countdown') return '—';
+  const span = bidSpanForContract(row.contracted, schoolDays);
   if (status === 'predicted') {
     if (!on) return 'predicted';
+    if (span) return bidPostingPhrase(span, role === 'new' || role === 'old' ? role : 'predicted');
     const date = monthDayYear(on);
     if (role === 'new') return `new predicted: ${date}`;
     if (role === 'old') return `old predicted: ${date}`;
     return `predicted: ${date}`;
   }
-  if (on && status !== 'superseded') return monthDayYear(on);
+  if (on && status !== 'superseded') {
+    if (span) return bidPostingPhrase(span, 'posted');
+    return monthDayYear(on);
+  }
   if (row.kind === 'initial' && row.date) return monthDayYear(row.date);
   return '—';
 }
@@ -109,28 +160,29 @@ function predictedDateRoles(rows) {
   return roles;
 }
 
-// A side countdown that leaves the bid in place keeps the standing date.
-function standingPredictedDate(rows, index) {
+// A side countdown that leaves the bid in place keeps the standing forecast.
+function standingPredictedRow(rows, index) {
   for (let cursor = index; cursor >= 0; cursor -= 1) {
     const contracted = rows[cursor]?.contracted;
     if (contracted?.status === 'predicted' && contracted.becomes_on) {
-      return contracted.becomes_on;
+      return { row: rows[cursor], index: cursor };
     }
   }
   return null;
 }
 
 // Scheduled Hours is the rounded total of the clock times on that row.
-export function contractColumnsForHistory(rows) {
+export function contractColumnsForHistory(rows, schoolDays) {
   const list = rows || [];
   const roles = predictedDateRoles(list);
   return list.map((row, index) => {
-    const standing = row?.contracted?.status === 'side_countdown' ? standingPredictedDate(list, index) : null;
+    const standing = row?.contracted?.status === 'side_countdown' ? standingPredictedRow(list, index) : null;
     const contractedDate = standing
-      ? `predicted: ${monthDayYear(standing)}`
-      : contractedDateText(row, roles.get(index));
+      ? contractedDateText(standing.row, roles.get(standing.index) || 'predicted', schoolDays)
+      : contractedDateText(row, roles.get(index), schoolDays);
     return {
       hours: hoursText(scheduleRoundedMinutes(row.schedule)),
+      contractTimeChange: contractTimeChangeText(list, index),
       contractedDate,
     };
   });
@@ -219,6 +271,7 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES)
             .join('');
         }).join('')}
         <td class="hours-figure">${escapeHtml(column.hours)}</td>
+        <td class="hours-figure">${escapeHtml(column.contractTimeChange)}</td>
         <td>
           <span class="contracted-date">${escapeHtml(column.contractedDate)}</span>
           ${contractedDetail}
@@ -238,6 +291,7 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES)
         <th scope="col">PM start</th>
         <th scope="col">PM end</th>
         <th scope="col">Scheduled Hours</th>
+        <th scope="col">Contract Time Change</th>
         <th scope="col">Date, if Contracted</th>
       </tr>
     </thead>

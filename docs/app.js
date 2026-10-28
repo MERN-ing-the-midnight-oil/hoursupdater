@@ -21202,6 +21202,317 @@ function rebuildRouteStateFromChangeLog(changeLog, initialState = {}, schoolCale
   );
 }
 
+// employee-tracker/src/clockHistory.js
+var CLOCK_HISTORY_TONES = [
+  "#1f5c4a",
+  "#2f5f9e",
+  "#a15c12",
+  "#6b3f78",
+  "#0e7490",
+  "#9a3d4a",
+  "#3f6b2f",
+  "#8a5a2b"
+];
+function shiftIsoDate(iso, days) {
+  const [year, month, day] = iso.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
+function cumulativeChangeBeside(row) {
+  if (row?.kind !== "change") return null;
+  const label = String(row?.cumulative_drift_label ?? "").trim();
+  return label || null;
+}
+function countdownDateLabel(iso) {
+  const match = String(iso ?? "").slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  return `${match[2]}/${match[3]}`;
+}
+function countdownMinutesLabel(minutes) {
+  const value = Number(minutes);
+  if (!Number.isFinite(value)) return "";
+  const abs = Math.abs(value);
+  const unit = abs === 1 ? "minute" : "minutes";
+  if (value > 0) return `+${abs} ${unit}`;
+  if (value < 0) return `\u2212${abs} ${unit}`;
+  return `0 ${unit}`;
+}
+function countdownAccumulationLabel(startedOn, minutes) {
+  const date = countdownDateLabel(startedOn);
+  const amount = countdownMinutesLabel(minutes);
+  if (!date || !amount) return "";
+  return `${date} Countdown, ${amount}`;
+}
+function scheduleChangeKindLines(row) {
+  if (row?.kind === "initial") return ["Established"];
+  const lines = [row?.delta_label ? `Change \xB7 ${row.delta_label}` : "Change"];
+  if (Array.isArray(row?.countdowns)) {
+    for (const countdown of row.countdowns) {
+      const label = countdownAccumulationLabel(countdown?.started_on, countdown?.minutes);
+      if (label) lines.push(label);
+    }
+    return lines;
+  }
+  const cumulative = cumulativeChangeBeside(row);
+  if (cumulative) lines.push(`Cumulative change \xB7 ${cumulative}`);
+  return lines;
+}
+function scheduleChangeKindHtml(row, escapeHtml2) {
+  const escape = typeof escapeHtml2 === "function" ? escapeHtml2 : (value) => String(value ?? "");
+  return scheduleChangeKindLines(row).map((line) => `<span class="row-kind">${escape(line)}</span>`).join("");
+}
+function clockHistoryLabel(row) {
+  if (row?.kind === "initial") return "Established";
+  return row?.delta_label || "Change";
+}
+function fifteenSchoolDaysAfter(schoolDays, from) {
+  try {
+    const end = addSchoolDays(schoolDays, from, WINDOW_SCHOOL_DAYS);
+    return schoolDays.filter((day) => day > from && day <= end);
+  } catch {
+    return schoolDays.filter((day) => day > from).slice(0, WINDOW_SCHOOL_DAYS);
+  }
+}
+function usesFifteenDayWindow(row, fifteen) {
+  if (row?.force_oct1_contract) return false;
+  if (row?.kind !== "change" || !row.date || !fifteen.length) return false;
+  const fifteenth = fifteen[fifteen.length - 1];
+  const october1 = october1ForDate(row.date);
+  const becomes = row.contracted?.becomes_on;
+  if (becomes) {
+    if (becomes === october1 && row.date < october1) return false;
+    return shiftIsoDate(becomes, -1) >= fifteenth;
+  }
+  if (row.contracted?.status !== "superseded") return false;
+  if (row.date >= october1) return true;
+  if ((row.delta_minutes ?? 0) >= BID_THRESHOLD_MINUTES) {
+    return fifteenth < october1;
+  }
+  return false;
+}
+function bidPeriodRanges(schoolDays) {
+  const byMonth = /* @__PURE__ */ new Map();
+  for (const day of monthlyBidPostingDays(schoolDays)) {
+    const key = day.slice(0, 7);
+    const group = byMonth.get(key);
+    if (group) group.push(day);
+    else byMonth.set(key, [day]);
+  }
+  return [...byMonth.values()].map((days) => ({
+    start: days[0],
+    end: days[days.length - 1],
+    schoolDays: days
+  }));
+}
+function monthDay(iso) {
+  const match = String(iso ?? "").slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  return `${match[2]}/${match[3]}`;
+}
+function bidPostingSpan(schoolDays, becomesOn) {
+  const day = String(becomesOn ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const period = bidPeriodRanges(schoolDays).find((range) => day >= range.start && day <= range.end);
+  if (!period) return null;
+  return { start: day, end: period.end };
+}
+function bidPostingSpanText(span) {
+  const start = monthDay(span?.start);
+  const end = monthDay(span?.end);
+  if (!start) return "";
+  if (!end || start === end) return start;
+  return `${start}\u2013${end}`;
+}
+function bidPostingPhrase(span, role = "predicted") {
+  const dates = bidPostingSpanText(span);
+  if (!dates) return "";
+  if (role === "new") return `New predicted up for bid ${dates}`;
+  if (role === "old") return `Old predicted up for bid ${dates}`;
+  if (role === "posted") return `Up for bid ${dates}`;
+  return `Predicted up for bid ${dates}`;
+}
+function resolvesAsBid(row) {
+  const outcome = row?.contracted?.projected_outcome;
+  const status = row?.contracted?.status;
+  return outcome === "BID_PENDING" || status === "bid_pending";
+}
+function locksInAsContracted(row) {
+  if (row?.kind !== "change" || !row.contracted?.becomes_on || keepsStandingForecast(row)) return false;
+  const outcome = row.contracted?.projected_outcome;
+  const status = row.contracted?.status;
+  if (outcome === "BID_PENDING" || outcome === "BUMP_ELIGIBLE") return false;
+  if (status === "bid_pending" || status === "bump_eligible") return false;
+  return true;
+}
+function keepsStandingForecast(row) {
+  const status = row?.contracted?.status;
+  return status === "side_countdown" || status === "separate_countdown";
+}
+function nextReplacingDate(list, index) {
+  for (let cursor = index + 1; cursor < list.length; cursor += 1) {
+    const next = list[cursor];
+    if (!next?.date || keepsStandingForecast(next)) continue;
+    return next.date;
+  }
+  return null;
+}
+function resolutionArrow(row, fifteen, nextDate) {
+  if (nextDate || row?.kind !== "change" || keepsStandingForecast(row)) return null;
+  const becomes = row.contracted?.becomes_on;
+  if (!becomes) return null;
+  const start = usesFifteenDayWindow(row, fifteen) ? shiftIsoDate(fifteen[fifteen.length - 1], 1) : shiftIsoDate(row.date, 1);
+  if (becomes <= start) return null;
+  return { start, end: becomes };
+}
+function changeHoverLines(mark) {
+  if (!mark?.isChange) return [];
+  const lines = [`Current change: ${mark.label}`];
+  if (mark.cumulativeLabel) {
+    lines.push(`Cumulative change: ${mark.cumulativeLabel}`);
+  }
+  return lines;
+}
+function changeDetailLines(row) {
+  if (!row || row.kind !== "change") return [];
+  const segment = row.segment === "MIDDAY" ? "Midday" : row.segment || "Run";
+  const lines = [];
+  if (row.previous_time || row.new_time) {
+    lines.push(`${segment} ${row.previous_time || "\u2014"} \u2192 ${row.new_time || "\u2014"}`);
+  }
+  if (row.note) lines.push(row.note);
+  const contracted = row.contracted || {};
+  for (const line of [contracted.label, contracted.projected_outcome_label, contracted.detail]) {
+    if (line && !lines.includes(line)) lines.push(line);
+  }
+  return lines;
+}
+function changeHoverFlags(row) {
+  const isChange = row?.kind === "change";
+  const cumulative = row?.cumulative_drift_minutes;
+  const own = row?.delta_minutes;
+  const applies = isChange && typeof cumulative === "number" && typeof own === "number" && cumulative !== own && Boolean(row.cumulative_drift_label);
+  return {
+    isChange,
+    cumulativeLabel: applies ? row.cumulative_drift_label : null
+  };
+}
+function historyMark(toneIndex, tone, label, flags = {}) {
+  return {
+    toneIndex,
+    tone,
+    label,
+    isChange: flags.isChange ?? false,
+    cumulativeLabel: flags.cumulativeLabel ?? null,
+    sourceIndex: flags.sourceIndex ?? null,
+    established: flags.established ?? false,
+    window: flags.window ?? false,
+    windowDay: flags.windowDay ?? null,
+    arrow: flags.arrow ?? false,
+    arrowHead: flags.arrowHead ?? false,
+    resolvesOn: flags.resolvesOn ?? null,
+    goesToBid: flags.goesToBid ?? false,
+    contractedDay: flags.contractedDay ?? false,
+    arrowOrigin: flags.arrowOrigin ?? false,
+    arrowFromWindow: flags.arrowFromWindow ?? false
+  };
+}
+function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY_TONES }) {
+  const marks = /* @__PURE__ */ new Map();
+  const days = [...schoolDays].sort();
+  const list = rows ?? [];
+  const palette = tones.length ? tones : CLOCK_HISTORY_TONES;
+  list.forEach((row, index) => {
+    if (!row?.date) return;
+    const toneIndex = index % palette.length;
+    const tone = palette[toneIndex];
+    const label = clockHistoryLabel(row);
+    const hover = { ...changeHoverFlags(row), sourceIndex: index };
+    const nextDate = nextReplacingDate(list, index);
+    const fifteen = fifteenSchoolDaysAfter(days, row.date);
+    marks.set(
+      row.date,
+      historyMark(toneIndex, tone, label, {
+        ...hover,
+        established: true
+      })
+    );
+    if (keepsStandingForecast(row)) return;
+    if (usesFifteenDayWindow(row, fifteen)) {
+      let windowDay = 0;
+      for (const day of fifteen) {
+        if (nextDate && day >= nextDate) break;
+        windowDay += 1;
+        const existing = marks.get(day);
+        marks.set(
+          day,
+          historyMark(toneIndex, tone, label, {
+            ...hover,
+            established: existing?.established ?? false,
+            window: true,
+            windowDay
+          })
+        );
+      }
+    }
+    const arrow = resolutionArrow(row, fifteen, nextDate);
+    if (arrow) {
+      const originDay = shiftIsoDate(arrow.start, -1);
+      const origin = marks.get(originDay);
+      const fromWindow = Boolean(origin?.window);
+      if (origin) {
+        marks.set(
+          originDay,
+          historyMark(toneIndex, tone, origin.label, {
+            isChange: origin.isChange,
+            cumulativeLabel: origin.cumulativeLabel,
+            sourceIndex: origin.sourceIndex,
+            established: origin.established,
+            window: origin.window,
+            windowDay: origin.windowDay,
+            contractedDay: origin.contractedDay,
+            arrowOrigin: true,
+            arrowFromWindow: fromWindow
+          })
+        );
+      }
+      const arrowLast = shiftIsoDate(arrow.end, -1);
+      let cursor = arrow.start;
+      while (cursor < arrow.end) {
+        marks.set(
+          cursor,
+          historyMark(toneIndex, tone, label, {
+            ...hover,
+            arrow: true,
+            arrowHead: cursor === arrowLast,
+            resolvesOn: arrow.end,
+            goesToBid: resolvesAsBid(row),
+            arrowFromWindow: fromWindow
+          })
+        );
+        cursor = shiftIsoDate(cursor, 1);
+      }
+    }
+    if (!nextDate && locksInAsContracted(row)) {
+      const day = row.contracted.becomes_on;
+      const existing = marks.get(day);
+      marks.set(
+        day,
+        historyMark(toneIndex, tone, label, {
+          ...hover,
+          established: existing?.established ?? false,
+          window: existing?.window ?? false,
+          windowDay: existing?.windowDay ?? null,
+          arrow: existing?.arrow ?? false,
+          arrowHead: existing?.arrowHead ?? false,
+          resolvesOn: existing?.resolvesOn ?? null,
+          contractedDay: true
+        })
+      );
+    }
+  });
+  return marks;
+}
+
 // employee-tracker/src/clockTimes.js
 function normalizeClockTime(time) {
   const minutes = parseClockTime(String(time ?? "").trim());
@@ -21497,6 +21808,62 @@ function annotateCumulativeDrift(rows, entry) {
   let carried = writeSum(openIds, 0);
   for (const ids of sideGroups) carried = writeSum(ids, carried);
 }
+function logThroughDate(changeLog, date) {
+  return (changeLog || []).filter((entry) => {
+    if (entry?.type && entry.type !== "CHANGE") return true;
+    const effective = String(entry?.effective_date || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(effective)) return true;
+    return effective <= date;
+  });
+}
+function earliestChangeDate(ids, datesById) {
+  let earliest = null;
+  for (const id of ids || []) {
+    const date = datesById.get(id);
+    if (date && (!earliest || date < earliest)) earliest = date;
+  }
+  return earliest;
+}
+function countdownsFromState(state, datesById) {
+  if (!state) return [];
+  const countdowns = [];
+  const windowOpen = state.status === "ACCUMULATING" && (state.contributing_change_ids?.length || state.window_opened_date);
+  if (windowOpen) {
+    const started = state.window_opened_date || earliestChangeDate(state.contributing_change_ids, datesById);
+    if (started) {
+      countdowns.push({
+        started_on: started,
+        minutes: state.cumulative_drift_minutes ?? 0
+      });
+    }
+  }
+  const sides = [...state.side_windows ?? []].sort(
+    (a, b) => String(a.opened_date || "").localeCompare(String(b.opened_date || ""))
+  );
+  for (const side of sides) {
+    const started = side.opened_date || earliestChangeDate(side.contributing_change_ids, datesById);
+    if (!started) continue;
+    countdowns.push({
+      started_on: started,
+      minutes: side.drift_minutes ?? 0
+    });
+  }
+  return countdowns;
+}
+function annotateOpenCountdowns(rows, changeLog, calendar) {
+  if (!calendar || !rows?.length) return rows;
+  const datesById = /* @__PURE__ */ new Map();
+  for (const change of changeLog || []) {
+    const date = String(change?.effective_date || "").slice(0, 10);
+    if (change?.id && /^\d{4}-\d{2}-\d{2}$/.test(date)) datesById.set(change.id, date);
+  }
+  for (const row of rows) {
+    if (row?.kind !== "change" || !row.date) continue;
+    const state = rebuildEmployeeRouteState(logThroughDate(changeLog, row.date), calendar, row.date);
+    row.countdowns = countdownsFromState(state, datesById);
+  }
+  return rows;
+}
 function contractedStatusForChanges(changes, context) {
   const statuses = changes.map((change) => contractedStatusForChange(change, context));
   const standing = statuses.find((item) => item.status === "predicted" && item.becomes_on);
@@ -21607,6 +21974,44 @@ function contractedStatusForChange(change, { reports, openIds, lastOpenId, entry
     detail: null
   };
 }
+function annotateContractHoursChange(history2, schoolDays) {
+  for (const row of history2 || []) {
+    const contracted = row?.contracted;
+    if (!contracted) continue;
+    const on = contractHoursChangeOn(row, schoolDays);
+    if (on) contracted.hours_change_on = on;
+  }
+}
+function contractHoursChangeOn(row, schoolDays) {
+  const contracted = row?.contracted;
+  if (!contracted) return null;
+  const isBid = contracted.projected_outcome === "BID_PENDING" || contracted.status === "bid_pending";
+  const changeDate = String(row.date || "").slice(0, 10);
+  if (isBid && /^\d{4}-\d{2}-\d{2}$/.test(changeDate)) {
+    try {
+      return addSchoolDays(schoolDays, changeDate, WINDOW_SCHOOL_DAYS);
+    } catch {
+    }
+  }
+  const on = String(contracted.becomes_on || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(on) ? on : null;
+}
+function annotateBidPosting(history2, schoolDays) {
+  for (const row of history2 || []) {
+    const contracted = row?.contracted;
+    if (!contracted?.becomes_on) continue;
+    const isBid = contracted.projected_outcome === "BID_PENDING" || contracted.status === "bid_pending";
+    if (!isBid) continue;
+    const span = bidPostingSpan(schoolDays, contracted.becomes_on);
+    if (!span) continue;
+    contracted.bid_through = span.end;
+    if (contracted.status === "predicted") {
+      contracted.label = bidPostingPhrase(span);
+    } else if (contracted.status === "bid_pending") {
+      contracted.label = bidPostingPhrase(span, "posted");
+    }
+  }
+}
 function officialContractedMinutes(entry) {
   if (!entry) {
     return null;
@@ -21657,6 +22062,10 @@ function buildEmployeeSnapshot({
     window2,
     profile?.start_date ?? null
   );
+  annotateOpenCountdowns(schedule_history, changeLog, calendar);
+  const schoolDays = getSchoolDays(calendar);
+  annotateBidPosting(schedule_history, schoolDays);
+  annotateContractHoursChange(schedule_history, schoolDays);
   return {
     setup_complete,
     as_of: asOf,
@@ -21705,6 +22114,8 @@ function buildWindowView(entry, calendar, asOf) {
   const daysRemaining = open ? daysRemainingInWindow(calendar, asOf, entry.window_expires_date) : null;
   const becomesOn = open ? dayAfter(entry.window_expires_date) : null;
   const projectedOutcome = open ? forced ? "STABLE" : windowFinalizationOutcome(drift) : null;
+  const bidSpan = projectedOutcome === "BID_PENDING" && becomesOn ? bidPostingSpan(getSchoolDays(calendar), becomesOn) : null;
+  const bidPhrase = bidSpan ? bidPostingPhrase(bidSpan) : null;
   const outcomeCopy = forced ? FORCED_OCT1_COPY : projectedOutcome ? OUTCOME_COPY[projectedOutcome] : null;
   const math = open ? buildSeeTheMathFromSegments(entry.baseline_segments, entry.segments) : null;
   const currentContractMinutes = typeof entry.payroll_rounded_total_minutes === "number" ? entry.payroll_rounded_total_minutes : math?.before?.payroll_rounded_total_minutes;
@@ -21713,7 +22124,10 @@ function buildWindowView(entry, calendar, asOf) {
     math.after.payroll_rounded_total_minutes
   ) : null;
   let headline = copy.summary;
-  if (open && becomesOn && outcomeCopy) {
+  if (open && bidPhrase) {
+    const ruleNote = WINDOW_RULE_HEADLINE[entry.window_rule] ?? "After October 1 a 30-minute increase is posted for bid during the last five school days of the month, October through April (Art. 3.08(b)(1)).";
+    headline = `${ruleNote} If you do not log another change, the route is predicted up for bid ${bidPostingSpanText(bidSpan)}.`;
+  } else if (open && becomesOn && outcomeCopy) {
     const ruleNote = WINDOW_RULE_HEADLINE[entry.window_rule] ?? "If you do not log another change, these times become contracted on the date below.";
     headline = `${ruleNote} If you do not log another change, that date is ${prettyDate(becomesOn)}. Projected result: ${outcomeCopy.label.toLowerCase()}.`;
   } else if (status === "STABLE" && entry.payroll_rounded_total_minutes != null) {
@@ -21730,6 +22144,8 @@ function buildWindowView(entry, calendar, asOf) {
     expires_date: entry.window_expires_date ?? null,
     window_rule: entry.window_rule ?? null,
     becomes_contracted_on: becomesOn,
+    bid_posting_phrase: bidPhrase,
+    bid_through: bidSpan?.end ?? null,
     days_remaining: daysRemaining,
     cumulative_drift_minutes: drift,
     cumulative_drift_label: formatSignedMinutes(drift),
@@ -21905,263 +22321,6 @@ function slicesForDriver(profile, driverName) {
   return slices;
 }
 
-// employee-tracker/src/clockHistory.js
-var CLOCK_HISTORY_TONES = [
-  "#1f5c4a",
-  "#2f5f9e",
-  "#a15c12",
-  "#6b3f78",
-  "#0e7490",
-  "#9a3d4a",
-  "#3f6b2f",
-  "#8a5a2b"
-];
-function shiftIsoDate(iso, days) {
-  const [year, month, day] = iso.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day + days));
-  return date.toISOString().slice(0, 10);
-}
-function cumulativeChangeBeside(row) {
-  if (row?.kind !== "change") return null;
-  const label = String(row?.cumulative_drift_label ?? "").trim();
-  return label || null;
-}
-function scheduleChangeKindLines(row) {
-  if (row?.kind === "initial") return ["Established"];
-  const lines = [row?.delta_label ? `Change \xB7 ${row.delta_label}` : "Change"];
-  const cumulative = cumulativeChangeBeside(row);
-  if (cumulative) lines.push(`Cumulative change \xB7 ${cumulative}`);
-  return lines;
-}
-function scheduleChangeKindHtml(row, escapeHtml2) {
-  const escape = typeof escapeHtml2 === "function" ? escapeHtml2 : (value) => String(value ?? "");
-  return scheduleChangeKindLines(row).map((line) => `<span class="row-kind">${escape(line)}</span>`).join("");
-}
-function clockHistoryLabel(row) {
-  if (row?.kind === "initial") return "Established";
-  return row?.delta_label || "Change";
-}
-function fifteenSchoolDaysAfter(schoolDays, from) {
-  try {
-    const end = addSchoolDays(schoolDays, from, WINDOW_SCHOOL_DAYS);
-    return schoolDays.filter((day) => day > from && day <= end);
-  } catch {
-    return schoolDays.filter((day) => day > from).slice(0, WINDOW_SCHOOL_DAYS);
-  }
-}
-function usesFifteenDayWindow(row, fifteen) {
-  if (row?.force_oct1_contract) return false;
-  if (row?.kind !== "change" || !row.date || !fifteen.length) return false;
-  const fifteenth = fifteen[fifteen.length - 1];
-  const october1 = october1ForDate(row.date);
-  const becomes = row.contracted?.becomes_on;
-  if (becomes) {
-    if (becomes === october1 && row.date < october1) return false;
-    return shiftIsoDate(becomes, -1) >= fifteenth;
-  }
-  if (row.contracted?.status !== "superseded") return false;
-  if (row.date >= october1) return true;
-  if ((row.delta_minutes ?? 0) >= BID_THRESHOLD_MINUTES) {
-    return fifteenth < october1;
-  }
-  return false;
-}
-function bidPeriodRanges(schoolDays) {
-  const byMonth = /* @__PURE__ */ new Map();
-  for (const day of monthlyBidPostingDays(schoolDays)) {
-    const key = day.slice(0, 7);
-    const group = byMonth.get(key);
-    if (group) group.push(day);
-    else byMonth.set(key, [day]);
-  }
-  return [...byMonth.values()].map((days) => ({
-    start: days[0],
-    end: days[days.length - 1],
-    schoolDays: days
-  }));
-}
-function resolvesAsBid(row) {
-  const outcome = row?.contracted?.projected_outcome;
-  const status = row?.contracted?.status;
-  return outcome === "BID_PENDING" || status === "bid_pending";
-}
-function locksInAsContracted(row) {
-  if (row?.kind !== "change" || !row.contracted?.becomes_on || keepsStandingForecast(row)) return false;
-  const outcome = row.contracted?.projected_outcome;
-  const status = row.contracted?.status;
-  if (outcome === "BID_PENDING" || outcome === "BUMP_ELIGIBLE") return false;
-  if (status === "bid_pending" || status === "bump_eligible") return false;
-  return true;
-}
-function keepsStandingForecast(row) {
-  const status = row?.contracted?.status;
-  return status === "side_countdown" || status === "separate_countdown";
-}
-function nextReplacingDate(list, index) {
-  for (let cursor = index + 1; cursor < list.length; cursor += 1) {
-    const next = list[cursor];
-    if (!next?.date || keepsStandingForecast(next)) continue;
-    return next.date;
-  }
-  return null;
-}
-function resolutionArrow(row, fifteen, nextDate) {
-  if (nextDate || row?.kind !== "change" || keepsStandingForecast(row)) return null;
-  const becomes = row.contracted?.becomes_on;
-  if (!becomes) return null;
-  const start = usesFifteenDayWindow(row, fifteen) ? shiftIsoDate(fifteen[fifteen.length - 1], 1) : shiftIsoDate(row.date, 1);
-  if (becomes <= start) return null;
-  return { start, end: becomes };
-}
-function changeHoverLines(mark) {
-  if (!mark?.isChange) return [];
-  const lines = [`Current change: ${mark.label}`];
-  if (mark.cumulativeLabel) {
-    lines.push(`Cumulative change: ${mark.cumulativeLabel}`);
-  }
-  return lines;
-}
-function changeDetailLines(row) {
-  if (!row || row.kind !== "change") return [];
-  const segment = row.segment === "MIDDAY" ? "Midday" : row.segment || "Run";
-  const lines = [];
-  if (row.previous_time || row.new_time) {
-    lines.push(`${segment} ${row.previous_time || "\u2014"} \u2192 ${row.new_time || "\u2014"}`);
-  }
-  if (row.note) lines.push(row.note);
-  const contracted = row.contracted || {};
-  for (const line of [contracted.label, contracted.projected_outcome_label, contracted.detail]) {
-    if (line && !lines.includes(line)) lines.push(line);
-  }
-  return lines;
-}
-function changeHoverFlags(row) {
-  const isChange = row?.kind === "change";
-  const cumulative = row?.cumulative_drift_minutes;
-  const own = row?.delta_minutes;
-  const applies = isChange && typeof cumulative === "number" && typeof own === "number" && cumulative !== own && Boolean(row.cumulative_drift_label);
-  return {
-    isChange,
-    cumulativeLabel: applies ? row.cumulative_drift_label : null
-  };
-}
-function historyMark(toneIndex, tone, label, flags = {}) {
-  return {
-    toneIndex,
-    tone,
-    label,
-    isChange: flags.isChange ?? false,
-    cumulativeLabel: flags.cumulativeLabel ?? null,
-    sourceIndex: flags.sourceIndex ?? null,
-    established: flags.established ?? false,
-    window: flags.window ?? false,
-    windowDay: flags.windowDay ?? null,
-    arrow: flags.arrow ?? false,
-    arrowHead: flags.arrowHead ?? false,
-    resolvesOn: flags.resolvesOn ?? null,
-    goesToBid: flags.goesToBid ?? false,
-    contractedDay: flags.contractedDay ?? false,
-    arrowOrigin: flags.arrowOrigin ?? false,
-    arrowFromWindow: flags.arrowFromWindow ?? false
-  };
-}
-function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY_TONES }) {
-  const marks = /* @__PURE__ */ new Map();
-  const days = [...schoolDays].sort();
-  const list = rows ?? [];
-  const palette = tones.length ? tones : CLOCK_HISTORY_TONES;
-  list.forEach((row, index) => {
-    if (!row?.date) return;
-    const toneIndex = index % palette.length;
-    const tone = palette[toneIndex];
-    const label = clockHistoryLabel(row);
-    const hover = { ...changeHoverFlags(row), sourceIndex: index };
-    const nextDate = nextReplacingDate(list, index);
-    const fifteen = fifteenSchoolDaysAfter(days, row.date);
-    marks.set(
-      row.date,
-      historyMark(toneIndex, tone, label, {
-        ...hover,
-        established: true
-      })
-    );
-    if (keepsStandingForecast(row)) return;
-    if (usesFifteenDayWindow(row, fifteen)) {
-      let windowDay = 0;
-      for (const day of fifteen) {
-        if (nextDate && day >= nextDate) break;
-        windowDay += 1;
-        const existing = marks.get(day);
-        marks.set(
-          day,
-          historyMark(toneIndex, tone, label, {
-            ...hover,
-            established: existing?.established ?? false,
-            window: true,
-            windowDay
-          })
-        );
-      }
-    }
-    const arrow = resolutionArrow(row, fifteen, nextDate);
-    if (arrow) {
-      const originDay = shiftIsoDate(arrow.start, -1);
-      const origin = marks.get(originDay);
-      const fromWindow = Boolean(origin?.window);
-      if (origin) {
-        marks.set(
-          originDay,
-          historyMark(toneIndex, tone, origin.label, {
-            isChange: origin.isChange,
-            cumulativeLabel: origin.cumulativeLabel,
-            sourceIndex: origin.sourceIndex,
-            established: origin.established,
-            window: origin.window,
-            windowDay: origin.windowDay,
-            contractedDay: origin.contractedDay,
-            arrowOrigin: true,
-            arrowFromWindow: fromWindow
-          })
-        );
-      }
-      const arrowLast = shiftIsoDate(arrow.end, -1);
-      let cursor = arrow.start;
-      while (cursor < arrow.end) {
-        marks.set(
-          cursor,
-          historyMark(toneIndex, tone, label, {
-            ...hover,
-            arrow: true,
-            arrowHead: cursor === arrowLast,
-            resolvesOn: arrow.end,
-            goesToBid: resolvesAsBid(row),
-            arrowFromWindow: fromWindow
-          })
-        );
-        cursor = shiftIsoDate(cursor, 1);
-      }
-    }
-    if (!nextDate && locksInAsContracted(row)) {
-      const day = row.contracted.becomes_on;
-      const existing = marks.get(day);
-      marks.set(
-        day,
-        historyMark(toneIndex, tone, label, {
-          ...hover,
-          established: existing?.established ?? false,
-          window: existing?.window ?? false,
-          windowDay: existing?.windowDay ?? null,
-          arrow: existing?.arrow ?? false,
-          arrowHead: existing?.arrowHead ?? false,
-          resolvesOn: existing?.resolvesOn ?? null,
-          contractedDay: true
-        })
-      );
-    }
-  });
-  return marks;
-}
-
 // office-tracker/src/historyMarkup.js
 var OFFICE_HISTORY_TONES = [
   "#1a4f86",
@@ -22195,6 +22354,14 @@ function monthDayYear(iso) {
   if (!match) return "\u2014";
   return `${match[2]}/${match[3]}/${match[1]}`;
 }
+function shortMonthDay(iso) {
+  const match = String(iso ?? "").slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).toLocaleDateString(
+    "en-US",
+    { month: "short", day: "numeric" }
+  );
+}
 function scheduleRoundedMinutes(schedule) {
   const segments = {};
   for (const run of RUNS) {
@@ -22207,18 +22374,47 @@ function scheduleRoundedMinutes(schedule) {
 function hoursText(minutes) {
   return minutes == null ? "\u2014" : formatDurationLabel(minutes);
 }
-function contractedDateText(row, role = "predicted") {
+function contractTimeChangeText(rows, index) {
+  if (index <= 0) return "\u2014";
+  const current = scheduleRoundedMinutes(rows[index]?.schedule);
+  const previous = scheduleRoundedMinutes(rows[index - 1]?.schedule);
+  if (current == null || previous == null || current === previous) return "\u2014";
+  return shortMonthDay(rows[index]?.contracted?.hours_change_on) || "\u2014";
+}
+function isBidContract(contracted) {
+  return contracted?.projected_outcome === "BID_PENDING" || contracted?.status === "bid_pending";
+}
+function bidSpanForContract(contracted, schoolDays) {
+  if (!isBidContract(contracted)) return null;
+  const on = String(contracted?.becomes_on || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) return null;
+  if (schoolDays?.length) {
+    const span = bidPostingSpan(schoolDays, on);
+    if (span) return span;
+  }
+  const through = String(contracted?.bid_through || "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(through) && through >= on) {
+    return { start: on, end: through };
+  }
+  return null;
+}
+function contractedDateText(row, role = "predicted", schoolDays) {
   const status = row.contracted?.status;
   const on = row.contracted?.becomes_on;
   if (status === "side_countdown") return "\u2014";
+  const span = bidSpanForContract(row.contracted, schoolDays);
   if (status === "predicted") {
     if (!on) return "predicted";
+    if (span) return bidPostingPhrase(span, role === "new" || role === "old" ? role : "predicted");
     const date = monthDayYear(on);
     if (role === "new") return `new predicted: ${date}`;
     if (role === "old") return `old predicted: ${date}`;
     return `predicted: ${date}`;
   }
-  if (on && status !== "superseded") return monthDayYear(on);
+  if (on && status !== "superseded") {
+    if (span) return bidPostingPhrase(span, "posted");
+    return monthDayYear(on);
+  }
   if (row.kind === "initial" && row.date) return monthDayYear(row.date);
   return "\u2014";
 }
@@ -22239,23 +22435,24 @@ function predictedDateRoles(rows) {
   }
   return roles;
 }
-function standingPredictedDate(rows, index) {
+function standingPredictedRow(rows, index) {
   for (let cursor = index; cursor >= 0; cursor -= 1) {
     const contracted = rows[cursor]?.contracted;
     if (contracted?.status === "predicted" && contracted.becomes_on) {
-      return contracted.becomes_on;
+      return { row: rows[cursor], index: cursor };
     }
   }
   return null;
 }
-function contractColumnsForHistory(rows) {
+function contractColumnsForHistory(rows, schoolDays) {
   const list = rows || [];
   const roles = predictedDateRoles(list);
   return list.map((row, index) => {
-    const standing = row?.contracted?.status === "side_countdown" ? standingPredictedDate(list, index) : null;
-    const contractedDate = standing ? `predicted: ${monthDayYear(standing)}` : contractedDateText(row, roles.get(index));
+    const standing = row?.contracted?.status === "side_countdown" ? standingPredictedRow(list, index) : null;
+    const contractedDate = standing ? contractedDateText(standing.row, roles.get(standing.index) || "predicted", schoolDays) : contractedDateText(row, roles.get(index), schoolDays);
     return {
       hours: hoursText(scheduleRoundedMinutes(row.schedule)),
+      contractTimeChange: contractTimeChangeText(list, index),
       contractedDate
     };
   });
@@ -22326,6 +22523,7 @@ function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES) {
       }).join("");
     }).join("")}
         <td class="hours-figure">${escapeHtml(column.hours)}</td>
+        <td class="hours-figure">${escapeHtml(column.contractTimeChange)}</td>
         <td>
           <span class="contracted-date">${escapeHtml(column.contractedDate)}</span>
           ${contractedDetail}
@@ -22344,6 +22542,7 @@ function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES) {
         <th scope="col">PM start</th>
         <th scope="col">PM end</th>
         <th scope="col">Scheduled Hours</th>
+        <th scope="col">Contract Time Change</th>
         <th scope="col">Date, if Contracted</th>
       </tr>
     </thead>

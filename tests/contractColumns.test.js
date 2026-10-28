@@ -7,7 +7,13 @@ import {
   rebuildEmployeeRouteState,
 } from '../employee-tracker/src/snapshot.js';
 import { computeDeltaMinutes } from '../src/logic/timeUtils.js';
-import { contractColumnsForHistory } from '../office-tracker/src/historyMarkup.js';
+import { addSchoolDays, getSchoolDays } from '../src/logic/calendar.js';
+import {
+  buildClockHistoryMarks,
+  changeHoverLines,
+  scheduleChangeKindLines,
+} from '../employee-tracker/src/clockHistory.js';
+import { contractColumnsForHistory, historyLegendHtml } from '../office-tracker/src/historyMarkup.js';
 
 const { calendar } = buildBellingham2026_2027Calendar();
 const profile = { name: '12', start_date: '2026-09-08' };
@@ -74,10 +80,12 @@ describe('route clock time columns', () => {
     const columns = columnsAsOf('2026-09-08');
     assert.deepEqual(columns[0], {
       hours: '4 hr 30 min',
+      contractTimeChange: '—',
       contractedDate: '09/08/2026',
     });
     assert.deepEqual(columns[1], {
       hours: '4 hr 45 min',
+      contractTimeChange: 'Oct 1',
       contractedDate: 'predicted: 10/01/2026',
     });
   });
@@ -116,7 +124,45 @@ describe('route clock time columns', () => {
     assert.equal(columns[1].contractedDate, 'predicted: 10/28/2026');
   });
 
-  it('does not call a side countdown the predicted contract date', () => {
+  it('names a monthly bid as the posting window', () => {
+    const columns = contractColumnsForHistory([
+      {
+        kind: 'change',
+        date: '2026-10-06',
+        contracted: {
+          status: 'predicted',
+          becomes_on: '2026-10-28',
+          projected_outcome: 'BID_PENDING',
+          bid_through: '2026-10-30',
+        },
+      },
+      {
+        kind: 'change',
+        date: '2026-10-14',
+        contracted: {
+          status: 'predicted',
+          becomes_on: '2026-11-20',
+          projected_outcome: 'BID_PENDING',
+          bid_through: '2026-11-30',
+        },
+      },
+      {
+        kind: 'change',
+        date: '2026-11-20',
+        contracted: {
+          status: 'bid_pending',
+          becomes_on: '2026-11-20',
+          projected_outcome: 'BID_PENDING',
+          bid_through: '2026-11-30',
+        },
+      },
+    ]);
+    assert.equal(columns[0].contractedDate, 'Old predicted up for bid 10/28–10/30');
+    assert.equal(columns[1].contractedDate, 'New predicted up for bid 11/20–11/30');
+    assert.equal(columns[2].contractedDate, 'Up for bid 11/20–11/30');
+  });
+
+  it('repeats the standing predicted date when a side countdown does not move it', () => {
     const columns = contractColumnsForHistory([
       {
         kind: 'change',
@@ -132,9 +178,9 @@ describe('route clock time columns', () => {
         date: '2026-10-20',
         contracted: { status: 'side_countdown', becomes_on: '2026-11-12' },
       },
-    ]);
-    assert.equal(columns[0].contractedDate, 'predicted: 10/28/2026');
-    assert.equal(columns[1].contractedDate, '—');
+    ], getSchoolDays(calendar));
+    assert.equal(columns[0].contractedDate, 'Predicted up for bid 10/28–10/30');
+    assert.equal(columns[1].contractedDate, 'Predicted up for bid 10/28–10/30');
   });
 
   it('keeps the bid date when a later change stays at or above 30 minutes', () => {
@@ -182,15 +228,122 @@ describe('route clock time columns', () => {
     assert.deepEqual(dates, [
       ['2026-09-08', '09/08/2026'],
       ['2026-10-05', '—'],
-      ['2026-10-06', 'predicted: 10/28/2026'],
-      ['2026-10-20', '—'],
+      ['2026-10-06', 'Predicted up for bid 10/28–10/30'],
+      ['2026-10-20', 'Predicted up for bid 10/28–10/30'],
     ]);
+    const last = snap.schedule_history.at(-1);
+    assert.equal(last.delta_label, '−15 min');
+    assert.equal(last.cumulative_drift_minutes, 35);
+    assert.equal(last.cumulative_drift_label, '+35 min');
+
+    const schoolDays = getSchoolDays(calendar);
+    const marks = buildClockHistoryMarks(snap.schedule_history, { schoolDays });
+    const bidIndex = snap.schedule_history.findIndex((row) => row.date === '2026-10-06');
+    const sideIndex = snap.schedule_history.findIndex((row) => row.date === '2026-10-20');
+    const fifteenth = addSchoolDays(schoolDays, '2026-10-06', 15);
+    const dayAfterSide = addSchoolDays(schoolDays, '2026-10-20', 1);
+    assert.equal(marks.get(fifteenth)?.windowDay, 15);
+    assert.equal(marks.get(fifteenth)?.sourceIndex, bidIndex);
+    assert.equal(marks.get(dayAfterSide)?.sourceIndex, bidIndex);
+    assert.equal(marks.get(dayAfterSide)?.window, true);
+    assert.equal(marks.get('2026-10-20')?.established, true);
+    assert.equal(marks.get('2026-10-20')?.window, false);
+    assert.equal(marks.get('2026-10-20')?.sourceIndex, sideIndex);
+    assert.equal(Boolean(marks.get('2026-11-12')?.contractedDay), false);
+    assert.equal(marks.get('2026-11-12')?.resolvesOn ?? null, null);
+    assert.deepEqual(changeHoverLines(marks.get('2026-10-20')), [
+      'Current change: −15 min',
+      'Cumulative change: +35 min',
+    ]);
+    const legend = historyLegendHtml(snap.schedule_history);
+    assert.match(legend, /Change · −15 min/);
+    assert.deepEqual(scheduleChangeKindLines(snap.schedule_history[1]), [
+      'Change · +20 min',
+      '10/05 Countdown, +20 minutes',
+    ]);
+    assert.deepEqual(scheduleChangeKindLines(snap.schedule_history[2]), [
+      'Change · +30 min',
+      '10/05 Countdown, +45 minutes',
+      '10/06 Countdown, +5 minutes',
+    ]);
+    assert.deepEqual(scheduleChangeKindLines(last), [
+      'Change · −15 min',
+      '10/05 Countdown, +45 minutes',
+      '10/06 Countdown, +5 minutes',
+      '10/20 Countdown, −15 minutes',
+    ]);
+    assert.match(legend, /10\/20 Countdown, −15 minutes/);
+    assert.doesNotMatch(legend, /Cumulative change/);
+  });
+
+  it('shows the 15th school day when a monthly bid changes the rounded hours', () => {
+    function timed(id, segment, previous, next, date) {
+      const delta = computeDeltaMinutes(previous, next);
+      return {
+        id,
+        route_id: EMPLOYEE_ROUTE_ID,
+        driver_name: 'Alex Driver',
+        driver_id: null,
+        segment,
+        submitted_at: `${date}T15:00:00.000Z`,
+        effective_date: date,
+        previous_time: previous,
+        new_time: next,
+        computed_delta_minutes: delta,
+        delta_minutes: delta,
+        routing_adjustment: null,
+        reason_category: 'OTHER',
+        note: '',
+        entered_by: 'Alex Driver',
+      };
+    }
+    const changes = [
+      seed('AM', '6:35-8:35'),
+      seed('PM', '14:05-16:05'),
+      timed('plus-40', 'PM', '14:05-16:05', '14:05-16:45', '2026-10-14'),
+    ];
+    const entry = rebuildEmployeeRouteState(changes, calendar, '2026-10-27');
+    const snap = buildEmployeeSnapshot({
+      profile,
+      changeLog: changes,
+      entry,
+      calendar,
+      asOfDate: '2026-10-27',
+    });
+    const columns = contractColumnsForHistory(snap.schedule_history);
+    const fifteenth = addSchoolDays(getSchoolDays(calendar), '2026-10-14', 15);
+    assert.equal(fifteenth, '2026-11-04');
+    assert.equal(columns.at(-1).hours, '4 hr 45 min');
+    assert.equal(columns.at(-1).contractTimeChange, 'Nov 4');
+    assert.equal(columns.at(-1).contractedDate, 'Predicted up for bid 11/20–11/30');
+  });
+
+  it('leaves Contract Time Change blank when the rounded hours do not move', () => {
+    const columns = contractColumnsForHistory([
+      {
+        kind: 'initial',
+        date: '2026-09-08',
+        schedule: { AM: { range: '6:35-8:55' } },
+        contracted: { status: 'established' },
+      },
+      {
+        kind: 'change',
+        date: '2026-09-10',
+        schedule: { AM: { range: '6:33-8:55' } },
+        contracted: { status: 'predicted', becomes_on: '2026-10-01' },
+      },
+    ]);
+    assert.equal(columns[0].hours, '2 hr 15 min');
+    assert.equal(columns[1].hours, '2 hr 15 min');
+    assert.equal(columns[1].contractTimeChange, '—');
+    assert.equal(columns[1].contractedDate, 'predicted: 10/01/2026');
   });
 
   it('shows the contract date once the window has closed', () => {
     const columns = columnsAsOf('2026-10-01');
     assert.deepEqual(columns[1], {
       hours: '4 hr 45 min',
+      contractTimeChange: 'Oct 1',
       contractedDate: '10/01/2026',
     });
   });
