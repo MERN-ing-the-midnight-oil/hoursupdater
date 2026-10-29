@@ -183,16 +183,14 @@ export function leaveTimeParts(minutes) {
 export function leaveContractLead(contractedMinutes) {
   const minutes = Number(contractedMinutes);
   if (!Number.isInteger(minutes) || minutes < 1) return '';
-  return `Contracted time for this route is ${formatDurationLabel(minutes)}. Enter that time, or less.`;
+  return `Contracted time for this route is ${formatDurationLabel(minutes)}.`;
 }
 
 export function leaveRequestLead(input) {
   const route = punchRunLabel(normalizeLeaveRun(input?.run)) || 'route';
   if (input?.clockedIn) return `You already clocked in for the ${route} on that day.`;
-  if (input?.date && input?.today && input.date > input.today) {
-    return `Enter the hours of leave requested for the ${route}.`;
-  }
-  return `You did not clock in for the ${route}. Enter the hours of leave requested.`;
+  if (input?.date && input?.today && input.date > input.today) return '';
+  return `You did not clock in for the ${route}.`;
 }
 
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -211,7 +209,7 @@ export function missedClockInNote(runs, when) {
       : phrases.length === 2
         ? `${phrases[0]} or ${phrases[1]}`
         : `${phrases.slice(0, -1).join(', ')}, or ${phrases[phrases.length - 1]}`;
-  return `You did not clock in for ${missed}. Please record your leave hours or write an explanation.`;
+  return `You did not clock in for ${missed}.`;
 }
 
 export function leaveDateLabel(dateKeyValue) {

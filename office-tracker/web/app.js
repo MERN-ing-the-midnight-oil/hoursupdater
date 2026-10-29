@@ -24,12 +24,14 @@ import {
   listDrivers,
   compareRouteNumbers,
   listProfiles,
+  loadContractNotice,
   loadContractReminder,
   loadCreatedContractEvents,
   loadDriverNotice,
   loadReminderSignatures,
   loadState,
   rememberPublishedReminders,
+  saveContractNotice,
   saveContractReminder,
   saveDriver,
   saveDriverNotice,
@@ -67,7 +69,14 @@ import { attributionForChange } from './attribution.js';
 import { recentRouteChanges } from '../src/recentChanges.js';
 import { ensureExampleRoutes, isSampleOffice } from './exampleRoutes.js';
 import { mountClockDesk } from './clockDesk.js';
-import { isExternalTimeclockSearch, TIMECLOCK_LOCK_KEY } from './timeclockScreen.js';
+import {
+  isExternalTimeclockSearch,
+  otherTimeclockScreens,
+  TIMECLOCK_LOCK_KEY,
+  timeclockScreenLabel,
+  timeclockWindowBounds,
+  timeclockWindowFeatures,
+} from './timeclockScreen.js';
 import {
   CLOCK_IN_TYPES,
   driverPayStatusChoices,
@@ -84,8 +93,9 @@ bindCalculatorStore({
   saveProfile,
   setCurrentProfile,
 });
-import { localDateString } from '../../employee-tracker/src/clockTimes.js';
+import { formatClockAmPm, localDateString } from '../../employee-tracker/src/clockTimes.js';
 import { getSchoolDays } from '../../src/logic/calendar.js';
+import { DEFAULT_DRIVER_PIN, driverClockPin } from '../../src/logic/clockKiosk.js';
 import { earlyReleaseClock, isEarlyReleaseDate } from '../../src/logic/earlyRelease.js';
 import { earlyReleaseRulesForState, savedSchoolYear } from '../../src/logic/schoolYear.js';
 import { assignRouteDriver, assignmentOnDate, dayBefore, driverForDate, driverOwnsRoute, routeAssignments, sameDriver } from '../src/assignments.js';
@@ -109,15 +119,31 @@ import {
   DRIVER_MEMORANDA,
   isChangeNoticeSent,
   loadSentChangeIds,
+  loadSentChangeRecords,
   memorandumMail,
+  noticeSentLineForIds,
   noticeCcAddress,
   noticeCalendarFilename,
+  noticeCoveredIds,
   noticeMailto,
-  rememberChangeNoticeSent,
+  forgetChangeNoticesSent,
+  rememberChangeNoticesSent,
   routeHistoryFilename,
   routeHistoryMail,
   timeChangeNoticeDocument,
 } from '../src/noticeMail.js';
+import { contractCitations } from '../../public/shared/contractCitations.js';
+import {
+  CONTRACT_NOTICE_KINDS,
+  contractNoticeKindById,
+  contractNoticeMail,
+  describeContractNotice,
+  isContractNoticeSent,
+  loadSentContractIds,
+  loadSentContractRecords,
+  forgetContractNoticesSent,
+  rememberContractNoticesSent,
+} from '../src/contractNotice.js';
 import { initCitations } from '../../employee-tracker/web/citations.js';
 import {
   calendarMonthsHtml,
@@ -175,14 +201,22 @@ const payrollTab = document.querySelector('#payroll-tab');
 const clockingTab = document.querySelector('#clocking-tab');
 const payrollView = document.querySelector('#payroll-view');
 const clockingView = document.querySelector('#clocking-view');
+const weeklyWorkTab = document.querySelector('#weekly-work-tab');
+const dailyWorkTab = document.querySelector('#daily-work-tab');
+const rosterTripsTab = document.querySelector('#roster-trips-tab');
+const weeklyWorkView = document.querySelector('#weekly-work-view');
+const dailyWorkView = document.querySelector('#daily-work-view');
+const rosterTripsView = document.querySelector('#roster-trips-view');
 const paperBackupView = document.querySelector('#paper-backup-view');
 const timeclockSettingsView = document.querySelector('#timeclock-settings-view');
 const trackerSettingsView = document.querySelector('#tracker-settings-view');
 const trackerSettingsOpen = document.querySelector('#tracker-settings-open');
 const adminReminderTab = document.querySelector('#admin-reminder-tab');
 const driverNoticeTab = document.querySelector('#driver-notice-tab');
+const contractNoticeTab = document.querySelector('#contract-notice-tab');
 const adminReminderView = document.querySelector('#admin-reminder-view');
 const driverNoticeView = document.querySelector('#driver-notice-view');
+const contractNoticeView = document.querySelector('#contract-notice-view');
 const allRoutesView = document.querySelector('#all-routes-view');
 const allRoutesSheet = document.querySelector('#all-routes-sheet');
 const driverHistoryView = document.querySelector('#driver-history-view');
@@ -208,6 +242,20 @@ let activeSheet = driversApp === 'clocking' ? 'clocking' : driversApp === 'payro
 let viewingDriver = '';
 let sheetBeforeOffice = 'drivers';
 
+function isTripBoard(sheet = activeSheet) {
+  return sheet === 'weekly-work' || sheet === 'daily-work' || sheet === 'roster-trips';
+}
+
+function isOfficeSheet(sheet = activeSheet) {
+  return (
+    sheet === 'payroll' ||
+    sheet === 'clocking' ||
+    sheet === 'clock-settings' ||
+    sheet === 'paper-backup' ||
+    isTripBoard(sheet)
+  );
+}
+
 function toTimeInput(clock) {
   if (!clock) return '';
   const [h, m] = String(clock).split(':');
@@ -215,6 +263,7 @@ function toTimeInput(clock) {
 }
 
 function setStatus(el, message, kind = '') {
+  if (!el) return;
   el.hidden = !message;
   el.textContent = message || '';
   el.className = `status${kind ? ` is-${kind}` : ''}`;
@@ -226,6 +275,10 @@ const ICONS = {
   user: '<path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="8" r="3.5"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/>',
   clock: '<circle cx="12" cy="12" r="8"/><path d="M12 8v5l3 2"/>',
+  flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22V15"/>',
+  bid: '<path d="m14.5 12.5-8 8a2.12 2.12 0 1 1-3-3l8-8"/><path d="m16 16 6-6"/><path d="m8 8 6-6"/><path d="m9 7 8 8"/><path d="m21 11-8-8"/>',
+  bump: '<path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="m21 8-4-4-4 4"/><path d="M17 4v16"/>',
+  decrease: '<path d="M22 17 13.5 8.5 8.5 13.5 2 7"/><path d="M16 17h6v-6"/>',
 };
 
 function iconHtml(name) {
@@ -244,20 +297,33 @@ function markSectionChrome() {
   const onClocking = activeSheet === 'clocking' && !addingPerson;
   const onClockSettings = activeSheet === 'clock-settings' && !addingPerson;
   const onPaperBackup = activeSheet === 'paper-backup' && !addingPerson;
+  const onWeekly = activeSheet === 'weekly-work' && !addingPerson;
+  const onDaily = activeSheet === 'daily-work' && !addingPerson;
+  const onRoster = activeSheet === 'roster-trips' && !addingPerson;
   const onSettings = activeSheet === 'settings' && !addingPerson;
-  const onOfficeApp = onPayroll || onClocking || onClockSettings || onPaperBackup;
+  const onOfficeApp = onPayroll || onClocking || onClockSettings || onPaperBackup || onWeekly || onDaily || onRoster;
   const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
+  const onContractNotice = activeSheet === 'contract-notice' && !addingPerson;
   driversTab.classList.toggle('is-active', onDrivers);
   driversTab.setAttribute('aria-selected', onDrivers ? 'true' : 'false');
   dashboardApp?.classList.toggle('is-active', !onOfficeApp && !onSettings);
   payrollTab?.classList.toggle('is-active', onPayroll);
   clockingTab?.classList.toggle('is-active', onClocking || onClockSettings || onPaperBackup);
+  weeklyWorkTab?.classList.toggle('is-active', onWeekly);
+  dailyWorkTab?.classList.toggle('is-active', onDaily);
+  rosterTripsTab?.classList.toggle('is-active', onRoster);
   dashboardApp?.removeAttribute('aria-current');
   payrollTab?.removeAttribute('aria-current');
   clockingTab?.removeAttribute('aria-current');
+  weeklyWorkTab?.removeAttribute('aria-current');
+  dailyWorkTab?.removeAttribute('aria-current');
+  rosterTripsTab?.removeAttribute('aria-current');
   if (onPayroll) payrollTab?.setAttribute('aria-current', 'page');
   else if (onClocking || onClockSettings || onPaperBackup) clockingTab?.setAttribute('aria-current', 'page');
+  else if (onWeekly) weeklyWorkTab?.setAttribute('aria-current', 'page');
+  else if (onDaily) dailyWorkTab?.setAttribute('aria-current', 'page');
+  else if (onRoster) rosterTripsTab?.setAttribute('aria-current', 'page');
   else if (!onSettings) dashboardApp?.setAttribute('aria-current', 'page');
   trackerSettingsOpen?.classList.toggle('is-active', onSettings);
   if (onSettings) trackerSettingsOpen?.setAttribute('aria-current', 'page');
@@ -266,6 +332,8 @@ function markSectionChrome() {
   adminReminderTab?.setAttribute('aria-selected', onAdminReminder ? 'true' : 'false');
   driverNoticeTab?.classList.toggle('is-active', onDriverNotice);
   driverNoticeTab?.setAttribute('aria-selected', onDriverNotice ? 'true' : 'false');
+  contractNoticeTab?.classList.toggle('is-active', onContractNotice);
+  contractNoticeTab?.setAttribute('aria-selected', onContractNotice ? 'true' : 'false');
 }
 
 function renderRouteTabs() {
@@ -277,10 +345,14 @@ function renderRouteTabs() {
   const onClocking = activeSheet === 'clocking' && !addingPerson;
   const onClockSettings = activeSheet === 'clock-settings' && !addingPerson;
   const onPaperBackup = activeSheet === 'paper-backup' && !addingPerson;
+  const onWeekly = activeSheet === 'weekly-work' && !addingPerson;
+  const onDaily = activeSheet === 'daily-work' && !addingPerson;
+  const onRoster = activeSheet === 'roster-trips' && !addingPerson;
   const onSettings = activeSheet === 'settings' && !addingPerson;
-  const onOfficeApp = onPayroll || onClocking || onClockSettings || onPaperBackup;
+  const onOfficeApp = onPayroll || onClocking || onClockSettings || onPaperBackup || onWeekly || onDaily || onRoster;
   const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
+  const onContractNotice = activeSheet === 'contract-notice' && !addingPerson;
   const onRoute =
     !addingPerson &&
     !onDrivers &&
@@ -289,7 +361,8 @@ function renderRouteTabs() {
     !onOfficeApp &&
     !onSettings &&
     !onAdminReminder &&
-    !onDriverNotice;
+    !onDriverNotice &&
+    !onContractNotice;
   const currentId = onRoute ? getCurrentProfile()?.id : null;
   const routes = [...peopleList()].sort((a, b) => compareRouteNumbers(a.name, b.name));
   routeTabs.innerHTML = '';
@@ -333,9 +406,13 @@ function chooseRoute(id) {
     activeSheet !== 'clocking' &&
     activeSheet !== 'clock-settings' &&
     activeSheet !== 'paper-backup' &&
+    activeSheet !== 'weekly-work' &&
+    activeSheet !== 'daily-work' &&
+    activeSheet !== 'roster-trips' &&
     activeSheet !== 'settings' &&
     activeSheet !== 'admin-reminder' &&
     activeSheet !== 'driver-notice' &&
+    activeSheet !== 'contract-notice' &&
     current?.id === id
   ) {
     return;
@@ -398,14 +475,377 @@ function openOfficeWindow(app) {
 }
 
 function rememberOfficeSheet() {
-  if (
-    activeSheet !== 'payroll' &&
-    activeSheet !== 'clocking' &&
-    activeSheet !== 'clock-settings' &&
-    activeSheet !== 'paper-backup'
-  ) {
+  if (!isOfficeSheet()) {
     sheetBeforeOffice = activeSheet === 'driver-history' ? 'drivers' : activeSheet;
   }
+}
+
+function openTripFrame(list) {
+  const frameId = list === 'roster' ? 'roster-trips-frame' : list === 'weekly' ? 'weekly-work-frame' : 'daily-work-frame';
+  const frame = document.querySelector(`#${frameId}`);
+  if (!(frame instanceof HTMLIFrameElement) || frame.dataset.loaded === list) return;
+  frame.src = `/board?as=office&embed=1&sheet=${list}`;
+  frame.dataset.loaded = list;
+}
+
+const TRIP_SCREEN_KEYS = {
+  daily: 'teamster-daily-work-screen',
+  weekly: 'teamster-weekly-work-screen',
+};
+
+function tripScreen(kind = 'daily') {
+  const weekly = kind === 'weekly';
+  return {
+    kind,
+    sheet: weekly ? 'weekly' : 'daily',
+    postings: weekly ? 'Weekly Work Postings' : 'Daily/Late Work Postings',
+    admin: weekly ? 'Weekly Work Admin' : 'Daily/Late Work Admin',
+    storageKey: TRIP_SCREEN_KEYS[weekly ? 'weekly' : 'daily'],
+    windowName: weekly ? 'teamster-weekly-work' : 'teamster-daily-work',
+    status: document.querySelector(weekly ? '#weekly-work-screen-status' : '#daily-work-screen-status'),
+    select: document.querySelector(weekly ? '#weekly-work-monitor' : '#daily-work-monitor'),
+    wall: document.querySelector(weekly ? '#weekly-work-wall' : '#daily-work-wall'),
+  };
+}
+
+function setDailyWorkScreenStatus(message, isError = false, kind = 'daily') {
+  if (kind === 'weekly') {
+    weeklyPostingsStatus.message = message || '';
+    weeklyPostingsStatus.isError = Boolean(isError && message);
+    notifyWeeklyPostings();
+    return;
+  }
+  const status = tripScreen(kind).status;
+  if (!(status instanceof HTMLElement)) return;
+  status.hidden = !message;
+  status.textContent = message || '';
+  status.classList.toggle('is-error', Boolean(isError));
+}
+
+function dailyWorkWindowUrl(kind = 'daily') {
+  const url = new URL('/board', location.origin);
+  url.searchParams.set('as', 'driver');
+  url.searchParams.set('sheet', tripScreen(kind).sheet);
+  url.searchParams.set('display', 'wall');
+  return url.href;
+}
+
+function readDailyWorkScreenSetting(kind = 'daily') {
+  try {
+    const raw = localStorage.getItem(tripScreen(kind).storageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeDailyWorkScreenSetting(screen, kind = 'daily') {
+  try {
+    const key = tripScreen(kind).storageKey;
+    if (!screen) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(screenIdentity(screen)));
+  } catch {
+    // This browser is not storing the monitor, so the postings stay on this screen.
+  }
+}
+
+function screenIdentity(screen) {
+  return {
+    label: String(screen?.label || '').trim(),
+    left: Number(screen?.left) || 0,
+    top: Number(screen?.top) || 0,
+    width: Number(screen?.width) || 0,
+    height: Number(screen?.height) || 0,
+  };
+}
+
+function sameDailyWorkScreen(saved, screen) {
+  if (!saved || !screen) return false;
+  const label = String(screen.label || '').trim();
+  if (saved.label && label && saved.label === label) return true;
+  return (
+    Number(saved.left) === (Number(screen.left) || 0) &&
+    Number(saved.top) === (Number(screen.top) || 0) &&
+    Number(saved.width) === (Number(screen.width) || 0) &&
+    Number(saved.height) === (Number(screen.height) || 0)
+  );
+}
+
+const tripMonitorScreens = { daily: [], weekly: [] };
+const weeklyPostingsChoice = { value: 'this', options: [] };
+const weeklyPostingsStatus = { message: '', isError: false };
+
+function monitorChoices(screens, saved) {
+  const options = [{ value: 'this', label: 'This screen' }];
+  screens.forEach((screen, index) => {
+    options.push({ value: String(index), label: timeclockScreenLabel(screen) });
+  });
+  let selected = 'this';
+  if (saved) {
+    const match = screens.findIndex((screen) => sameDailyWorkScreen(saved, screen));
+    if (match >= 0) selected = String(match);
+    else {
+      options.push({ value: 'saved', label: saved.label || 'Saved monitor' });
+      selected = 'saved';
+    }
+  }
+  options.push({ value: 'pick', label: 'Choose a monitor…' });
+  return { options, selected };
+}
+
+function notifyWeeklyPostings() {
+  const frame = document.querySelector('#weekly-work-frame');
+  if (!(frame instanceof HTMLIFrameElement) || !frame.getAttribute('src') || !frame.contentWindow) return;
+  try {
+    frame.contentWindow.postMessage({ type: 'weekly-postings-sync' }, location.origin);
+  } catch {
+    // The admin frame is not open yet.
+  }
+}
+
+function paintDailyWorkMonitorSelect(screens = tripMonitorScreens.daily, kind = 'daily') {
+  const saved = readDailyWorkScreenSetting(kind);
+  tripMonitorScreens[kind] = screens;
+  const { options, selected } = monitorChoices(screens, saved);
+  if (kind === 'weekly') {
+    weeklyPostingsChoice.options = options;
+    weeklyPostingsChoice.value = selected;
+    notifyWeeklyPostings();
+    return;
+  }
+  const select = tripScreen(kind).select;
+  if (!(select instanceof HTMLSelectElement)) return;
+  select.replaceChildren();
+  for (const option of options) select.add(new Option(option.label, option.value));
+  select.value = selected;
+}
+
+function dailyWorkWallFrame(kind = 'daily') {
+  const frame = tripScreen(kind).wall;
+  return frame instanceof HTMLIFrameElement ? frame : null;
+}
+
+function closeDailyWorkWall(kind = 'daily') {
+  const frame = dailyWorkWallFrame(kind);
+  if (!frame) return;
+  frame.classList.remove('is-open');
+  frame.setAttribute('aria-hidden', 'true');
+}
+
+function openWallKind() {
+  if (dailyWorkWallFrame('weekly')?.classList.contains('is-open')) return 'weekly';
+  if (dailyWorkWallFrame('daily')?.classList.contains('is-open')) return 'daily';
+  return '';
+}
+
+function requestNodeFullscreen(node) {
+  const request = node.requestFullscreen || node.webkitRequestFullscreen;
+  if (typeof request !== 'function') return Promise.reject(new Error('Full screen is unavailable.'));
+  const pending = request === node.requestFullscreen ? request.call(node, { navigationUI: 'hide' }) : request.call(node);
+  return Promise.resolve(pending);
+}
+
+function showDailyWorkOnThisScreen(message, kind = 'daily') {
+  const board = tripScreen(kind);
+  const frame = dailyWorkWallFrame(kind);
+  if (!frame) return;
+  const note = message || `${board.postings} is full screen on this screen.`;
+  frame.classList.add('is-open');
+  frame.removeAttribute('aria-hidden');
+  if (!frame.getAttribute('src')) frame.src = dailyWorkWindowUrl(kind);
+  requestNodeFullscreen(frame)
+    .catch(() => requestNodeFullscreen(document.documentElement))
+    .then(() => setDailyWorkScreenStatus(note, false, kind))
+    .catch(() => {
+      setDailyWorkScreenStatus(`${board.postings} fills this window. Press Escape to return to ${board.admin}.`, false, kind);
+    });
+}
+
+function openDailyWorkWindow(screen, placed = false, kind = 'daily') {
+  const board = tripScreen(kind);
+  const opened = window.open(dailyWorkWindowUrl(kind), board.windowName, timeclockWindowFeatures(screen));
+  if (!opened) {
+    setDailyWorkScreenStatus(`Allow pop-up windows for this site, then choose ${board.postings} again.`, true, kind);
+    return;
+  }
+  const bounds = timeclockWindowBounds(screen);
+  if (bounds) {
+    try {
+      opened.moveTo(bounds.left, bounds.top);
+      opened.resizeTo(bounds.width, bounds.height);
+    } catch {
+      // The browser can refuse to move a window until it allows screen placement.
+    }
+  }
+  opened.focus();
+  setDailyWorkScreenStatus(
+    placed && screen
+      ? `${board.postings} is open on ${timeclockScreenLabel(screen)}.`
+      : `${board.postings} is full screen.`,
+    false,
+    kind
+  );
+}
+
+async function chooseDailyWorkMonitor(kind = 'daily') {
+  const board = tripScreen(kind);
+  const stay = `${board.postings} stays full screen on this screen. Mirror this display, or extend the desktop and choose that monitor here.`;
+  if (window.screen?.isExtended === false || typeof window.getScreenDetails !== 'function') {
+    paintDailyWorkMonitorSelect([], kind);
+    setDailyWorkScreenStatus(stay, false, kind);
+    return;
+  }
+  let details;
+  try {
+    details = await window.getScreenDetails();
+  } catch {
+    paintDailyWorkMonitorSelect([], kind);
+    setDailyWorkScreenStatus(
+      `${board.postings} stays full screen on this screen. Mirror this display, or allow screen access and choose a monitor.`,
+      false,
+      kind
+    );
+    return;
+  }
+  const others = otherTimeclockScreens(details);
+  paintDailyWorkMonitorSelect(others, kind);
+  if (!others.length) {
+    setDailyWorkScreenStatus(stay, false, kind);
+    return;
+  }
+  setDailyWorkScreenStatus(`Choose the monitor for ${board.postings}.`, false, kind);
+}
+
+async function openDailyWorkBoard(kind = 'daily') {
+  const board = tripScreen(kind);
+  setDailyWorkScreenStatus('', false, kind);
+  const select = board.select;
+  const value =
+    kind === 'weekly' ? weeklyPostingsChoice.value : select instanceof HTMLSelectElement ? select.value : 'this';
+  if (value === 'this' || value === 'pick') {
+    showDailyWorkOnThisScreen('', kind);
+    return;
+  }
+  const saved = value === 'saved' ? readDailyWorkScreenSetting(kind) : screenIdentity(tripMonitorScreens[kind][Number(value)]);
+  if (!saved || typeof window.getScreenDetails !== 'function') {
+    showDailyWorkOnThisScreen('', kind);
+    return;
+  }
+  let details;
+  try {
+    details = await window.getScreenDetails();
+  } catch {
+    showDailyWorkOnThisScreen('', kind);
+    return;
+  }
+  const match = otherTimeclockScreens(details).find((screen) => sameDailyWorkScreen(saved, screen));
+  if (!match) {
+    showDailyWorkOnThisScreen(`That monitor is not connected. ${board.postings} is full screen on this screen.`, kind);
+    return;
+  }
+  openDailyWorkWindow(match, true, kind);
+}
+
+async function setWeeklyPostingsMonitor(value) {
+  weeklyPostingsChoice.value = value;
+  if (value === 'pick') {
+    await chooseDailyWorkMonitor('weekly');
+    return;
+  }
+  if (value === 'this') {
+    writeDailyWorkScreenSetting(null, 'weekly');
+    setDailyWorkScreenStatus('Weekly Work Postings opens full screen on this screen.', false, 'weekly');
+    return;
+  }
+  if (value === 'saved') return;
+  const screen = tripMonitorScreens.weekly[Number(value)];
+  if (!screen) return;
+  writeDailyWorkScreenSetting(screen, 'weekly');
+  setDailyWorkScreenStatus(`Weekly Work Postings opens on ${timeclockScreenLabel(screen)}.`, false, 'weekly');
+}
+
+window.weeklyPostings = {
+  describe() {
+    return {
+      options: weeklyPostingsChoice.options.map((option) => ({ ...option })),
+      value: weeklyPostingsChoice.value,
+      status: weeklyPostingsStatus.message,
+      isError: weeklyPostingsStatus.isError,
+    };
+  },
+  setMonitor: setWeeklyPostingsMonitor,
+  open: () => openDailyWorkBoard('weekly'),
+};
+
+function bindTripMonitor(kind) {
+  paintDailyWorkMonitorSelect(tripMonitorScreens[kind], kind);
+  tripScreen(kind).select?.addEventListener('change', (event) => {
+    const select = event.target;
+    if (!(select instanceof HTMLSelectElement)) return;
+    const board = tripScreen(kind);
+    if (select.value === 'pick') {
+      chooseDailyWorkMonitor(kind).catch((error) => setDailyWorkScreenStatus(error.message, true, kind));
+      return;
+    }
+    if (select.value === 'this') {
+      writeDailyWorkScreenSetting(null, kind);
+      setDailyWorkScreenStatus(`${board.postings} opens full screen on this screen.`, false, kind);
+      return;
+    }
+    if (select.value === 'saved') return;
+    const screen = tripMonitorScreens[kind][Number(select.value)];
+    if (!screen) return;
+    writeDailyWorkScreenSetting(screen, kind);
+    setDailyWorkScreenStatus(`${board.postings} opens on ${timeclockScreenLabel(screen)}.`, false, kind);
+  });
+}
+bindTripMonitor('daily');
+bindTripMonitor('weekly');
+document.addEventListener('fullscreenchange', () => {
+  const kind = openWallKind();
+  if (kind && !document.fullscreenElement) closeDailyWorkWall(kind);
+});
+document.addEventListener('keydown', (event) => {
+  const kind = openWallKind();
+  if (event.key !== 'Escape' || !kind) return;
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  closeDailyWorkWall(kind);
+});
+window.addEventListener('message', (event) => {
+  if (event.origin !== location.origin || event.data?.type !== 'daily-work-wall-close') return;
+  const kind = openWallKind() || 'daily';
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  closeDailyWorkWall(kind);
+});
+
+function showWeeklyWork() {
+  rememberOfficeSheet();
+  addingPerson = false;
+  viewingDriver = '';
+  activeSheet = 'weekly-work';
+  loadAll();
+  weeklyWorkView?.scrollIntoView({ block: 'start' });
+}
+
+function showDailyWork() {
+  rememberOfficeSheet();
+  addingPerson = false;
+  viewingDriver = '';
+  activeSheet = 'daily-work';
+  loadAll();
+  dailyWorkView?.scrollIntoView({ block: 'start' });
+}
+
+function showRosterTrips() {
+  rememberOfficeSheet();
+  addingPerson = false;
+  viewingDriver = '';
+  activeSheet = 'roster-trips';
+  loadAll();
+  rosterTripsView?.scrollIntoView({ block: 'start' });
 }
 
 function showPayroll() {
@@ -476,12 +916,7 @@ function showDashboardApp() {
     showDrivers();
     return;
   }
-  if (
-    activeSheet !== 'payroll' &&
-    activeSheet !== 'clocking' &&
-    activeSheet !== 'clock-settings' &&
-    activeSheet !== 'paper-backup'
-  ) {
+  if (!isOfficeSheet()) {
     return;
   }
   const back = sheetBeforeOffice;
@@ -497,6 +932,10 @@ function showDashboardApp() {
     showDriverNotice();
     return;
   }
+  if (back === 'contract-notice') {
+    showContractNotice();
+    return;
+  }
   if (
     back &&
     back !== 'drivers' &&
@@ -504,6 +943,7 @@ function showDashboardApp() {
     back !== 'clocking' &&
     back !== 'clock-settings' &&
     back !== 'paper-backup' &&
+    !isTripBoard(back) &&
     peopleList().some((person) => person.id === back)
   ) {
     chooseRoute(back);
@@ -526,6 +966,14 @@ function showDriverNotice() {
   activeSheet = 'driver-notice';
   loadAll();
   fillDriverNoticeSettings();
+}
+
+function showContractNotice() {
+  addingPerson = false;
+  viewingDriver = '';
+  activeSheet = 'contract-notice';
+  loadAll();
+  fillContractNoticeSettings();
 }
 
 driversTab.addEventListener('click', showDrivers);
@@ -567,6 +1015,12 @@ termsDialog?.addEventListener('close', rememberTermsSeen);
 if (!termsAlreadySeen()) openTermsDialog();
 payrollTab?.addEventListener('click', showPayroll);
 clockingTab?.addEventListener('click', showClocking);
+weeklyWorkTab?.addEventListener('click', showWeeklyWork);
+dailyWorkTab?.addEventListener('click', showDailyWork);
+document.querySelector('#daily-work-screen')?.addEventListener('click', () => {
+  openDailyWorkBoard('daily').catch((error) => setDailyWorkScreenStatus(error.message, true, 'daily'));
+});
+rosterTripsTab?.addEventListener('click', showRosterTrips);
 document.querySelector('#open-drivers')?.addEventListener('click', () => openOfficeWindow('payroll'));
 document.querySelector('#open-clock-records')?.addEventListener('click', () => openOfficeWindow('clocking'));
 document.querySelector('#timeclock-settings-open')?.addEventListener('click', showClockSettings);
@@ -576,6 +1030,7 @@ document.querySelector('#paper-backup-reminder-open')?.addEventListener('click',
 document.querySelector('#paper-backup-back')?.addEventListener('click', showClocking);
 adminReminderTab?.addEventListener('click', showAdminReminder);
 driverNoticeTab?.addEventListener('click', showDriverNotice);
+contractNoticeTab?.addEventListener('click', showContractNotice);
 
 let reminderInvitees = [];
 let officeUsers = [];
@@ -900,6 +1355,104 @@ document.querySelector('#driver-notice-form')?.addEventListener('submit', async 
   }
 });
 
+document.querySelector('#notice-queue')?.addEventListener('click', (event) => {
+  const button = event.target.closest('.js-send-notice');
+  if (button) {
+    sendChangeNotice(button);
+    return;
+  }
+  const printNotice = event.target.closest('.js-print-notice');
+  if (printNotice) {
+    const changeId = printNotice.closest('[data-change-id]')?.dataset.changeId;
+    if (changeId) printClockNotice(changeId, printNotice);
+    return;
+  }
+  const mark = event.target.closest('.js-mark-notice-sent');
+  if (mark) {
+    const changeId = mark.closest('[data-change-id]')?.dataset.changeId;
+    if (changeId) {
+      if (mark.dataset.sent === 'yes') unmarkClockNotices([changeId]);
+      else markClockNoticesSent([changeId]);
+    }
+    return;
+  }
+  if (event.target.closest('.js-mark-sent-selected')) {
+    markClockNoticesSent(selectedNoticeIds('#notice-queue'));
+  }
+});
+
+document.querySelector('#notice-queue')?.addEventListener('change', (event) => {
+  if (!event.target.closest('.js-notice-select, .js-notice-select-all')) return;
+  if (event.target.classList.contains('js-notice-select-all')) {
+    const on = event.target.checked;
+    document.querySelectorAll('#notice-queue .js-notice-select').forEach((box) => {
+      box.checked = on;
+    });
+  }
+  syncNoticeSelection('#notice-queue');
+});
+
+document.querySelector('#contract-notice-queue')?.addEventListener('click', (event) => {
+  const button = event.target.closest('.js-send-contract-notice');
+  if (button) {
+    sendContractNotice(button);
+    return;
+  }
+  const printNotice = event.target.closest('.js-print-contract-notice');
+  if (printNotice) {
+    const changeId = printNotice.closest('[data-change-id]')?.dataset.changeId;
+    if (changeId) printContractNotice(changeId, printNotice);
+    return;
+  }
+  const mark = event.target.closest('.js-mark-contract-sent');
+  if (mark) {
+    const changeId = mark.closest('[data-change-id]')?.dataset.changeId;
+    if (changeId) {
+      if (mark.dataset.sent === 'yes') unmarkContractNotices([changeId]);
+      else markContractNoticesSent([changeId]);
+    }
+    return;
+  }
+  if (event.target.closest('.js-mark-sent-selected')) {
+    markContractNoticesSent(selectedNoticeIds('#contract-notice-queue'));
+  }
+});
+
+document.querySelector('#contract-notice-queue')?.addEventListener('change', (event) => {
+  if (!event.target.closest('.js-notice-select, .js-notice-select-all')) return;
+  if (event.target.classList.contains('js-notice-select-all')) {
+    const on = event.target.checked;
+    document.querySelectorAll('#contract-notice-queue .js-notice-select').forEach((box) => {
+      box.checked = on;
+    });
+  }
+  syncNoticeSelection('#contract-notice-queue');
+});
+
+document.querySelector('#contract-notice-reset')?.addEventListener('click', () => {
+  renderContractNoticeEditors({});
+});
+
+document.querySelector('#contract-notice-form')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const status = document.querySelector('#contract-notice-status');
+  const secretaryCc = document.querySelector('#contract-notice-secretary')?.value ?? '';
+  if (String(secretaryCc).trim() && !isEmailAddress(secretaryCc)) {
+    if (status) setStatus(status, 'Enter a valid email for the secretary, or leave it blank.', 'error');
+    return;
+  }
+  try {
+    saveContractNotice({
+      secretaryCc,
+      templates: collectContractTemplates(),
+    });
+    fillContractNoticeSettings();
+    if (status) setStatus(status, 'Contract time-change notice saved.', 'ok');
+  } catch (error) {
+    if (status) setStatus(status, error.message, 'error');
+  }
+});
+
 document.querySelector('#reminder-form')?.addEventListener('input', () => {
   paintTemplatePreview('#reminder-preview', reminderPreviewText());
 });
@@ -944,11 +1497,15 @@ function beginAddRoute() {
   driverHistoryView.hidden = true;
   if (payrollView) payrollView.hidden = true;
   if (clockingView) clockingView.hidden = true;
+  if (weeklyWorkView) weeklyWorkView.hidden = true;
+  if (dailyWorkView) dailyWorkView.hidden = true;
+  if (rosterTripsView) rosterTripsView.hidden = true;
   if (paperBackupView) paperBackupView.hidden = true;
   if (timeclockSettingsView) timeclockSettingsView.hidden = true;
   if (trackerSettingsView) trackerSettingsView.hidden = true;
   if (adminReminderView) adminReminderView.hidden = true;
   if (driverNoticeView) driverNoticeView.hidden = true;
+  if (contractNoticeView) contractNoticeView.hidden = true;
   if (routeTabs) routeTabs.hidden = false;
   showSetup(true);
   renderRouteTabs();
@@ -1184,7 +1741,9 @@ function renderHero() {
         : ''
   }`;
 
-  const title = windowInfo?.becomes_contracted_on
+  const title = windowInfo?.bid_posting_phrase
+    ? windowInfo.bid_posting_phrase
+    : windowInfo?.becomes_contracted_on
     ? `Becomes contracted on ${prettyDate(windowInfo.becomes_contracted_on)}`
     : windowInfo?.status === 'STABLE'
       ? 'No open window'
@@ -1239,14 +1798,12 @@ function formatRange(item) {
 function renderScheduleHistory() {
   const start = snapshot.employee?.start_date;
   const rows = snapshot.schedule_history || [];
-  const noticeHint = ' Saving a change offers to send the notice. Send notice on the row can send it again. If that notice was already sent, you will be warned first. The email uses the chosen memorandum and downloads a calendar PDF. Attach that PDF if you want the driver to see the calendar. The complete time change history can be downloaded too, when that attachment is turned on. Notice sent is marked Yes.';
+  const noticeHint = ' Saving a change offers to send the notice. If that notice was already sent, you will be warned first. The email uses the chosen memorandum and downloads a calendar PDF. Attach that PDF if you want the driver to see the calendar. The complete time change history can be downloaded too, when that attachment is turned on.';
   const hoursHint =
-    ' Scheduled Hours is the rounded total of the clock times on that row. Date, if Contracted is the date that schedule became the contract, or a predicted date.';
-  const forceHint =
-    ' Force Oct 1 Contract starts off. Turn it on to contract that schedule on October 1, skipping the usual rules for the size of the change and the 15-school-day countdown.';
+    ' Scheduled Hours is the rounded total of the clock times on that row. Contract Time Change is the date those rounded hours changed, or the date they are predicted to change, such as Nov 4. For a route that goes up for bid, that date is the 15th school day after the change. A row that rounds to the same total as the row above has no date there. Date, if Contracted is the date that schedule became the contract, a predicted contract date, or "Predicted up for bid mm/dd–mm/dd" when the route goes up for bid during the last five school days of the month.';
   scheduleLead.textContent = start
-    ? `Each row is a full schedule. The first row is the established starting times from ${prettyDate(start)}. Later rows are changes, oldest to newest.${forceHint}${hoursHint}${noticeHint}`
-    : `Each row is a full schedule. The first row is the established starting times. Later rows are changes, oldest to newest.${forceHint}${hoursHint}${noticeHint}`;
+    ? `Each row is a full schedule. The first row is the established starting times from ${prettyDate(start)}. Later rows are changes, oldest to newest.${hoursHint}${noticeHint}`
+    : `Each row is a full schedule. The first row is the established starting times. Later rows are changes, oldest to newest.${hoursHint}${noticeHint}`;
 
   const downloadChangesBtn = document.querySelector('#download-changes-btn');
   const changeCount = rows.filter((row) => row.kind === 'change').length;
@@ -1259,7 +1816,7 @@ function renderScheduleHistory() {
   const body = scheduleHistory.querySelector('tbody');
   if (!rows.length) {
     body.innerHTML =
-      '<tr><td colspan="12" class="empty">No clock times recorded yet.</td></tr>';
+      '<tr><td colspan="11" class="empty">No clock times recorded yet.</td></tr>';
     return;
   }
 
@@ -1279,7 +1836,6 @@ function renderScheduleHistory() {
         }${row.kind === 'initial' ? ' data-row-kind="initial"' : ''}${
           row.change_ids?.length ? ` data-change-ids="${escapeHtml(row.change_ids.join(','))}"` : ''
         }${row.segment ? ` data-segment="${escapeHtml(row.segment)}"` : ''}>
-        <td class="oct1-cell">${row.kind === 'change' ? forceOct1Toggle(row.force_oct1_contract) : ''}</td>
         <th scope="row">
           ${scheduleDateField(row.date, { allowNull: row.kind === 'change' })}
           ${kind}
@@ -1300,6 +1856,7 @@ function renderScheduleHistory() {
             .join('');
         }).join('')}
         <td class="hours-figure">${escapeHtml(column.hours)}</td>
+        <td class="hours-figure">${escapeHtml(column.contractTimeChange)}</td>
         <td>
           <div class="contracted-cell">
             <span class="contracted-stack">
@@ -1308,7 +1865,6 @@ function renderScheduleHistory() {
             ${contractedInfoControl(row)}
           </div>
         </td>
-        ${noticeSentCell(row)}
         <td>${actions}</td>
       </tr>`;
       })
@@ -1346,14 +1902,6 @@ function scheduleDateField(value, { id = '', className = 'js-history-date', labe
     <input${idAttr} class="entry-input ${className}" type="date" aria-label="${label}" value="${escapeHtml(value || '')}" />
     ${nullButton}
   </div>`;
-}
-
-function forceOct1Toggle(on, id = '') {
-  const idAttr = id ? ` id="${id}"` : '';
-  return `<label class="oct1-toggle">
-    <input${idAttr} class="js-force-oct1" type="checkbox" aria-label="Force Oct 1 Contract"${on ? ' checked' : ''} />
-    <span class="oct1-state" data-off="Off" data-on="On"></span>
-  </label>`;
 }
 
 function timeSource(rows, index, runId) {
@@ -1470,7 +2018,6 @@ function entryRowMarkup(rows) {
       which === 'in' ? 'start' : 'end'
     }" value="${value ? toTimeInput(value) : ''}" />`;
   return `<tr class="is-entry is-new-change">
-    <td class="oct1-cell">${forceOct1Toggle(false, 'entry_force_oct1')}</td>
     <th scope="row">
       ${scheduleDateField(lastDate, { id: 'entry_date', className: '', label: 'Date the change takes effect' })}
       <span class="row-kind">New time change</span>
@@ -1480,13 +2027,13 @@ function entryRowMarkup(rows) {
       return `<td class="${run.shade}">${timeField(run, 'in', item?.clock_in)}</td><td class="${run.shade}">${timeField(run, 'out', item?.clock_out)}</td>`;
     }).join('')}
     <td></td>
+    <td></td>
     <td class="is-editor">
       <label class="entry-editor" for="entry_editor">
         Comment
         <input id="entry_editor" class="entry-input" type="text" placeholder="Optional" />
       </label>
     </td>
-    <td></td>
     <td>
       <button type="button" id="add-change-row">Add this change</button>
     </td>
@@ -1497,13 +2044,18 @@ function isEmailAddress(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? '').trim());
 }
 
-function noticeSentCell(row) {
-  if (row.kind !== 'change' || !row.change_id) return '<td></td>';
-  const sent = isChangeNoticeSent(row.change_id);
-  return `<td class="notice-sent">
-    <span class="notice-sent-value">${sent ? 'Yes' : 'No'}</span>
-    <button type="button" class="secondary js-send-notice">${iconHtml('mail')} Send notice</button>
-  </td>`;
+function noticeSender() {
+  const account = currentAccount();
+  return {
+    by: String(account?.name || '').trim(),
+    by_user_id: account?.id ? String(account.id) : null,
+    at: new Date().toISOString(),
+  };
+}
+
+function sentColumnText(sent, ids, records) {
+  if (!sent) return 'No';
+  return noticeSentLineForIds(ids, records) || 'Yes';
 }
 
 function rowMatchesChange(row, changeId) {
@@ -1563,7 +2115,8 @@ async function deliverChangeNotice(located) {
   });
   const downloads = [noticeCalendarFilename(driverName)];
   try {
-    await downloadCalendarPdf(downloads[0]);
+    const cc = noticeCcAddress(email, noticeSettings.secretaryCc);
+    await withRouteCalendar(profile, history, () => downloadCalendarPdf(downloads[0]));
     if (noticeSettings.attachTimeChangeNotice) {
       const notice = timeChangeNoticeDocument({
         driverName,
@@ -1577,46 +2130,837 @@ async function deliverChangeNotice(located) {
       downloadTextPdf(notice.filename, notice.text);
       downloads.push(notice.filename);
     }
-    const cc = noticeCcAddress(email, noticeSettings.secretaryCc);
     openNoticeMail({ to: email, cc, subject: mail.subject, body: mail.body });
     explainNoticeDownloads(downloads);
-    rememberChangeNoticeSent(changeId);
+    const sentIds = row.change_ids?.length ? row.change_ids : [changeId];
+    rememberChangeNoticesSent(sentIds, undefined, noticeSender());
     if ((snapshot?.schedule_history || []).some((item) => item.change_id === changeId)) {
       renderScheduleHistory();
     }
+    renderDriverNoticeQueue();
+    paintNoticeTabFlags();
+    paintRecentNoticeFlags();
     const listed = downloads.join(' and ');
     const noun = downloads.length > 1 ? 'them' : 'it';
     const copied = cc ? ` ${cc} is copied.` : '';
+    const stamp = sentColumnText(true, sentIds, loadSentChangeRecords());
     return {
       ok: true,
-      message: `Please look for ${listed} in your downloads folder and attach ${noun}.${copied} Notice sent is Yes for this change.`,
+      message: `Please look for ${listed} in your downloads folder and attach ${noun}.${copied} ${stamp}.`,
     };
   } catch (error) {
     return { ok: false, message: error.message || 'Could not create that notice.' };
   }
 }
 
+function noticeStatusTarget(button) {
+  if (button?.closest('#contract-notice-queue')) return document.querySelector('#contract-notice-queue-status');
+  if (button?.closest('#notice-queue')) return document.querySelector('#notice-queue-status');
+  return scheduleStatus;
+}
+
 async function runChangeNotice(changeId, button) {
+  const status = noticeStatusTarget(button);
   const located = locateChange(changeId);
-  if (!located) return;
+  if (!located) {
+    setStatus(status, 'That clock-time change could not be found.', 'error');
+    return;
+  }
   if (button) button.disabled = true;
   const downloading = loadDriverNotice().attachTimeChangeNotice
     ? 'Opening the email and downloading the calendar and the time change history…'
     : 'Opening the email and downloading the calendar…';
-  setStatus(scheduleStatus, downloading);
+  setStatus(status, downloading);
   const result = await deliverChangeNotice(located);
-  setStatus(scheduleStatus, result.message, result.ok ? 'ok' : 'error');
+  setStatus(status, result.message, result.ok ? 'ok' : 'error');
   if (!result.ok && button) button.disabled = false;
 }
 
 async function sendChangeNotice(button) {
   const changeId = button.closest('[data-change-id]')?.dataset.changeId;
   if (!changeId) return;
-  if (isChangeNoticeSent(changeId)) {
+  if (changeNoticeAlreadySent(changeId)) {
     queueNoticeOffer([changeId]);
     return;
   }
   await runChangeNotice(changeId, button);
+}
+
+function noticeFlagHtml() {
+  return `<span class="notice-flag" title="Notice not sent">${iconHtml('flag')}<span class="visually-hidden">Notice not sent. </span></span>`;
+}
+
+let coveredClockNoticeIds = new Set();
+
+function refreshCoveredClockNotices() {
+  coveredClockNoticeIds = noticeCoveredIds(recentRouteChanges(loadState()), loadSentChangeIds());
+}
+
+function changeNoticeAlreadySent(changeId) {
+  const id = String(changeId || '');
+  if (!id) return false;
+  if (isChangeNoticeSent(id)) return true;
+  if (!coveredClockNoticeIds.size) refreshCoveredClockNotices();
+  return coveredClockNoticeIds.has(id);
+}
+
+async function withRouteCalendar(profile, history, action) {
+  const onThisRoute =
+    appView &&
+    !appView.hidden &&
+    getCurrentProfile()?.id === profile?.id &&
+    calendarMonths?.childElementCount;
+  if (onThisRoute) return action();
+  const previousSnapshot = snapshot;
+  const previousMonths = calendarMonths?.innerHTML ?? '';
+  const previousLegend = historyLegend?.innerHTML ?? '';
+  snapshot = {
+    ...(previousSnapshot || {}),
+    schedule_history: history,
+    as_of: getAsOfDate(),
+  };
+  try {
+    renderCalendar();
+    return await action();
+  } finally {
+    snapshot = previousSnapshot;
+    if (calendarMonths) calendarMonths.innerHTML = previousMonths;
+    if (historyLegend) historyLegend.innerHTML = previousLegend;
+  }
+}
+
+function sameDayNoticeIds(item, items) {
+  const date = String(item.effectiveDate || '').trim();
+  if (!date) return [item.id];
+  return items
+    .filter((other) => other.routeId === item.routeId && other.effectiveDate === date)
+    .map((other) => other.id);
+}
+
+function driverNoticeItems() {
+  refreshCoveredClockNotices();
+  const records = loadSentChangeRecords();
+  const state = loadState();
+  const profiles = Object.values(state?.profiles || {});
+  const byId = new Map(profiles.map((profile) => [String(profile?.id || ''), profile]));
+  const items = recentRouteChanges(state).map((item) => {
+    const profile = byId.get(item.routeId);
+    const driverName = profile ? driverForDate(profile, item.effectiveDate) : '';
+    return {
+      ...item,
+      driverName,
+      sent: coveredClockNoticeIds.has(item.id) || isChangeNoticeSent(item.id),
+      previousLabel: formatClockAmPm(item.previousTime),
+      newLabel: formatClockAmPm(item.newTime),
+    };
+  });
+  return items.map((item) => ({
+    ...item,
+    sentLabel: sentColumnText(item.sent, sameDayNoticeIds(item, items), records),
+  }));
+}
+
+function contractNoticeItems() {
+  const asOf = getAsOfDate();
+  const calendar = calendarPayload();
+  const records = loadSentContractRecords();
+  const sent = new Set(loadSentContractIds());
+  const items = [];
+  for (const profile of listProfiles()) {
+    let built;
+    try {
+      built = buildSnapshot(profile, asOf);
+    } catch {
+      continue;
+    }
+    const history = built?.schedule_history || [];
+    history.forEach((row, index) => {
+      const described = describeContractNotice({
+        row,
+        previousRow: history[index - 1],
+        calendar,
+        asOf,
+      });
+      if (!described || described.skip || !described.changeId) return;
+      const entry = (profile.changeLog || []).find((item) => item.id === described.changeId);
+      const written = String(entry?.entered_by || '').trim();
+      const routeName = String(profile.name || '').trim();
+      const noticeSent = described.changeIds.some((id) => sent.has(id)) || isContractNoticeSent(described.changeId);
+      items.push({
+        ...described,
+        routeId: String(profile.id || ''),
+        routeName,
+        driverName: driverForDate(profile, row.date),
+        submittedAt: String(entry?.submitted_at || ''),
+        enteredBy: written && written !== routeName ? written : '',
+        sent: noticeSent,
+        sentLabel: sentColumnText(noticeSent, described.changeIds, records),
+      });
+    });
+  }
+  items.sort((a, b) => {
+    const byTime = String(b.submittedAt).localeCompare(String(a.submittedAt));
+    if (byTime !== 0) return byTime;
+    return String(b.date).localeCompare(String(a.date));
+  });
+  return items;
+}
+
+function selectedNoticeIds(queueSelector) {
+  return [...document.querySelectorAll(`${queueSelector} .js-notice-select:checked`)]
+    .map((box) => box.value)
+    .filter(Boolean);
+}
+
+function syncNoticeSelection(queueSelector) {
+  const boxes = [...document.querySelectorAll(`${queueSelector} .js-notice-select`)];
+  const checked = boxes.filter((box) => box.checked).length;
+  const all = document.querySelector(`${queueSelector} .js-notice-select-all`);
+  if (all) {
+    all.disabled = boxes.length === 0;
+    all.checked = boxes.length > 0 && checked === boxes.length;
+    all.indeterminate = checked > 0 && checked < boxes.length;
+  }
+  const button = document.querySelector(`${queueSelector} .js-mark-sent-selected`);
+  if (button) button.disabled = checked === 0;
+  const count = document.querySelector(`${queueSelector} .js-notice-selected-count`);
+  if (count) count.textContent = checked ? `${checked} selected` : '';
+}
+
+function noticeSelectCell(id, label) {
+  const name = String(label || 'this change').trim();
+  return `<td class="notice-select"><input type="checkbox" class="js-notice-select" value="${escapeHtml(id)}" aria-label="Select ${escapeHtml(name)}" /></td>`;
+}
+
+function noticeActionCell(sendClass, printClass, markClass, sent) {
+  return `<td class="notice-row-actions">
+    <button type="button" class="secondary ${sendClass}">${sent ? 'Send again' : 'Send'}</button>
+    <button type="button" class="secondary ${printClass}">Print</button>
+    <button type="button" class="secondary ${markClass}" data-sent="${sent ? 'yes' : 'no'}">${sent ? 'Unmark' : 'Mark Sent'}</button>
+  </td>`;
+}
+
+function clockNoticeDocument(changeId) {
+  const located = locateChange(changeId);
+  if (!located?.profile || !located.row?.change_id) {
+    return { ok: false, message: 'That clock-time change could not be found.' };
+  }
+  const driverName = driverForDate(located.profile, located.row.date);
+  if (!driverName) {
+    return { ok: false, message: 'Assign a driver to this route before printing a notice.' };
+  }
+  const settings = loadDriverNotice();
+  const mail = memorandumMail({
+    memorandumId: settings.memorandumId,
+    templates: settings.memorandumTemplates,
+    driverName,
+    routeName: String(located.profile.name || '').trim(),
+    row: located.row,
+    asOf: getAsOfDate(),
+  });
+  return { ok: true, subject: mail.subject, body: mail.body };
+}
+
+function contractNoticeDocument(changeId) {
+  const located = locateChange(changeId);
+  if (!located) return { ok: false, message: 'That contract time change could not be found.' };
+  const { profile, row, history } = located;
+  const index = history.findIndex((item) => item.change_id === row.change_id);
+  const described = describeContractNotice({
+    row,
+    previousRow: history[index - 1],
+    calendar: calendarPayload(),
+    asOf: getAsOfDate(),
+  });
+  if (!described || described.skip || !described.changeId) {
+    return { ok: false, message: 'That change does not have a contract time notice.' };
+  }
+  const driverName = driverForDate(profile, row.date);
+  if (!driverName) {
+    return { ok: false, message: 'Assign a driver to this route before printing a notice.' };
+  }
+  const settings = loadContractNotice();
+  const mail = contractNoticeMail({
+    described,
+    templates: settings.templates,
+    driverName,
+    routeName: String(profile.name || '').trim(),
+    asOf: getAsOfDate(),
+  });
+  return { ok: true, subject: mail.subject, body: mail.body };
+}
+
+function printNoticeDocument(notice) {
+  const sheet = document.querySelector('#notice-print');
+  if (!sheet) return false;
+  sheet.innerHTML = `<article class="notice-print-page"><h1>${escapeHtml(notice.subject)}</h1><pre class="notice-print-body">${escapeHtml(notice.body)}</pre></article>`;
+  document.body.classList.add('is-notice-print');
+  window.addEventListener(
+    'afterprint',
+    () => {
+      document.body.classList.remove('is-notice-print');
+      sheet.replaceChildren();
+    },
+    { once: true }
+  );
+  window.print();
+  return true;
+}
+
+function printClockNotice(changeId, button) {
+  const status = noticeStatusTarget(button);
+  const notice = clockNoticeDocument(changeId);
+  if (!notice.ok) {
+    setStatus(status, notice.message, 'error');
+    return;
+  }
+  printNoticeDocument(notice);
+  setStatus(status, 'The notice is ready to print. It is not marked sent.', 'ok');
+}
+
+function printContractNotice(changeId, button) {
+  const status = noticeStatusTarget(button);
+  const notice = contractNoticeDocument(changeId);
+  if (!notice.ok) {
+    setStatus(status, notice.message, 'error');
+    return;
+  }
+  printNoticeDocument(notice);
+  setStatus(status, 'The notice is ready to print. It is not marked sent.', 'ok');
+}
+
+function markedSentMessage(count, line) {
+  const notices = count === 1 ? '1 notice' : `${count} notices`;
+  const stamp = line ? ` ${line}.` : '';
+  return `Marked ${notices} sent.${stamp}`;
+}
+
+function refreshClockNoticeViews(ids) {
+  const history = snapshot?.schedule_history || [];
+  if (history.some((row) => ids.includes(row.change_id) || (row.change_ids || []).some((id) => ids.includes(id)))) {
+    renderScheduleHistory();
+  }
+  renderDriverNoticeQueue();
+  paintNoticeTabFlags();
+  paintRecentNoticeFlags();
+}
+
+function clockNoticeIds(changeIds) {
+  const wanted = new Set((changeIds || []).map((id) => String(id || '')).filter(Boolean));
+  const items = driverNoticeItems();
+  const ids = [];
+  let rows = 0;
+  for (const item of items) {
+    if (!wanted.has(item.id)) continue;
+    rows += 1;
+    ids.push(...sameDayNoticeIds(item, items));
+  }
+  return { rows, ids: [...new Set(ids.filter(Boolean))] };
+}
+
+function contractNoticeIds(changeIds) {
+  const wanted = new Set((changeIds || []).map((id) => String(id || '')).filter(Boolean));
+  const items = contractNoticeItems();
+  const ids = [];
+  let rows = 0;
+  for (const item of items) {
+    if (!wanted.has(item.changeId)) continue;
+    rows += 1;
+    ids.push(...(item.changeIds?.length ? item.changeIds : [item.changeId]));
+  }
+  return { rows, ids: [...new Set(ids.filter(Boolean))] };
+}
+
+function markClockNoticesSent(changeIds) {
+  const status = document.querySelector('#notice-queue-status');
+  const wanted = new Set((changeIds || []).map((id) => String(id || '')).filter(Boolean));
+  if (!wanted.size) {
+    setStatus(status, 'Select a clock-time change to mark sent.', 'error');
+    return;
+  }
+  const { rows, ids } = clockNoticeIds(changeIds);
+  if (!ids.length) {
+    setStatus(status, 'Those clock-time changes could not be found.', 'error');
+    return;
+  }
+  rememberChangeNoticesSent(ids, undefined, noticeSender());
+  refreshClockNoticeViews(ids);
+  const line = noticeSentLineForIds(ids, loadSentChangeRecords());
+  setStatus(status, markedSentMessage(rows, line), 'ok');
+}
+
+function unmarkClockNotices(changeIds) {
+  const status = document.querySelector('#notice-queue-status');
+  const { rows, ids } = clockNoticeIds(changeIds);
+  if (!ids.length) {
+    setStatus(status, 'Those clock-time changes could not be found.', 'error');
+    return;
+  }
+  forgetChangeNoticesSent(ids);
+  refreshClockNoticeViews(ids);
+  const notices = rows === 1 ? '1 notice' : `${rows} notices`;
+  setStatus(status, `Unmarked ${notices}.`, 'ok');
+}
+
+function markContractNoticesSent(changeIds) {
+  const status = document.querySelector('#contract-notice-queue-status');
+  const wanted = new Set((changeIds || []).map((id) => String(id || '')).filter(Boolean));
+  if (!wanted.size) {
+    setStatus(status, 'Select a contract time change to mark sent.', 'error');
+    return;
+  }
+  const { rows, ids } = contractNoticeIds(changeIds);
+  if (!ids.length) {
+    setStatus(status, 'Those contract time changes could not be found.', 'error');
+    return;
+  }
+  rememberContractNoticesSent(ids, undefined, noticeSender());
+  renderContractNoticeQueue();
+  paintNoticeTabFlags();
+  const line = noticeSentLineForIds(ids, loadSentContractRecords());
+  setStatus(status, markedSentMessage(rows, line), 'ok');
+}
+
+function unmarkContractNotices(changeIds) {
+  const status = document.querySelector('#contract-notice-queue-status');
+  const { rows, ids } = contractNoticeIds(changeIds);
+  if (!ids.length) {
+    setStatus(status, 'Those contract time changes could not be found.', 'error');
+    return;
+  }
+  forgetContractNoticesSent(ids);
+  renderContractNoticeQueue();
+  paintNoticeTabFlags();
+  const notices = rows === 1 ? '1 notice' : `${rows} notices`;
+  setStatus(status, `Unmarked ${notices}.`, 'ok');
+}
+
+function noticeQueueSummary(items, noun) {
+  if (!items.length) return `No ${noun} are recorded yet.`;
+  const waiting = items.filter((item) => !item.sent).length;
+  const name = items.length === 1 ? noun.replace(/s$/, '') : noun;
+  if (!waiting) return `${items.length} ${name}. Every notice has been sent.`;
+  const pending = waiting === 1 ? '1 notice has not been sent.' : `${waiting} notices have not been sent.`;
+  return `${items.length} ${name}. ${pending}`;
+}
+
+function paintQueueUnsent(queueSelector, count) {
+  const badge = document.querySelector(`${queueSelector} .notice-queue-unsent`);
+  if (!badge) return;
+  const waiting = Number(count) || 0;
+  badge.hidden = waiting <= 0;
+  const number = badge.querySelector('.notice-queue-unsent-count');
+  if (number) number.textContent = waiting === 1 ? '1 unsent' : `${waiting} unsent`;
+}
+
+function renderDriverNoticeQueue() {
+  const body = document.querySelector('#notice-queue-body');
+  const summary = document.querySelector('#notice-queue-summary');
+  if (!body) return;
+  const items = driverNoticeItems();
+  if (summary) summary.textContent = noticeQueueSummary(items, 'clock-time changes');
+  paintQueueUnsent('#notice-queue', items.filter((item) => !item.sent).length);
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="9" class="empty">No clock-time changes are recorded yet.</td></tr>';
+    syncNoticeSelection('#notice-queue');
+    return;
+  }
+  body.innerHTML = items
+    .map((item) => {
+      const flag = item.sent ? '' : noticeFlagHtml();
+      const recorded = formatRecordedAt(item.submittedAt);
+      const who = item.enteredBy ? escapeHtml(item.enteredBy) : 'No account was recorded';
+      const when = recorded ? `${escapeHtml(recorded)} · ${who}` : who;
+      const effect = item.effectiveDate ? escapeHtml(prettyDate(item.effectiveDate)) : '—';
+      return `<tr class="${item.sent ? '' : 'is-unsent'}" data-change-id="${escapeHtml(item.id)}">
+        ${noticeSelectCell(item.id, item.routeName)}
+        <td>${flag}</td>
+        <td>${escapeHtml(item.routeName)}</td>
+        <td>${escapeHtml(item.driverName || 'No driver')}</td>
+        <td>${escapeHtml(item.segmentLabel)} ${escapeHtml(item.previousLabel)} → ${escapeHtml(item.newLabel)}</td>
+        <td>${effect}</td>
+        <td>${when}</td>
+        <td class="notice-sent-mark">${escapeHtml(item.sentLabel)}</td>
+        ${noticeActionCell('js-send-notice', 'js-print-notice', 'js-mark-notice-sent', item.sent)}
+      </tr>`;
+    })
+    .join('');
+  syncNoticeSelection('#notice-queue');
+}
+
+function contractKindBadgeHtml(iconName) {
+  if (!iconName || !ICONS[iconName]) return '';
+  return `<span class="contract-kind-badge contract-kind-${iconName}">${iconHtml(iconName)}</span>`;
+}
+
+function contractLetterMark(item) {
+  const icon = contractKindBadgeHtml(item?.kindIcon);
+  return `<span class="notice-letter">${icon}<span>${escapeHtml(item?.kindLabel || '')}</span></span>`;
+}
+
+function renderContractNoticeQueue() {
+  const body = document.querySelector('#contract-notice-queue-body');
+  const summary = document.querySelector('#contract-notice-queue-summary');
+  if (!body) return;
+  const items = contractNoticeItems();
+  if (summary) summary.textContent = noticeQueueSummary(items, 'contract notices');
+  paintQueueUnsent('#contract-notice-queue', items.filter((item) => !item.sent).length);
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="10" class="empty">No contract notices are recorded yet.</td></tr>';
+    syncNoticeSelection('#contract-notice-queue');
+    return;
+  }
+  body.innerHTML = items
+    .map((item) => {
+      const flag = item.sent ? '' : noticeFlagHtml();
+      const recorded = formatRecordedAt(item.submittedAt);
+      const who = item.enteredBy ? escapeHtml(item.enteredBy) : '';
+      const when = [recorded ? escapeHtml(recorded) : '', who].filter(Boolean).join(' · ') || '—';
+      const hours = `${escapeHtml(item.previousHours)} → ${escapeHtml(item.contractHours)}`;
+      const outcome = item.resultLabel && item.resultLabel !== item.kindLabel
+        ? `<span class="notice-queue-meta">${escapeHtml(item.resultLabel)}</span>`
+        : '';
+      return `<tr class="${item.sent ? '' : 'is-unsent'}" data-change-id="${escapeHtml(item.changeId)}">
+        ${noticeSelectCell(item.changeId, item.routeName)}
+        <td>${flag}</td>
+        <td>${escapeHtml(item.routeName)}</td>
+        <td>${escapeHtml(item.driverName || 'No driver')}</td>
+        <td class="notice-letter-cell">${contractLetterMark(item)}</td>
+        <td>${hours}${outcome}</td>
+        <td>${item.effectiveDate ? escapeHtml(item.effectiveDate) : '—'}</td>
+        <td>${when}</td>
+        <td class="notice-sent-mark">${escapeHtml(item.sentLabel)}<span class="notice-queue-meta">${escapeHtml(item.citationLabel || '')}</span></td>
+        ${noticeActionCell('js-send-contract-notice', 'js-print-contract-notice', 'js-mark-contract-sent', item.sent)}
+      </tr>`;
+    })
+    .join('');
+  syncNoticeSelection('#contract-notice-queue');
+}
+
+function paintNoticeTabFlag(tabId, countId, pending) {
+  const flag = document.querySelector(tabId);
+  const count = document.querySelector(countId);
+  if (!flag) return;
+  flag.hidden = pending <= 0;
+  if (count) count.textContent = pending > 0 ? String(pending) : '';
+}
+
+function paintNoticeTabFlags() {
+  const clockWaiting = driverNoticeItems().filter((item) => !item.sent).length;
+  const contractWaiting = contractNoticeItems().filter((item) => !item.sent).length;
+  paintNoticeTabFlag('#driver-notice-flag', '#driver-notice-flag-count', clockWaiting);
+  paintNoticeTabFlag('#contract-notice-flag', '#contract-notice-flag-count', contractWaiting);
+}
+
+function paintRecentNoticeFlags() {
+  refreshCoveredClockNotices();
+  recentChangeItems.forEach((item) => {
+    item.noticeSent = coveredClockNoticeIds.has(item.id) || isChangeNoticeSent(item.id);
+  });
+  for (const card of recentChangesTrack?.querySelectorAll('.recent-changes-card') || []) {
+    const item = recentChangeItems[Number(card.dataset.index)];
+    if (!item) continue;
+    const title = card.querySelector('.recent-changes-title');
+    const flag = title?.querySelector('.notice-flag');
+    if (item.noticeSent) flag?.remove();
+    else if (title && !flag) title.insertAdjacentHTML('afterbegin', noticeFlagHtml());
+  }
+}
+
+async function deliverContractNotice(changeId) {
+  const located = locateChange(changeId);
+  if (!located) return { ok: false, message: 'That contract time change could not be found.' };
+  const { profile, row, history } = located;
+  const index = history.findIndex((item) => item.change_id === row.change_id);
+  const described = describeContractNotice({
+    row,
+    previousRow: history[index - 1],
+    calendar: calendarPayload(),
+    asOf: getAsOfDate(),
+  });
+  if (!described || described.skip || !described.changeId) {
+    return { ok: false, message: 'That change does not have a contract time notice.' };
+  }
+  const driverName = driverForDate(profile, row.date);
+  if (!driverName) {
+    return { ok: false, message: 'Assign a driver to this route before sending a notice.' };
+  }
+  const driver = listDrivers().find((item) => sameDriver(item.name, driverName));
+  const email = String(driver?.email || '').trim();
+  if (!isEmailAddress(email)) {
+    return {
+      ok: false,
+      message: `Add an email for ${driverName} on the Driver Name List before sending a notice.`,
+    };
+  }
+  const settings = loadContractNotice();
+  const mail = contractNoticeMail({
+    described,
+    templates: settings.templates,
+    driverName,
+    routeName: String(profile.name || '').trim(),
+    asOf: getAsOfDate(),
+  });
+  const cc = noticeCcAddress(email, settings.secretaryCc);
+  openNoticeMail({ to: email, cc, subject: mail.subject, body: mail.body });
+  rememberContractNoticesSent(described.changeIds, undefined, noticeSender());
+  renderContractNoticeQueue();
+  paintNoticeTabFlags();
+  const copied = cc ? ` ${cc} is copied.` : '';
+  const stamp = sentColumnText(true, described.changeIds, loadSentContractRecords());
+  return {
+    ok: true,
+    message: `The contract time-change email is open.${copied} ${stamp}.`,
+  };
+}
+
+async function runContractNotice(changeId, button) {
+  const status = noticeStatusTarget(button);
+  if (button) button.disabled = true;
+  setStatus(status, 'Opening the contract time-change email…');
+  const result = await deliverContractNotice(changeId);
+  setStatus(status, result.message, result.ok ? 'ok' : 'error');
+  if (!result.ok && button) button.disabled = false;
+}
+
+async function sendContractNotice(button) {
+  const changeId = button.closest('[data-change-id]')?.dataset.changeId;
+  if (!changeId) return;
+  const alreadySent = isContractNoticeSent(changeId) || !button.closest('tr')?.classList.contains('is-unsent');
+  if (alreadySent) {
+    const dialog = document.querySelector('#send-notice-offer-dialog');
+    const message = document.querySelector('#send-notice-offer-message');
+    const warning = document.querySelector('#send-notice-offer-warning');
+    const title = document.querySelector('#send-notice-offer-title');
+    if (!dialog || !message) return;
+    dialog.dataset.changeId = changeId;
+    dialog.dataset.noticeKind = 'contract';
+    message.textContent = 'Send this contract time-change notice again?';
+    if (warning) warning.hidden = false;
+    if (title) title.textContent = 'Send this notice again?';
+    if (!dialog.open) dialog.showModal();
+    return;
+  }
+  await runContractNotice(changeId, button);
+}
+
+function contractQuoteHtml(kind) {
+  return kind.citations
+    .map((id) => {
+      const entry = contractCitations[id];
+      if (!entry) return '';
+      return `<p class="contract-notice-article">${escapeHtml(entry.label)}</p><p>${escapeHtml(entry.text)}</p>`;
+    })
+    .join('');
+}
+
+function contractNoticeDisclosure(label, text, sectionId) {
+  const details = document.createElement('details');
+  details.className = 'contract-notice-edit contract-notice-note';
+  details.dataset.section = sectionId;
+  const summary = document.createElement('summary');
+  summary.textContent = label;
+  const body = document.createElement('p');
+  body.className = 'contract-notice-rationale';
+  body.textContent = text || '';
+  details.append(summary, body);
+  return details;
+}
+
+function renderContractNoticeEditors(templates) {
+  const root = document.querySelector('#contract-notice-kinds');
+  if (!root) return;
+  const openSections = new Set(
+    [...root.querySelectorAll('details[open]')].map((node) => node.dataset.section).filter(Boolean)
+  );
+  const saved = templates && typeof templates === 'object' ? templates : {};
+  root.replaceChildren();
+  for (const kind of CONTRACT_NOTICE_KINDS) {
+    const draft = saved[kind.id];
+    const card = document.createElement('article');
+    card.className = 'contract-notice-card';
+    card.dataset.id = kind.id;
+
+    const head = document.createElement('div');
+    head.className = 'contract-notice-card-head';
+    const title = document.createElement('h3');
+    if (kind.icon && ICONS[kind.icon]) {
+      const badge = document.createElement('span');
+      badge.className = `contract-kind-badge contract-kind-${kind.icon}`;
+      badge.append(iconEl(kind.icon));
+      title.append(badge);
+    }
+    const titleText = document.createElement('span');
+    titleText.textContent = kind.label;
+    title.append(titleText);
+    head.append(title);
+
+    const sample = document.createElement('div');
+    sample.className = 'template-preview contract-notice-sample';
+    const sampleText = document.createElement('div');
+    sampleText.className = 'contract-notice-sample-text';
+    sampleText.dataset.sample = kind.id;
+
+    const why = contractNoticeDisclosure(
+      'Required because',
+      kind.rationale || kind.detail,
+      `${kind.id}-why`
+    );
+    const when = contractNoticeDisclosure(
+      'When it\u2019s generated',
+      kind.generated,
+      `${kind.id}-when`
+    );
+    if (openSections.has(why.dataset.section)) why.open = true;
+    if (openSections.has(when.dataset.section)) when.open = true;
+
+    const quote = document.createElement('blockquote');
+    quote.className = 'contract-notice-quote';
+    quote.innerHTML = contractQuoteHtml(kind);
+
+    const edit = document.createElement('details');
+    edit.className = 'contract-notice-edit';
+    edit.dataset.id = kind.id;
+    edit.dataset.section = `${kind.id}-edit`;
+    if (openSections.has(edit.dataset.section)) edit.open = true;
+    const summary = document.createElement('summary');
+    summary.textContent = 'Edit the email template';
+    const editor = document.createElement('div');
+    editor.className = 'contract-notice-editor';
+    const subject = document.createElement('input');
+    subject.type = 'text';
+    subject.className = 'js-contract-subject';
+    subject.value = String(draft?.subject ?? '').trim() || kind.subject;
+    const subjectField = document.createElement('div');
+    subjectField.className = 'field';
+    const subjectLabel = document.createElement('label');
+    subjectLabel.htmlFor = `contract-subject-${kind.id}`;
+    subjectLabel.textContent = 'Subject template';
+    subject.id = subjectLabel.htmlFor;
+    subjectField.append(subjectLabel, subject);
+    const body = document.createElement('textarea');
+    body.className = 'js-contract-body';
+    body.rows = 12;
+    body.value = String(draft?.body ?? '').trim() || kind.body.trim();
+    const bodyField = document.createElement('div');
+    bodyField.className = 'field';
+    const bodyLabel = document.createElement('label');
+    bodyLabel.htmlFor = `contract-body-${kind.id}`;
+    bodyLabel.textContent = 'Email template';
+    body.id = bodyLabel.htmlFor;
+    bodyField.append(bodyLabel, body);
+    const hint = document.createElement('p');
+    hint.className = 'field-hint';
+    hint.textContent =
+      'You can use {{driver_name}}, {{route_name}}, {{date}}, {{effective_date}}, {{previous_hours}}, {{contract_hours}}, {{change_amount}}, {{timing}}, {{citation_label}}, and {{citation_text}}. The citation lines are the contract wording for this change.';
+    editor.append(subjectField, bodyField, hint);
+    const refreshSample = () => paintContractCardSample(kind.id);
+    subject.addEventListener('input', refreshSample);
+    body.addEventListener('input', refreshSample);
+    edit.append(summary, editor);
+    sample.append(sampleText, edit);
+
+    card.append(head, sample, why, when, quote);
+    root.append(card);
+    paintContractCardSample(kind.id);
+  }
+  const secretary = document.querySelector('#contract-notice-secretary');
+  if (secretary && !secretary.dataset.sampleBound) {
+    secretary.dataset.sampleBound = 'yes';
+    secretary.addEventListener('input', () => {
+      for (const kind of CONTRACT_NOTICE_KINDS) paintContractCardSample(kind.id);
+    });
+  }
+}
+
+function paintContractCardSample(kindId) {
+  const box = document.querySelector(`#contract-notice-kinds [data-sample="${kindId}"]`);
+  if (!box) return;
+  box.textContent = contractNoticePreviewText(kindId);
+}
+
+function contractNoticePreviewText(kindId) {
+  const kind = contractNoticeKindById(kindId);
+  const citationId = kind.citations[0];
+  const entry = contractCitations[citationId] || {};
+  const people = {
+    bid: {
+      driverName: 'Annie Porter',
+      email: 'annie.porter@example.com',
+      routeName: 'S1',
+      previousHours: '6 hr',
+      contractHours: '6 hr 30 min',
+      changeAmount: '30 min in contracted hours',
+    },
+    bump: {
+      driverName: 'Annie Porter',
+      email: 'annie.porter@example.com',
+      routeName: 'S2',
+      previousHours: '6 hr 30 min',
+      contractHours: '6 hr',
+      changeAmount: '30 min in contracted hours',
+    },
+    decrease: {
+      driverName: 'Annie Porter',
+      email: 'annie.porter@example.com',
+      routeName: 'S5',
+      previousHours: '6 hr 15 min',
+      contractHours: '6 hr',
+      changeAmount: '15 min in contracted hours',
+    },
+  };
+  const hours = people[kind.id] || people.bid;
+  const described = {
+    kind: kind.id,
+    effectiveDate: 'Fri, Nov 20, 2026',
+    previousHours: hours.previousHours,
+    contractHours: hours.contractHours,
+    changeAmount: hours.changeAmount,
+    timing: '',
+    citationLabel: entry.label || '',
+    citationText: entry.text || '',
+  };
+  const templates = {};
+  const block = document.querySelector(`#contract-notice-kinds [data-id="${kind.id}"]`);
+  templates[kind.id] = {
+    subject: block?.querySelector('.js-contract-subject')?.value ?? kind.subject,
+    body: block?.querySelector('.js-contract-body')?.value ?? kind.body,
+  };
+  const mail = contractNoticeMail({
+    described,
+    templates,
+    driverName: hours.driverName,
+    routeName: hours.routeName,
+    asOf: '2026-11-02',
+  });
+  const copy = noticeCcAddress(
+    hours.email,
+    document.querySelector('#contract-notice-secretary')?.value
+  );
+  const letter = `Example\nTo: ${hours.email}\n${copy ? `Cc: ${copy}\n` : ''}${mail.subject}\n\n${mail.body}`;
+  return letter.replace(/\n{3,}/g, '\n\n');
+}
+
+function collectContractTemplates() {
+  const templates = {};
+  for (const block of document.querySelectorAll('#contract-notice-kinds .contract-notice-card')) {
+    const id = block.dataset.id;
+    if (!id) continue;
+    templates[id] = {
+      subject: block.querySelector('.js-contract-subject')?.value ?? '',
+      body: block.querySelector('.js-contract-body')?.value ?? '',
+    };
+  }
+  return templates;
+}
+
+function fillContractNoticeSettings() {
+  const settings = loadContractNotice();
+  const secretary = document.querySelector('#contract-notice-secretary');
+  const status = document.querySelector('#contract-notice-status');
+  if (secretary) secretary.value = settings.secretaryCc;
+  renderContractNoticeEditors(settings.templates);
+  if (status) setStatus(status, '');
 }
 
 function openNoticeMail(mail) {
@@ -1824,6 +3168,7 @@ function showNoticeOffer() {
   if (!changeId || !dialog || !message) return;
   const row = (snapshot?.schedule_history || []).find((item) => item.change_id === changeId);
   dialog.dataset.changeId = changeId;
+  dialog.dataset.noticeKind = 'clock';
   message.textContent = row ? noticeOfferMessage(row) : 'Send a notice for this clock-time change?';
   const alreadySent = isChangeNoticeSent(changeId);
   if (warning) warning.hidden = !alreadySent;
@@ -1847,9 +3192,15 @@ function queueNoticeOffer(changeIds) {
 async function acceptNoticeOffer() {
   const dialog = document.querySelector('#send-notice-offer-dialog');
   const changeId = dialog?.dataset.changeId || '';
+  const kind = dialog?.dataset.noticeKind || 'clock';
   noticeOfferSending = true;
   if (dialog?.open) dialog.close();
   noticeOfferSending = false;
+  if (dialog) dialog.dataset.noticeKind = 'clock';
+  if (kind === 'contract') {
+    if (changeId) await runContractNotice(changeId);
+    return;
+  }
   if (changeId) await runChangeNotice(changeId);
   const download = document.querySelector('#notice-download-dialog');
   if (download?.open && noticeOfferQueue.length) {
@@ -1936,7 +3287,6 @@ function commitEntryRow() {
         ...item,
         change_date: date,
         schedule_id: scheduleId,
-        force_oct1_contract: document.querySelector('#entry_force_oct1')?.checked === true,
         ...fields,
       });
     }
@@ -1972,7 +3322,9 @@ function currentStatusMarkup(view) {
   const windowInfo = view?.window;
   if (!windowInfo) return '—';
   const details = [];
-  if (windowInfo.becomes_contracted_on) {
+  if (windowInfo.bid_posting_phrase) {
+    details.push(windowInfo.bid_posting_phrase);
+  } else if (windowInfo.becomes_contracted_on) {
     details.push(`Becomes contracted ${prettyDate(windowInfo.becomes_contracted_on)}`);
   }
   if (windowInfo.status === 'ACCUMULATING' && windowInfo.cumulative_drift_label) {
@@ -2017,44 +3369,161 @@ function renderAllRoutes() {
     .join('');
 }
 
-function driverDraftFromRow(row) {
-  return {
-    firstName: row.querySelector('.js-driver-first')?.value ?? '',
-    lastName: row.querySelector('.js-driver-last')?.value ?? '',
-    email: row.querySelector('.js-driver-email')?.value ?? '',
-  };
-}
-
 function renderDrivers(highlightName = '') {
   const drivers = listDrivers();
-  const body = driverSheet.querySelector('tbody');
-  const rows = drivers
-    .map((driver, index) => {
-      const routes = routesForDriver(driver.name);
-      const routeLabel = routes
-        .map((route) => (route.current ? route.name : `${route.name} (earlier)`))
-        .join(', ');
-      const who = driver.name;
-      const justAdded = highlightName && sameDriver(driver.name, highlightName) ? ' is-just-added' : '';
-      return `<tr class="${justAdded}" data-driver-id="${escapeHtml(driver.id)}">
-        <th class="sheet-rowhead" scope="row">${index + 1}</th>
-        <td><input class="entry-input js-driver-first" type="text" autocomplete="given-name" value="${escapeHtml(driver.firstName)}" aria-label="First name for ${escapeHtml(who)}" /></td>
-        <td><input class="entry-input js-driver-last" type="text" autocomplete="family-name" value="${escapeHtml(driver.lastName)}" aria-label="Last name for ${escapeHtml(who)}" /></td>
-        <td><input class="entry-input js-driver-email" type="email" autocomplete="email" value="${escapeHtml(driver.email)}" aria-label="Email for ${escapeHtml(who)}" placeholder="name@example.com" /></td>
-        <td class="sheet-readonly">${routeLabel ? escapeHtml(routeLabel) : ''}</td>
-        <td class="sheet-remove"><button type="button" class="secondary js-delete-driver" aria-label="Remove ${escapeHtml(who)} from the driver list">Remove</button></td>
-      </tr>`;
+  if (!drivers.length) {
+    driverSheet.innerHTML = '<li class="driver-name-empty">No drivers on the list yet.</li>';
+    return;
+  }
+  driverSheet.innerHTML = drivers
+    .map((driver) => {
+      const justAdded = highlightName && sameDriver(driver.name, highlightName) ? ' class="is-just-added"' : '';
+      const label = [driver.firstName, driver.lastName].filter(Boolean).join(' ') || driver.name;
+      return `<li${justAdded}><button type="button" class="driver-name-button" data-driver-id="${escapeHtml(driver.id)}">${escapeHtml(label)}</button></li>`;
     })
     .join('');
-  body.innerHTML = `${rows}<tr class="is-entry" data-driver-id="">
-    <th class="sheet-rowhead" scope="row">${drivers.length + 1}</th>
-    <td><input class="entry-input js-driver-first" type="text" autocomplete="off" aria-label="New driver first name" placeholder="First" /></td>
-    <td><input class="entry-input js-driver-last" type="text" autocomplete="off" aria-label="New driver last name" placeholder="Last" /></td>
-    <td><input class="entry-input js-driver-email" type="email" autocomplete="off" aria-label="New driver email" placeholder="name@example.com" /></td>
-    <td class="sheet-readonly"></td>
-    <td class="sheet-remove"></td>
-  </tr>`;
-  if (highlightName) body.querySelector('.is-just-added')?.scrollIntoView({ block: 'nearest' });
+  if (highlightName) driverSheet.querySelector('.is-just-added')?.scrollIntoView({ block: 'nearest' });
+}
+
+const driverDetailDialog = document.querySelector('#driver-detail-dialog');
+const driverDetailForm = document.querySelector('#driver-detail-form');
+const driverDetailFields = document.querySelector('#driver-detail-fields');
+const driverDetailStatuses = document.querySelector('#driver-detail-statuses');
+const driverDetailStatus = document.querySelector('#driver-detail-status');
+const driverDetailTitle = document.querySelector('#driver-detail-title');
+const driverDetailRemove = document.querySelector('#driver-detail-remove');
+let driverDetailId = '';
+
+function setDetailStatus(message, kind = '') {
+  if (!driverDetailStatus) return;
+  setStatus(driverDetailStatus, message, kind);
+}
+
+function driverDetailRecord() {
+  if (!driverDetailId) {
+    return {
+      id: '',
+      name: '',
+      firstName: '',
+      lastName: '',
+      phone: '',
+      email: '',
+      pay: {},
+      payStatuses: [],
+      payStatusByRun: {},
+    };
+  }
+  return infoDriver(driverDetailId);
+}
+
+function detailField(id, label, value, type, extra = '') {
+  return `<div class="field"><label for="${id}">${label}</label><input id="${id}" type="${type}" value="${escapeHtml(value)}" ${extra} /></div>`;
+}
+
+function detailFact(label, value) {
+  return `<div class="field"><p class="field-static-label">${escapeHtml(label)}</p><p class="field-static">${value}</p></div>`;
+}
+
+function currentRouteNames(name) {
+  return routesForDriver(name)
+    .filter((route) => route.current)
+    .map((route) => route.name);
+}
+
+function earlierRouteNames(name) {
+  return routesForDriver(name)
+    .filter((route) => !route.current)
+    .map((route) => route.name);
+}
+
+function routeFact(label, names, empty) {
+  const body = names.length
+    ? `<ul class="driver-detail-routes">${names.map((name) => `<li>${escapeHtml(name)}</li>`).join('')}</ul>`
+    : escapeHtml(empty);
+  return `<div class="field full"><p class="field-static-label">${escapeHtml(label)}</p><div class="field-static">${body}</div></div>`;
+}
+
+function renderDriverDetail() {
+  const driver = driverDetailRecord();
+  if (driverDetailId && !driver) {
+    driverDetailDialog?.close();
+    return;
+  }
+  const who = driver?.name || 'New driver';
+  if (driverDetailTitle) driverDetailTitle.textContent = who;
+  if (driverDetailRemove) driverDetailRemove.hidden = !driver?.id;
+  const pin = driver?.id ? driverClockPin(loadState().clockPins, driver.id) : DEFAULT_DRIVER_PIN;
+  const email = driver?.email ? escapeHtml(driver.email) : 'No email';
+  const current = driver?.name ? currentRouteNames(driver.name) : [];
+  const earlier = driver?.name ? earlierRouteNames(driver.name) : [];
+  if (driverDetailFields) {
+    driverDetailFields.innerHTML = [
+      detailField('driver-detail-first', 'First name', driver?.firstName || '', 'text', 'autocomplete="given-name"'),
+      detailField('driver-detail-last', 'Last name', driver?.lastName || '', 'text', 'autocomplete="family-name"'),
+      detailFact('Email', email),
+      detailField('driver-detail-phone', 'Phone', driver?.phone || '', 'tel', 'autocomplete="tel"'),
+      routeFact('Current routes', current, 'No current route'),
+      earlier.length ? routeFact('Earlier routes', earlier, '') : '',
+      detailField('driver-detail-serial', 'Serial number', driver?.pay?.serial || '', 'text', 'autocomplete="off"'),
+      detailField(
+        'driver-detail-rate',
+        'Hourly rate',
+        driver?.pay?.rate || '',
+        'number',
+        'min="0" step="any" inputmode="decimal" placeholder="0.00" autocomplete="off"'
+      ),
+      detailField('driver-detail-account', 'Payroll account', driver?.pay?.account || '', 'text', 'autocomplete="off"'),
+      detailField(
+        'driver-detail-pin',
+        'Clock PIN',
+        pin,
+        'text',
+        'inputmode="numeric" maxlength="4" autocomplete="off" spellcheck="false"'
+      ),
+    ].join('');
+  }
+  if (driverDetailStatuses) {
+    driverDetailStatuses.innerHTML = `<p class="field-static-label">Pay status</p>${driverInfoStatusMarkup(driver || { name: 'New driver', payStatuses: [], payStatusByRun: {} }, payLinesForInfo())}`;
+  }
+  setDetailStatus('');
+}
+
+function openDriverDetail(driverId = '') {
+  driverDetailId = driverId || '';
+  renderDriverDetail();
+  if (driverDetailDialog && !driverDetailDialog.open) driverDetailDialog.showModal();
+}
+
+function detailPayStatuses() {
+  return [...(driverDetailStatuses?.querySelectorAll('[data-remove-status]') || [])]
+    .map((button) => button.dataset.removeStatus || '')
+    .filter(Boolean);
+}
+
+function detailPayStatusByRun() {
+  const map = {};
+  for (const select of driverDetailStatuses?.querySelectorAll('.js-pay-status-run') || []) {
+    if (select.dataset.payRun) map[select.dataset.payRun] = select.value;
+  }
+  return map;
+}
+
+function refreshDetailStatuses(payStatuses, payStatusByRun) {
+  const driver = driverDetailRecord() || { name: 'New driver' };
+  const first = document.querySelector('#driver-detail-first')?.value.trim() || '';
+  const last = document.querySelector('#driver-detail-last')?.value.trim() || '';
+  const name = [first, last].filter(Boolean).join(' ') || driver.name || 'New driver';
+  if (!driverDetailStatuses) return;
+  driverDetailStatuses.innerHTML = `<p class="field-static-label">Pay status</p>${driverInfoStatusMarkup({ ...driver, name, payStatuses, payStatusByRun }, payLinesForInfo())}`;
+}
+
+function saveDriverClockPin(driverId, pin) {
+  const state = loadState();
+  const pins = { ...(state.clockPins || {}) };
+  if (pins[driverId] === pin) return;
+  pins[driverId] = pin;
+  state.clockPins = pins;
+  saveState(state);
 }
 
 const driverInfoSheet = document.querySelector('#driver-info-sheet');
@@ -2484,21 +3953,32 @@ function renderApp() {
   const onClocking = activeSheet === 'clocking' && !addingPerson;
   const onClockSettings = activeSheet === 'clock-settings' && !addingPerson;
   const onPaperBackup = activeSheet === 'paper-backup' && !addingPerson;
+  const onWeekly = activeSheet === 'weekly-work' && !addingPerson;
+  const onDaily = activeSheet === 'daily-work' && !addingPerson;
+  const onRoster = activeSheet === 'roster-trips' && !addingPerson;
   const onSettings = activeSheet === 'settings' && !addingPerson;
-  const onOfficeApp = onPayroll || onClocking || onClockSettings || onPaperBackup;
+  const onOfficeApp = onPayroll || onClocking || onClockSettings || onPaperBackup || onWeekly || onDaily || onRoster;
   const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
+  const onContractNotice = activeSheet === 'contract-notice' && !addingPerson;
   const payrollWindow = driversWindow && driversApp === 'payroll';
   document.body.classList.toggle('is-payroll-app', onPayroll || (payrollWindow && onDriverHistory));
   document.body.classList.toggle('is-clocking-app', onClocking || onClockSettings || onPaperBackup);
+  document.body.classList.toggle('is-daily-app', onDaily || onWeekly);
+  document.body.classList.toggle('is-roster-app', onRoster);
   document.body.classList.toggle('is-paper-backup', onPaperBackup);
   document.body.classList.toggle('is-tracker-settings', onSettings);
-  const themeColor =
-    onPayroll || (payrollWindow && onDriverHistory)
-      ? '#12887a'
-      : onClocking || onClockSettings || onPaperBackup
-        ? '#1a4f8b'
-        : '#6428f0';
+  const themeColor = onWeekly
+    ? '#1f6b4a'
+    : onDaily
+    ? '#c47b12'
+    : onRoster
+      ? '#8b3a4a'
+      : onPayroll || (payrollWindow && onDriverHistory)
+        ? '#12887a'
+        : onClocking || onClockSettings || onPaperBackup
+          ? '#1a4f8b'
+          : '#6428f0';
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor);
   const hideRouteTabs = onOfficeApp || onSettings || driversWindow;
   if (routeTabs) routeTabs.hidden = hideRouteTabs;
@@ -2506,14 +3986,24 @@ function renderApp() {
   else renderRouteTabs();
   if (payrollView) payrollView.hidden = !onPayroll;
   if (clockingView) clockingView.hidden = !onClocking;
+  if (weeklyWorkView) weeklyWorkView.hidden = !onWeekly;
+  if (dailyWorkView) dailyWorkView.hidden = !onDaily;
+  if (rosterTripsView) rosterTripsView.hidden = !onRoster;
   if (paperBackupView) paperBackupView.hidden = !onPaperBackup;
   if (timeclockSettingsView) timeclockSettingsView.hidden = !onClockSettings;
   if (trackerSettingsView) trackerSettingsView.hidden = !onSettings;
   if (adminReminderView) adminReminderView.hidden = !onAdminReminder;
   if (driverNoticeView) driverNoticeView.hidden = !onDriverNotice;
+  if (contractNoticeView) contractNoticeView.hidden = !onContractNotice;
+  paintNoticeTabFlags();
+  if (onDriverNotice) renderDriverNoticeQueue();
+  if (onContractNotice) renderContractNoticeQueue();
   if (driversWindow && onDriverHistory) {
     if (payrollView) payrollView.hidden = true;
     if (clockingView) clockingView.hidden = true;
+    if (weeklyWorkView) weeklyWorkView.hidden = true;
+    if (dailyWorkView) dailyWorkView.hidden = true;
+    if (rosterTripsView) rosterTripsView.hidden = true;
     if (paperBackupView) paperBackupView.hidden = true;
     if (timeclockSettingsView) timeclockSettingsView.hidden = true;
     if (trackerSettingsView) trackerSettingsView.hidden = true;
@@ -2555,6 +4045,16 @@ function renderApp() {
     paperBackupDesk.refresh();
     return;
   }
+  if (onWeekly || onDaily || onRoster) {
+    driversView.hidden = true;
+    allRoutesView.hidden = true;
+    driverHistoryView.hidden = true;
+    setupView.hidden = true;
+    appView.hidden = true;
+    openTripFrame(onRoster ? 'roster' : onWeekly ? 'weekly' : 'daily');
+    document.title = `${onRoster ? 'Roster Trips' : onWeekly ? 'Weekly Work Admin' : 'Daily/Late Work Admin'} · ${APP_TITLE}`;
+    return;
+  }
   if (onPayroll || onClocking) {
     driversView.hidden = true;
     allRoutesView.hidden = true;
@@ -2585,13 +4085,17 @@ function renderApp() {
     document.title = openDriver ? `${openDriver} · ${appName} · ${APP_TITLE}` : `${appName} · ${APP_TITLE}`;
     return;
   }
-  if (onAdminReminder || onDriverNotice) {
+  if (onAdminReminder || onDriverNotice || onContractNotice) {
     driversView.hidden = true;
     allRoutesView.hidden = true;
     driverHistoryView.hidden = true;
     setupView.hidden = true;
     appView.hidden = true;
-    document.title = onAdminReminder ? 'Admin contract reminder' : 'Driver time-change notice';
+    document.title = onAdminReminder
+      ? 'Admin contract reminder'
+      : onContractNotice
+        ? 'Contract time-change notice'
+        : 'Driver time-change notice';
     return;
   }
   document.title = PAGE_TITLE;
@@ -2669,13 +4173,16 @@ function updatePreview() {
       clock_in: clockIn,
       clock_out: clockOut,
       change_date: changeDate,
-      force_oct1_contract: document.querySelector('#change_force_oct1')?.checked === true,
     });
     previewBox.hidden = false;
     previewBox.innerHTML = `
       <strong>${preview.delta_label}</strong> exact difference
       · window ends <strong>${prettyDate(preview.window_expires_date)}</strong>
-      · becomes contracted <strong>${prettyDate(preview.becomes_contracted_on)}</strong>
+      · ${
+        preview.bid_posting_phrase
+          ? `<strong>${escapeHtml(preview.bid_posting_phrase)}</strong>`
+          : `becomes contracted <strong>${prettyDate(preview.becomes_contracted_on)}</strong>`
+      }
       · ${preview.projected_outcome_label}
       <div class="meta">${preview.contracted_hours_statement || ''}</div>
       ${preview.side_window_note ? `<div class="meta">${escapeHtml(preview.side_window_note)}</div>` : ''}
@@ -2723,12 +4230,9 @@ changeForm.addEventListener('submit', (event) => {
       change_date: document.querySelector('#change_date').value || null,
       clock_in: document.querySelector('#clock_in').value,
       clock_out: document.querySelector('#clock_out').value,
-      force_oct1_contract: document.querySelector('#change_force_oct1')?.checked === true,
       ...attributionForChange(currentAccount(), document.querySelector('#change_note').value),
     });
     document.querySelector('#change_note').value = '';
-    const forceOct1 = document.querySelector('#change_force_oct1');
-    if (forceOct1) forceOct1.checked = false;
     setStatus(changeStatus, '');
     closeChangeDialog();
     announcePredictedReminders(
@@ -2748,11 +4252,9 @@ document.querySelector('#change_segment').addEventListener('change', () => {
 document.querySelector('#change-reset').addEventListener('click', () => {
   fillChangeFormFromSegment();
   document.querySelector('#change_note').value = '';
-  const forceOct1 = document.querySelector('#change_force_oct1');
-  if (forceOct1) forceOct1.checked = false;
   updatePreview();
 });
-for (const id of ['clock_in', 'clock_out', 'change_date', 'change_force_oct1']) {
+for (const id of ['clock_in', 'clock_out', 'change_date']) {
   document.querySelector(`#${id}`).addEventListener('change', updatePreview);
 }
 
@@ -2878,7 +4380,6 @@ document.querySelector('#export-btn').addEventListener('click', async () => {
       {
         ...loadState(),
         asOf: getAsOfDate(),
-        noticeSentIds: loadSentChangeIds(),
       },
       {
         title: workbookTitleFromFilename(filename),
@@ -3041,6 +4542,13 @@ async function sendRouteHistoryEmail(event) {
 }
 
 document.querySelector('#email-route-history')?.addEventListener('click', openRouteHistoryEmail);
+document.querySelector('#template-preview-close')?.addEventListener('click', () => {
+  document.querySelector('#template-preview-dialog')?.close();
+});
+document.querySelector('#template-preview-dialog')?.addEventListener('click', (event) => {
+  const dialog = document.querySelector('#template-preview-dialog');
+  if (event.target === dialog) dialog.close();
+});
 document.querySelector('#history-email-close')?.addEventListener('click', () => {
   document.querySelector('#history-email-dialog')?.close();
 });
@@ -3140,8 +4648,6 @@ function openChangeEditor(changeId) {
   document.querySelector('#change_edit_in').value = toTimeInput(change.next?.clock_in);
   document.querySelector('#change_edit_out').value = toTimeInput(change.next?.clock_out);
   document.querySelector('#change_edit_note').value = change.note || '';
-  const forceOct1 = document.querySelector('#change_edit_force_oct1');
-  if (forceOct1) forceOct1.checked = Boolean(change.force_oct1_contract);
   startEditForm.hidden = true;
   changeEditForm.hidden = false;
   setStatus(changeEditStatus, '');
@@ -3200,8 +4706,7 @@ function saveHistoryEdit(input) {
           body[`${key}_out`] = run.id === runId ? rowTime(row, run.id, 'out') : item?.clock_out || '';
         }
         snapshot = updateStartingSchedule(body);
-      } else if (input.classList.contains('js-history-date') || input.classList.contains('js-force-oct1')) {
-        const forceInput = row.querySelector('.js-force-oct1');
+      } else if (input.classList.contains('js-history-date')) {
         const ids = rowChangeIds(row);
         const previous = Object.fromEntries(ids.map((id) => [id, predictedContractDate(id)]));
         for (const id of ids) {
@@ -3211,20 +4716,17 @@ function saveHistoryEdit(input) {
             ...(change?.next?.clock_in && change?.next?.clock_out
               ? { clock_in: change.next.clock_in, clock_out: change.next.clock_out }
               : {}),
-            ...(forceInput ? { force_oct1_contract: forceInput.checked } : {}),
           });
         }
         announcePredictedReminders('Schedule corrected on this device.', ids, previous);
         renderApp();
         return;
       } else {
-        const forceInput = row.querySelector('.js-force-oct1');
         const previousOn = predictedContractDate(sourceId);
         snapshot = updateChange(sourceId, {
           change_date: changeDate,
           clock_in: rowTime(row, runId, 'in'),
           clock_out: rowTime(row, runId, 'out'),
-          ...(forceInput ? { force_oct1_contract: forceInput.checked } : {}),
         });
         announcePredictedReminders('Schedule corrected on this device.', [sourceId], {
           [sourceId]: previousOn,
@@ -3254,7 +4756,7 @@ scheduleHistory.addEventListener('input', (event) => {
 
 scheduleHistory.addEventListener('change', (event) => {
   if (event.target.closest('input[type="time"]')) markScheduleTimeDiffs();
-  const input = event.target.closest('.js-history-date, .js-history-time, .js-force-oct1');
+  const input = event.target.closest('.js-history-date, .js-history-time');
   if (!input || input.closest('.is-new-change')) return;
   saveHistoryEdit(input);
 });
@@ -3301,11 +4803,6 @@ scheduleHistory.addEventListener('click', (event) => {
     }
     return;
   }
-  const sendNotice = event.target.closest('.js-send-notice');
-  if (sendNotice) {
-    sendChangeNotice(sendNotice);
-    return;
-  }
   if (event.target.closest('#add-change-row')) {
     commitEntryRow();
     return;
@@ -3347,7 +4844,6 @@ changeEditForm.addEventListener('submit', (event) => {
       clock_in: document.querySelector('#change_edit_in').value,
       clock_out: document.querySelector('#change_edit_out').value,
       note: document.querySelector('#change_edit_note').value,
-      force_oct1_contract: document.querySelector('#change_edit_force_oct1')?.checked === true,
     });
     changeEditForm.hidden = true;
     announcePredictedReminders('Change corrected.', [changeId], { [changeId]: previousOn });
@@ -3362,40 +4858,120 @@ document.querySelector('#change-edit-cancel').addEventListener('click', () => {
   setStatus(changeEditStatus, '');
 });
 
-document.querySelector('#add-driver-row').addEventListener('click', async () => {
-  const row = driverSheet.querySelector('tr.is-entry');
-  if (!row) return;
-  const button = document.querySelector('#add-driver-row');
-  button.disabled = true;
+document.querySelector('#add-driver-row').addEventListener('click', () => {
+  openDriverDetail('');
+});
+
+driverSheet.addEventListener('click', (event) => {
+  const button = event.target.closest('.driver-name-button');
+  if (!button?.dataset.driverId) return;
+  openDriverDetail(button.dataset.driverId);
+});
+
+function detailValue(id) {
+  return document.querySelector(`#${id}`)?.value ?? '';
+}
+
+driverDetailForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const existing = driverDetailId ? infoDriver(driverDetailId) : null;
+  const firstName = detailValue('driver-detail-first').trim();
+  const lastName = detailValue('driver-detail-last').trim();
+  if (!firstName && !lastName) {
+    setDetailStatus('Enter a first or last name.', 'error');
+    return;
+  }
+  const rateInput = document.querySelector('#driver-detail-rate');
+  if (rateInput instanceof HTMLInputElement && rateInput.validity?.badInput) {
+    setDetailStatus('Enter an hourly rate like 37.74.', 'error');
+    return;
+  }
+  const rateRaw = detailValue('driver-detail-rate').trim();
+  const rate = normalizeDriverPay({ rate: rateRaw }).rate;
+  if (rateRaw && !rate) {
+    setDetailStatus('Enter an hourly rate like 37.74.', 'error');
+    return;
+  }
+  const pin = detailValue('driver-detail-pin').trim();
+  if (!/^\d{4}$/.test(pin)) {
+    setDetailStatus('Clock PIN must be 4 digits.', 'error');
+    return;
+  }
+  const pay = normalizeDriverPay({
+    serial: detailValue('driver-detail-serial'),
+    rate,
+    account: detailValue('driver-detail-account'),
+  });
+  const lines = payLinesForInfo();
+  const payStatuses = lines.map((line) => line.id).filter((id) => detailPayStatuses().includes(id));
+  const payStatusByRun = normalizePayStatusByRun(detailPayStatusByRun(), payStatuses);
+  const submit = driverDetailForm.querySelector('button[type="submit"]');
+  if (submit) submit.disabled = true;
   try {
-    setStatus(driverStatus, 'Saving driver…');
-    const saved = saveDriver(driverDraftFromRow(row));
-    if (accountsEnabled()) await whenSharedOfficeSaved();
-    setStatus(
-      driverStatus,
-      accountsEnabled() ? `${saved.name} added.` : `${saved.name} added on this device.`,
-      'ok'
-    );
+    setDetailStatus('Saving driver…');
+    const saved = saveDriver({
+      id: existing?.id,
+      previousName: existing?.name || '',
+      firstName,
+      lastName,
+      email: existing?.email || '',
+      phone: detailValue('driver-detail-phone').trim(),
+      serial: pay.serial,
+      rate: pay.rate,
+      account: pay.account,
+      payStatuses,
+      payStatusByRun,
+    });
+    saveDriverClockPin(saved.id, pin);
+    driverDetailId = saved.id;
     renderDrivers(saved.name);
+    renderDriverDetail();
+    setDetailStatus('Saving driver…');
+    if (accountsEnabled()) await whenSharedOfficeSaved();
+    setDetailStatus(accountsEnabled() ? `${saved.name} saved.` : `${saved.name} saved on this device.`, 'ok');
   } catch (error) {
-    setStatus(driverStatus, error.message, 'error');
-    renderDrivers();
+    setDetailStatus(error instanceof Error ? error.message : 'Could not save that driver.', 'error');
   } finally {
-    button.disabled = false;
+    if (submit) submit.disabled = false;
   }
 });
 
-driverSheet.addEventListener('click', async (event) => {
-  const button = event.target.closest('.js-delete-driver');
-  if (!button) return;
-  const row = button.closest('tr[data-driver-id]');
-  const driver = listDrivers().find((item) => item.id === row?.dataset.driverId);
-  if (!driver) return;
-  if (!confirmRemoveDriver(driver)) return;
+driverDetailDialog?.addEventListener('click', (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const removeStatus = target?.closest('[data-remove-status]');
+  if (removeStatus instanceof HTMLButtonElement) {
+    const current = detailPayStatuses();
+    if (current.length < 2) {
+      setDetailStatus('Leave at least one pay status for this driver.', 'error');
+      return;
+    }
+    refreshDetailStatuses(
+      current.filter((id) => id !== removeStatus.dataset.removeStatus),
+      detailPayStatusByRun()
+    );
+    return;
+  }
+  const add = target?.closest('[data-add-status]');
+  if (!(add instanceof HTMLButtonElement)) return;
+  const select = add.parentElement?.querySelector('[data-pay-status-add]');
+  if (!(select instanceof HTMLSelectElement) || !select.value) return;
+  const current = detailPayStatuses();
+  if (current.includes(select.value)) return;
+  refreshDetailStatuses([...current, select.value], detailPayStatusByRun());
+});
+
+document.querySelector('#driver-detail-close')?.addEventListener('click', () => {
+  driverDetailDialog?.close();
+});
+
+driverDetailRemove?.addEventListener('click', async () => {
+  const driver = driverDetailId ? infoDriver(driverDetailId) : null;
+  if (!driver || !confirmRemoveDriver(driver)) return;
   try {
-    setStatus(driverStatus, 'Removing driver…');
+    setDetailStatus('Removing driver…');
     deleteDriver(driver.id);
     if (accountsEnabled()) await whenSharedOfficeSaved();
+    driverDetailDialog?.close();
     setStatus(
       driverStatus,
       accountsEnabled() ? `${driver.name} removed.` : `${driver.name} removed on this device.`,
@@ -3403,30 +4979,7 @@ driverSheet.addEventListener('click', async (event) => {
     );
     renderDrivers();
   } catch (error) {
-    setStatus(driverStatus, error.message, 'error');
-    renderDrivers();
-  }
-});
-
-driverSheet.addEventListener('change', async (event) => {
-  const input = event.target.closest('.entry-input');
-  const row = event.target.closest('tr[data-driver-id]');
-  if (!input || !row?.dataset.driverId) return;
-  const driver = listDrivers().find((item) => item.id === row.dataset.driverId);
-  if (!driver) return;
-  try {
-    setStatus(driverStatus, 'Saving driver…');
-    saveDriver({
-      id: driver.id,
-      previousName: driver.name,
-      ...driverDraftFromRow(row),
-    });
-    if (accountsEnabled()) await whenSharedOfficeSaved();
-    setStatus(driverStatus, accountsEnabled() ? 'Driver saved.' : 'Driver sheet saved on this device.', 'ok');
-    renderDrivers();
-  } catch (error) {
-    setStatus(driverStatus, error.message, 'error');
-    renderDrivers();
+    setDetailStatus(error instanceof Error ? error.message : 'Could not remove that driver.', 'error');
   }
 });
 
@@ -3455,7 +5008,8 @@ function recentChangeSummary(item, index, total) {
   const recorded = when ? `Recorded ${when}.` : 'Recorded time was not saved.';
   const effect = item.effectiveDate ? ` Takes effect ${prettyDate(item.effectiveDate)}.` : '';
   const note = item.note ? ` ${item.note}` : '';
-  return `${index + 1} of ${total}. Route ${item.routeName}, ${item.segmentLabel}, ${item.previousTime} to ${item.newTime}.${effect} ${recorded} ${who}${note}`;
+  const pending = item.noticeSent ? '' : 'Notice not sent. ';
+  return `${pending}${index + 1} of ${total}. Route ${item.routeName}, ${item.segmentLabel}, ${item.previousTime} to ${item.newTime}.${effect} ${recorded} ${who}${note}`;
 }
 
 function recentChangeCardHtml(item, index, total) {
@@ -3469,8 +5023,9 @@ function recentChangeCardHtml(item, index, total) {
     : '';
   const note = item.note ? `<p class="recent-changes-note">${escapeHtml(item.note)}</p>` : '';
   const hidden = index === 0 ? '' : ' aria-hidden="true"';
+  const flag = item.noticeSent ? '' : noticeFlagHtml();
   return `<article class="recent-changes-card" data-index="${index}" aria-roledescription="slide" aria-label="${index + 1} of ${total}"${hidden}>
-    <p class="recent-changes-title">Route ${escapeHtml(item.routeName)} · ${escapeHtml(item.segmentLabel)}</p>
+    <p class="recent-changes-title">${flag}Route ${escapeHtml(item.routeName)} · ${escapeHtml(item.segmentLabel)}</p>
     <p class="recent-changes-times">${escapeHtml(item.previousTime)} <span aria-hidden="true">→</span> ${escapeHtml(item.newTime)}</p>
     ${effect}
     <p class="recent-changes-when">${recorded}</p>
@@ -3519,6 +5074,10 @@ function scrollRecentChanges(delta) {
 function showRecentRouteChanges(state) {
   if (!recentChangesBox || !recentChangesTrack) return;
   recentChangeItems = recentRouteChanges(state);
+  refreshCoveredClockNotices();
+  recentChangeItems.forEach((item) => {
+    item.noticeSent = coveredClockNoticeIds.has(item.id) || isChangeNoticeSent(item.id);
+  });
   recentChangeIndex = -1;
   setStatus(fileStatus, '');
   recentChangesBox.hidden = false;
@@ -3616,6 +5175,11 @@ async function adoptStarterOffice() {
       : current.driverNotice
         ? { driverNotice: current.driverNotice }
         : {}),
+    ...(next.contractNotice
+      ? { contractNotice: next.contractNotice }
+      : current.contractNotice
+        ? { contractNotice: current.contractNotice }
+        : {}),
     ...(next.contractReminderCreated
       ? { contractReminderCreated: next.contractReminderCreated }
       : current.contractReminderCreated
@@ -3667,7 +5231,15 @@ const clockDesk = mountClockDesk({
     refreshPaperRecords();
   },
   listNames() {
-    return listDrivers().map((driver) => driver.name);
+    const names = listDrivers().map((driver) => driver.name);
+    const punches = loadState()?.punches;
+    if (!Array.isArray(punches)) return names;
+    for (const punch of punches) {
+      if (punch?.removed === true) continue;
+      const name = String(punch?.driver_name || '').trim();
+      if (name) names.push(name);
+    }
+    return names;
   },
   asOf() {
     return getAsOfDate();
@@ -3992,6 +5564,7 @@ startAccounts({
     showRecentRouteChanges(loadState());
     if (activeSheet === 'admin-reminder') fillReminderSettings();
     if (activeSheet === 'driver-notice') fillDriverNoticeSettings();
+    if (activeSheet === 'contract-notice') fillContractNoticeSettings();
   },
 }).catch((error) => {
   if (document.body.dataset.holdBoot !== 'timeclock') document.body.classList.remove('is-booting');

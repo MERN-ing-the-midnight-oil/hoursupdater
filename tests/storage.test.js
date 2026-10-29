@@ -7,6 +7,8 @@ import {
   appendAdjustmentEvent,
   appendChangeEvent,
   createDriver,
+  createSubstituteDriver,
+  deleteSubstituteDriver,
   readAdjustmentReasons,
   readChangeLog,
   readDrivers,
@@ -335,6 +337,49 @@ describe('storage', () => {
     const jane = (await readDrivers(dataDir)).find((d) => d.name === 'Jane Driver');
     assert.equal(jane.email, 'jane@example.com');
 
+    await fs.rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('adds and removes a substitute without a hire date', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'rct-subs-'));
+    await writeDrivers([], dataDir);
+    const created = await createSubstituteDriver(
+      { name: 'Taylor Rawls', email: 'taylor@example.com' },
+      dataDir
+    );
+    assert.equal(created.kind, 'substitute');
+    assert.equal(created.hire_date, null);
+    assert.equal(created.name, 'Taylor Rawls');
+
+    await assert.rejects(
+      () => createSubstituteDriver({ name: 'Taylor' }, dataDir),
+      /first and last name/
+    );
+    await assert.rejects(
+      () => createSubstituteDriver({ name: 'Taylor Rawls' }, dataDir),
+      /already on the driver list/
+    );
+    await assert.rejects(
+      () => deleteSubstituteDriver('missing', dataDir),
+      /not found/
+    );
+
+    const route = await createDriver(
+      { name: 'Jane Driver', email: null, hire_date: '2020-09-01' },
+      dataDir
+    );
+    assert.equal(route.kind, 'route');
+    await assert.rejects(
+      () => deleteSubstituteDriver(route.driver_id, dataDir),
+      /Only a substitute/
+    );
+
+    const removed = await deleteSubstituteDriver(created.driver_id, dataDir);
+    assert.equal(removed.name, 'Taylor Rawls');
+    assert.deepEqual(
+      (await readDrivers(dataDir)).map((driver) => driver.name),
+      ['Jane Driver']
+    );
     await fs.rm(dataDir, { recursive: true, force: true });
   });
 

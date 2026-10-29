@@ -165,6 +165,14 @@ describe('timesheets from clock records', () => {
     assert.match(summed.clocks, /^Route 12:/);
     const open = sheet([], { year: 2026, monthIndex: 8, half: 1 }, []);
     assert.match(open.contract_text, /not assigned to a route/);
+    const sub = buildTimesheet({
+      driver: { driver_id: 'sub', name: 'Taylor Rawls', kind: 'substitute' },
+      punches: [],
+      routes: [],
+      calendar,
+      period: { year: 2026, monthIndex: 8, half: 1 },
+    });
+    assert.match(sub.contract_text, /Substitute driver/);
     assert.equal(open.daily_hours, 0);
   });
 

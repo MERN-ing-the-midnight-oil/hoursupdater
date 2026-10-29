@@ -20,6 +20,7 @@ import { normalizePunchRun } from '../../src/logic/timesheets.js';
 import { normalizeStoredWorkPortions, normalizeTripTicket, normalizeWorkType } from '../../src/logic/workTypes.js';
 import { normalizeTimecardEntries } from '../src/timecardEntries.js';
 import { applyLeaveRequests, normalizeLeaveRequests, officeLeaveRequests } from '../src/leaveRequests.js';
+import { normalizeContractNotice } from '../src/contractNotice.js';
 import { normalizeDriverNotice } from '../src/noticeMail.js';
 import { normalizeOvertimeRules } from '../src/overtimeRules.js';
 import { mergePaperBackup, normalizePaperBackup } from '../src/paperClockBackup.js';
@@ -399,6 +400,7 @@ export function loadState(storage = globalThis.localStorage) {
       exampleVersion: parsed.exampleVersion ?? 0,
       ...(parsed.contractReminder ? { contractReminder: parsed.contractReminder } : {}),
       ...(parsed.driverNotice ? { driverNotice: parsed.driverNotice } : {}),
+      ...(parsed.contractNotice ? { contractNotice: parsed.contractNotice } : {}),
       ...(parsed.contractReminderCreated && typeof parsed.contractReminderCreated === 'object'
         ? { contractReminderCreated: parsed.contractReminderCreated }
         : {}),
@@ -807,6 +809,18 @@ export function saveDriverNotice(settings, storage = globalThis.localStorage) {
   return next;
 }
 
+export function loadContractNotice(storage = globalThis.localStorage) {
+  return normalizeContractNotice(loadState(storage).contractNotice);
+}
+
+export function saveContractNotice(settings, storage = globalThis.localStorage) {
+  const state = loadState(storage);
+  const next = normalizeContractNotice(settings);
+  state.contractNotice = next;
+  saveState(state, storage);
+  return next;
+}
+
 function createdContractEventMap(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
   const map = {};
@@ -988,6 +1002,7 @@ export function importState(json, storage = globalThis.localStorage) {
       : {}),
     ...(parsed.contractReminder ? { contractReminder: parsed.contractReminder } : {}),
     ...(parsed.driverNotice ? { driverNotice: parsed.driverNotice } : {}),
+    ...(parsed.contractNotice ? { contractNotice: parsed.contractNotice } : {}),
     ...(parsed.contractReminderCreated && typeof parsed.contractReminderCreated === 'object'
       ? { contractReminderCreated: parsed.contractReminderCreated }
       : {}),

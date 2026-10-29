@@ -296,6 +296,33 @@ export function setPin(pins, driverId, pin, now) {
   };
 }
 
+/**
+ * Drivers whose saved clock PIN is this number.
+ * A missing PIN does not match. Shared PINs return every match.
+ * @param {Array<{ driver_id?: string, name?: string }>} drivers
+ * @param {import('./clockKiosk.js').PinFile | Record<string, { pin?: string }>} pins
+ * @param {unknown} pin
+ * @returns {Array<{ driver_id: string, name: string }>}
+ */
+export function driversForPin(drivers, pins, pin) {
+  assertPin(pin);
+  const matches = [];
+  for (const driver of drivers || []) {
+    const id = String(driver?.driver_id || '').trim();
+    if (!id) continue;
+    try {
+      assertPinMatches(pins, id, pin);
+    } catch (error) {
+      const status = Number(error?.status) || 400;
+      if (status === 401 || status === 400) continue;
+      throw error;
+    }
+    matches.push({ driver_id: id, name: String(driver?.name || '') });
+  }
+  matches.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  return matches;
+}
+
 export function assertPinMatches(pins, driverId, pin) {
   const stored = normalizePinFile(pins)[driverId];
   if (!stored) {
@@ -455,6 +482,7 @@ export function buildRoster(drivers, routeState, pins, options = {}) {
       const row = {
         driver_id: driver.driver_id,
         name: driver.name,
+        kind: driver.kind === 'substitute' ? 'substitute' : 'route',
         routes: routesForDriver(routeState, driver.driver_id),
         pin_set: Boolean(stored),
         clock_status: status === 'in' ? 'in' : 'out',

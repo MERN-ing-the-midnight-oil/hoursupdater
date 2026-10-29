@@ -188,7 +188,7 @@ describe('Force Oct 1 Contract', () => {
     assert.equal(before.contracted.status, 'predicted');
     assert.equal(before.contracted.becomes_on, '2026-10-01');
     assert.equal(before.contracted.projected_outcome, 'STABLE');
-    assert.match(before.contracted.detail, /Force Oct 1 Contract is on/);
+    assert.match(before.contracted.detail, /becomes contracted on October 1/);
 
     const after = rowAt('2026-10-02');
     assert.equal(after.contracted.status, 'became_contracted');
@@ -206,5 +206,61 @@ describe('Force Oct 1 Contract', () => {
     }).schedule_history.find((item) => item.change_id === 'plain');
     assert.equal(unforced.force_oct1_contract, false);
     assert.notEqual(unforced.contracted.becomes_on, '2026-10-01');
+  });
+
+  it('keeps the October 1 contract date when a marked change is corrected', async () => {
+    const { recordChange, setupProfile, updateChange } = await import(
+      '../employee-tracker/web/engine.js'
+    );
+    const data = {};
+    const storage = {
+      getItem(key) {
+        return Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null;
+      },
+      setItem(key, value) {
+        data[key] = String(value);
+      },
+      removeItem(key) {
+        delete data[key];
+      },
+    };
+    setupProfile(
+      {
+        name: 'Alex',
+        start_date: '2026-09-08',
+        am_in: '06:35',
+        am_out: '08:55',
+      },
+      storage
+    );
+    const recorded = recordChange(
+      {
+        segment: 'AM',
+        change_date: '2026-09-08',
+        clock_in: '06:35',
+        clock_out: '09:35',
+        force_oct1_contract: true,
+      },
+      storage
+    );
+    const changeId = recorded.changes.find((change) => !change.is_seed).id;
+    const before = recorded.schedule_history.find((row) => row.change_id === changeId);
+    assert.equal(before.force_oct1_contract, true);
+    assert.equal(before.contracted.becomes_on, '2026-10-01');
+
+    const fixed = updateChange(
+      changeId,
+      {
+        change_date: '2026-09-09',
+        clock_in: '06:35',
+        clock_out: '09:20',
+      },
+      storage
+    );
+    const after = fixed.schedule_history.find((row) => row.change_id === changeId);
+    assert.equal(after.schedule.AM.clock_out, '9:20');
+    assert.equal(after.date, '2026-09-09');
+    assert.equal(after.force_oct1_contract, true);
+    assert.equal(after.contracted.becomes_on, '2026-10-01');
   });
 });

@@ -35,8 +35,8 @@ const SCHEDULE_HEADERS = [
   'PM start',
   'PM end',
   'Scheduled Hours',
+  'Contract Time Change',
   'Date, if Contracted',
-  'Notice sent?',
 ];
 
 const RUN_COLUMNS = [
@@ -195,11 +195,6 @@ function contractedCellText(row, column) {
   return lines.join('\n');
 }
 
-function noticeCell(row, sent) {
-  if (row.kind !== 'change' || !row.change_id) return '';
-  return sent.has(String(row.change_id)) ? 'Yes' : 'No';
-}
-
 function forceOct1Cell(row) {
   if (row.kind !== 'change') return '';
   return row.force_oct1_contract ? 'On' : 'Off';
@@ -234,14 +229,17 @@ function writeAssignmentTable(sheet, assignments) {
   }
 }
 
-function writeRouteSheet(workbook, profile, history, sent, usedNames) {
+function writeRouteSheet(workbook, profile, history, usedNames) {
   const route = String(profile.name ?? '').trim();
   const sheet = workbook.addWorksheet(sheetNameForRoute(route, usedNames), {
     pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
   });
-  [18, 24, 14, 14, 16, 16, 14, 14, 18, 24, 16].forEach((width, index) => {
+  [18, 24, 14, 14, 16, 16, 14, 14, 18, 22, 24].forEach((width, index) => {
     sheet.getColumn(index + 1).width = width;
   });
+  // Kept so a saved workbook still restores October 1 contract dates.
+  // The dashboard no longer shows this column.
+  sheet.getColumn(1).hidden = true;
 
   writeLabelRow(sheet, 'Route', route);
   const note = String(profile.note ?? '').trim();
@@ -282,15 +280,15 @@ function writeRouteSheet(workbook, profile, history, sent, usedNames) {
       excelClock(schedule.PM?.clock_in),
       excelClock(schedule.PM?.clock_out),
       column.hours,
+      column.contractTimeChange,
       contractedCellText(row, column),
-      noticeCell(row, sent),
     ]);
     for (let col = 1; col <= SCHEDULE_HEADERS.length; col += 1) {
       const cell = added.getCell(col);
       cell.alignment = {
         vertical: 'middle',
-        wrapText: col === 10,
-        horizontal: col === 11 ? 'center' : 'left',
+        wrapText: col === 11,
+        horizontal: 'left',
       };
       if (shaded) cell.fill = BAND_FILL;
     }
@@ -308,7 +306,7 @@ function writeRouteSheet(workbook, profile, history, sent, usedNames) {
         cell.fill = CHANGED_FILL;
       }
     }
-    const wraps = String(added.getCell(10).value ?? '').includes('\n');
+    const wraps = String(added.getCell(11).value ?? '').includes('\n');
     if (wraps) added.height = 48;
     shaded = !shaded;
   });
@@ -330,11 +328,6 @@ export async function buildRouteWorkbook(state, options = {}) {
 
   const asOf = asOfDate(options.asOf || state?.asOf);
   const calendar = calendarForOfficeState(state) || buildBellingham2026_2027Calendar().calendar;
-  const sent = new Set(
-    (Array.isArray(state?.noticeSentIds) ? state.noticeSentIds : [])
-      .map((id) => String(id || ''))
-      .filter(Boolean)
-  );
   const usedNames = new Set(
     [DRIVERS_SHEET, ABOUT_SHEET, CLOCK_SHEET].map((name) => name.toLowerCase())
   );
@@ -347,7 +340,6 @@ export async function buildRouteWorkbook(state, options = {}) {
       workbook,
       profile,
       scheduleHistoryFor(profile, asOf, calendar),
-      sent,
       usedNames
     );
   }
@@ -382,13 +374,16 @@ export async function buildRouteWorkbook(state, options = {}) {
     [''],
     ['Route clock times', { bold: true, size: 14 }],
     [
-      'The column headings match Route clock times in the dashboard: Force Oct 1 Contract, New Schedule Started, AM start, AM end, Midday start, Midday end, PM start, PM end, Scheduled Hours, Date, if Contracted, and Notice sent?.',
+      'The column headings match Route clock times in the dashboard: New Schedule Started, AM start, AM end, Midday start, Midday end, PM start, PM end, Scheduled Hours, Contract Time Change, and Date, if Contracted.',
     ],
     [
       'The first row of times is the established starting schedule. Later rows are changes, oldest to newest. Runs that moved on the same date share one row, and bold highlighted times are the runs that changed.',
     ],
     [
-      'Force Oct 1 Contract is On or Off. On contracts that schedule on October 1 and skips the usual rules for the size of the change and the 15-school-day countdown. Off is the usual rules. Scheduled Hours is the rounded total of the clock times on that row. Date, if Contracted is the date those hours became the contract, or "predicted: mm/dd/yyyy" for the next contracted date if no further change is logged. A later change with a different date says "new predicted: mm/dd/yyyy", and the date it replaces says "old predicted: mm/dd/yyyy". A line that starts with Note: is the note for that change. Notice sent? is Yes when a notice was sent for that change.',
+      'Scheduled Hours is the rounded total of the clock times on that row. Contract Time Change is the date those rounded hours changed, or the date they are predicted to change, such as Nov 4. For a route that goes up for bid, that date is the 15th school day after the change. A row that rounds to the same total as the row above has no date there. Date, if Contracted is the date those hours became the contract, or "predicted: mm/dd/yyyy" for the next contracted date if no further change is logged. A route posted during the last five school days of the month says "Predicted up for bid mm/dd–mm/dd". A later change with a different date says "new predicted: mm/dd/yyyy" or "New predicted up for bid mm/dd–mm/dd", and the date it replaces says "old predicted" or "Old predicted up for bid". A line that starts with Note: is the note for that change.',
+    ],
+    [
+      'A hidden column keeps October 1 contract marks from earlier this school year. Leave that column in the file so those contract dates stay the same when this workbook is opened again.',
     ],
     [
       'This sheet is a copy of the dashboard. Change clock times in the dashboard. Do not rename the column headings.',

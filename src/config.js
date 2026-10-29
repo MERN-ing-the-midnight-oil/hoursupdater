@@ -39,8 +39,7 @@ export function getSharedRoot() {
   const configured = process.env.DATA_DIR;
   if (!configured?.trim()) {
     const error = new Error(
-      'DATA_DIR is not set. Copy .env.example to .env and set DATA_DIR ' +
-        '(see SETUP-ONEDRIVE.md).'
+      'DATA_DIR is not set. Copy .env.example to .env and set DATA_DIR.'
     );
     error.code = 'DATA_DIR_UNSET';
     throw error;

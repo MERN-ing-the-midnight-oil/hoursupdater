@@ -25,10 +25,7 @@ describe('current route data workbook', () => {
       { id: 'driver-jordan', name: 'Jordan Lee', phone: '617-555-0102', email: 'jordan.lee@example.com' },
     ];
 
-    const sentId = Object.values(state.profiles)
-      .find((profile) => profile.name === '12')
-      .changeLog.find((row) => row.delta_minutes).id;
-    const buffer = await buildRouteWorkbook({ ...state, noticeSentIds: [sentId] });
+    const buffer = await buildRouteWorkbook(state);
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buffer);
     assert.deepEqual(
@@ -53,8 +50,8 @@ describe('current route data workbook', () => {
         'PM start',
         'PM end',
         'Scheduled Hours',
+        'Contract Time Change',
         'Date, if Contracted',
-        'Notice sent?',
       ]
     );
     assert.equal(clock.getRow(5).getCell(1).value ?? '', '');
@@ -64,20 +61,20 @@ describe('current route data workbook', () => {
     assert.equal(clock.getRow(5).getCell(3).numFmt, 'h:mm AM/PM');
     assert.equal(clock.getRow(5).getCell(7).value.toISOString(), '1899-12-30T14:10:00.000Z');
     assert.equal(clock.getRow(5).getCell(9).value, '6 hr 15 min');
-    assert.equal(clock.getRow(5).getCell(10).value, '09/08/2026');
-    assert.equal(clock.getRow(5).getCell(11).value ?? '', '');
+    assert.equal(clock.getRow(5).getCell(10).value, '—');
+    assert.equal(clock.getRow(5).getCell(11).value, '09/08/2026');
+    assert.equal(clock.getColumn(1).hidden, true);
     assert.equal(clock.getRow(6).getCell(1).value, 'Off');
     assert.equal(clock.getRow(6).getCell(4).value.toISOString(), '1899-12-30T09:00:00.000Z');
     assert.equal(clock.getRow(6).getCell(4).font.bold, true);
     assert.equal(clock.getRow(6).getCell(9).value, '6 hr 30 min');
-    assert.match(String(clock.getRow(6).getCell(10).value), /Note: Fifteen minutes added, after the stop/);
-    assert.equal(clock.getRow(6).getCell(11).value, 'Yes');
+    assert.equal(clock.getRow(6).getCell(10).value, 'Oct 28');
+    assert.match(String(clock.getRow(6).getCell(11).value), /Note: Fifteen minutes added, after the stop/);
 
     const p32 = workbook.getWorksheet('P32');
     assert.equal(p32.getRow(5).getCell(5).value, null);
     assert.equal(p32.getRow(6).getCell(1).value, 'Off');
     assert.equal(p32.getRow(6).getCell(3).value.toISOString(), '1899-12-30T06:20:00.000Z');
-    assert.equal(p32.getRow(6).getCell(11).value, 'No');
 
     const drivers = workbook.getWorksheet('Drivers');
     assert.equal(drivers.getRow(1).getCell(1).value, 'First name');

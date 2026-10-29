@@ -466,14 +466,100 @@ export function timeChangeNoticeDocument(input) {
   };
 }
 
-export function loadSentChangeIds(storage = globalThis.localStorage) {
+const SENT_NAME_MAX = 80;
+
+function readSentRaw(storage, key) {
   try {
-    const parsed = JSON.parse(storage?.getItem(CHANGE_NOTICE_SENT_KEY) || '[]');
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((id) => typeof id === 'string' && id);
+    const parsed = JSON.parse(storage?.getItem(key) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
+}
+
+// A stored id may be a plain string from before sender names were kept.
+export function normalizeNoticeSentRecord(item) {
+  if (typeof item === 'string') {
+    const id = item.trim();
+    return id ? { id, by: '', at: '', by_user_id: null } : null;
+  }
+  if (!item || typeof item !== 'object') return null;
+  const id = String(item.id || '').trim();
+  if (!id) return null;
+  const by = String(item.by || '').trim().slice(0, SENT_NAME_MAX);
+  const at = String(item.at || '').trim();
+  const when = at ? new Date(at) : null;
+  const iso = when && !Number.isNaN(when.getTime()) ? when.toISOString() : '';
+  const byUserId = String(item.by_user_id || '').trim();
+  return { id, by, at: iso, by_user_id: byUserId || null };
+}
+
+export function loadNoticeSentRecords(storage, key) {
+  const seen = new Map();
+  for (const item of readSentRaw(storage, key)) {
+    const record = normalizeNoticeSentRecord(item);
+    if (!record) continue;
+    const prior = seen.get(record.id);
+    if (!prior || record.by || record.at) seen.set(record.id, record);
+  }
+  return [...seen.values()];
+}
+
+// 10/03/26, in the browser's local calendar.
+export function noticeSentDay(iso) {
+  const when = new Date(iso);
+  if (!iso || Number.isNaN(when.getTime())) return '';
+  const month = String(when.getMonth() + 1).padStart(2, '0');
+  const day = String(when.getDate()).padStart(2, '0');
+  const year = String(when.getFullYear()).slice(-2);
+  return `${month}/${day}/${year}`;
+}
+
+export function noticeSentLine(record) {
+  const by = String(record?.by || '').trim();
+  const on = noticeSentDay(record?.at);
+  if (by && on) return `Sent By ${by} on ${on}`;
+  if (on) return `Sent on ${on}`;
+  return '';
+}
+
+// The latest named send among these change ids, when a same-day group shares one notice.
+export function noticeSentLineForIds(ids, records) {
+  const wanted = new Set(
+    (Array.isArray(ids) ? ids : [ids]).map((id) => String(id || '')).filter(Boolean)
+  );
+  const matches = (records || []).filter((record) => wanted.has(record.id) && (record.by || record.at));
+  matches.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  return noticeSentLine(matches[0]);
+}
+
+export function rememberNoticeSent(key, changeIds, storage = globalThis.localStorage, sender) {
+  const incoming = (Array.isArray(changeIds) ? changeIds : [changeIds])
+    .map((id) => String(id || ''))
+    .filter(Boolean);
+  const records = loadNoticeSentRecords(storage, key);
+  if (!incoming.length) return records.map((record) => record.id);
+  const stamped = sender && typeof sender === 'object';
+  const by = stamped ? String(sender.by || '').trim().slice(0, SENT_NAME_MAX) : '';
+  const when = stamped ? new Date(sender.at || Date.now()) : null;
+  const at = when && !Number.isNaN(when.getTime()) ? when.toISOString() : '';
+  const byUserId = stamped ? String(sender.by_user_id || '').trim() || null : null;
+  const map = new Map(records.map((record) => [record.id, record]));
+  for (const id of incoming) {
+    if (stamped && (by || at)) map.set(id, { id, by, at, by_user_id: byUserId });
+    else if (!map.has(id)) map.set(id, { id, by: '', at: '', by_user_id: null });
+  }
+  const next = [...map.values()];
+  storage.setItem(key, JSON.stringify(next));
+  return next.map((record) => record.id);
+}
+
+export function loadSentChangeRecords(storage = globalThis.localStorage) {
+  return loadNoticeSentRecords(storage, CHANGE_NOTICE_SENT_KEY);
+}
+
+export function loadSentChangeIds(storage = globalThis.localStorage) {
+  return loadSentChangeRecords(storage).map((record) => record.id);
 }
 
 export function isChangeNoticeSent(changeId, storage = globalThis.localStorage) {
@@ -482,10 +568,49 @@ export function isChangeNoticeSent(changeId, storage = globalThis.localStorage) 
   return loadSentChangeIds(storage).includes(id);
 }
 
-export function rememberChangeNoticeSent(changeId, storage = globalThis.localStorage) {
-  const id = String(changeId || '');
-  if (!id) return loadSentChangeIds(storage);
-  const next = [...new Set([...loadSentChangeIds(storage), id])];
-  storage.setItem(CHANGE_NOTICE_SENT_KEY, JSON.stringify(next));
-  return next;
+export function forgetNoticeSent(key, changeIds, storage = globalThis.localStorage) {
+  const drop = new Set(
+    (Array.isArray(changeIds) ? changeIds : [changeIds]).map((id) => String(id || '')).filter(Boolean)
+  );
+  const records = loadNoticeSentRecords(storage, key);
+  if (!drop.size) return records.map((record) => record.id);
+  const next = records.filter((record) => !drop.has(record.id));
+  storage.setItem(key, JSON.stringify(next));
+  return next.map((record) => record.id);
+}
+
+export function rememberChangeNoticesSent(changeIds, storage = globalThis.localStorage, sender) {
+  return rememberNoticeSent(CHANGE_NOTICE_SENT_KEY, changeIds, storage, sender);
+}
+
+export function forgetChangeNoticesSent(changeIds, storage = globalThis.localStorage) {
+  return forgetNoticeSent(CHANGE_NOTICE_SENT_KEY, changeIds, storage);
+}
+
+export function rememberChangeNoticeSent(changeId, storage = globalThis.localStorage, sender) {
+  return rememberChangeNoticesSent([changeId], storage, sender);
+}
+
+// Same-day changes on one route share one notice. A sent id covers that day.
+// A blank date stays on its own id.
+export function noticeCoveredIds(changes, sentIds) {
+  const sent = new Set((sentIds || []).map((id) => String(id || '')).filter(Boolean));
+  const groups = new Map();
+  for (const change of changes || []) {
+    const id = String(change?.id || '');
+    if (!id) continue;
+    const date = String(change?.effectiveDate ?? change?.effective_date ?? '').trim();
+    const route = String(change?.routeId ?? change?.route_id ?? change?.routeName ?? '');
+    const key = date ? `${route}\n${date}` : id;
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(id);
+    else groups.set(key, [id]);
+  }
+  const covered = new Set();
+  for (const ids of groups.values()) {
+    if (ids.some((id) => sent.has(id))) {
+      for (const id of ids) covered.add(id);
+    }
+  }
+  return covered;
 }

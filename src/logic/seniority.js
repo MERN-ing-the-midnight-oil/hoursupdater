@@ -85,7 +85,9 @@ export function compareDriversBySeniority(a, b) {
  * @returns {RankedDriver[]}
  */
 export function getSeniorityOrder(drivers) {
-  const sorted = [...(drivers ?? [])].sort(compareDriversBySeniority);
+  const sorted = [...(drivers ?? [])]
+    .filter((driver) => driver?.kind !== 'substitute')
+    .sort(compareDriversBySeniority);
   const withDates = sorted.filter((d) => d.hire_date);
   const total = withDates.length;
   /** @type {Map<string, number>} */
@@ -125,7 +127,7 @@ export function getDriverSeniorityRank(drivers, driverId) {
  * @returns {Driver[]}
  */
 export function driversMissingHireDate(drivers) {
-  return (drivers ?? []).filter((d) => !d.hire_date);
+  return (drivers ?? []).filter((d) => d?.kind !== 'substitute' && !d.hire_date);
 }
 
 /**

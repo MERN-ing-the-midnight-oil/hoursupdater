@@ -10,21 +10,16 @@
   <body class="board-page">
     <header class="board-bar">
       <div class="board-bar-title">
-        <a class="board-home" href="/admin">Admin</a>
+        <a class="board-home" href="/">Time Changes</a>
         <h1>Extra work board</h1>
-        <p class="local-note">On this computer only. Not published.</p>
+        <p class="local-note" id="local-note"></p>
       </div>
       <div class="board-bar-tools">
-        <div class="mode-switch" role="group" aria-label="Who is using the board">
-          <button type="button" id="mode-office" data-mode="office">Office</button>
-          <button type="button" id="mode-driver" data-mode="driver">Driver</button>
-        </div>
-        <label class="identity" id="identity-wrap">
-          I am
-          <select id="driver-identity">
-            <option value="">Choose your name</option>
-          </select>
-        </label>
+        <button type="button" id="board-view-toggle" hidden>Trip sheets</button>
+        <p class="whoami" id="whoami" hidden>
+          <span id="whoami-name"></span>
+          <button type="button" id="sign-out-pin">Leave</button>
+        </p>
         <button type="button" class="bell" id="notice-bell" hidden>
           Notices <span id="notice-count">0</span>
         </button>
@@ -40,6 +35,7 @@
         <p id="sheet-status" class="sheet-status" role="status"></p>
         <div id="sheet-root"></div>
       </div>
+      <aside id="pin-dock" class="pin-dock" hidden></aside>
     </div>
 
     <script type="module" src="/board/board.js"></script>

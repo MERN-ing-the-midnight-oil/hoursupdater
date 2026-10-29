@@ -1,3 +1,4 @@
+import { bidPostingPhrase } from '../../employee-tracker/src/clockHistory.js';
 import { escapeHtml, prettyDate } from './historyMarkup.js';
 
 /**
@@ -34,6 +35,7 @@ function howPhrase(row) {
  */
 function resolutionSentence(row, next, asOf) {
   const status = row.contracted?.status;
+  const outcome = row.contracted?.projected_outcome;
   const when = row.contracted?.becomes_on;
   const how = howPhrase(row);
 
@@ -47,6 +49,20 @@ function resolutionSentence(row, next, asOf) {
     return next?.date
       ? `It resolved on ${prettyDate(next.date)}, replaced by a later change.`
       : 'It resolved, replaced by a later change.';
+  }
+
+  const through = String(row.contracted?.bid_through || '').slice(0, 10);
+  if (
+    when &&
+    through &&
+    (outcome === 'BID_PENDING' || status === 'bid_pending') &&
+    status !== 'side_countdown'
+  ) {
+    const phrase = bidPostingPhrase(
+      { start: when, end: through },
+      status === 'predicted' ? 'predicted' : 'posted'
+    );
+    if (phrase) return `${phrase}.`;
   }
 
   if (when && how) {

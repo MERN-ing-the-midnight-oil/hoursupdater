@@ -29,13 +29,17 @@ import { buildRouteWorkbook, stateFromRouteWorkbook } from './routeWorkbook.js';
 import { handleTimesheetExtract } from './timesheetExtract.js';
 import { clockShareOrigin } from './clockShare.js';
 import { createNoteShare } from './noteShare.js';
+import extraWorkRouter from '../../src/routes/extraWorkRouter.js';
+import { startDailyAwardClock } from '../../src/logic/dailyWorkClock.js';
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(__dirname, '../dist');
-const PORT = Number(process.env.OFFICE_PORT) || 3849;
+const publicDir = path.resolve(__dirname, '../../public');
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+
+const PORT = Number(process.env.OFFICE_PORT || process.env.PORT) || 3847;
 
 /**
  * @param {string} body
@@ -55,6 +59,17 @@ app.post('/api/timesheet-extract', express.json({ limit: '32mb' }), (req, res) =
 });
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(distDir));
+app.get('/board', (_req, res) => {
+  res.sendFile(path.join(publicDir, 'board', 'index.html'));
+});
+app.get(['/driver', '/driver/'], (_req, res) => {
+  res.sendFile(path.join(publicDir, 'driver', 'index.html'));
+});
+app.use('/driver', express.static(path.join(publicDir, 'driver')));
+app.use('/board', express.static(path.join(publicDir, 'board')));
+app.use('/shared', express.static(path.join(publicDir, 'shared')));
+app.use('/contract', express.static(path.join(publicDir, 'contract')));
+app.use('/api', extraWorkRouter);
 
 function packetStylesheetHrefs() {
   return ['styles.css', 'office.css'].map((name) =>
@@ -518,6 +533,7 @@ app.get('/', (_req, res) => {
 });
 
 app.listen(PORT, () => {
+  startDailyAwardClock();
   console.log(`Teamster Time Changes Dashboard listening on http://localhost:${PORT}`);
   console.log('Each route is a tab. Signed-in changes are saved to the shared account.');
   console.log('Leave this window open while you use the app.');

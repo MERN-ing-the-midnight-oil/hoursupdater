@@ -107,6 +107,79 @@
             </svg>
             <span class="brand">Payroll</span>
           </button>
+          <!-- Temporarily hidden. Remove hidden to show Weekly Work again. -->
+          <button type="button" class="brand-block app-launch app-launch-daily" id="weekly-work-tab" hidden>
+            <svg class="brand-mark" viewBox="0 0 21 21" shape-rendering="crispEdges" aria-hidden="true">
+              <g class="px-daily-shadow">
+                <rect x="4" y="2" width="14" height="18" />
+                <rect x="2" y="4" width="18" height="14" />
+              </g>
+              <rect class="px-daily-frame" x="3" y="1" width="14" height="18" />
+              <rect class="px-daily-frame" x="1" y="3" width="18" height="14" />
+              <rect class="px-daily-case" x="3" y="3" width="14" height="14" />
+              <rect class="px-daily-paper" x="5" y="5" width="10" height="10" />
+              <rect class="px-daily-case" x="5" y="5" width="1" height="1" />
+              <rect class="px-daily-case" x="14" y="5" width="1" height="1" />
+              <rect class="px-daily-case" x="5" y="14" width="1" height="1" />
+              <rect class="px-daily-case" x="14" y="14" width="1" height="1" />
+              <rect class="px-daily-ink" x="8" y="6" width="4" height="1" />
+              <rect class="px-daily-case" x="9" y="5" width="2" height="2" />
+              <rect class="px-daily-ink" x="7" y="8" width="6" height="1" />
+              <rect class="px-daily-signal" x="7" y="11" width="1" height="1" />
+              <rect class="px-daily-signal" x="8" y="12" width="1" height="1" />
+              <rect class="px-daily-signal" x="9" y="11" width="1" height="1" />
+              <rect class="px-daily-signal" x="10" y="10" width="1" height="1" />
+              <rect class="px-daily-signal" x="11" y="9" width="1" height="1" />
+              <rect class="px-daily-signal" x="12" y="8" width="1" height="1" />
+              <rect class="px-daily-signal" x="14" y="3" width="2" height="2" />
+              <rect class="px-daily-hot" x="14" y="3" width="1" height="1" />
+            </svg>
+            <span class="brand">Weekly Work</span>
+          </button>
+          <!-- Temporarily hidden. Remove hidden to show Daily/Late Work again. -->
+          <button type="button" class="brand-block app-launch app-launch-daily" id="daily-work-tab" hidden>
+            <svg class="brand-mark" viewBox="0 0 21 21" shape-rendering="crispEdges" aria-hidden="true">
+              <g class="px-daily-shadow">
+                <rect x="4" y="2" width="14" height="18" />
+                <rect x="2" y="4" width="18" height="14" />
+              </g>
+              <rect class="px-daily-frame" x="3" y="1" width="14" height="18" />
+              <rect class="px-daily-frame" x="1" y="3" width="18" height="14" />
+              <rect class="px-daily-case" x="3" y="3" width="14" height="14" />
+              <rect class="px-daily-paper" x="5" y="5" width="10" height="10" />
+              <rect class="px-daily-ink" x="7" y="8" width="6" height="1" />
+              <rect class="px-daily-ink" x="7" y="10" width="6" height="1" />
+              <rect class="px-daily-ink" x="7" y="12" width="4" height="1" />
+              <rect class="px-daily-hot" x="14" y="3" width="1" height="1" />
+            </svg>
+            <span class="brand">Daily/Late Work</span>
+          </button>
+          <!-- Temporarily hidden. Remove hidden to show Roster Trips again. -->
+          <button type="button" class="brand-block app-launch app-launch-roster" id="roster-trips-tab" hidden>
+            <svg class="brand-mark" viewBox="0 0 21 21" shape-rendering="crispEdges" aria-hidden="true">
+              <g class="px-roster-shadow">
+                <rect x="4" y="2" width="14" height="18" />
+                <rect x="2" y="4" width="18" height="14" />
+              </g>
+              <rect class="px-roster-frame" x="3" y="1" width="14" height="18" />
+              <rect class="px-roster-frame" x="1" y="3" width="18" height="14" />
+              <rect class="px-roster-case" x="3" y="3" width="14" height="14" />
+              <rect class="px-roster-paper" x="5" y="5" width="10" height="10" />
+              <rect class="px-roster-case" x="5" y="5" width="1" height="1" />
+              <rect class="px-roster-case" x="14" y="5" width="1" height="1" />
+              <rect class="px-roster-case" x="5" y="14" width="1" height="1" />
+              <rect class="px-roster-case" x="14" y="14" width="1" height="1" />
+              <rect class="px-roster-signal" x="7" y="7" width="1" height="1" />
+              <rect class="px-roster-ink" x="9" y="7" width="4" height="1" />
+              <rect class="px-roster-signal" x="7" y="10" width="1" height="1" />
+              <rect class="px-roster-ink" x="9" y="10" width="4" height="1" />
+              <rect class="px-roster-signal" x="7" y="13" width="1" height="1" />
+              <rect class="px-roster-ink" x="9" y="13" width="4" height="1" />
+              <rect class="px-roster-signal" x="4" y="3" width="2" height="2" />
+              <rect class="px-roster-hot" x="5" y="3" width="1" height="1" />
+            </svg>
+            <span class="brand">Roster Trips</span>
+          </button>
           </nav>
         </div>
         <div class="topbar-side">
@@ -156,6 +229,30 @@
           <p id="recent-changes-live" class="visually-hidden" aria-live="polite"></p>
         </section>
       </header>
+
+      <section id="weekly-work-view" class="trip-board-view" hidden>
+        <iframe id="weekly-work-frame" title="Weekly Work Admin"></iframe>
+        <iframe id="weekly-work-wall" title="Weekly Work Postings" allow="fullscreen" aria-hidden="true"></iframe>
+      </section>
+      <section id="daily-work-view" class="trip-board-view" hidden>
+        <div class="daily-work-bar">
+          <button type="button" class="secondary" id="daily-work-screen">Daily/Late Work Postings</button>
+          <label class="daily-work-monitor" for="daily-work-monitor">
+            Screen
+            <select id="daily-work-monitor">
+              <option value="this" selected>This screen</option>
+              <option value="pick">Choose a monitor…</option>
+            </select>
+          </label>
+          <p class="daily-work-hint">Opens the weekday chart full screen. Mirror this screen, or choose a monitor.</p>
+          <p id="daily-work-screen-status" class="status" role="status" hidden></p>
+        </div>
+        <iframe id="daily-work-frame" title="Daily/Late Work Admin"></iframe>
+        <iframe id="daily-work-wall" title="Daily/Late Work Postings" allow="fullscreen" aria-hidden="true"></iframe>
+      </section>
+      <section id="roster-trips-view" class="trip-board-view" hidden>
+        <iframe id="roster-trips-frame" title="Roster Trips"></iframe>
+      </section>
 
       <section id="account-gate" class="panel account-gate" hidden>
         <h1 class="panel-title">Sign in</h1>
@@ -210,6 +307,27 @@
               <path d="m4 7 8 6 8-6"/>
             </svg>
             Driver time-change notice
+            <span id="driver-notice-flag" class="notice-tab-flag" hidden>
+              <span class="notice-flag" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22V15"/></svg>
+              </span>
+              <span id="driver-notice-flag-count" class="notice-tab-count"></span>
+              <span class="visually-hidden">not sent</span>
+            </span>
+          </button>
+          <button type="button" class="office-sheet" id="contract-notice-tab" role="tab" aria-selected="false">
+            <svg class="office-sheet-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+              <path d="M4 22V15"/>
+            </svg>
+            Contract time-change notice
+            <span id="contract-notice-flag" class="notice-tab-flag" hidden>
+              <span class="notice-flag" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22V15"/></svg>
+              </span>
+              <span id="contract-notice-flag-count" class="notice-tab-count"></span>
+              <span class="visually-hidden">not sent</span>
+            </span>
           </button>
         </nav>
         <div class="sheet-actions">
@@ -1184,12 +1302,12 @@
             Substitute drivers
           </h2>
           <p class="field-hint">
-            On the timeclock they choose Substitute Drivers, tap their name, then tap the driver whose route they are covering.
+            The same list Admin edits on Drivers/Routes. On the timeclock they choose Substitute Drivers, then tap their name to clock in.
           </p>
           <form id="substitute-form" class="clock-form" novalidate>
             <div class="field">
-              <label for="substitute-name">Name</label>
-              <input id="substitute-name" type="text" maxlength="80" autocomplete="off" required />
+              <label for="substitute-name">First and last name</label>
+              <input id="substitute-name" type="text" maxlength="80" autocomplete="off" required placeholder="First Last" />
             </div>
             <div class="actions">
               <button type="submit">Add substitute driver</button>
@@ -1356,7 +1474,7 @@
           Admin contract reminder
         </h1>
         <p class="lead">
-          This is the Outlook event for the office. Open the downloaded calendar file in Outlook and send it.
+          This reminds the office before a route’s hours become contracted. When the app predicts that date, it downloads an Outlook calendar file. Open the file in Outlook and send it.
         </p>
         <form id="reminder-form" novalidate>
           <fieldset class="yes-no">
@@ -1417,14 +1535,55 @@
           Driver time-change notice
         </h1>
         <p class="lead">
-          Send notice emails the memorandum you select. Click a memorandum to open
-          its template and edit the wording. The address comes from the Driver Name
-          List. A secretary email saved here is copied on every notice. Saving a
-          clock-time change offers to send that email. Send notice on the change
-          can send it again, and warns you if a notice was already sent. The
-          complete time change history can be downloaded as a PDF to attach. A
-          calendar PDF is downloaded as well. A sent notice is marked Yes.
+          Clock-time changes from every route are listed here, newest first.
+          A red flag means that notice has not been sent. Send opens the email
+          and marks that change as notice sent, with who sent it and the date. Print opens that same notice for the printer and does not mark it sent. The email is the memorandum you
+          select below. Click a memorandum to edit its wording. The address comes
+          from the Driver Name List. A secretary email saved here is copied on
+          every notice. Saving a clock-time change still offers to send that
+          email. Send again warns you if a notice was already sent. A calendar
+          PDF is downloaded to attach. The complete time change history can be
+          downloaded too, when that attachment is turned on. Mark Sent records
+          who marked it and the date, without opening an email. Unmark clears that. Check the rows
+          you want, then use Mark Sent above the list to mark several at once.
         </p>
+        <details id="notice-queue" class="notice-queue">
+          <summary>
+            <h2>Time changes</h2>
+            <span class="notice-queue-unsent" hidden>
+              <span class="notice-flag" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22V15"/></svg>
+              </span>
+              <span class="notice-queue-unsent-count"></span>
+            </span>
+            <p id="notice-queue-summary" class="field-hint"></p>
+          </summary>
+          <div id="notice-queue-status" class="status" role="status" hidden></div>
+          <div class="notice-queue-toolbar">
+            <button type="button" class="secondary js-mark-sent-selected" disabled>Mark Sent</button>
+            <p class="field-hint js-notice-selected-count"></p>
+          </div>
+          <div class="table-wrap">
+            <table class="notice-queue-table">
+              <thead>
+                <tr>
+                  <th scope="col" class="notice-select">
+                    <input type="checkbox" class="js-notice-select-all" aria-label="Select all clock-time changes" />
+                  </th>
+                  <th scope="col"><span class="visually-hidden">Notice</span></th>
+                  <th scope="col">Route</th>
+                  <th scope="col">Driver</th>
+                  <th scope="col">Change</th>
+                  <th scope="col">Takes effect</th>
+                  <th scope="col">Recorded</th>
+                  <th scope="col">Notice sent</th>
+                  <th scope="col"><span class="visually-hidden">Send</span></th>
+                </tr>
+              </thead>
+              <tbody id="notice-queue-body"></tbody>
+            </table>
+          </div>
+        </details>
         <form id="driver-notice-form" novalidate>
           <div class="field">
             <label for="driver-notice-secretary">Secretary email</label>
@@ -1470,6 +1629,85 @@
         </form>
       </section>
 
+      <section id="contract-notice-view" class="panel" hidden>
+        <h1 class="panel-title">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+            <path d="M4 22V15" />
+          </svg>
+          Contract time-change notice
+        </h1>
+        <p class="lead">
+          Written determinations from every route are listed here. Send uses the
+          email for that result and marks the notice sent, with who sent it and the date. Print opens that same notice for the printer and does not mark it sent. A red flag means it
+          has not been sent. Each result has its own wording: up for bid, eligible
+          to bump, or a smaller decrease with no bump. The email quotes the Teamsters contract in the message. It does
+          not include a link. Punch-in and punch-out times stay on the driver
+          time-change notice. Mark Sent records who marked it and the date,
+          without opening an email. Unmark clears that. Check the rows you want, then use Mark Sent
+          above the list to mark several at once.
+        </p>
+        <details id="contract-notice-queue" class="notice-queue">
+          <summary>
+            <h2>Contract Notices Queue</h2>
+            <span class="notice-queue-unsent" hidden>
+              <span class="notice-flag" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22V15"/></svg>
+              </span>
+              <span class="notice-queue-unsent-count"></span>
+            </span>
+            <p id="contract-notice-queue-summary" class="field-hint"></p>
+          </summary>
+          <div id="contract-notice-queue-status" class="status" role="status" hidden></div>
+          <div class="notice-queue-toolbar">
+            <button type="button" class="secondary js-mark-sent-selected" disabled>Mark Sent</button>
+            <p class="field-hint js-notice-selected-count"></p>
+          </div>
+          <div class="table-wrap">
+            <table class="notice-queue-table">
+              <thead>
+                <tr>
+                  <th scope="col" class="notice-select">
+                    <input type="checkbox" class="js-notice-select-all" aria-label="Select all contract notices" />
+                  </th>
+                  <th scope="col"><span class="visually-hidden">Notice</span></th>
+                  <th scope="col">Route</th>
+                  <th scope="col">Driver</th>
+                  <th scope="col">Letter</th>
+                  <th scope="col">Result</th>
+                  <th scope="col">Takes effect</th>
+                  <th scope="col">Recorded</th>
+                  <th scope="col">Notice sent</th>
+                  <th scope="col"><span class="visually-hidden">Send</span></th>
+                </tr>
+              </thead>
+              <tbody id="contract-notice-queue-body"></tbody>
+            </table>
+          </div>
+        </details>
+        <form id="contract-notice-form" novalidate>
+          <div class="field">
+            <label for="contract-notice-secretary">Secretary email</label>
+            <input id="contract-notice-secretary" name="secretary" type="email" autocomplete="email" inputmode="email" />
+            <p class="field-hint">
+              Every contract time-change notice copies this address. Leave it blank to email only the driver.
+            </p>
+          </div>
+          <fieldset class="email-content">
+            <legend>When a written notice is required</legend>
+            <p class="field-hint">
+              Each card is one result the contract requires a letter for. The example on the card is that email filled in for Annie Porter. Edit the email template on the card. Send on a change uses the matching card.
+            </p>
+            <div id="contract-notice-kinds" class="contract-notice-cards"></div>
+          </fieldset>
+          <div class="actions">
+            <button type="submit">Save contract notice</button>
+            <button type="button" class="secondary" id="contract-notice-reset">Use the default template</button>
+          </div>
+          <div id="contract-notice-status" class="status" role="status" hidden></div>
+        </form>
+      </section>
+
       <section id="drivers-view" class="panel" hidden>
         <h1 class="panel-title">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -1480,32 +1718,7 @@
           </svg>
           Driver Name List
         </h1>
-        <p class="lead">
-          Names on this sheet fill the driver column for each route. First name,
-          last name, and email stay with the driver when they move between routes.
-          update driver info on Payroll is the table for names, email, phone, serial number, hourly rate, payroll account, and pay status.
-          Remove takes a name off this list. A route they still hold keeps that
-          driver until you assign someone else.
-          Send notice on a clock-time change uses this email. The secretary saved
-          on Driver time-change notice is copied. It opens the memorandum and
-          downloads a calendar PDF you can attach. The complete time change
-          history is included only when that attachment is turned on.
-        </p>
-        <div class="table-wrap">
-          <table class="schedule-history driver-sheet" id="driver-sheet">
-            <thead>
-              <tr>
-                <th class="sheet-rowhead" scope="col"><span class="visually-hidden">Row</span></th>
-                <th scope="col">First name</th>
-                <th scope="col">Last name</th>
-                <th scope="col">Email</th>
-                <th scope="col">Routes</th>
-                <th scope="col"><span class="visually-hidden">Remove</span></th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
+        <ul class="driver-name-list" id="driver-sheet"></ul>
         <div class="actions">
           <button type="button" id="add-driver-row">Add driver</button>
         </div>
@@ -1571,24 +1784,25 @@
           </h2>
           <p class="lead" id="schedule-lead">
             Each row is a full schedule. The first row is the established starting
-            times. Later rows are changes, oldest to newest. Force Oct 1 Contract
-            starts off. Turn it on to contract that schedule on October 1, skipping
-            the usual rules for the size of the change and the 15-school-day
-            countdown. Scheduled Hours is the rounded total of the clock times
-            on that row. Date, if Contracted is the date that schedule became
-            the contract, or a predicted date.
-            Saving a change offers to send the notice. Send notice on the
-            row can send it again. If that notice was already sent, you will be
-            warned first. The email uses the chosen memorandum and downloads a
-            calendar PDF. Attach that PDF if you want the driver to see the
-            calendar. The complete time change history can be downloaded too,
-            when that attachment is turned on. Notice sent is marked Yes.
+            times. Later rows are changes, oldest to newest. Scheduled Hours is
+            the rounded total of the clock times on that row. Contract Time Change
+            is the date those rounded hours changed, or the date they are
+            predicted to change, such as Nov 4. For a route that goes up for bid,
+            that date is the 15th school day after the change. A row that rounds
+            to the same total as the row above has no date there. Date, if Contracted
+            is the date that schedule became the contract, a predicted contract
+            date, or “Predicted up for bid mm/dd–mm/dd” when the route goes up
+            for bid during the last five school days of the month.
+            Saving a change offers to send the notice. If that notice was already
+            sent, you will be warned first. The email uses the chosen memorandum
+            and downloads a calendar PDF. Attach that PDF if you want the driver
+            to see the calendar. The complete time change history can be
+            downloaded too, when that attachment is turned on.
           </p>
           <div class="table-wrap">
             <table class="schedule-history" id="schedule-history">
               <thead>
                 <tr>
-                  <th scope="col" class="oct1-col">Force Oct 1 Contract</th>
                   <th scope="col">New Schedule Started</th>
                   <th scope="col" class="run-am">AM start</th>
                   <th scope="col" class="run-am">AM end</th>
@@ -1597,8 +1811,8 @@
                   <th scope="col" class="run-pm">PM start</th>
                   <th scope="col" class="run-pm">PM end</th>
                   <th scope="col">Scheduled Hours</th>
+                  <th scope="col">Contract Time Change</th>
                   <th scope="col">Date, if Contracted</th>
-                  <th scope="col">Notice sent?</th>
                   <th scope="col"><span class="visually-hidden">Actions</span></th>
                 </tr>
               </thead>
@@ -1652,13 +1866,6 @@
                   <input id="change_edit_date" type="date" />
                   <button type="button" class="schedule-date-null js-date-null">N/A</button>
                 </div>
-              </div>
-              <div class="field">
-                <span class="field-static-label" id="change_edit_force_label">Force Oct 1 Contract</span>
-                <label class="oct1-toggle">
-                  <input id="change_edit_force_oct1" type="checkbox" aria-labelledby="change_edit_force_label" />
-                  <span class="oct1-state" data-off="Off" data-on="On"></span>
-                </label>
               </div>
               <div class="field">
                 <span class="field-static-label">Run</span>
@@ -1807,7 +2014,7 @@
           <span id="kiosk-now-time" class="kiosk-now-time"></span>
         </p>
         <div class="kiosk-top-tools">
-          <button type="button" class="secondary" id="kiosk-substitute">Substitute Drivers</button>
+          <button type="button" id="kiosk-substitute">Substitute Drivers</button>
           <button type="button" class="secondary" id="kiosk-fill-screen" hidden title="Fills the monitor this window is on">
             Fill this screen
           </button>
@@ -1848,10 +2055,10 @@
       </section>
       <section id="kiosk-substitutes" hidden>
         <button type="button" class="secondary" id="kiosk-substitute-back">Go Back</button>
-        <p class="lead">Choose your name</p>
+        <p class="lead">Tap your name to clock in.</p>
         <div id="kiosk-substitute-list" class="kiosk-substitute-list"></div>
         <p id="kiosk-substitute-empty" class="kiosk-empty" hidden>
-          No substitute drivers yet. The office adds names in Timeclock settings.
+          No substitute drivers yet.
         </p>
       </section>
       <section id="kiosk-detail" hidden>
@@ -1939,7 +2146,6 @@
           <div id="kiosk-chunk" class="kiosk-chunk">
             <div id="kiosk-chunk-panel" hidden>
               <button type="button" class="secondary" id="kiosk-chunk-back">Go back</button>
-              <p class="lead">Choose a regular route, then the part that was other work.</p>
               <div id="kiosk-chunk-pairs" class="kiosk-chunk-pairs"></div>
               <div class="kiosk-chunk-times">
                 <label>
@@ -2027,6 +2233,14 @@
       </div>
     </div>
 
+    <dialog id="template-preview-dialog" class="change-dialog" aria-labelledby="template-preview-title">
+      <div class="change-dialog-header">
+        <h2 id="template-preview-title">Preview</h2>
+        <button type="button" class="secondary" id="template-preview-close">Close</button>
+      </div>
+      <div id="template-preview-body" class="template-preview template-preview-dialog"></div>
+    </dialog>
+
     <dialog id="history-email-dialog" class="change-dialog" aria-labelledby="history-email-title">
       <div class="change-dialog-header">
         <h2 id="history-email-title">Email route clock-time history</h2>
@@ -2084,6 +2298,22 @@
       </div>
     </dialog>
 
+    <dialog id="driver-detail-dialog" class="change-dialog" aria-labelledby="driver-detail-title">
+      <form id="driver-detail-form">
+        <div class="change-dialog-header">
+          <h2 id="driver-detail-title">Driver</h2>
+          <button type="button" class="secondary" id="driver-detail-close">Close</button>
+        </div>
+        <div class="grid" id="driver-detail-fields"></div>
+        <div id="driver-detail-statuses"></div>
+        <div class="actions">
+          <button type="submit">Save</button>
+          <button type="button" class="secondary" id="driver-detail-remove" hidden>Remove from list</button>
+        </div>
+        <div id="driver-detail-status" class="status" role="status" hidden></div>
+      </form>
+    </dialog>
+
     <dialog id="change-dialog" class="change-dialog" aria-labelledby="change-dialog-title">
       <div class="change-dialog-header">
         <h2 id="change-dialog-title">Record a clock-time change</h2>
@@ -2110,13 +2340,6 @@
               <input id="change_date" name="change_date" type="date" />
               <button type="button" class="schedule-date-null js-date-null">N/A</button>
             </div>
-          </div>
-          <div class="field">
-            <span class="field-static-label" id="change_force_label">Force Oct 1 Contract</span>
-            <label class="oct1-toggle">
-              <input id="change_force_oct1" type="checkbox" aria-labelledby="change_force_label" />
-              <span class="oct1-state" data-off="Off" data-on="On"></span>
-            </label>
           </div>
           <div class="field">
             <label for="clock_in">New clock-in</label>
@@ -2234,6 +2457,8 @@
       </div>
     </dialog>
 
+    <div id="notice-print" class="notice-print"></div>
+    <script src="/shared/helpMark.js"></script>
     <script type="module" src="./app.js"></script>
   </body>
 </html>

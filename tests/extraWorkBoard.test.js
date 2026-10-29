@@ -3,13 +3,17 @@ import { describe, it } from 'node:test';
 import {
   awardPosting,
   buildWinnerEmail,
+  closeDailyOfferings,
   createPosting,
+  driverBoardPayload,
   driverVisiblePostings,
+  publicBoardPayload,
   emptyPosting,
   formatSheetDate,
   givenName,
   notificationsForDriver,
   publishPosting,
+  updatePosting,
   rosterName,
   sheetWeekday,
   splitClock,
@@ -170,6 +174,81 @@ describe('extra work signup and award', () => {
     assert.equal(email.mailto_url, null);
   });
 
+  it('keeps a roster sheet on the roster list', () => {
+    const created = createPosting({ postings: [], notifications: [] }, { list: 'roster', trip_number: '1' }, NOW);
+    assert.equal(created.posting.list, 'roster');
+    const updated = updatePosting(created.board, created.posting.id, { trip_number: '2' }, NOW);
+    assert.equal(updated.posting.list, 'roster');
+    const daily = createPosting({ postings: [], notifications: [] }, { trip_number: '3' }, NOW);
+    assert.equal(daily.posting.list, 'daily');
+  });
+
+  it('gives a driver their own runs and hides other preferences', () => {
+    const { board, posting } = sampleBoard();
+    const posted = publishPosting(board, posting.id, NOW);
+    const darryl = upsertBid(
+      posted.board,
+      posting.id,
+      { driver_id: 'darryl', initials: 'DR', preference: '(3,7)' },
+      NOW
+    );
+    const both = upsertBid(
+      darryl.board,
+      posting.id,
+      { driver_id: 'becky', initials: 'BV', preference: '3' },
+      NOW
+    );
+    const roster = createPosting(
+      both.board,
+      { list: 'roster', trip_number: '9', trip_date: '2026-10-10', destination: 'Mt Baker' },
+      NOW
+    );
+    const publishedRoster = publishPosting(roster.board, roster.posting.id, NOW);
+    const view = driverBoardPayload(publishedRoster.board, {
+      driver: { driver_id: 'darryl', name: 'Darryl Ross', seniority_rank: 33 },
+      schedules: [
+        { route_id: '12', driver_id: 'darryl', segments: { AM: '6:00-8:00', MIDDAY: null, PM: '14:00-16:00' } },
+        { route_id: '9', driver_id: 'becky', segments: { AM: '7:00-9:00', MIDDAY: null, PM: null } },
+      ],
+      list: 'daily',
+    });
+    assert.equal(view.drivers.length, 1);
+    assert.equal(view.drivers[0].email, null);
+    assert.equal(view.schedules.length, 1);
+    assert.equal(view.schedules[0].route_id, '12');
+    assert.equal(view.postings.length, 1);
+    assert.equal(view.postings[0].id, posting.id);
+    assert.equal(view.postings[0].signup_count, 2);
+    assert.equal(view.postings[0].bids.length, 1);
+    assert.equal(view.postings[0].bids[0].preference, '(3,7)');
+    assert.equal(view.postings[0].winner_email, null);
+    assert.deepEqual(view.held_work, []);
+    assert.equal(JSON.stringify(view).includes('becky'), false);
+    const wall = publicBoardPayload(publishedRoster.board, [
+      { driver_id: 'darryl', name: 'Darryl Ross' },
+      { driver_id: 'becky', name: 'Becky Vanderyacht' },
+    ]);
+    assert.equal(wall.postings.length, 1);
+    assert.equal(wall.postings[0].signup_count, 2);
+    assert.equal(wall.postings[0].bids.length, 0);
+    assert.equal(wall.drivers.length, 0);
+    assert.equal(JSON.stringify(wall).includes('(3,7)'), false);
+    assert.equal(JSON.stringify(wall).includes('Becky'), false);
+  });
+
+  it('awards a substitute who did not initial the sheet', () => {
+    const { board, posting } = sampleBoard();
+    const posted = publishPosting(board, posting.id, NOW);
+    const awarded = awardPosting(posted.board, posting.id, {
+      driver_id: 'sub-taylor',
+      name: 'Taylor Rawls',
+      email: null,
+      kind: 'substitute',
+    });
+    assert.equal(awarded.posting.status, 'awarded');
+    assert.equal(awarded.posting.awarded_driver_id, 'sub-taylor');
+  });
+
   it('will not award a driver who did not initial', () => {
     const { board, posting } = sampleBoard();
     const posted = publishPosting(board, posting.id, NOW);
@@ -182,5 +261,67 @@ describe('extra work signup and award', () => {
         }),
       /initialed/
     );
+  });
+});
+
+describe('closing a daily offering', () => {
+  it('awards the senior signed-up driver and then refuses another signup', () => {
+    const { board, posting } = sampleBoard();
+    const posted = publishPosting(board, posting.id, NOW);
+    const senior = upsertBid(
+      posted.board,
+      posting.id,
+      { driver_id: 'senior', initials: 'SR', preference: '19815' },
+      NOW
+    );
+    const signed = upsertBid(
+      senior.board,
+      posting.id,
+      { driver_id: 'junior', initials: 'JR', preference: '19815' },
+      NOW
+    );
+    const closed = closeDailyOfferings(signed.board, {
+      date: '2026-10-10',
+      drivers: [
+        { driver_id: 'senior', name: 'Senior Driver', seniority_rank: 1, hire_date: '2012-08-15' },
+        { driver_id: 'junior', name: 'Junior Driver', seniority_rank: 4, hire_date: '2016-03-14' },
+      ],
+      schedules: [],
+      now: NOW,
+    });
+    const sheet = closed.board.postings.find((row) => row.id === posting.id);
+    assert.equal(sheet.status, 'awarded');
+    assert.equal(sheet.awarded_driver_id, 'senior');
+    assert.equal(closed.awarded[0].name, 'Senior Driver');
+    assert.equal(closed.board.closed_days[0].date, '2026-10-10');
+    assert.throws(
+      () => upsertBid(closed.board, posting.id, { driver_id: 'late', initials: 'LT', preference: '19815' }, NOW),
+      /closed/
+    );
+  });
+
+  it('keeps roster signup open after the morning daily close', () => {
+    const created = createPosting(
+      { postings: [], notifications: [], closed_days: [{ date: '2026-10-26', closed_at: NOW }] },
+      {
+        list: 'roster',
+        trip_number: 'R2610',
+        trip_date: '2026-10-26',
+        school: 'Nooksack High School',
+        destination: 'Lynden High School',
+        activity: 'Basketball',
+        times: { clock_in: '17:15', clock_out: '21:00' },
+      },
+      NOW
+    );
+    const posted = publishPosting(created.board, created.posting.id, NOW);
+    const signed = upsertBid(
+      posted.board,
+      posted.posting.id,
+      { driver_id: 'driver-david-balle', initials: 'DB', preference: 'R2610' },
+      NOW
+    );
+    assert.equal(signed.posting.bids[0].driver_id, 'driver-david-balle');
+    assert.equal(signed.posting.list, 'roster');
   });
 });

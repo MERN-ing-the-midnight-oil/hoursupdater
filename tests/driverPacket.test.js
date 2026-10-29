@@ -56,7 +56,7 @@ test('packet contains that driver only', () => {
   );
   assert.match(
     narrative,
-    /The PM change was established on Fri, Sep 18, 2026\. It resolves on Mon, Oct 26, 2026, posted for bid/
+    /The PM change was established on Fri, Sep 18, 2026\. Predicted up for bid 10\/26–10\/30\./
   );
   assert.doesNotMatch(narrative, /square|numbered|arrow|minutes longer/);
   assert.doesNotMatch(packet.mail.body, /Riker|Troi|Worf|Wesley/);

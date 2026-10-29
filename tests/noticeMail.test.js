@@ -7,6 +7,8 @@ import {
   fillNoticeTemplate,
   isChangeNoticeSent,
   loadSentChangeIds,
+  loadSentChangeRecords,
+  noticeSentLineForIds,
   memorandumById,
   memorandumMail,
   normalizeDriverNotice,
@@ -16,6 +18,7 @@ import {
   noticeFromChange,
   routeHistoryFilename,
   routeHistoryMail,
+  forgetChangeNoticesSent,
   rememberChangeNoticeSent,
   timeChangeNoticeDocument,
   timeChangeNoticeFilename,
@@ -398,6 +401,40 @@ test('sending a notice remembers that change id', () => {
   assert.deepEqual(loadSentChangeIds(storage), ['route-12-pm', 'route-118-pm']);
   assert.equal(isChangeNoticeSent('route-12-pm', storage), true);
   assert.equal(isChangeNoticeSent('', storage), false);
+});
+
+test('a sent clock notice records who sent it and the date', () => {
+  const storage = memoryStorage();
+  const at = new Date(2026, 9, 3, 9, 30, 0);
+  rememberChangeNoticeSent('route-12-pm', storage, {
+    by: 'John Smith',
+    by_user_id: 'user-1',
+    at: at.toISOString(),
+  });
+  assert.equal(
+    noticeSentLineForIds(['route-12-pm'], loadSentChangeRecords(storage)),
+    'Sent By John Smith on 10/03/26'
+  );
+  rememberChangeNoticeSent('route-12-pm', storage);
+  assert.equal(
+    noticeSentLineForIds(['route-12-pm'], loadSentChangeRecords(storage)),
+    'Sent By John Smith on 10/03/26'
+  );
+  const later = new Date(2026, 9, 4, 9, 0, 0);
+  rememberChangeNoticeSent('route-12-pm', storage, { by: 'Ada Lovelace', at: later.toISOString() });
+  assert.equal(
+    noticeSentLineForIds(['route-12-pm', 'same-day'], loadSentChangeRecords(storage)),
+    'Sent By Ada Lovelace on 10/04/26'
+  );
+  storage.setItem(
+    'transportation-timechange.change-notice-sent.v1',
+    JSON.stringify(['older-change'])
+  );
+  assert.equal(isChangeNoticeSent('older-change', storage), true);
+  assert.equal(noticeSentLineForIds(['older-change'], loadSentChangeRecords(storage)), '');
+  forgetChangeNoticesSent(['route-12-pm'], storage);
+  assert.equal(isChangeNoticeSent('route-12-pm', storage), false);
+  assert.equal(isChangeNoticeSent('older-change', storage), true);
 });
 
 test('a saved secretary address is copied on the driver notice', () => {

@@ -628,7 +628,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   let selected = null;
   // Name chosen from the office substitute list. Blank when this driver entered a PIN.
   let substituteName = '';
-  // The open driver is who this substitute is covering. Otherwise they still pick a name.
+  // Kept so an older covering punch can still finish on the route driver it started on.
   let substituteCoversSelected = false;
   let unlocked = false;
   // Extra periods revealed from above the card. Starts with those rows out of view.
@@ -3008,9 +3008,22 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     setOfficeStatus(`PIN saved for ${person.name}.`, 'ok');
   }
 
+  let substituteRoster = [];
+
   function substituteDrivers() {
-    const saved = state().clockSubstituteDrivers;
-    return Array.isArray(saved) ? saved : [];
+    return substituteRoster.map((person) => ({
+      id: person.driver_id,
+      name: person.name,
+    }));
+  }
+
+  async function loadSubstitutes() {
+    const response = await fetch('/api/substitutes');
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(body.error || 'Could not load substitute drivers.');
+    }
+    substituteRoster = Array.isArray(body.drivers) ? body.drivers : [];
   }
 
   function renderSubstituteList() {
@@ -3040,34 +3053,50 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     }
   }
 
-  function onSaveSubstitute(event) {
+  async function onSaveSubstitute(event) {
     event.preventDefault();
-    const name = substituteNameInput?.value.trim() || '';
-    if (!name || name.length > 80) {
-      setOfficeStatus('Enter a name.', 'error');
+    const name = substituteNameInput?.value.trim().replace(/\s+/g, ' ') || '';
+    if (!name || name.length > 80 || name.split(' ').length < 2) {
+      setOfficeStatus('Enter a first and last name.', 'error');
       return;
     }
-    if (substituteDrivers().some((person) => person.name.toLowerCase() === name.toLowerCase())) {
-      setOfficeStatus('That name is already on the substitute list.', 'error');
-      return;
+    try {
+      const response = await fetch('/api/substitutes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setOfficeStatus(body.error || 'Could not add that substitute.', 'error');
+        return;
+      }
+      if (substituteNameInput) substituteNameInput.value = '';
+      await loadSubstitutes();
+      setOfficeStatus(`${body.name || name} can clock in as a substitute.`, 'ok');
+      refresh();
+    } catch (error) {
+      setOfficeStatus(error instanceof Error ? error.message : 'Could not add that substitute.', 'error');
     }
-    const next = state();
-    next.clockSubstituteDrivers = [...substituteDrivers(), { id: crypto.randomUUID(), name }];
-    writeState(next);
-    if (substituteNameInput) substituteNameInput.value = '';
-    setOfficeStatus(`${name} can clock in as a substitute.`, 'ok');
-    refresh();
   }
 
-  function onRemoveSubstitute(event) {
+  async function onRemoveSubstitute(event) {
     const button = event.target instanceof Element ? event.target.closest('[data-substitute-id]') : null;
     if (!button) return;
     const id = button.getAttribute('data-substitute-id') || '';
-    const next = state();
-    next.clockSubstituteDrivers = substituteDrivers().filter((person) => person.id !== id);
-    writeState(next);
-    setOfficeStatus('Substitute driver removed.', 'ok');
-    refresh();
+    try {
+      const response = await fetch(`/api/substitutes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setOfficeStatus(body.error || 'Could not remove that substitute.', 'error');
+        return;
+      }
+      await loadSubstitutes();
+      setOfficeStatus(`${body.name || 'That driver'} was removed from the substitute list.`, 'ok');
+      refresh();
+    } catch (error) {
+      setOfficeStatus(error instanceof Error ? error.message : 'Could not remove that substitute.', 'error');
+    }
   }
 
   let confirmTimer;
@@ -3252,13 +3281,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       button.dataset.driverName = person.name;
       button.dataset.clockIns = person.clockIns.join(',');
       button.dataset.clockRuns = person.clockRuns.join(',');
-      const paint = nameButtonColors(colors.get(person.id) ?? 0);
-      button.dataset.frame = paint.look;
-      button.style.setProperty('--name-bg', paint.background);
-      button.style.setProperty('--name-border', paint.border);
-      button.style.setProperty('--name-border-alt', paint.alt);
-      button.style.setProperty('--name-frame', paint.frame);
-      button.style.setProperty('--name-frame-2', paint.frame2);
+      paintNameButton(button, person.id, colors);
       const covering = activeSubstitute(person.name);
       const latest = latestPunch(person.name);
       const status = latest?.action === 'in' ? 'in' : 'out';
@@ -3412,7 +3435,12 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     paintDriverPhoto(person.name);
     const routes = sortedRoutes(person.routes);
     if (kioskRoutes) {
-      kioskRoutes.textContent = routes.length ? `Route ${routes.join(', ')}` : '';
+      kioskRoutes.textContent =
+        person.kind === 'substitute'
+          ? 'Substitute driver'
+          : routes.length
+            ? `Route ${routes.join(', ')}`
+            : '';
     }
     const covering = activeSubstitute(person.name);
     if (kioskCovering) {
@@ -3476,6 +3504,27 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     syncSubstituteHeader();
   }
 
+  function paintNameButton(button, id, colors) {
+    const paint = nameButtonColors(colors.get(id) ?? 0);
+    button.dataset.frame = paint.look;
+    button.style.setProperty('--name-bg', paint.background);
+    button.style.setProperty('--name-border', paint.border);
+    button.style.setProperty('--name-border-alt', paint.alt);
+    button.style.setProperty('--name-frame', paint.frame);
+    button.style.setProperty('--name-frame-2', paint.frame2);
+  }
+
+  function substituteAsPerson(person) {
+    return {
+      id: person.id,
+      name: person.name,
+      routes: [],
+      clockIns: [],
+      clockRuns: [],
+      kind: 'substitute',
+    };
+  }
+
   function renderSubstituteChoices() {
     if (!kioskSubstituteList) return;
     const roster = [...substituteDrivers()].sort((a, b) =>
@@ -3483,38 +3532,33 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     );
     kioskSubstituteList.replaceChildren();
     if (kioskSubstituteEmpty) kioskSubstituteEmpty.hidden = roster.length > 0;
+    const colors = ensureNameColors([...people(), ...roster]);
     for (const person of roster) {
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'secondary';
-      button.textContent = person.name;
-      button.addEventListener('click', () => chooseSubstitute(person.name));
+      button.className = 'kiosk-name';
+      button.dataset.driverId = person.id;
+      button.dataset.driverName = person.name;
+      paintNameButton(button, person.id, colors);
+      const latest = latestPunch(person.name);
+      const status = latest?.action === 'in' ? 'in' : 'out';
+      const label = document.createElement('span');
+      label.className = 'kiosk-name-label';
+      fillNameLabel(label, { name: person.name, routes: [] }, '');
+      button.dataset.spoken = spokenName({ name: person.name, routes: [] }, '', status, latest);
+      const badge = document.createElement('span');
+      badge.className = `kiosk-status is-${status}`;
+      badge.textContent = status === 'in' ? 'IN' : 'OUT';
+      button.append(label, badge);
+      button.addEventListener('click', () => chooseSubstitute(person));
       kioskSubstituteList.append(button);
     }
   }
 
-  function chooseSubstitute(name) {
-    substituteName = name;
-    if (kioskSubstitutes) kioskSubstitutes.hidden = true;
-    if (substituteCoversSelected && selected) {
-      kiosk.classList.add('is-detail');
-      kioskList.hidden = true;
-      kioskDetail.hidden = false;
-      showPunchStep();
-      return;
-    }
-    selected = null;
-    unlocked = false;
-    kiosk.classList.remove('is-detail');
-    kioskList.hidden = false;
-    kioskDetail.hidden = true;
-    kioskActions.hidden = true;
-    hideClockQr();
-    if (kioskListStatus) {
-      kioskListStatus.textContent = `${name}, tap the driver whose route you are covering.`;
-    }
-    renderRoster();
-    syncSubstituteHeader();
+  function chooseSubstitute(person) {
+    substituteName = '';
+    substituteCoversSelected = false;
+    openDriver(substituteAsPerson(person));
   }
 
   function showPunchStep() {
@@ -5096,7 +5140,10 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     const contracted = date && (run === 'AM' || run === 'MIDDAY' || run === 'PM') ? contractedFor(date)[run] : null;
     const existing = date && run ? leaveFor(state().leaveRequests, selected.name, date, run) : null;
     const lead = document.querySelector('#kiosk-leave-request-lead');
-    if (lead) lead.textContent = leaveRequestLead({ run, date, today, clockedIn });
+    if (lead) {
+      lead.textContent = leaveRequestLead({ run, date, today, clockedIn });
+      lead.hidden = !lead.textContent;
+    }
     const contract = document.querySelector('#kiosk-leave-request-contract');
     const contractText = clockedIn ? '' : leaveContractLead(contracted);
     if (contract) {
@@ -5576,6 +5623,14 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     applyNameSize();
     renderPinList();
     renderSubstituteList();
+    void loadSubstitutes()
+      .then(() => {
+        renderSubstituteList();
+        if (kioskSubstitutes && !kioskSubstitutes.hidden) renderSubstituteChoices();
+      })
+      .catch((error) => {
+        setOfficeStatus(error instanceof Error ? error.message : 'Could not load substitute drivers.', 'error');
+      });
     renderReasonList();
     fillKioskReasons();
     if (!kiosk.hidden && kioskDetail.hidden) renderRoster();

@@ -535,7 +535,11 @@ export function buildTimesheet({ driver, punches, routes, calendar, period, extr
         ? ` · route ${routeIds[0]}`
         : ` · routes ${routeIds.join(', ')}`;
   const assigned =
-    routeIds.length === 0 ? 'This driver is not assigned to a route. ' : '';
+    driver.kind === 'substitute'
+      ? 'Substitute driver. '
+      : routeIds.length === 0
+        ? 'This driver is not assigned to a route. '
+        : '';
   const sheet = {
     driver: {
       driver_id: driver.driver_id,

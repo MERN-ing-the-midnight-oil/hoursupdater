@@ -70,6 +70,31 @@ describe('getSeniorityOrder', () => {
     },
   ];
 
+  it('leaves substitute drivers out of the seniority order', () => {
+    const ordered = getSeniorityOrder([
+      ...drivers,
+      {
+        driver_id: 'sub',
+        name: 'Taylor Rawls',
+        email: null,
+        hire_date: null,
+        tie_break: null,
+        kind: 'substitute',
+      },
+    ]);
+    assert.deepEqual(
+      ordered.map((driver) => driver.driver_id),
+      ['a', 'b0', 'b1', 'c', 'z']
+    );
+    assert.deepEqual(
+      driversMissingHireDate([
+        ...drivers,
+        { driver_id: 'sub', name: 'Taylor Rawls', kind: 'substitute' },
+      ]).map((driver) => driver.driver_id),
+      ['z']
+    );
+  });
+
   it('orders by hire_date ascending then tie_break', () => {
     const ordered = getSeniorityOrder(drivers);
     assert.deepEqual(

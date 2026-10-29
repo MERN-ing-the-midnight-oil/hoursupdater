@@ -81,3 +81,15 @@ export const contractCitations = {
     text: `4. Upon determination that a route decreased by fifteen (15) minutes, the driver will receive a written determination of a decrease in their route. The time change will be made effective the workday following the written notice of determination.`
   }
 };
+
+/** Verbatim lots sentence from Art. 3.01. */
+export const SAME_DATE_LOTS_SENTENCE =
+  'The seniority order of employees hired on the same date shall be established by drawing lots.';
+
+/**
+ * Shown wherever two drivers share a hire date and the office has not recorded lots.
+ * The coin flip happens in the office. The app only cites the rule and records the result.
+ */
+export function sameDateLotsPrompt() {
+  return `Please flip a coin per ${contractCitations['3.01'].label}. ${SAME_DATE_LOTS_SENTENCE}`;
+}

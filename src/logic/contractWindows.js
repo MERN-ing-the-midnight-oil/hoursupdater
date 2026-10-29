@@ -18,9 +18,11 @@
 // - +30 that finishes its 15 school days after April waits for the next
 // October–April last-five-school-day posting window (Art. 3.08(b)(1)
 // posting months).
-// - An office "Force Oct 1 Contract" mark skips those rules. The schedule
+// - A stored October 1 contract mark skips those rules. The schedule
 // becomes contracted on October 1 of its school year, whatever the size
 // of the change and whether 15 school days would finish before that date.
+// The dashboard no longer offers a switch for this. Marks already stored
+// on a change stay in place.
 
 import {
   BID_THRESHOLD_MINUTES,
@@ -46,7 +48,7 @@ import { toDateString } from './timeUtils.js';
 
 const BID_POSTING_MONTH_SET = new Set(MONTHLY_BID_POSTING_MONTHS);
 
-// True when an office toggle, workbook cell, or stored flag asks to contract
+// True when a stored flag, or an older workbook cell, asks to contract
 // this schedule on October 1. Missing and "off" are the default.
 export function isForcedOctober1Contract(value) {
   if (value === true || value === 1) return true;
