@@ -2,34 +2,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { driverForDate } from '../../office-tracker/src/assignments.js';
 import { driversFromState } from '../../office-tracker/web/store.js';
-import { getSeniorityOrder } from './seniority.js';
+import {
+  driversWithSeniorityNumbers,
+  normalizeSeniorityNumber,
+} from './seniority.js';
+
+export { driversWithSeniorityNumbers, normalizeSeniorityNumber };
 
 const SEGMENTS = ['AM', 'MIDDAY', 'PM'];
-
-/**
- * The office seniority list uses a number. A lower number is more senior.
- * @param {unknown} value
- * @returns {number | null}
- */
-export function normalizeSeniorityNumber(value) {
-  if (value == null || String(value).trim() === '') return null;
-  const number = Number(value);
-  if (!Number.isInteger(number) || number < 1 || number > 999) return null;
-  return number;
-}
-
-/**
- * Hire date still sets the order when no office number is recorded.
- * An office seniority number replaces that computed rank.
- * @param {Array<Record<string, unknown>>} drivers
- */
-export function driversWithSeniorityNumbers(drivers) {
-  return getSeniorityOrder(drivers).map((driver) => {
-    const number = normalizeSeniorityNumber(driver.seniority_number);
-    if (number == null) return driver;
-    return { ...driver, seniority_rank: number };
-  });
-}
 
 /**
  * Clock times in effect on `asOf`, from the route change log.

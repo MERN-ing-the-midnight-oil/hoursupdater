@@ -246,8 +246,17 @@ describe('route clock time columns', () => {
     assert.equal(marks.get(fifteenth)?.sourceIndex, bidIndex);
     assert.equal(marks.get(dayAfterSide)?.sourceIndex, bidIndex);
     assert.equal(marks.get(dayAfterSide)?.window, true);
+    assert.equal(marks.get(dayAfterSide)?.windowDay, 11);
+    assert.deepEqual(
+      (marks.get(dayAfterSide)?.extraWindows || []).map((item) => [
+        item.sourceIndex,
+        item.windowDay,
+      ]),
+      [[sideIndex, 1]]
+    );
     assert.equal(marks.get('2026-10-20')?.established, true);
-    assert.equal(marks.get('2026-10-20')?.window, false);
+    assert.equal(marks.get('2026-10-20')?.window, true);
+    assert.equal(marks.get('2026-10-20')?.windowDay, 10);
     assert.equal(marks.get('2026-10-20')?.sourceIndex, sideIndex);
     assert.equal(Boolean(marks.get('2026-11-12')?.contractedDay), false);
     assert.equal(marks.get('2026-11-12')?.resolvesOn ?? null, null);
@@ -259,20 +268,20 @@ describe('route clock time columns', () => {
     assert.match(legend, /Change · −15 min/);
     assert.deepEqual(scheduleChangeKindLines(snap.schedule_history[1]), [
       'Change · +20 min',
-      '10/05 Countdown, +20 minutes',
+      '10/05 Countdown, +20 min',
     ]);
     assert.deepEqual(scheduleChangeKindLines(snap.schedule_history[2]), [
       'Change · +30 min',
-      '10/05 Countdown, +45 minutes',
-      '10/06 Countdown, +5 minutes',
+      '10/05 Countdown, +45 min',
+      '10/06 Countdown, +5 min',
     ]);
     assert.deepEqual(scheduleChangeKindLines(last), [
       'Change · −15 min',
-      '10/05 Countdown, +45 minutes',
-      '10/06 Countdown, +5 minutes',
-      '10/20 Countdown, −15 minutes',
+      '10/05 Countdown, +45 min',
+      '10/06 Countdown, +5 min',
+      '10/20 Countdown, −15 min',
     ]);
-    assert.match(legend, /10\/20 Countdown, −15 minutes/);
+    assert.match(legend, /10\/20 Countdown, −15 min/);
     assert.doesNotMatch(legend, /Cumulative change/);
   });
 

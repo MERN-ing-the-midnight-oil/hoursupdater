@@ -42,11 +42,17 @@ import {
   beginSessionRouteTracking,
 } from './store.js';
 import {
-  ROUTE_DATA_FILE_BASE,
   payrollWorkbookFilename,
-  stampedWorkbookFilename,
   workbookTitleFromFilename,
 } from '../src/downloadName.js';
+import {
+  fileBaseFromRouteBackupFilename,
+  normalizeRouteBackupFilename,
+  normalizeRouteDataBackup,
+  routeDataBackupReminderDue,
+  routeDataBackupReminderLabel,
+  suggestedRouteBackupFilename,
+} from '../src/routeDataBackup.js';
 import {
   buildPayrollWorkbook,
   changedPayrollLabels,
@@ -137,6 +143,8 @@ import {
   CONTRACT_NOTICE_KINDS,
   contractNoticeKindById,
   contractNoticeMail,
+  contractNoticeNeedsAttention,
+  contractNoticeValues,
   describeContractNotice,
   isContractNoticeSent,
   loadSentContractIds,
@@ -144,6 +152,17 @@ import {
   forgetContractNoticesSent,
   rememberContractNoticesSent,
 } from '../src/contractNotice.js';
+import {
+  biddingDriverRoster,
+  eomMonthOptions,
+  eomOutsidePostingSeasonMessage,
+  PAPER_BID_SHEET_DEFAULTS,
+  periodForMonthKey,
+  renderEomBiddingPacketHtml,
+  routesApproachingBid,
+  routesStillOpenForBid,
+  routesUpForBid,
+} from '../src/eomBidding.js';
 import { initCitations } from '../../employee-tracker/web/citations.js';
 import {
   calendarMonthsHtml,
@@ -214,9 +233,22 @@ const trackerSettingsOpen = document.querySelector('#tracker-settings-open');
 const adminReminderTab = document.querySelector('#admin-reminder-tab');
 const driverNoticeTab = document.querySelector('#driver-notice-tab');
 const contractNoticeTab = document.querySelector('#contract-notice-tab');
+const biddingTab = document.querySelector('#bidding-tab');
 const adminReminderView = document.querySelector('#admin-reminder-view');
 const driverNoticeView = document.querySelector('#driver-notice-view');
 const contractNoticeView = document.querySelector('#contract-notice-view');
+const biddingView = document.querySelector('#bidding-view');
+const eomBiddingMonth = document.querySelector('#eom-bidding-month');
+const eomBiddingMonthHint = document.querySelector('#eom-bidding-month-hint');
+const eomBiddingSeasonNote = document.querySelector('#eom-bidding-season-note');
+const eomBiddingStatus = document.querySelector('#eom-bidding-status');
+const eomBiddingRoutesBody = document.querySelector('#eom-bidding-routes-body');
+const eomBiddingRoutesSummary = document.querySelector('#eom-bidding-routes-summary');
+const eomBiddingStillOpenBody = document.querySelector('#eom-bidding-still-open-body');
+const eomBiddingStillOpenSummary = document.querySelector('#eom-bidding-still-open-summary');
+const eomBiddingApproachingBody = document.querySelector('#eom-bidding-approaching-body');
+const eomBiddingApproachingSummary = document.querySelector('#eom-bidding-approaching-summary');
+const eomBiddingPrint = document.querySelector('#eom-bidding-print');
 const allRoutesView = document.querySelector('#all-routes-view');
 const allRoutesSheet = document.querySelector('#all-routes-sheet');
 const driverHistoryView = document.querySelector('#driver-history-view');
@@ -279,6 +311,7 @@ const ICONS = {
   bid: '<path d="m14.5 12.5-8 8a2.12 2.12 0 1 1-3-3l8-8"/><path d="m16 16 6-6"/><path d="m8 8 6-6"/><path d="m9 7 8 8"/><path d="m21 11-8-8"/>',
   bump: '<path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="m21 8-4-4-4 4"/><path d="M17 4v16"/>',
   decrease: '<path d="M22 17 13.5 8.5 8.5 13.5 2 7"/><path d="M16 17h6v-6"/>',
+  increase: '<path d="m22 7-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/>',
 };
 
 function iconHtml(name) {
@@ -305,6 +338,7 @@ function markSectionChrome() {
   const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
   const onContractNotice = activeSheet === 'contract-notice' && !addingPerson;
+  const onBidding = activeSheet === 'bidding' && !addingPerson;
   driversTab.classList.toggle('is-active', onDrivers);
   driversTab.setAttribute('aria-selected', onDrivers ? 'true' : 'false');
   dashboardApp?.classList.toggle('is-active', !onOfficeApp && !onSettings);
@@ -334,6 +368,8 @@ function markSectionChrome() {
   driverNoticeTab?.setAttribute('aria-selected', onDriverNotice ? 'true' : 'false');
   contractNoticeTab?.classList.toggle('is-active', onContractNotice);
   contractNoticeTab?.setAttribute('aria-selected', onContractNotice ? 'true' : 'false');
+  biddingTab?.classList.toggle('is-active', onBidding);
+  biddingTab?.setAttribute('aria-selected', onBidding ? 'true' : 'false');
 }
 
 function renderRouteTabs() {
@@ -353,6 +389,7 @@ function renderRouteTabs() {
   const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
   const onContractNotice = activeSheet === 'contract-notice' && !addingPerson;
+  const onBidding = activeSheet === 'bidding' && !addingPerson;
   const onRoute =
     !addingPerson &&
     !onDrivers &&
@@ -362,7 +399,8 @@ function renderRouteTabs() {
     !onSettings &&
     !onAdminReminder &&
     !onDriverNotice &&
-    !onContractNotice;
+    !onContractNotice &&
+    !onBidding;
   const currentId = onRoute ? getCurrentProfile()?.id : null;
   const routes = [...peopleList()].sort((a, b) => compareRouteNumbers(a.name, b.name));
   routeTabs.innerHTML = '';
@@ -413,6 +451,7 @@ function chooseRoute(id) {
     activeSheet !== 'admin-reminder' &&
     activeSheet !== 'driver-notice' &&
     activeSheet !== 'contract-notice' &&
+    activeSheet !== 'bidding' &&
     current?.id === id
   ) {
     return;
@@ -936,6 +975,10 @@ function showDashboardApp() {
     showContractNotice();
     return;
   }
+  if (back === 'bidding') {
+    showBidding();
+    return;
+  }
   if (
     back &&
     back !== 'drivers' &&
@@ -974,6 +1017,14 @@ function showContractNotice() {
   activeSheet = 'contract-notice';
   loadAll();
   fillContractNoticeSettings();
+}
+
+function showBidding() {
+  addingPerson = false;
+  viewingDriver = '';
+  activeSheet = 'bidding';
+  loadAll();
+  renderEomBidding();
 }
 
 driversTab.addEventListener('click', showDrivers);
@@ -1031,6 +1082,11 @@ document.querySelector('#paper-backup-back')?.addEventListener('click', showCloc
 adminReminderTab?.addEventListener('click', showAdminReminder);
 driverNoticeTab?.addEventListener('click', showDriverNotice);
 contractNoticeTab?.addEventListener('click', showContractNotice);
+biddingTab?.addEventListener('click', showBidding);
+eomBiddingMonth?.addEventListener('change', () => {
+  renderEomBidding({ preserveMonth: true });
+});
+eomBiddingPrint?.addEventListener('click', printEomBiddingPacket);
 
 let reminderInvitees = [];
 let officeUsers = [];
@@ -1506,6 +1562,7 @@ function beginAddRoute() {
   if (adminReminderView) adminReminderView.hidden = true;
   if (driverNoticeView) driverNoticeView.hidden = true;
   if (contractNoticeView) contractNoticeView.hidden = true;
+  if (biddingView) biddingView.hidden = true;
   if (routeTabs) routeTabs.hidden = false;
   showSetup(true);
   renderRouteTabs();
@@ -2544,6 +2601,36 @@ function noticeQueueSummary(items, noun) {
   return `${items.length} ${name}. ${pending}`;
 }
 
+function contractNoticeOverdue(items, asOf = getAsOfDate()) {
+  return items.filter((item) => contractNoticeNeedsAttention(item, asOf));
+}
+
+function contractNoticeQueueSummary(items, asOf = getAsOfDate()) {
+  if (!items.length) return 'No contract notices are recorded yet.';
+  const name = items.length === 1 ? 'contract notice' : 'contract notices';
+  const overdue = contractNoticeOverdue(items, asOf).length;
+  const unsentLater = items.filter(
+    (item) => !item.sent && !contractNoticeNeedsAttention(item, asOf)
+  ).length;
+  if (!overdue && !unsentLater) return `${items.length} ${name}. Every notice has been sent.`;
+  const parts = [`${items.length} ${name}.`];
+  if (overdue) {
+    parts.push(
+      overdue === 1
+        ? '1 notice is past its Send by date and has not been sent.'
+        : `${overdue} notices are past their Send by date and have not been sent.`
+    );
+  }
+  if (unsentLater) {
+    parts.push(
+      unsentLater === 1
+        ? '1 notice is not due yet.'
+        : `${unsentLater} notices are not due yet.`
+    );
+  }
+  return parts.join(' ');
+}
+
 function paintQueueUnsent(queueSelector, count) {
   const badge = document.querySelector(`${queueSelector} .notice-queue-unsent`);
   if (!badge) return;
@@ -2602,9 +2689,11 @@ function renderContractNoticeQueue() {
   const body = document.querySelector('#contract-notice-queue-body');
   const summary = document.querySelector('#contract-notice-queue-summary');
   if (!body) return;
+  const asOf = getAsOfDate();
   const items = contractNoticeItems();
-  if (summary) summary.textContent = noticeQueueSummary(items, 'contract notices');
-  paintQueueUnsent('#contract-notice-queue', items.filter((item) => !item.sent).length);
+  const overdue = contractNoticeOverdue(items, asOf);
+  if (summary) summary.textContent = contractNoticeQueueSummary(items, asOf);
+  paintQueueUnsent('#contract-notice-queue', overdue.length);
   if (!items.length) {
     body.innerHTML = '<tr><td colspan="10" class="empty">No contract notices are recorded yet.</td></tr>';
     syncNoticeSelection('#contract-notice-queue');
@@ -2612,7 +2701,8 @@ function renderContractNoticeQueue() {
   }
   body.innerHTML = items
     .map((item) => {
-      const flag = item.sent ? '' : noticeFlagHtml();
+      const needsAttention = contractNoticeNeedsAttention(item, asOf);
+      const flag = needsAttention ? noticeFlagHtml() : '';
       const recorded = formatRecordedAt(item.submittedAt);
       const who = item.enteredBy ? escapeHtml(item.enteredBy) : '';
       const when = [recorded ? escapeHtml(recorded) : '', who].filter(Boolean).join(' · ') || '—';
@@ -2620,16 +2710,16 @@ function renderContractNoticeQueue() {
       const outcome = item.resultLabel && item.resultLabel !== item.kindLabel
         ? `<span class="notice-queue-meta">${escapeHtml(item.resultLabel)}</span>`
         : '';
-      return `<tr class="${item.sent ? '' : 'is-unsent'}" data-change-id="${escapeHtml(item.changeId)}">
+      return `<tr class="${needsAttention ? 'is-unsent' : ''}" data-change-id="${escapeHtml(item.changeId)}">
         ${noticeSelectCell(item.changeId, item.routeName)}
         <td>${flag}</td>
         <td>${escapeHtml(item.routeName)}</td>
         <td>${escapeHtml(item.driverName || 'No driver')}</td>
         <td class="notice-letter-cell">${contractLetterMark(item)}</td>
         <td>${hours}${outcome}</td>
-        <td>${item.effectiveDate ? escapeHtml(item.effectiveDate) : '—'}</td>
+        <td>${item.sendByDate ? escapeHtml(item.sendByDate) : '—'}</td>
         <td>${when}</td>
-        <td class="notice-sent-mark">${escapeHtml(item.sentLabel)}<span class="notice-queue-meta">${escapeHtml(item.citationLabel || '')}</span></td>
+        <td class="notice-sent-mark">${escapeHtml(item.sentLabel)}</td>
         ${noticeActionCell('js-send-contract-notice', 'js-print-contract-notice', 'js-mark-contract-sent', item.sent)}
       </tr>`;
     })
@@ -2645,11 +2735,235 @@ function paintNoticeTabFlag(tabId, countId, pending) {
   if (count) count.textContent = pending > 0 ? String(pending) : '';
 }
 
+function eomBiddingSnapshots() {
+  const asOf = getAsOfDate();
+  const snapshots = [];
+  for (const profile of listProfiles()) {
+    try {
+      snapshots.push({ profile, snap: buildSnapshot(profile, asOf) });
+    } catch {
+      // Skip routes that cannot build a snapshot yet.
+    }
+  }
+  return snapshots;
+}
+
+function eomSelectedMonthKey(options = {}) {
+  const asOf = getAsOfDate();
+  const calendar = calendarPayload();
+  const fromSelect = String(eomBiddingMonth?.value || '').slice(0, 7);
+  if (options.preserveMonth && /^\d{4}-\d{2}$/.test(fromSelect)) return fromSelect;
+  if (/^\d{4}-\d{2}$/.test(fromSelect) && options.keepSelect) return fromSelect;
+  const match = eomMonthOptions(calendar, asOf).find((option) => option.selected);
+  return match?.value || fromSelect || '';
+}
+
+function eomBiddingPacketData(options = {}) {
+  const asOf = getAsOfDate();
+  const calendar = calendarPayload();
+  const monthKey = eomSelectedMonthKey(options);
+  const period = periodForMonthKey(calendar, monthKey);
+  const snapshots = eomBiddingSnapshots();
+  const routes = routesUpForBid({ snapshots, calendar, monthKey, asOf });
+  const stillOpen = routesStillOpenForBid({ snapshots, calendar, monthKey, asOf });
+  const approaching = routesApproachingBid({ snapshots, calendar, monthKey, asOf });
+  const roster = biddingDriverRoster({
+    state: loadState(),
+    listedDrivers: listDrivers(),
+    asOf,
+  });
+  return { asOf, calendar, monthKey, period, routes, stillOpen, approaching, roster };
+}
+
+function eomBiddingRouteCount() {
+  try {
+    const asOf = getAsOfDate();
+    const calendar = calendarPayload();
+    const monthKey = eomMonthOptions(calendar, asOf).find((option) => option.selected)?.value || '';
+    if (!monthKey) return 0;
+    const snapshots = eomBiddingSnapshots();
+    return (
+      routesUpForBid({ snapshots, calendar, monthKey, asOf }).length +
+      routesStillOpenForBid({ snapshots, calendar, monthKey, asOf }).length
+    );
+  } catch {
+    return 0;
+  }
+}
+
+function renderEomBidding(options = {}) {
+  if (!eomBiddingMonth || !eomBiddingRoutesBody) return;
+  const asOf = getAsOfDate();
+  const calendar = calendarPayload();
+  const monthOptions = eomMonthOptions(calendar, asOf);
+  const selected = eomSelectedMonthKey({
+    preserveMonth: options.preserveMonth,
+    keepSelect: true,
+  });
+  eomBiddingMonth.innerHTML = monthOptions
+    .map(
+      (option) =>
+        `<option value="${escapeHtml(option.value)}"${
+          option.value === selected ? ' selected' : ''
+        }>${escapeHtml(option.label)}</option>`
+    )
+    .join('');
+  if (selected && ![...eomBiddingMonth.options].some((option) => option.value === selected)) {
+    const fallback = document.createElement('option');
+    fallback.value = selected;
+    fallback.selected = true;
+    fallback.textContent = selected;
+    eomBiddingMonth.append(fallback);
+  } else if (selected) {
+    eomBiddingMonth.value = selected;
+  }
+
+  const data = eomBiddingPacketData({ preserveMonth: true });
+  if (eomBiddingMonthHint) {
+    eomBiddingMonthHint.textContent = data.period
+      ? `Last five school days: ${prettyDate(data.period.start)}–${prettyDate(data.period.end)}.`
+      : 'No October–April bid posting window is on the school calendar for that month.';
+  }
+  const seasonNote = eomOutsidePostingSeasonMessage(asOf);
+  if (eomBiddingSeasonNote) {
+    if (seasonNote) {
+      eomBiddingSeasonNote.hidden = false;
+      eomBiddingSeasonNote.textContent = seasonNote;
+      eomBiddingSeasonNote.className = 'status is-warn';
+    } else {
+      eomBiddingSeasonNote.hidden = true;
+      eomBiddingSeasonNote.textContent = '';
+    }
+  }
+
+  if (eomBiddingRoutesSummary) {
+    eomBiddingRoutesSummary.textContent = data.routes.length
+      ? `${data.routes.length} route${data.routes.length === 1 ? '' : 's'} in this posting window.`
+      : 'No routes are up for bid in this posting window.';
+  }
+  eomBiddingRoutesBody.innerHTML = data.routes.length
+    ? data.routes
+        .map(
+          (route) => `<tr>
+            <td>${escapeHtml(route.routeName)}</td>
+            <td>${escapeHtml(route.driverName || '—')}</td>
+            <td>${escapeHtml(route.previousHours)} → ${escapeHtml(route.contractHours)}</td>
+            <td>${escapeHtml(route.increaseLabel)}</td>
+            <td>${escapeHtml(route.postingWindowText || prettyDate(route.becomesOn))}</td>
+            <td>${escapeHtml(prettyDate(route.signupDue) || '—')}</td>
+            <td>${route.bidNoticeSent ? 'Sent' : 'Not sent'}</td>
+          </tr>`
+        )
+        .join('')
+    : `<tr><td colspan="7">No routes are posted for bid in this window.</td></tr>`;
+
+  if (eomBiddingStillOpenSummary) {
+    eomBiddingStillOpenSummary.textContent = data.stillOpen.length
+      ? `${data.stillOpen.length} earlier bid${data.stillOpen.length === 1 ? '' : 's'} still open (often left on the hall board).`
+      : 'No earlier bids are still open.';
+  }
+  if (eomBiddingStillOpenBody) {
+    eomBiddingStillOpenBody.innerHTML = data.stillOpen.length
+      ? data.stillOpen
+          .map(
+            (route) => `<tr>
+              <td>${escapeHtml(route.routeName)}</td>
+              <td>${escapeHtml(route.driverName || '—')}</td>
+              <td>${escapeHtml(route.previousHours)} → ${escapeHtml(route.contractHours)}</td>
+              <td>${escapeHtml(route.increaseLabel)}</td>
+              <td>${escapeHtml(prettyDate(route.becomesOn))}</td>
+              <td>${route.bidNoticeSent ? 'Sent' : 'Not sent'}</td>
+            </tr>`
+          )
+          .join('')
+      : `<tr><td colspan="6">No earlier bids are still open.</td></tr>`;
+  }
+
+  if (eomBiddingApproachingSummary) {
+    eomBiddingApproachingSummary.textContent = data.approaching.length
+      ? `${data.approaching.length} route${data.approaching.length === 1 ? '' : 's'} still counting or due in a later month.`
+      : 'No other routes are approaching bid.';
+  }
+  if (eomBiddingApproachingBody) {
+    eomBiddingApproachingBody.innerHTML = data.approaching.length
+      ? data.approaching
+          .map(
+            (route) => `<tr>
+              <td>${escapeHtml(route.routeName)}</td>
+              <td>${escapeHtml(route.driverName || '—')}</td>
+              <td>${escapeHtml(route.increaseLabel)}</td>
+              <td>${escapeHtml(prettyDate(route.becomesOn))}${route.predicted ? ' · predicted' : ''}</td>
+              <td>${route.bidNoticeSent ? 'Sent' : 'Not sent'}</td>
+            </tr>`
+          )
+          .join('')
+      : `<tr><td colspan="5">No approaching bids.</td></tr>`;
+  }
+
+  const packetCount = data.routes.length + data.stillOpen.length;
+  if (eomBiddingPrint) {
+    eomBiddingPrint.disabled = !data.period;
+    eomBiddingPrint.textContent = packetCount
+      ? `Print bidding packet (${packetCount + 1} pages)`
+      : 'Print cover sheet';
+  }
+  if (eomBiddingStatus) {
+    if (!data.period) {
+      setStatus(eomBiddingStatus, 'Choose an October–April posting month on the school calendar.', 'error');
+    } else if (!data.roster.hasSeniorityData) {
+      setStatus(
+        eomBiddingStatus,
+        'Driver lists print alphabetically until hire dates or seniority numbers are stored on driver records.',
+        'warn'
+      );
+    } else if (!packetCount) {
+      setStatus(
+        eomBiddingStatus,
+        'No routes are up for bid in this window. You can still print the cover sheet and driver acknowledgment list.',
+        'warn'
+      );
+    } else {
+      eomBiddingStatus.hidden = true;
+    }
+  }
+}
+
+function printEomBiddingPacket() {
+  const data = eomBiddingPacketData({ preserveMonth: true });
+  if (!data.period) {
+    setStatus(eomBiddingStatus, 'Choose an October–April posting month before printing.', 'error');
+    return;
+  }
+  const sheet = document.querySelector('#notice-print');
+  if (!sheet) return;
+  sheet.innerHTML = renderEomBiddingPacketHtml({
+    monthKey: data.monthKey,
+    period: data.period,
+    calendar: data.calendar,
+    routes: data.routes,
+    stillOpen: data.stillOpen,
+    roster: data.roster,
+    paperBidSheet: PAPER_BID_SHEET_DEFAULTS,
+    asOf: data.asOf,
+  });
+  document.body.classList.add('is-notice-print');
+  window.addEventListener(
+    'afterprint',
+    () => {
+      document.body.classList.remove('is-notice-print');
+      sheet.replaceChildren();
+    },
+    { once: true }
+  );
+  window.print();
+}
+
 function paintNoticeTabFlags() {
   const clockWaiting = driverNoticeItems().filter((item) => !item.sent).length;
-  const contractWaiting = contractNoticeItems().filter((item) => !item.sent).length;
+  const contractWaiting = contractNoticeOverdue(contractNoticeItems()).length;
   paintNoticeTabFlag('#driver-notice-flag', '#driver-notice-flag-count', clockWaiting);
   paintNoticeTabFlag('#contract-notice-flag', '#contract-notice-flag-count', contractWaiting);
+  paintNoticeTabFlag('#bidding-flag', '#bidding-flag-count', eomBiddingRouteCount());
 }
 
 function paintRecentNoticeFlags() {
@@ -2726,7 +3040,7 @@ async function runContractNotice(changeId, button) {
 async function sendContractNotice(button) {
   const changeId = button.closest('[data-change-id]')?.dataset.changeId;
   if (!changeId) return;
-  const alreadySent = isContractNoticeSent(changeId) || !button.closest('tr')?.classList.contains('is-unsent');
+  const alreadySent = isContractNoticeSent(changeId);
   if (alreadySent) {
     const dialog = document.querySelector('#send-notice-offer-dialog');
     const message = document.querySelector('#send-notice-offer-message');
@@ -2778,7 +3092,8 @@ function renderContractNoticeEditors(templates) {
   for (const kind of CONTRACT_NOTICE_KINDS) {
     const draft = saved[kind.id];
     const card = document.createElement('article');
-    card.className = 'contract-notice-card';
+    const kindTone = kind.icon || kind.id;
+    card.className = `contract-notice-card contract-notice-card-${kindTone}`;
     card.dataset.id = kind.id;
 
     const head = document.createElement('div');
@@ -2802,7 +3117,7 @@ function renderContractNoticeEditors(templates) {
     sampleText.dataset.sample = kind.id;
 
     const why = contractNoticeDisclosure(
-      'Required because',
+      kind.required === false ? 'Not required by the contract' : 'Required because',
       kind.rationale || kind.detail,
       `${kind.id}-why`
     );
@@ -2852,8 +3167,14 @@ function renderContractNoticeEditors(templates) {
     const hint = document.createElement('p');
     hint.className = 'field-hint';
     hint.textContent =
-      'You can use {{driver_name}}, {{route_name}}, {{date}}, {{effective_date}}, {{previous_hours}}, {{contract_hours}}, {{change_amount}}, {{timing}}, {{citation_label}}, and {{citation_text}}. The citation lines are the contract wording for this change.';
-    editor.append(subjectField, bodyField, hint);
+      'You can use {{driver_name}}, {{route_name}}, {{date}}, {{effective_date}}, {{previous_hours}}, {{contract_hours}}, {{change_amount}}, {{timing}}, {{citation_label}}, and {{citation_text}}. The citation lines are the contract wording for this change. In the example above, highlighted text comes from those fields—hover a highlight to see which one.';
+    const editorActions = document.createElement('div');
+    editorActions.className = 'contract-notice-editor-actions actions';
+    const save = document.createElement('button');
+    save.type = 'submit';
+    save.textContent = 'Save contract notice';
+    editorActions.append(save);
+    editor.append(subjectField, bodyField, hint, editorActions);
     const refreshSample = () => paintContractCardSample(kind.id);
     subject.addEventListener('input', refreshSample);
     body.addEventListener('input', refreshSample);
@@ -2873,17 +3194,38 @@ function renderContractNoticeEditors(templates) {
   }
 }
 
-function paintContractCardSample(kindId) {
-  const box = document.querySelector(`#contract-notice-kinds [data-sample="${kindId}"]`);
-  if (!box) return;
-  box.textContent = contractNoticePreviewText(kindId);
+const TEMPLATE_TOKEN_RE = /\{\{\s*([a-z_]+)\s*\}\}/g;
+
+function appendFilledTemplate(parent, template, values) {
+  const source = String(template ?? '');
+  let last = 0;
+  TEMPLATE_TOKEN_RE.lastIndex = 0;
+  let match;
+  while ((match = TEMPLATE_TOKEN_RE.exec(source))) {
+    if (match.index > last) parent.append(source.slice(last, match.index));
+    const key = match[1];
+    const token = `{{${key}}}`;
+    const known = Object.prototype.hasOwnProperty.call(values, key);
+    if (!known) {
+      parent.append(match[0]);
+      last = match.index + match[0].length;
+      continue;
+    }
+    const text = String(values[key] ?? '');
+    const mark = document.createElement('mark');
+    mark.className = 'template-fill';
+    mark.dataset.token = token;
+    mark.title = token;
+    mark.setAttribute('aria-label', text ? `${token}: ${text}` : `${token} (empty)`);
+    mark.textContent = text;
+    parent.append(mark);
+    last = match.index + match[0].length;
+  }
+  if (last < source.length) parent.append(source.slice(last));
 }
 
-function contractNoticePreviewText(kindId) {
-  const kind = contractNoticeKindById(kindId);
-  const citationId = kind.citations[0];
-  const entry = contractCitations[citationId] || {};
-  const people = {
+function contractNoticeSamplePeople(kindId) {
+  const samples = {
     bid: {
       driverName: 'Annie Porter',
       email: 'annie.porter@example.com',
@@ -2891,6 +3233,8 @@ function contractNoticePreviewText(kindId) {
       previousHours: '6 hr',
       contractHours: '6 hr 30 min',
       changeAmount: '30 min in contracted hours',
+      timing:
+        'Under Art. 3.08(b)(1), an increase of 30 minutes or more that has lasted 15 school days is posted for bid during the last five school days of the month, from October through April. That date is Fri, Nov 20, 2026.',
     },
     bump: {
       driverName: 'Annie Porter',
@@ -2899,6 +3243,8 @@ function contractNoticePreviewText(kindId) {
       previousHours: '6 hr 30 min',
       contractHours: '6 hr',
       changeAmount: '30 min in contracted hours',
+      timing:
+        'Under Art. 3.08(b)(2), the decrease has to last 15 school days before this written determination. That date is Fri, Nov 20, 2026. The two school days start when you receive it.',
     },
     decrease: {
       driverName: 'Annie Porter',
@@ -2907,28 +3253,44 @@ function contractNoticePreviewText(kindId) {
       previousHours: '6 hr 15 min',
       contractHours: '6 hr',
       changeAmount: '15 min in contracted hours',
+      timing:
+        'Under Art. 3.08(b)(4), the new contract time takes effect on the workday after this written notice (Fri, Nov 20, 2026).',
+    },
+    increase: {
+      driverName: 'Annie Porter',
+      email: 'annie.porter@example.com',
+      routeName: 'S8',
+      previousHours: '6 hr',
+      contractHours: '6 hr 15 min',
+      changeAmount: '15 min in contracted hours',
+      timing:
+        'Under Art. 3.08(b)(3), the new contract time takes effect on the workday following the 15th school day (Fri, Nov 20, 2026).',
     },
   };
-  const hours = people[kind.id] || people.bid;
+  return samples[kindId] || samples.bid;
+}
+
+function paintContractCardSample(kindId) {
+  const box = document.querySelector(`#contract-notice-kinds [data-sample="${kindId}"]`);
+  if (!box) return;
+  const kind = contractNoticeKindById(kindId);
+  const citationId = kind.citations[0];
+  const entry = contractCitations[citationId] || {};
+  const hours = contractNoticeSamplePeople(kind.id);
   const described = {
     kind: kind.id,
     effectiveDate: 'Fri, Nov 20, 2026',
     previousHours: hours.previousHours,
     contractHours: hours.contractHours,
     changeAmount: hours.changeAmount,
-    timing: '',
+    timing: hours.timing,
     citationLabel: entry.label || '',
     citationText: entry.text || '',
   };
-  const templates = {};
   const block = document.querySelector(`#contract-notice-kinds [data-id="${kind.id}"]`);
-  templates[kind.id] = {
-    subject: block?.querySelector('.js-contract-subject')?.value ?? kind.subject,
-    body: block?.querySelector('.js-contract-body')?.value ?? kind.body,
-  };
-  const mail = contractNoticeMail({
-    described,
-    templates,
+  const subjectTemplate = block?.querySelector('.js-contract-subject')?.value ?? kind.subject;
+  const bodyTemplate = block?.querySelector('.js-contract-body')?.value ?? kind.body;
+  const values = contractNoticeValues(described, {
     driverName: hours.driverName,
     routeName: hours.routeName,
     asOf: '2026-11-02',
@@ -2937,8 +3299,17 @@ function contractNoticePreviewText(kindId) {
     hours.email,
     document.querySelector('#contract-notice-secretary')?.value
   );
-  const letter = `Example\nTo: ${hours.email}\n${copy ? `Cc: ${copy}\n` : ''}${mail.subject}\n\n${mail.body}`;
-  return letter.replace(/\n{3,}/g, '\n\n');
+
+  box.replaceChildren();
+  const kicker = document.createElement('h3');
+  kicker.textContent = 'Example';
+  box.append(kicker);
+  box.append(`To: ${hours.email}\n`);
+  if (copy) box.append(`Cc: ${copy}\n`);
+  appendFilledTemplate(box, subjectTemplate, values);
+  box.append('\n\n');
+  appendFilledTemplate(box, String(bodyTemplate ?? '').trimEnd(), values);
+  box.append('\n');
 }
 
 function collectContractTemplates() {
@@ -3961,6 +4332,7 @@ function renderApp() {
   const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
   const onContractNotice = activeSheet === 'contract-notice' && !addingPerson;
+  const onBidding = activeSheet === 'bidding' && !addingPerson;
   const payrollWindow = driversWindow && driversApp === 'payroll';
   document.body.classList.toggle('is-payroll-app', onPayroll || (payrollWindow && onDriverHistory));
   document.body.classList.toggle('is-clocking-app', onClocking || onClockSettings || onPaperBackup);
@@ -3995,9 +4367,11 @@ function renderApp() {
   if (adminReminderView) adminReminderView.hidden = !onAdminReminder;
   if (driverNoticeView) driverNoticeView.hidden = !onDriverNotice;
   if (contractNoticeView) contractNoticeView.hidden = !onContractNotice;
+  if (biddingView) biddingView.hidden = !onBidding;
   paintNoticeTabFlags();
   if (onDriverNotice) renderDriverNoticeQueue();
   if (onContractNotice) renderContractNoticeQueue();
+  if (onBidding) renderEomBidding({ preserveMonth: true });
   if (driversWindow && onDriverHistory) {
     if (payrollView) payrollView.hidden = true;
     if (clockingView) clockingView.hidden = true;
@@ -4085,7 +4459,7 @@ function renderApp() {
     document.title = openDriver ? `${openDriver} · ${appName} · ${APP_TITLE}` : `${appName} · ${APP_TITLE}`;
     return;
   }
-  if (onAdminReminder || onDriverNotice || onContractNotice) {
+  if (onAdminReminder || onDriverNotice || onContractNotice || onBidding) {
     driversView.hidden = true;
     allRoutesView.hidden = true;
     driverHistoryView.hidden = true;
@@ -4095,7 +4469,9 @@ function renderApp() {
       ? 'Admin contract reminder'
       : onContractNotice
         ? 'Contract time-change notice'
-        : 'Driver time-change notice';
+        : onBidding
+          ? 'Bidding'
+          : 'Driver time-change notice';
     return;
   }
   document.title = PAGE_TITLE;
@@ -4152,6 +4528,7 @@ function loadAll() {
     document.querySelector('#change_date').value = snapshot.as_of || getAsOfDate();
   }
   renderApp();
+  refreshRouteBackupFlash();
 }
 
 function updatePreview() {
@@ -4281,6 +4658,158 @@ function downloadWorkbook(bytes, filename) {
   URL.revokeObjectURL(url);
 }
 
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+function routeBackupPrefs() {
+  return normalizeRouteDataBackup(loadState().routeDataBackup);
+}
+
+function saveRouteBackupPrefs(patch) {
+  const next = loadState();
+  next.routeDataBackup = normalizeRouteDataBackup({
+    ...normalizeRouteDataBackup(next.routeDataBackup),
+    ...patch,
+  });
+  saveState(next);
+  refreshRouteBackupFlash();
+  return next.routeDataBackup;
+}
+
+function refreshRouteBackupFlash() {
+  const button = document.querySelector('#export-btn');
+  if (!(button instanceof HTMLButtonElement)) return;
+  const due = routeDataBackupReminderDue(routeBackupPrefs());
+  button.classList.toggle('is-backup-due', due);
+  if (due) button.setAttribute('title', 'A Current Route Data backup is due.');
+  else button.removeAttribute('title');
+}
+
+function routeBackupSavedMessage(prefs) {
+  const settings = normalizeRouteDataBackup(prefs);
+  if (!settings.lastFilename) return '';
+  return `Saved ${settings.lastFilename}.`;
+}
+
+function fillRouteBackupDialog() {
+  const prefs = routeBackupPrefs();
+  const reminder = document.querySelector('#route-backup-reminder');
+  const filename = document.querySelector('#route-backup-filename');
+  const hint = document.querySelector('#route-backup-reminder-hint');
+  const locationHint = document.querySelector('#route-backup-location-hint');
+  const status = document.querySelector('#route-backup-status');
+  if (reminder instanceof HTMLSelectElement) reminder.value = prefs.reminder;
+  if (filename instanceof HTMLInputElement) {
+    filename.value = suggestedRouteBackupFilename(prefs.fileBase, new Date());
+  }
+  if (hint) hint.textContent = routeDataBackupReminderLabel(prefs.reminder);
+  if (locationHint) {
+    locationHint.textContent =
+      typeof window.showSaveFilePicker === 'function'
+        ? 'Your browser will ask where to save the file each time you download.'
+        : 'This browser saves to its usual downloads folder. Chrome or Edge can let you choose a folder each time.';
+  }
+  if (status) {
+    const saved = routeBackupSavedMessage(prefs);
+    status.hidden = !saved;
+    status.textContent = saved;
+    status.classList.toggle('is-error', false);
+    status.classList.toggle('is-ok', Boolean(saved));
+  }
+}
+
+function openRouteBackupDialog() {
+  const dialog = document.querySelector('#route-backup-dialog');
+  if (!(dialog instanceof HTMLDialogElement)) return;
+  fillRouteBackupDialog();
+  if (!dialog.open) dialog.showModal();
+}
+
+function readRouteBackupForm() {
+  const reminderEl = document.querySelector('#route-backup-reminder');
+  const filenameEl = document.querySelector('#route-backup-filename');
+  const reminder =
+    reminderEl instanceof HTMLSelectElement ? reminderEl.value : routeBackupPrefs().reminder;
+  const filename = normalizeRouteBackupFilename(
+    filenameEl instanceof HTMLInputElement ? filenameEl.value : '',
+    new Date()
+  );
+  return {
+    reminder,
+    filename,
+    fileBase: fileBaseFromRouteBackupFilename(filename),
+  };
+}
+
+function setRouteBackupStatus(message, kind = '') {
+  const status = document.querySelector('#route-backup-status');
+  if (!status) return;
+  status.hidden = !message;
+  status.textContent = message || '';
+  status.classList.toggle('is-error', kind === 'error');
+  status.classList.toggle('is-ok', kind === 'ok');
+}
+
+// Prefer the system Save dialog so the office can pick a folder. Fall back to a normal download.
+async function saveWorkbookBytes(bytes, filename) {
+  const blob = new Blob([bytes], { type: XLSX_MIME });
+  if (typeof window.showSaveFilePicker === 'function') {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [
+          {
+            description: 'Excel workbook',
+            accept: { [XLSX_MIME]: ['.xlsx'] },
+          },
+        ],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return { ok: true, method: 'picker', filename: handle.name || filename };
+    } catch (error) {
+      if (error?.name === 'AbortError') return { ok: false, method: 'cancelled' };
+    }
+  }
+  downloadWorkbook(bytes, filename);
+  return { ok: true, method: 'download', filename };
+}
+
+async function downloadRouteDataBackup() {
+  const form = readRouteBackupForm();
+  const createdAt = new Date();
+  const filename = form.filename;
+  setRouteBackupStatus('Creating the Excel file…');
+  const { buildRouteWorkbook } = await import('../src/routeWorkbook.js');
+  const bytes = await buildRouteWorkbook(
+    {
+      ...loadState(),
+      asOf: getAsOfDate(),
+    },
+    {
+      title: workbookTitleFromFilename(filename),
+      createdAt,
+    }
+  );
+  const saved = await saveWorkbookBytes(bytes, filename);
+  if (!saved.ok) {
+    setRouteBackupStatus('Download cancelled.', 'error');
+    return false;
+  }
+  saveRouteBackupPrefs({
+    reminder: form.reminder,
+    fileBase: form.fileBase,
+    lastDownloadedAt: createdAt.toISOString(),
+    lastFilename: saved.filename,
+  });
+  setRouteBackupStatus(`Saved ${saved.filename}.`, 'ok');
+  const filenameEl = document.querySelector('#route-backup-filename');
+  if (filenameEl instanceof HTMLInputElement) {
+    filenameEl.value = suggestedRouteBackupFilename(form.fileBase, new Date());
+  }
+  return true;
+}
+
 function payrollCompareStatus(changed, remembered) {
   if (!remembered) {
     return 'This payroll file is saved. The next file will highlight rows that differ from it.';
@@ -4370,26 +4899,47 @@ document.querySelector('#payroll-export-btn').addEventListener('click', async ()
   }
 });
 
-document.querySelector('#export-btn').addEventListener('click', async () => {
-  setStatus(fileStatus, '');
-  try {
-    const createdAt = new Date();
-    const filename = stampedWorkbookFilename(ROUTE_DATA_FILE_BASE, createdAt);
-    const { buildRouteWorkbook } = await import('../src/routeWorkbook.js');
-    const bytes = await buildRouteWorkbook(
-      {
-        ...loadState(),
-        asOf: getAsOfDate(),
-      },
-      {
-        title: workbookTitleFromFilename(filename),
-        createdAt,
-      }
-    );
-    downloadWorkbook(bytes, filename);
-  } catch (error) {
-    setStatus(fileStatus, error.message || 'Could not create the Excel file.', 'error');
+document.querySelector('#export-btn')?.addEventListener('click', () => {
+  openRouteBackupDialog();
+});
+
+document.querySelector('#route-backup-close')?.addEventListener('click', () => {
+  document.querySelector('#route-backup-dialog')?.close();
+});
+
+document.querySelector('#route-backup-reminder')?.addEventListener('change', (event) => {
+  const hint = document.querySelector('#route-backup-reminder-hint');
+  if (hint && event.target instanceof HTMLSelectElement) {
+    hint.textContent = routeDataBackupReminderLabel(event.target.value);
   }
+});
+
+document.querySelector('#route-backup-save')?.addEventListener('click', () => {
+  const form = readRouteBackupForm();
+  saveRouteBackupPrefs({
+    reminder: form.reminder,
+    fileBase: form.fileBase,
+  });
+  setRouteBackupStatus('Backup reminder settings saved.', 'ok');
+});
+
+document.querySelector('#route-backup-form')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const downloadBtn = document.querySelector('#route-backup-download');
+  if (downloadBtn instanceof HTMLButtonElement) downloadBtn.disabled = true;
+  try {
+    await downloadRouteDataBackup();
+  } catch (error) {
+    setRouteBackupStatus(error.message || 'Could not create the Excel file.', 'error');
+  } finally {
+    if (downloadBtn instanceof HTMLButtonElement) downloadBtn.disabled = false;
+  }
+});
+
+refreshRouteBackupFlash();
+window.setInterval(refreshRouteBackupFlash, 60_000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') refreshRouteBackupFlash();
 });
 
 function fillStartEditForm() {
@@ -5164,6 +5714,7 @@ async function adoptStarterOffice() {
     clockReasonCodes: Array.isArray(current.clockReasonCodes) ? current.clockReasonCodes : [],
     clockSubstituteDrivers: Array.isArray(current.clockSubstituteDrivers) ? current.clockSubstituteDrivers : [],
     ...(current.paperBackup ? { paperBackup: current.paperBackup } : {}),
+    ...(current.routeDataBackup ? { routeDataBackup: current.routeDataBackup } : {}),
     exampleVersion: 0,
     ...(next.contractReminder
       ? { contractReminder: next.contractReminder }
@@ -5565,6 +6116,7 @@ startAccounts({
     if (activeSheet === 'admin-reminder') fillReminderSettings();
     if (activeSheet === 'driver-notice') fillDriverNoticeSettings();
     if (activeSheet === 'contract-notice') fillContractNoticeSettings();
+    if (activeSheet === 'bidding') renderEomBidding({ preserveMonth: true });
   },
 }).catch((error) => {
   if (document.body.dataset.holdBoot !== 'timeclock') document.body.classList.remove('is-booting');

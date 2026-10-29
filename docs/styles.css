@@ -287,9 +287,9 @@ button:hover { background: var(--accent-deep); }
 }
 
 .month-grid {
-  --cal-gap: 3px;
-  --arrow-top: calc(0.35rem + 0.72rem * 1.1 + 0.12rem + 0.21rem - 1.5px);
-  --arrow-top-window: calc(0.35rem + 0.72rem * 1.1 + 0.12rem + 0.775rem - 1.5px);
+  --cal-gap: 4px;
+  --arrow-top: calc(0.4rem + 0.78rem * 1.1 + 0.14rem + 0.21rem - 1.5px);
+  --arrow-top-window: calc(0.4rem + 0.78rem * 1.1 + 0.14rem + 0.85rem - 1.5px);
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: var(--cal-gap);
@@ -297,9 +297,9 @@ button:hover { background: var(--accent-deep); }
 }
 
 .dow, .cal-day {
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   text-align: center;
-  padding: 0.35rem 0.15rem;
+  padding: 0.4rem 0.2rem;
 }
 
 .dow { color: var(--muted); font-weight: 700; }
@@ -307,7 +307,7 @@ button:hover { background: var(--accent-deep); }
 .cal-day {
   position: relative;
   border: 1px solid transparent;
-  min-height: 2.4rem;
+  min-height: 4.25rem;
   background: transparent;
 }
 
@@ -346,11 +346,20 @@ button:hover { background: var(--accent-deep); }
 .cal-day.is-hover-change:hover .cal-hover,
 .cal-day.is-hover-change:focus-visible .cal-hover { display: block; }
 
+.history-pips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.2rem;
+  margin: 0.14rem 0 0;
+}
+
 .history-pip {
   display: block;
   width: 0.42rem;
   height: 0.42rem;
-  margin: 0.12rem auto 0;
+  margin: 0;
   border: 1.5px solid var(--tone, var(--accent));
 }
 

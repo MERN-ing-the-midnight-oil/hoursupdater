@@ -329,16 +329,34 @@
               <span class="visually-hidden">not sent</span>
             </span>
           </button>
+          <button type="button" class="office-sheet" id="bidding-tab" role="tab" aria-selected="false">
+            <svg class="office-sheet-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 6h13"/>
+              <path d="M8 12h13"/>
+              <path d="M8 18h13"/>
+              <path d="M3 6h.01"/>
+              <path d="M3 12h.01"/>
+              <path d="M3 18h.01"/>
+            </svg>
+            Bidding
+            <span id="bidding-flag" class="notice-tab-flag" hidden>
+              <span class="notice-flag" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22V15"/></svg>
+              </span>
+              <span id="bidding-flag-count" class="notice-tab-count"></span>
+              <span class="visually-hidden">routes up for bid</span>
+            </span>
+          </button>
         </nav>
         <div class="sheet-actions">
-          <button type="button" class="secondary" id="export-btn">
-            <span class="dash-ico dash-ico-down">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <button type="button" class="secondary route-backup-launch" id="export-btn">
+            <span class="dash-ico dash-ico-down" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
                 <path d="M12 3.1c.7 0 1.25.56 1.25 1.25v6.35l1.7-1.7a1.25 1.25 0 0 1 1.77 1.77l-3.84 3.84a1.25 1.25 0 0 1-1.76 0L7.28 10.77a1.25 1.25 0 0 1 1.77-1.77l1.7 1.7V4.35c0-.69.56-1.25 1.25-1.25z" />
                 <path d="M4.6 16.7h14.8c.7 0 1.25.56 1.25 1.25v.55a2.15 2.15 0 0 1-2.15 2.15H5.5a2.15 2.15 0 0 1-2.15-2.15v-.55c0-.69.56-1.25 1.25-1.25z" />
               </svg>
             </span>
-            Download a backup of Current Route Data
+            Backup Route Data
           </button>
         </div>
         <p id="file-status" class="status file-status" role="status" hidden></p>
@@ -1641,7 +1659,9 @@
           Written determinations from every route are listed here. Send uses the
           email for that result and marks the notice sent, with who sent it and the date. Print opens that same notice for the printer and does not mark it sent. A red flag means it
           has not been sent. Each result has its own wording: up for bid, eligible
-          to bump, or a smaller decrease with no bump. The email quotes the Teamsters contract in the message. It does
+          to bump, a smaller decrease with no bump, or an optional smaller hours
+          increase. The Teamsters contract does not require the hours-increase
+          letter. The email quotes the Teamsters contract in the message. It does
           not include a link. Punch-in and punch-out times stay on the driver
           time-change notice. Mark Sent records who marked it and the date,
           without opening an email. Unmark clears that. Check the rows you want, then use Mark Sent
@@ -1667,18 +1687,62 @@
             <table class="notice-queue-table">
               <thead>
                 <tr>
-                  <th scope="col" class="notice-select">
+                  <th
+                    scope="col"
+                    class="notice-select"
+                    title="Select one or more rows, then use Mark Sent above the list to mark several notices at once."
+                  >
                     <input type="checkbox" class="js-notice-select-all" aria-label="Select all contract notices" />
                   </th>
-                  <th scope="col"><span class="visually-hidden">Notice</span></th>
-                  <th scope="col">Route</th>
-                  <th scope="col">Driver</th>
-                  <th scope="col">Letter</th>
-                  <th scope="col">Result</th>
-                  <th scope="col">Takes effect</th>
-                  <th scope="col">Recorded</th>
-                  <th scope="col">Notice sent</th>
-                  <th scope="col"><span class="visually-hidden">Send</span></th>
+                  <th
+                    scope="col"
+                    title="A red flag means this notice is still unsent on or after its Send by date."
+                  >
+                    <span class="visually-hidden">Notice</span>
+                  </th>
+                  <th scope="col" title="Route number for this written determination.">Route</th>
+                  <th
+                    scope="col"
+                    title="Driver assigned to the route on the date of this change. Assign a driver before sending."
+                  >
+                    Driver
+                  </th>
+                  <th
+                    scope="col"
+                    title="Which letter this row uses: Up for bid, Eligible to bump, Hours decrease with no bump, or the optional Hours increase courtesy notice."
+                  >
+                    Letter
+                  </th>
+                  <th
+                    scope="col"
+                    title="Contracted hours before and after this change, plus the outcome line from the schedule history when it adds detail."
+                  >
+                    Result
+                  </th>
+                  <th
+                    scope="col"
+                    title="Deadline to send this written notice. This is not always the day the new hours take effect. Up for bid: the day the 15-school-day window closes and the route posts for bid. Eligible to bump: the day that window closes (before October 1, when the written determination is due without waiting 15 school days). Hours decrease, no bump: the workday before the new hours take effect, because Art. 3.08(b)(4) starts those hours the workday after this notice. Hours increase (optional): the day the new hours take effect after 15 school days."
+                  >
+                    Send by
+                  </th>
+                  <th
+                    scope="col"
+                    title="When this clock-time change was entered, and who entered it when that was recorded."
+                  >
+                    Recorded
+                  </th>
+                  <th
+                    scope="col"
+                    title="Whether this notice was marked sent, and who marked it with the date. Send and Mark Sent both record that. Unmark clears it."
+                  >
+                    Notice sent?
+                  </th>
+                  <th
+                    scope="col"
+                    title="Send opens the email and marks the notice sent. Print opens the same notice for the printer without marking it sent. Mark Sent records who marked it and the date without opening email. Unmark clears that."
+                  >
+                    <span class="visually-hidden">Send</span>
+                  </th>
                 </tr>
               </thead>
               <tbody id="contract-notice-queue-body"></tbody>
@@ -1694,18 +1758,135 @@
             </p>
           </div>
           <fieldset class="email-content">
-            <legend>When a written notice is required</legend>
+            <legend>Contract time-change notice templates</legend>
             <p class="field-hint">
-              Each card is one result the contract requires a letter for. The example on the card is that email filled in for Annie Porter. Edit the email template on the card. Send on a change uses the matching card.
+              Each card is one result with its own letter. Three are required by
+              the Teamsters contract; Hours increase is optional and does not have
+              to be sent. The example on the card is that email filled in for Annie
+              Porter. Edit the email template on the card. Send on a change uses
+              the matching card.
             </p>
             <div id="contract-notice-kinds" class="contract-notice-cards"></div>
           </fieldset>
           <div class="actions">
-            <button type="submit">Save contract notice</button>
             <button type="button" class="secondary" id="contract-notice-reset">Use the default template</button>
           </div>
           <div id="contract-notice-status" class="status" role="status" hidden></div>
         </form>
+      </section>
+
+      <section id="bidding-view" class="panel" hidden>
+        <h1 class="panel-title">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M8 6h13" />
+            <path d="M8 12h13" />
+            <path d="M8 18h13" />
+            <path d="M3 6h.01" />
+            <path d="M3 12h.01" />
+            <path d="M3 18h.01" />
+          </svg>
+          Bidding
+        </h1>
+        <p class="lead">
+          Paper tools for Teamster route bidding. End of Month Bidding prints a
+          cover sheet of every route posted in the last five school days
+          (October–April) plus one sign-up sheet per route with a seniority
+          driver list and initial boxes
+          (<a class="contract-cite-link" data-citation="3.08(b)(1)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=7">Art. 3.08(b)(1)</a>).
+        </p>
+
+        <nav class="bidding-tools" aria-label="Bidding tools">
+          <button type="button" class="bidding-tool is-active" id="eom-bidding-tool" aria-pressed="true">
+            End of Month Bidding
+          </button>
+        </nav>
+
+        <div id="eom-bidding-panel" class="eom-bidding-panel">
+          <h2 class="bidding-tool-title">End of Month Bidding</h2>
+          <p class="field-hint">
+            Print a packet for the board: one cover page with all routes and a
+            driver acknowledgment list, then a separate sheet for each route up
+            for bid. Sign-up closes two school days after posting
+            (Art. 3.08(c)(1)). Written determination for the incumbent is tracked
+            on Contract time-change notice.
+          </p>
+          <div class="field eom-month-field">
+            <label for="eom-bidding-month">Posting month</label>
+            <select id="eom-bidding-month"></select>
+            <p class="field-hint" id="eom-bidding-month-hint"></p>
+          </div>
+          <div id="eom-bidding-season-note" class="status" role="status" hidden></div>
+          <div id="eom-bidding-status" class="status" role="status" hidden></div>
+          <div class="actions">
+            <button type="button" id="eom-bidding-print">Print bidding packet</button>
+          </div>
+
+          <details class="notice-queue" id="eom-bidding-routes" open>
+            <summary>
+              <h2>Routes up for bid</h2>
+              <p id="eom-bidding-routes-summary" class="field-hint"></p>
+            </summary>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Route</th>
+                    <th scope="col">Incumbent</th>
+                    <th scope="col">Hours</th>
+                    <th scope="col">Increase</th>
+                    <th scope="col">Posting</th>
+                    <th scope="col">Sign-up due</th>
+                    <th scope="col">Written notice</th>
+                  </tr>
+                </thead>
+                <tbody id="eom-bidding-routes-body"></tbody>
+              </table>
+            </div>
+          </details>
+
+          <details class="notice-queue" id="eom-bidding-still-open" open>
+            <summary>
+              <h2>Still open from earlier bids</h2>
+              <p id="eom-bidding-still-open-summary" class="field-hint"></p>
+            </summary>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Route</th>
+                    <th scope="col">Incumbent</th>
+                    <th scope="col">Hours</th>
+                    <th scope="col">Increase</th>
+                    <th scope="col">Originally posted</th>
+                    <th scope="col">Written notice</th>
+                  </tr>
+                </thead>
+                <tbody id="eom-bidding-still-open-body"></tbody>
+              </table>
+            </div>
+          </details>
+
+          <details class="notice-queue" id="eom-bidding-approaching">
+            <summary>
+              <h2>Approaching bid</h2>
+              <p id="eom-bidding-approaching-summary" class="field-hint"></p>
+            </summary>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Route</th>
+                    <th scope="col">Incumbent</th>
+                    <th scope="col">Increase</th>
+                    <th scope="col">Bid date</th>
+                    <th scope="col">Written notice</th>
+                  </tr>
+                </thead>
+                <tbody id="eom-bidding-approaching-body"></tbody>
+              </table>
+            </div>
+          </details>
+        </div>
       </section>
 
       <section id="drivers-view" class="panel" hidden>
@@ -1913,9 +2094,11 @@
               Each color matches a row in your clock times. A square marks the
               day those times were established. When a change counts 15 school
               days, those days are filled and numbered. The day of the change
-              does not count: the next school day is 1. An arrow covers the days
-              still left before those times become contracted, and points at a
-              box around that day. Light shading marks each end-of-month bid period.
+              does not count: the next school day is 1. A later change that keeps
+              the bid date can add its own numbered squares beside that count.
+              An arrow covers the days still left before those times become
+              contracted, and points at a box around that day. Light shading
+              marks each end-of-month bid period.
             </p>
             <ul id="history-legend" class="history-legend"></ul>
             <div id="calendar-months" class="calendar-months"></div>
@@ -2296,6 +2479,52 @@
       <div class="actions">
         <button type="button" id="payroll-compare-create">Create Payroll Driver Times</button>
       </div>
+    </dialog>
+
+    <dialog id="route-backup-dialog" class="change-dialog" aria-labelledby="route-backup-title">
+      <div class="change-dialog-header">
+        <h2 id="route-backup-title">Current Route Data backup</h2>
+        <button type="button" class="secondary" id="route-backup-close">Close</button>
+      </div>
+      <p class="lead">
+        Download an Excel copy of the live routes. Choose how often the download button should flash when a backup is overdue.
+      </p>
+      <form id="route-backup-form" class="clock-form" novalidate>
+        <div class="field">
+          <label for="route-backup-reminder">Remind me to download</label>
+          <select id="route-backup-reminder" name="reminder">
+            <option value="daily" selected>Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="off">Off</option>
+          </select>
+          <p class="field-hint" id="route-backup-reminder-hint">
+            Remind daily if nobody has downloaded.
+          </p>
+        </div>
+        <div class="field">
+          <label for="route-backup-filename">File name</label>
+          <input
+            id="route-backup-filename"
+            name="filename"
+            type="text"
+            spellcheck="false"
+            autocomplete="off"
+            maxlength="160"
+          />
+          <p class="field-hint">
+            Change the name for this download. The next suggestion keeps your base name and adds a fresh date stamp.
+          </p>
+        </div>
+        <p class="field-hint" id="route-backup-location-hint">
+          When your browser supports it, you choose the folder each time you download.
+        </p>
+        <div class="actions">
+          <button type="submit" id="route-backup-download">Download backup</button>
+          <button type="button" class="secondary" id="route-backup-save">Save settings</button>
+        </div>
+      </form>
+      <p id="route-backup-status" class="status" role="status" hidden></p>
     </dialog>
 
     <dialog id="driver-detail-dialog" class="change-dialog" aria-labelledby="driver-detail-title">

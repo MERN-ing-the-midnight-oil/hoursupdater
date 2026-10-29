@@ -34,15 +34,14 @@ export function countdownDateLabel(iso) {
   return `${match[2]}/${match[3]}`;
 }
 
-// "+10 minutes" or "−15 minutes". Each countdown keeps its own total.
+// "+10 min" or "−15 min". Each countdown keeps its own total.
 export function countdownMinutesLabel(minutes) {
   const value = Number(minutes);
   if (!Number.isFinite(value)) return '';
   const abs = Math.abs(value);
-  const unit = abs === 1 ? 'minute' : 'minutes';
-  if (value > 0) return `+${abs} ${unit}`;
-  if (value < 0) return `−${abs} ${unit}`;
-  return `0 ${unit}`;
+  if (value > 0) return `+${abs} min`;
+  if (value < 0) return `−${abs} min`;
+  return '0 min';
 }
 
 export function countdownAccumulationLabel(startedOn, minutes) {
@@ -274,6 +273,8 @@ function historyMark(toneIndex, tone, label, flags = {}) {
     established: flags.established ?? false,
     window: flags.window ?? false,
     windowDay: flags.windowDay ?? null,
+    windowTone: flags.windowTone ?? null,
+    extraWindows: flags.extraWindows ?? null,
     arrow: flags.arrow ?? false,
     arrowHead: flags.arrowHead ?? false,
     resolvesOn: flags.resolvesOn ?? null,
@@ -284,11 +285,90 @@ function historyMark(toneIndex, tone, label, flags = {}) {
   };
 }
 
+function copyMarkFlags(mark, overrides = {}) {
+  return {
+    isChange: mark?.isChange ?? false,
+    cumulativeLabel: mark?.cumulativeLabel ?? null,
+    sourceIndex: mark?.sourceIndex ?? null,
+    established: mark?.established ?? false,
+    window: mark?.window ?? false,
+    windowDay: mark?.windowDay ?? null,
+    windowTone: mark?.windowTone ?? null,
+    extraWindows: mark?.extraWindows ?? null,
+    arrow: mark?.arrow ?? false,
+    arrowHead: mark?.arrowHead ?? false,
+    resolvesOn: mark?.resolvesOn ?? null,
+    goesToBid: mark?.goesToBid ?? false,
+    contractedDay: mark?.contractedDay ?? false,
+    arrowOrigin: mark?.arrowOrigin ?? false,
+    arrowFromWindow: mark?.arrowFromWindow ?? false,
+    ...overrides,
+  };
+}
+
+// Numbered countdown squares for one change. When `asExtra` is set, an
+// already-painted countdown keeps its square and this count is added beside it.
+function paintWindowDays(marks, fifteen, nextDate, toneIndex, tone, label, hover, { asExtra = false } = {}) {
+  let windowDay = 0;
+  for (const day of fifteen) {
+    if (nextDate && day >= nextDate) break;
+    windowDay += 1;
+    const existing = marks.get(day);
+    const entry = {
+      toneIndex,
+      tone,
+      label,
+      windowDay,
+      sourceIndex: hover.sourceIndex,
+    };
+
+    if (asExtra && existing?.window) {
+      const extras = [...(existing.extraWindows || [])].filter(
+        (item) => item.sourceIndex !== entry.sourceIndex
+      );
+      extras.push(entry);
+      marks.set(
+        day,
+        historyMark(existing.toneIndex, existing.tone, existing.label, copyMarkFlags(existing, {
+          extraWindows: extras,
+        }))
+      );
+      continue;
+    }
+
+    if (asExtra && existing) {
+      marks.set(
+        day,
+        historyMark(existing.toneIndex, existing.tone, existing.label, copyMarkFlags(existing, {
+          window: true,
+          windowDay,
+          windowTone: tone,
+          extraWindows: existing.extraWindows ?? null,
+        }))
+      );
+      continue;
+    }
+
+    marks.set(
+      day,
+      historyMark(toneIndex, tone, label, {
+        ...hover,
+        established: existing?.established ?? false,
+        window: true,
+        windowDay,
+        windowTone: tone,
+        extraWindows: null,
+      })
+    );
+  }
+}
+
 // Calendar marks for each clock-time row.
 // The row color covers the day those times were established and, when a
 // 15-school-day count applies, each school day in that count. Those school
-// days are numbered. Days still left before those times become contracted are
-// an arrow pointing at a box around that day.
+// days are numbered. A later change that leaves the bid in place paints its
+// own numbered squares beside that bid count. Days still left before those
+// times become contracted are an arrow pointing at a box around that day.
 export function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY_TONES }) {
   const marks = new Map();
   const days = [...schoolDays].sort();
@@ -303,35 +383,42 @@ export function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY
     const hover = { ...changeHoverFlags(row), sourceIndex: index };
     const nextDate = nextReplacingDate(list, index);
     const fifteen = fifteenSchoolDaysAfter(days, row.date);
+    const sideCountdown = keepsStandingForecast(row);
+    const existingStart = marks.get(row.date);
 
     marks.set(
       row.date,
       historyMark(toneIndex, tone, label, {
         ...hover,
         established: true,
+        // Keep the standing countdown's square when this day already carries it.
+        window: sideCountdown ? existingStart?.window ?? false : false,
+        windowDay: sideCountdown ? existingStart?.windowDay ?? null : null,
+        windowTone: sideCountdown
+          ? existingStart?.windowTone ?? (existingStart?.window ? existingStart.tone : null)
+          : null,
+        extraWindows: sideCountdown ? existingStart?.extraWindows ?? null : null,
+        arrow: sideCountdown ? existingStart?.arrow ?? false : false,
+        arrowHead: sideCountdown ? existingStart?.arrowHead ?? false : false,
+        resolvesOn: sideCountdown ? existingStart?.resolvesOn ?? null : null,
+        goesToBid: sideCountdown ? existingStart?.goesToBid ?? false : false,
+        contractedDay: sideCountdown ? existingStart?.contractedDay ?? false : false,
+        arrowOrigin: sideCountdown ? existingStart?.arrowOrigin ?? false : false,
+        arrowFromWindow: sideCountdown ? existingStart?.arrowFromWindow ?? false : false,
       })
     );
 
-    // The standing forecast keeps its countdown. This row only marks the day
-    // the later schedule started.
-    if (keepsStandingForecast(row)) return;
+    // A countdown beside a bid keeps that bid's numbers and adds its own.
+    // The bid date does not move, so this count is not cut short by it.
+    if (sideCountdown) {
+      if (fifteen.length) {
+        paintWindowDays(marks, fifteen, null, toneIndex, tone, label, hover, { asExtra: true });
+      }
+      return;
+    }
 
     if (usesFifteenDayWindow(row, fifteen)) {
-      let windowDay = 0;
-      for (const day of fifteen) {
-        if (nextDate && day >= nextDate) break;
-        windowDay += 1;
-        const existing = marks.get(day);
-        marks.set(
-          day,
-          historyMark(toneIndex, tone, label, {
-            ...hover,
-            established: existing?.established ?? false,
-            window: true,
-            windowDay,
-          })
-        );
-      }
+      paintWindowDays(marks, fifteen, nextDate, toneIndex, tone, label, hover);
     }
 
     const arrow = resolutionArrow(row, fifteen, nextDate);
@@ -342,26 +429,25 @@ export function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY
       if (origin) {
         marks.set(
           originDay,
-          historyMark(toneIndex, tone, origin.label, {
-            isChange: origin.isChange,
-            cumulativeLabel: origin.cumulativeLabel,
-            sourceIndex: origin.sourceIndex,
-            established: origin.established,
-            window: origin.window,
-            windowDay: origin.windowDay,
-            contractedDay: origin.contractedDay,
+          historyMark(toneIndex, tone, origin.label, copyMarkFlags(origin, {
             arrowOrigin: true,
             arrowFromWindow: fromWindow,
-          })
+          }))
         );
       }
       const arrowLast = shiftIsoDate(arrow.end, -1);
       let cursor = arrow.start;
       while (cursor < arrow.end) {
+        const existing = marks.get(cursor);
         marks.set(
           cursor,
           historyMark(toneIndex, tone, label, {
             ...hover,
+            established: existing?.established ?? false,
+            window: existing?.window ?? false,
+            windowDay: existing?.windowDay ?? null,
+            windowTone: existing?.windowTone ?? null,
+            extraWindows: existing?.extraWindows ?? null,
             arrow: true,
             arrowHead: cursor === arrowLast,
             resolvesOn: arrow.end,
@@ -383,6 +469,8 @@ export function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY
           established: existing?.established ?? false,
           window: existing?.window ?? false,
           windowDay: existing?.windowDay ?? null,
+          windowTone: existing?.windowTone ?? null,
+          extraWindows: existing?.extraWindows ?? null,
           arrow: existing?.arrow ?? false,
           arrowHead: existing?.arrowHead ?? false,
           resolvesOn: existing?.resolvesOn ?? null,

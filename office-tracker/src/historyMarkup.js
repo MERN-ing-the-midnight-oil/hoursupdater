@@ -320,6 +320,40 @@ export function historyMonthsThroughNext(months, asOf) {
   });
 }
 
+// Colorful countdown squares for one calendar day. A day can carry more than
+// one numbered count when a later change runs beside an open bid.
+function historyPipsHtml(mark) {
+  if (!mark) return '';
+  const parts = [];
+  const windowTone = mark.windowTone || mark.tone;
+  const combined =
+    mark.established && mark.window && mark.windowDay && windowTone === mark.tone;
+  if (combined) {
+    parts.push(
+      `<span class="history-pip is-established is-window" style="--tone:${mark.tone}" aria-hidden="true">#${mark.windowDay}</span>`
+    );
+  } else {
+    if (mark.established) {
+      parts.push(
+        `<span class="history-pip is-established" style="--tone:${mark.tone}" aria-hidden="true"></span>`
+      );
+    }
+    if (mark.window && mark.windowDay) {
+      parts.push(
+        `<span class="history-pip is-window" style="--tone:${windowTone}" aria-hidden="true">#${mark.windowDay}</span>`
+      );
+    }
+  }
+  for (const extra of mark.extraWindows || []) {
+    if (!extra?.windowDay) continue;
+    parts.push(
+      `<span class="history-pip is-window" style="--tone:${extra.tone}" aria-hidden="true">#${extra.windowDay}</span>`
+    );
+  }
+  if (!parts.length) return '';
+  return `<span class="history-pips">${parts.join('')}</span>`;
+}
+
 export function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTORY_TONES }) {
   const schoolDays = getSchoolDays(calendar);
   const marks = buildClockHistoryMarks(rows, { schoolDays, tones });
@@ -386,6 +420,9 @@ export function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTOR
           else titleParts.push(mark.label);
           if (mark.established) titleParts.push('established');
           if (mark.windowDay) titleParts.push(`school day ${mark.windowDay} of 15`);
+          for (const extra of mark.extraWindows || []) {
+            if (extra?.windowDay) titleParts.push(`school day ${extra.windowDay} of 15`);
+          }
           if (mark.contractedDay) titleParts.push('became contracted');
         }
         const popupLines = [
@@ -405,12 +442,7 @@ export function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTOR
               })
               .join('')}</ul>`
           : '';
-        const showPip = mark && !mark.arrow && (mark.window || mark.established);
-        const pip = showPip
-          ? `<span class="history-pip${mark.established ? ' is-established' : ''}${
-              mark.window ? ' is-window' : ''
-            }" style="--tone:${mark.tone}">${mark.windowDay ? `#${mark.windowDay}` : ''}</span>`
-          : '';
+        const pip = historyPipsHtml(mark);
         const arrow = mark?.arrow
           ? `<span class="bid-arrow${mark.arrowHead ? ' is-head' : ''}" style="--tone:${mark.tone}"></span>`
           : '';

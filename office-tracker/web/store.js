@@ -24,6 +24,7 @@ import { normalizeContractNotice } from '../src/contractNotice.js';
 import { normalizeDriverNotice } from '../src/noticeMail.js';
 import { normalizeOvertimeRules } from '../src/overtimeRules.js';
 import { mergePaperBackup, normalizePaperBackup } from '../src/paperClockBackup.js';
+import { mergeRouteDataBackup, normalizeRouteDataBackup } from '../src/routeDataBackup.js';
 import { normalizePunchSound } from './punchSounds.js';
 
 export const STORAGE_KEY = 'transportation-timechange.v1';
@@ -289,6 +290,14 @@ function paperBackupField(source) {
   return { paperBackup: normalizePaperBackup(source.paperBackup) };
 }
 
+// Current Route Data download reminder, preferred file name, and last download time.
+function routeDataBackupField(source) {
+  if (!source || typeof source !== 'object' || !Object.prototype.hasOwnProperty.call(source, 'routeDataBackup')) {
+    return {};
+  }
+  return { routeDataBackup: normalizeRouteDataBackup(source.routeDataBackup) };
+}
+
 // Serial number, hourly rate, and payroll account number saved for one driver.
 // Empty values are left off.
 function driverPayField(driver) {
@@ -396,6 +405,7 @@ export function loadState(storage = globalThis.localStorage) {
       ...payDefaultsField(parsed),
       ...timeSummaryEditsField(parsed),
       ...paperBackupField(parsed),
+      ...routeDataBackupField(parsed),
       ...(omittedDrivers.length ? { omittedDrivers } : {}),
       exampleVersion: parsed.exampleVersion ?? 0,
       ...(parsed.contractReminder ? { contractReminder: parsed.contractReminder } : {}),
@@ -542,6 +552,13 @@ export function driversFromState(state) {
       lastName: parts.lastName,
       phone: String(driver.phone ?? ''),
       email: String(driver.email ?? ''),
+      ...(driver.hire_date ? { hire_date: String(driver.hire_date).trim() } : {}),
+      ...(driver.tie_break != null && String(driver.tie_break).trim() !== ''
+        ? { tie_break: driver.tie_break }
+        : {}),
+      ...(driver.seniority_number != null && String(driver.seniority_number).trim() !== ''
+        ? { seniority_number: driver.seniority_number }
+        : {}),
       ...driverPayField(driver),
       ...driverPayStatusesField(driver),
     });
@@ -595,6 +612,15 @@ export function saveDriver(driver, storage = globalThis.localStorage) {
     Object.prototype.hasOwnProperty.call(driver, 'payStatusByRun') ? driver.payStatusByRun : existing?.payStatusByRun,
     Array.isArray(payStatuses) ? payStatuses : []
   );
+  const hireDate = Object.prototype.hasOwnProperty.call(driver, 'hire_date')
+    ? driver.hire_date
+    : existing?.hire_date;
+  const tieBreak = Object.prototype.hasOwnProperty.call(driver, 'tie_break')
+    ? driver.tie_break
+    : existing?.tie_break;
+  const seniorityNumber = Object.prototype.hasOwnProperty.call(driver, 'seniority_number')
+    ? driver.seniority_number
+    : existing?.seniority_number;
   const next = {
     id,
     name,
@@ -602,6 +628,11 @@ export function saveDriver(driver, storage = globalThis.localStorage) {
     lastName: parts.lastName,
     phone: driver.phone != null ? String(driver.phone).trim() : String(existing?.phone ?? ''),
     email: String(driver.email ?? '').trim(),
+    ...(hireDate ? { hire_date: String(hireDate).trim() } : {}),
+    ...(tieBreak != null && String(tieBreak).trim() !== '' ? { tie_break: tieBreak } : {}),
+    ...(seniorityNumber != null && String(seniorityNumber).trim() !== ''
+      ? { seniority_number: seniorityNumber }
+      : {}),
     ...driverPayField({
       pay: {
         serial: Object.prototype.hasOwnProperty.call(driver, 'serial') ? driver.serial : existing?.pay?.serial,
@@ -773,6 +804,9 @@ export function mergeSharedDriverList(remoteState, localState) {
   }
   if (localState && Object.prototype.hasOwnProperty.call(localState, 'paperBackup')) {
     remote.paperBackup = mergePaperBackup(remote.paperBackup, localState.paperBackup);
+  }
+  if (localState && Object.prototype.hasOwnProperty.call(localState, 'routeDataBackup')) {
+    remote.routeDataBackup = mergeRouteDataBackup(remote.routeDataBackup, localState.routeDataBackup);
   }
   const omitted = new Set([...omittedDriverKeys(remote.omittedDrivers), ...localOmitted]);
   for (const driver of remote.drivers) {
@@ -997,6 +1031,7 @@ export function importState(json, storage = globalThis.localStorage) {
     ...payDefaultsField(parsed),
     ...timeSummaryEditsField(parsed),
     ...paperBackupField(parsed),
+    ...routeDataBackupField(parsed),
     ...(omittedDriverKeys(parsed.omittedDrivers).length
       ? { omittedDrivers: omittedDriverKeys(parsed.omittedDrivers) }
       : {}),

@@ -178,6 +178,57 @@ body {
   text-align: center;
 }
 
+#export-btn.route-backup-launch {
+  gap: 0.35rem;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+#export-btn.route-backup-launch .dash-ico {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
+#export-btn.route-backup-launch .dash-ico .icon {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+@keyframes route-backup-flash {
+  0%,
+  49% {
+    background: var(--orange);
+    border-color: var(--orange-deep);
+    color: #1c1e22;
+  }
+  50%,
+  100% {
+    background: #fff;
+    border-color: var(--orange-deep);
+    color: var(--orange-deep);
+  }
+}
+
+#export-btn.is-backup-due,
+#export-btn.is-backup-due:hover,
+#export-btn.is-backup-due:focus-visible {
+  animation: route-backup-flash 1s linear infinite;
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #export-btn.is-backup-due,
+  #export-btn.is-backup-due:hover,
+  #export-btn.is-backup-due:focus-visible {
+    animation: none;
+    background: var(--orange);
+    border-color: var(--orange-deep);
+    color: #1c1e22;
+  }
+}
+
 .dash-ico {
   display: inline-flex;
   align-items: center;
@@ -1492,6 +1543,10 @@ details.notice-queue[open] > summary {
   vertical-align: top;
 }
 
+.notice-queue-table th[title] {
+  cursor: help;
+}
+
 .notice-queue-table tr.is-unsent td:first-child {
   box-shadow: inset 3px 0 0 #c42323;
 }
@@ -1558,6 +1613,153 @@ details.notice-queue[open] > summary {
   white-space: pre-wrap;
 }
 
+.bidding-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 1.1rem;
+}
+
+.bidding-tool {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: inherit;
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.85rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.bidding-tool.is-active,
+.bidding-tool[aria-pressed='true'] {
+  border-color: var(--ink, #1b2430);
+  background: color-mix(in srgb, var(--accent, #6428f0) 12%, #fff);
+  font-weight: 600;
+}
+
+.bidding-tool-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.15rem;
+}
+
+.eom-bidding-panel {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.eom-month-field {
+  max-width: 28rem;
+}
+
+.bid-print-page {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 11pt;
+  line-height: 1.35;
+  color: #111;
+}
+
+.bid-print-page + .bid-print-page {
+  page-break-before: always;
+  break-before: page;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px dashed #999;
+}
+
+.bid-print-kicker {
+  margin: 0 0 0.35rem;
+  font-size: 9pt;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #444;
+}
+
+.bid-print-page h1 {
+  margin: 0 0 0.55rem;
+  font-size: 16pt;
+}
+
+.bid-print-page h2 {
+  margin: 1rem 0 0.4rem;
+  font-size: 12pt;
+}
+
+.bid-print-lead,
+.bid-print-note,
+.bid-print-footer {
+  margin: 0 0 0.65rem;
+}
+
+.bid-print-note {
+  font-size: 9.5pt;
+}
+
+.bid-print-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10pt;
+  margin: 0 0 0.85rem;
+}
+
+.bid-print-table th,
+.bid-print-table td {
+  border: 1px solid #333;
+  padding: 0.22rem 0.35rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.bid-print-table th {
+  background: #f0f0f0;
+  font-weight: 700;
+}
+
+.bid-print-table .is-senior-bidder {
+  font-weight: 700;
+}
+
+.bid-rank {
+  width: 2.2rem;
+  text-align: center;
+}
+
+.bid-initial-cell {
+  width: 3.2rem;
+}
+
+.bid-initial-box {
+  display: inline-block;
+  width: 1.55rem;
+  height: 1.1rem;
+  border: 1px solid #111;
+  vertical-align: middle;
+}
+
+.bid-route-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem 0.75rem;
+  margin: 0 0 0.75rem;
+}
+
+.bid-route-facts div {
+  min-width: 0;
+}
+
+.bid-route-facts dt {
+  margin: 0;
+  font-size: 8.5pt;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #444;
+}
+
+.bid-route-facts dd {
+  margin: 0.05rem 0 0;
+  font-weight: 700;
+}
+
 .contract-notice-cards {
   display: grid;
   gap: 0.85rem;
@@ -1573,6 +1775,49 @@ details.notice-queue[open] > summary {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: #fff;
+}
+
+.contract-notice-card-bid {
+  background: color-mix(in srgb, var(--accent-wash) 72%, #fff);
+  border-color: color-mix(in srgb, var(--purple) 28%, var(--line));
+}
+
+.contract-notice-card-bump {
+  background: color-mix(in srgb, #fff1e6 78%, #fff);
+  border-color: color-mix(in srgb, var(--orange-deep) 28%, var(--line));
+}
+
+.contract-notice-card-decrease {
+  background: color-mix(in srgb, var(--reader-case) 72%, #fff);
+  border-color: color-mix(in srgb, var(--reader-deep) 28%, var(--line));
+}
+
+.contract-notice-card-increase {
+  background: color-mix(in srgb, #e8f5ef 78%, #fff);
+  border-color: color-mix(in srgb, #1f6b4a 28%, var(--line));
+}
+
+.contract-notice-card-bid .contract-notice-edit,
+.contract-notice-card-bump .contract-notice-edit,
+.contract-notice-card-decrease .contract-notice-edit,
+.contract-notice-card-increase .contract-notice-edit {
+  border-top-color: color-mix(in srgb, currentColor 12%, var(--line));
+}
+
+.contract-notice-card-bid .contract-notice-quote {
+  border-left-color: color-mix(in srgb, var(--purple) 45%, var(--line));
+}
+
+.contract-notice-card-bump .contract-notice-quote {
+  border-left-color: color-mix(in srgb, var(--orange-deep) 45%, var(--line));
+}
+
+.contract-notice-card-decrease .contract-notice-quote {
+  border-left-color: color-mix(in srgb, var(--reader-deep) 45%, var(--line));
+}
+
+.contract-notice-card-increase .contract-notice-quote {
+  border-left-color: color-mix(in srgb, #1f6b4a 45%, var(--line));
 }
 
 .contract-notice-card-head {
@@ -1622,6 +1867,11 @@ details.notice-queue[open] > summary {
 .contract-kind-decrease {
   background: var(--reader-case);
   color: var(--reader-deep);
+}
+
+.contract-kind-increase {
+  background: #e8f5ef;
+  color: #1f6b4a;
 }
 
 .notice-letter {
@@ -1696,10 +1946,41 @@ details.notice-queue[open] > summary {
   resize: vertical;
 }
 
+.contract-notice-editor-actions {
+  margin: 0.15rem 0 0;
+}
+
+.contract-notice-sample-text .template-fill {
+  background: linear-gradient(180deg, transparent 8%, #ffe566 8%, #ffe566 92%, transparent 92%);
+  border-radius: 0.12em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  color: inherit;
+  cursor: help;
+  padding: 0 0.12em;
+}
+
+.contract-notice-sample-text .template-fill:hover {
+  background: linear-gradient(180deg, transparent 4%, #ffd11a 4%, #ffd11a 96%, transparent 96%);
+  outline: 1px solid color-mix(in srgb, #b8860b 45%, transparent);
+}
+
+.contract-notice-sample-text .template-fill:empty::before {
+  content: attr(data-token);
+  opacity: 0.55;
+  font-style: italic;
+}
+
 @media (min-width: 1100px) {
   .contract-notice-cards {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: stretch;
+  }
+}
+
+@media (min-width: 1400px) {
+  .contract-notice-cards {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -5791,6 +6072,12 @@ button.timesheet-file-link:hover {
 
   body.is-notice-print #notice-print {
     display: block !important;
+  }
+
+  body.is-notice-print .bid-print-page + .bid-print-page {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
   }
 
   body.is-paper-backup {

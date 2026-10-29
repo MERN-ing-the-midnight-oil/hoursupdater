@@ -1,7 +1,8 @@
 // Contract time-change notices. The clock-time notice is a separate email.
 // Art. 3.08 requires a written determination in three cases: a 30-minute
 // increase that goes up for bid, a 30-minute decrease that opens a bump,
-// and, after October 1, a smaller decrease with no bump.
+// and, after October 1, a smaller decrease with no bump. A fourth letter
+// covers a smaller increase after October 1; the contract does not require it.
 
 import { bidPostingSpan, bidPostingSpanText } from '../../employee-tracker/src/clockHistory.js';
 import { formatDurationLabel } from '../../employee-tracker/src/clockTimes.js';
@@ -13,6 +14,9 @@ import { fillNoticeTemplate, forgetNoticeSent, loadNoticeSentRecords, rememberNo
 
 export const CONTRACT_NOTICE_SENT_KEY = 'transportation-timechange.contract-notice-sent.v1';
 
+const QUARTER_HOUR_LINE =
+  'Contracted hours are rounded to the nearest quarter hour (each run, then the daily total). A change that is not itself a quarter hour—such as 20 minutes—still counts in exact minutes toward the 15- and 30-minute contract rules until those hours lock in.';
+
 const BID_BODY = `Written determination of a route increase
 
 TO: {{driver_name}}
@@ -22,6 +26,8 @@ DATE: {{date}}
 This is a written determination that route {{route_name}} has increased, and notice that the route will go up for bid.
 
 Your contracted hours has changed from {{previous_hours}} to {{contract_hours}} ({{change_amount}}).
+
+${QUARTER_HOUR_LINE}
 
 This is an increase of 30 minutes or more. You are receiving a written determination of the increase and notice that the route will go up for bid.
 
@@ -42,6 +48,8 @@ DATE: {{date}}
 This is a written determination that route {{route_name}} has decreased.
 
 Your contracted hours has changed from {{previous_hours}} to {{contract_hours}} ({{change_amount}}).
+
+${QUARTER_HOUR_LINE}
 
 This is a decrease of 30 minutes or more. You are receiving a written determination of the decrease and notice that you may bump a less-senior driver or retain this route.
 
@@ -65,6 +73,8 @@ This is a written determination that route {{route_name}} has decreased. The dec
 
 Your contracted hours has changed from {{previous_hours}} to {{contract_hours}} ({{change_amount}}).
 
+${QUARTER_HOUR_LINE}
+
 This is a decrease under 30 minutes. You are receiving a written determination of the decrease and do not have the option to bump. The new hours take effect the workday after this notice.
 
 {{timing}}
@@ -75,13 +85,36 @@ Please "REPLY ALL" to this notice and write "Received" in the subject line.
 {{citation_text}}
 `;
 
-// One editable template for each written determination. `citations` are the articles
-// quoted on the settings page. The email quotes the article for that change.
+const INCREASE_BODY = `Notice of a route hours increase
+
+TO: {{driver_name}}
+ROUTE: {{route_name}}
+DATE: {{date}}
+
+This is notice that route {{route_name}} has increased. The increase is under 30 minutes, so the route does not go up for bid.
+
+Your contracted hours has changed from {{previous_hours}} to {{contract_hours}} ({{change_amount}}).
+
+${QUARTER_HOUR_LINE}
+
+This is an increase under 30 minutes. The new hours take effect under Art. 3.08(b)(3).
+
+{{timing}}
+
+Please "REPLY ALL" to this notice and write "Received" in the subject line.
+
+{{citation_label}}
+{{citation_text}}
+`;
+
+// One editable template per notice kind. `citations` are the articles quoted on
+// the settings page. The email quotes the article for that change.
 export const CONTRACT_NOTICE_KINDS = [
   {
     id: 'bid',
     icon: 'bid',
     label: 'Up for bid',
+    required: true,
     rationale:
       'The contract requires this letter when a route has increased by 30 minutes or more for 15 school days. It tells the driver the route increased and that it will go up for bid. Before October 1, Art. 3.08(a)(8)(a) counts those 15 school days from the initial bid. After October 1, Art. 3.08(b)(1) posts the route during the last five school days of each month from October through April.',
     generated:
@@ -96,6 +129,7 @@ export const CONTRACT_NOTICE_KINDS = [
     id: 'bump',
     icon: 'bump',
     label: 'Eligible to bump',
+    required: true,
     rationale:
       'The contract requires this letter when a route has decreased by 30 minutes or more. From the day the driver receives it, there are two school days to bump a less-senior driver or keep the route. Before October 1, Art. 3.08(a)(8)(b) does not wait through 15 school days. After October 1, Art. 3.08(b)(2) requires the decrease to have lasted 15 school days.',
     generated:
@@ -110,6 +144,7 @@ export const CONTRACT_NOTICE_KINDS = [
     id: 'decrease',
     icon: 'decrease',
     label: 'Hours decrease, no bump',
+    required: true,
     rationale:
       'The contract requires this letter after October 1 when a route has decreased by 15 minutes and the decrease stays under 30 minutes. Art. 3.08(b)(4) does not give a bump. The new hours take effect the workday after this written notice.',
     generated:
@@ -119,6 +154,21 @@ export const CONTRACT_NOTICE_KINDS = [
     citations: ['3.08(b)(4)'],
     subject: '{{driver_name}}: Written determination of a decrease on route {{route_name}}',
     body: DECREASE_BODY,
+  },
+  {
+    id: 'increase',
+    icon: 'increase',
+    label: 'Hours increase (optional courtesy)',
+    required: false,
+    rationale:
+      'The Teamsters contract does not require this letter. Art. 3.08(b)(3) locks in a smaller increase after it has lasted 15 school days, but it does not call for a written determination. This optional courtesy notice tells the driver the new contracted hours. You do not have to send it.',
+    generated:
+      'Letters appear here the day they are due to be sent. Please check for letters here daily. After October 1, Art. 3.08(b)(3), that is the day the new hours take effect, once the increase has lasted 15 school days. Sending this letter is optional. An increase that takes effect on October 1 does not generate this letter.',
+    detail:
+      'This is an increase under 30 minutes. The new hours take effect under Art. 3.08(b)(3). The Teamsters contract does not require this notice.',
+    citations: ['3.08(b)(3)'],
+    subject: '{{driver_name}}: Hours increase on route {{route_name}}',
+    body: INCREASE_BODY,
   },
 ];
 
@@ -173,8 +223,8 @@ function hoursLabel(minutes) {
   return formatDurationLabel(minutes);
 }
 
-// A smaller decrease is a required notice only after October 1 (Art. 3.08(b)(4)).
-function isSmallerDecreaseNotice(row) {
+// Smaller under-30 notices only after October 1 (Arts. 3.08(b)(3) and (b)(4)).
+function isPostOctober1SmallerNotice(row) {
   const date = row?.date;
   return Boolean(date) && !isPreOctober1ReviewPeriod(date);
 }
@@ -189,7 +239,8 @@ function noticeKind(row) {
   if (typeof drift === 'number' && Math.abs(drift) >= 30) {
     return drift < 0 ? 'bump' : 'bid';
   }
-  if (typeof drift === 'number' && drift < 0 && isSmallerDecreaseNotice(row)) return 'decrease';
+  if (typeof drift === 'number' && drift < 0 && isPostOctober1SmallerNotice(row)) return 'decrease';
+  if (typeof drift === 'number' && drift > 0 && isPostOctober1SmallerNotice(row)) return 'increase';
   return null;
 }
 
@@ -198,6 +249,7 @@ function fallbackCitation(kind, date) {
   if (kind === 'bid') return pre ? '3.08(a)(8)(a)' : '3.08(b)(1)';
   if (kind === 'bump') return pre ? '3.08(a)(8)(b)' : '3.08(b)(2)';
   if (kind === 'decrease') return '3.08(b)(4)';
+  if (kind === 'increase') return '3.08(b)(3)';
   return '';
 }
 
@@ -206,6 +258,7 @@ function planMatchesKind(plan, kind) {
   if (kind === 'bid') return rule === 'pre_october_1_bid' || rule === 'post_october_1_bid';
   if (kind === 'bump') return rule === 'pre_october_1_bump' || rule === 'post_october_1_bump';
   if (kind === 'decrease') return rule === 'post_october_1_decrease_lock';
+  if (kind === 'increase') return rule === 'post_october_1_increase_lock';
   return false;
 }
 
@@ -274,6 +327,10 @@ function timingSentence(kind, plan, row, calendar) {
     timing = `Under Art. 3.08(b)(4), the new contract time takes effect on the workday after this written notice${
       when ? ` (${when})` : ''
     }.`;
+  } else if (kind === 'increase') {
+    timing = `Under Art. 3.08(b)(3), the new contract time takes effect on the workday following the 15th school day${
+      when ? ` (${when})` : ''
+    }.`;
   }
   const status = row?.contracted?.status;
   if (status === 'side_countdown' || status === 'separate_countdown') {
@@ -324,10 +381,20 @@ function decreaseNoticeDueOn(row, plan, calendar) {
   return previousCalendarDate(effective);
 }
 
-// Bid and bump letters wait until the snapshot leaves "predicted", which is
-// the day that window closes. A smaller decrease is due one workday sooner,
-// while the row can still say predicted, because the notice itself starts
-// the next workday.
+// Day the office should send this letter. Bid, bump, and increase letters are
+// due the day the window closes. A smaller decrease is due the workday before
+// the new hours, because Art. 3.08(b)(4) starts those hours the workday after
+// the written notice.
+function noticeSendByOn(row, kind, plan, calendar) {
+  if (kind === 'decrease') return decreaseNoticeDueOn(row, plan, calendar);
+  const when = String(row?.contracted?.becomes_on || plan?.becomes_effective_on || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(when) ? when : '';
+}
+
+// Bid, bump, and optional increase letters wait until the snapshot leaves
+// "predicted", which is the day that window closes. A smaller decrease is due
+// one workday sooner, while the row can still say predicted, because the
+// notice itself starts the next workday.
 function noticeIsDue(row, kind, plan, calendar, asOf) {
   if (kind !== 'decrease') return row?.contracted?.status !== 'predicted';
   const due = decreaseNoticeDueOn(row, plan, calendar);
@@ -350,12 +417,16 @@ export function describeContractNotice({ row, previousRow, calendar, asOf } = {}
   if (kind === 'decrease' && plan.rule && plan.rule !== 'post_october_1_decrease_lock') {
     return { skip: true, changeId: row.change_id || '' };
   }
+  if (kind === 'increase' && plan.rule && plan.rule !== 'post_october_1_increase_lock') {
+    return { skip: true, changeId: row.change_id || '' };
+  }
   if (!noticeIsDue(row, kind, plan, calendar, asOf)) {
     return { skip: true, changeId: row.change_id || '' };
   }
   const cite = citationFields(plan.citation || fallbackCitation(kind, row.date));
   const kindInfo = contractNoticeKindById(kind);
   const effective = row.contracted?.becomes_on ? prettyDate(row.contracted.becomes_on) : '';
+  const sendBy = noticeSendByOn(row, kind, plan, calendar);
   return {
     skip: false,
     changeId: String(row.change_id || ''),
@@ -365,6 +436,8 @@ export function describeContractNotice({ row, previousRow, calendar, asOf } = {}
     kindLabel: kindInfo.label,
     date: row.date || '',
     effectiveDate: effective,
+    sendByOn: sendBy || '',
+    sendByDate: sendBy ? prettyDate(sendBy) : '',
     previousHours: hoursLabel(previousMinutes),
     contractHours: hoursLabel(currentMinutes),
     changeAmount: changeAmount(row, previousMinutes, currentMinutes),
@@ -372,6 +445,14 @@ export function describeContractNotice({ row, previousRow, calendar, asOf } = {}
     resultLabel: String(row.contracted?.label || kindInfo.label),
     ...cite,
   };
+}
+
+// Red-flag only after the Send by deadline when the notice is still unsent.
+export function contractNoticeNeedsAttention({ sent, sendByOn } = {}, asOf) {
+  if (sent) return false;
+  const due = String(sendByOn || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return true;
+  return officeDate(asOf) >= due;
 }
 
 export function contractNoticeValues(described, { driverName, routeName, asOf } = {}) {

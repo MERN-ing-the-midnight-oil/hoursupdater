@@ -122,6 +122,14 @@ await fs.cp(path.join(webDir, 'driver-photos'), path.join(distDir, 'driver-photo
   force: true,
 });
 
+// The dashboard loads this from /shared/helpMark.js. It adds the "?" buttons
+// after the page opens, so the published site has to include the file.
+await fs.mkdir(path.join(distDir, 'shared'), { recursive: true });
+await fs.copyFile(
+  path.join(root, 'public', 'shared', 'helpMark.js'),
+  path.join(distDir, 'shared', 'helpMark.js')
+);
+
 const envText = await fs.readFile(path.join(root, '.env'), 'utf8');
 const envValue = (name) => {
   const match = envText.match(new RegExp(`^${name}=(.*)$`, 'm'));

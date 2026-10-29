@@ -125,9 +125,10 @@ function routeSectionHtml(section, calendar, include) {
       Each color matches a row in this route's clock times. A square marks the
       day those times were established. When a change counts 15 school days,
       those days are filled and numbered. The day of the change does not count:
-      the next school day is 1. An arrow covers the days still left before those
-      times become contracted, and points at a box around that day. Light shading
-      marks each end-of-month bid period.
+      the next school day is 1. A later change that keeps the bid date can add
+      its own numbered squares beside that count. An arrow covers the days still
+      left before those times become contracted, and points at a box around that
+      day. Light shading marks each end-of-month bid period.
     </p>
     <ul class="history-legend">${historyLegendHtml(rows)}</ul>
     <div class="calendar-months">${calendarMonthsHtml({
