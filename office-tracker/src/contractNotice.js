@@ -403,10 +403,21 @@ function noticeIsDue(row, kind, plan, calendar, asOf) {
 }
 
 // One schedule row, classified for the contract notice list and the email.
-export function describeContractNotice({ row, previousRow, calendar, asOf } = {}) {
+export function describeContractNotice({
+  row,
+  previousRow,
+  calendar,
+  asOf,
+  snapContractClocks,
+  contractSnapBreaks,
+} = {}) {
   if (!row || row.kind === 'initial') return null;
-  const previousMinutes = scheduleRoundedMinutes(previousRow?.schedule);
-  const currentMinutes = scheduleRoundedMinutes(row.schedule);
+  const rounding = {
+    snapContractClocks: snapContractClocks === true,
+    ...(contractSnapBreaks ? { contractSnapBreaks } : {}),
+  };
+  const previousMinutes = scheduleRoundedMinutes(previousRow?.schedule, rounding);
+  const currentMinutes = scheduleRoundedMinutes(row.schedule, rounding);
   const status = row.contracted?.status;
   if (status === 'superseded') {
     return { skip: true, changeId: row.change_id || '' };

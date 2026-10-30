@@ -471,9 +471,8 @@ body {
   white-space: nowrap;
 }
 
-.schedule-history tr.is-new-change .row-kind {
-  display: inline;
-  margin: 0;
+.schedule-history tr.is-new-change .change-figure .row-kind {
+  margin-top: 0;
 }
 
 .entry-editor {
@@ -1760,6 +1759,59 @@ details.notice-queue[open] > summary {
   font-weight: 700;
 }
 
+.contract-notice-templates.email-content {
+  border: 0;
+  padding: 0;
+  margin: 0 0 1.4rem;
+  min-inline-size: 0;
+}
+
+.contract-notice-calendar-months .cal-day {
+  min-height: 5.1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.contract-notice-calendar-months .cal-day .num {
+  line-height: 1.1;
+}
+
+.contract-notice-marks {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.2rem;
+  width: 100%;
+}
+
+.contract-notice-mark {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.contract-notice-mark .contract-kind-badge {
+  width: 1.55rem;
+  height: 1.55rem;
+}
+
+.contract-notice-mark .contract-kind-badge .icon {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.contract-notice-route {
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
 .contract-notice-cards {
   display: grid;
   gap: 0.85rem;
@@ -2775,6 +2827,44 @@ h2.notification-section:first-of-type {
 .settings-card .driver-pin-table,
 .settings-card .clocking-driver-statuses {
   margin-bottom: 0.75rem;
+}
+
+.contract-snap-bands {
+  margin: 0.15rem 0 0.85rem 1.15rem;
+  padding: 0.7rem 0.85rem 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent-wash, #f3eefc) 55%, #fff);
+}
+
+.contract-snap-bands[hidden] {
+  display: none !important;
+}
+
+.contract-snap-bands-title {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.contract-snap-break-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.55rem 0.75rem;
+  margin: 0.35rem 0 0.65rem;
+}
+
+.contract-snap-break-grid .field {
+  margin: 0;
+}
+
+.contract-snap-break-grid input[type='number'] {
+  width: 100%;
+  max-width: 6rem;
+}
+
+#bid-bump-snap-field[hidden] {
+  display: none !important;
 }
 
 button.clock-driver.is-marked {

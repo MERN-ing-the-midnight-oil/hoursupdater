@@ -210,9 +210,17 @@ function makeSeedChange({ segment, range, startDate, name, submittedAt }) {
   };
 }
 
+function contractSnapFromStore() {
+  if (typeof store.contractSnapOptions === 'function') {
+    return store.contractSnapOptions() || {};
+  }
+  return {};
+}
+
 export function buildSnapshot(profile, asOfDate = getAsOfDate()) {
   const pack = getCalendarPack();
   const asOf = toDateString(asOfDate);
+  const snapOptions = contractSnapFromStore();
   if (!profile) {
     return buildEmployeeSnapshot({
       profile: null,
@@ -221,12 +229,15 @@ export function buildSnapshot(profile, asOfDate = getAsOfDate()) {
       calendar: pack.calendar,
       asOfDate: asOf,
       ...calendarMeta(),
+      ...snapOptions,
     });
   }
   const entry = rebuildEmployeeRouteState(
     profile.changeLog ?? [],
     pack.calendar,
-    asOf
+    asOf,
+    {},
+    snapOptions
   );
   return buildEmployeeSnapshot({
     profile: {
@@ -238,6 +249,7 @@ export function buildSnapshot(profile, asOfDate = getAsOfDate()) {
     calendar: pack.calendar,
     asOfDate: asOf,
     ...calendarMeta(),
+    ...snapOptions,
   });
 }
 
@@ -299,10 +311,13 @@ export function previewChange(body, storage) {
   const asOf = blankDate
     ? toDateString(profile?.start_date || getAsOfDate())
     : toDateString(rawDate);
+  const snapOptions = contractSnapFromStore();
   const entry = rebuildEmployeeRouteState(
     profile?.changeLog ?? [],
     pack.calendar,
-    asOf
+    asOf,
+    {},
+    snapOptions
   );
   return previewEmployeeChange({
     entry,
@@ -313,6 +328,7 @@ export function previewChange(body, storage) {
     change_date: asOf,
     force_oct1_contract: body.force_oct1_contract,
     changeLog: profile?.changeLog ?? [],
+    ...snapOptions,
   });
 }
 
@@ -338,7 +354,9 @@ export function recordChange(body, storage) {
   const entry = rebuildEmployeeRouteState(
     profile.changeLog,
     pack.calendar,
-    mathDate
+    mathDate,
+    {},
+    contractSnapFromStore()
   );
   if (!entry) {
     throw new Error('Starting schedule is missing. Add this person again.');

@@ -4,9 +4,9 @@ import { buildPayrollRoundingBreakdown } from './timeUtils.js';
 
 // Before/after payroll math for the shared "see the math" UI.
 // Single path via buildPayrollRoundingBreakdown — used by Change Reports and Admin queue.
-export function buildSeeTheMathFromSegments(before_segments, after_segments) {
-  const before = buildPayrollRoundingBreakdown(before_segments);
-  const after = buildPayrollRoundingBreakdown(after_segments);
+export function buildSeeTheMathFromSegments(before_segments, after_segments, options = {}) {
+  const before = buildPayrollRoundingBreakdown(before_segments, options);
+  const after = buildPayrollRoundingBreakdown(after_segments, options);
 
   const contracted_hours_delta_minutes =
     after.payroll_rounded_total_minutes - before.payroll_rounded_total_minutes;
@@ -81,7 +81,10 @@ export function describeOpenWindowContractHours(currentMinutes, predictedMinutes
 export function buildChangeReport(input) {
   const math = buildSeeTheMathFromSegments(
     input.before_segments,
-    input.after_segments
+    input.after_segments,
+    {
+      snapContractClocks: input.snapContractClocks === true,
+    }
   );
 
   const changes = input.contributing_changes.map((change) => ({

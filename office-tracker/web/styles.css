@@ -612,7 +612,8 @@ textarea:focus {
 input[type='time'],
 input[type='date'],
 .schedule-history .times,
-.stat-row strong {
+.stat-row strong,
+.hero-times strong {
   font-family: var(--font-data);
   font-variant-numeric: tabular-nums;
 }
@@ -941,6 +942,48 @@ button:disabled:hover {
   border-color: transparent;
 }
 
+.schedule-date-mail {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: 1px solid var(--line, #c5d0dc);
+  background: #fff;
+  color: var(--muted, #5b6b7c);
+  cursor: pointer;
+}
+
+.schedule-date-mail:hover {
+  background: #f3f4f6;
+  color: var(--ink, #1c2b39);
+  border-color: var(--ink, #1c2b39);
+}
+
+.schedule-date-mail .icon {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.schedule-history .change-figure {
+  min-width: 8rem;
+  white-space: normal;
+}
+
+.schedule-history .change-figure .row-kind {
+  margin-top: 0;
+}
+
+.schedule-history .change-figure .row-kind + .row-kind {
+  margin-top: 0.2rem;
+}
+
 .schedule-history .row-kind {
   display: block;
   margin-top: 0.2rem;
@@ -1005,8 +1048,40 @@ button:disabled:hover {
 }
 
 .hero-detail,
-.stat-row {
+.stat-row,
+.hero-times {
   color: var(--muted);
+}
+
+.hero-times {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0.9rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hero-times-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.hero-times strong {
+  color: var(--ink);
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 1.05rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.hero-times-when {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.9rem;
 }
 
 .stat-row {
@@ -1295,7 +1370,8 @@ button:disabled:hover {
   background: var(--tone);
 }
 
-.history-pip.is-window {
+.history-pip.is-window,
+.history-pip.is-result {
   display: grid;
   place-items: center;
   box-sizing: border-box;
@@ -1309,6 +1385,15 @@ button:disabled:hover {
   font-weight: 700;
   line-height: 1;
   letter-spacing: -0.03em;
+}
+
+.history-pip.is-result {
+  width: 1.85rem;
+  min-width: 1.85rem;
+  max-width: 1.85rem;
+  background: var(--tone);
+  font-size: 0.48rem;
+  letter-spacing: 0.02em;
 }
 
 .history-pip.is-established {

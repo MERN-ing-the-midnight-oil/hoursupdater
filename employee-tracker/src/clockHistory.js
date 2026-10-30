@@ -51,8 +51,8 @@ export function countdownAccumulationLabel(startedOn, minutes) {
   return `${date} Countdown, ${amount}`;
 }
 
-// Lines under New Schedule Started. The first line is this row's own
-// minute change. It does not name AM, midday, or PM as separate changes.
+// Lines for the Change column. The first line is this row's own minute
+// change. It does not name AM, midday, or PM as separate changes.
 // Each open countdown follows, named by the date its clock started.
 export function scheduleChangeKindLines(row) {
   if (row?.kind === 'initial') return ['Established'];
@@ -182,6 +182,17 @@ function resolvesAsBid(row) {
   return outcome === 'BID_PENDING' || status === 'bid_pending';
 }
 
+// BID or BUMP label for the calendar square on the resolution date after a
+// finished 15-school-day countdown. Same-day bumps and ordinary lock-ins
+// do not use this square.
+function resolutionResult(row) {
+  const outcome = row?.contracted?.projected_outcome;
+  const status = row?.contracted?.status;
+  if (outcome === 'BID_PENDING' || status === 'bid_pending') return 'BID';
+  if (outcome === 'BUMP_ELIGIBLE' || status === 'bump_eligible') return 'BUMP';
+  return null;
+}
+
 function locksInAsContracted(row) {
   if (row?.kind !== 'change' || !row.contracted?.becomes_on || keepsStandingForecast(row)) return false;
   const outcome = row.contracted?.projected_outcome;
@@ -189,6 +200,14 @@ function locksInAsContracted(row) {
   if (outcome === 'BID_PENDING' || outcome === 'BUMP_ELIGIBLE') return false;
   if (status === 'bid_pending' || status === 'bump_eligible') return false;
   return true;
+}
+
+// True when the full 15-school-day series was painted and not cut short by a
+// later change that replaces this row.
+function countdownSeriesFinished(fifteen, nextDate) {
+  if (!fifteen?.length || fifteen.length < WINDOW_SCHOOL_DAYS) return false;
+  if (!nextDate) return true;
+  return fifteen[WINDOW_SCHOOL_DAYS - 1] < nextDate;
 }
 
 // A side countdown leaves the standing forecast where it is. It does not
@@ -280,6 +299,9 @@ function historyMark(toneIndex, tone, label, flags = {}) {
     resolvesOn: flags.resolvesOn ?? null,
     goesToBid: flags.goesToBid ?? false,
     contractedDay: flags.contractedDay ?? false,
+    result: flags.result ?? null,
+    resultTone: flags.resultTone ?? null,
+    extraResults: flags.extraResults ?? null,
     arrowOrigin: flags.arrowOrigin ?? false,
     arrowFromWindow: flags.arrowFromWindow ?? false,
   };
@@ -300,10 +322,61 @@ function copyMarkFlags(mark, overrides = {}) {
     resolvesOn: mark?.resolvesOn ?? null,
     goesToBid: mark?.goesToBid ?? false,
     contractedDay: mark?.contractedDay ?? false,
+    result: mark?.result ?? null,
+    resultTone: mark?.resultTone ?? null,
+    extraResults: mark?.extraResults ?? null,
     arrowOrigin: mark?.arrowOrigin ?? false,
     arrowFromWindow: mark?.arrowFromWindow ?? false,
     ...overrides,
   };
+}
+
+// BID / BUMP square on the resolution date after a finished countdown.
+function paintResultDay(marks, day, result, toneIndex, tone, label, hover) {
+  if (!day || !result) return;
+  const existing = marks.get(day);
+  const entry = {
+    result,
+    tone,
+    toneIndex,
+    label,
+    sourceIndex: hover.sourceIndex,
+  };
+
+  if (existing?.result) {
+    const extras = [...(existing.extraResults || [])].filter(
+      (item) => item.sourceIndex !== entry.sourceIndex
+    );
+    if (existing.result !== result || existing.resultTone !== tone) {
+      extras.push(entry);
+      marks.set(
+        day,
+        historyMark(existing.toneIndex, existing.tone, existing.label, copyMarkFlags(existing, {
+          extraResults: extras,
+        }))
+      );
+      return;
+    }
+  }
+
+  marks.set(
+    day,
+    historyMark(toneIndex, tone, label, {
+      ...(existing
+        ? copyMarkFlags(existing, {
+            result,
+            resultTone: tone,
+            extraResults: existing.extraResults ?? null,
+          })
+        : {
+            ...hover,
+            established: false,
+            result,
+            resultTone: tone,
+            extraResults: null,
+          }),
+    })
+  );
 }
 
 // Numbered countdown squares for one change. When `asExtra` is set, an
@@ -369,6 +442,8 @@ function paintWindowDays(marks, fifteen, nextDate, toneIndex, tone, label, hover
 // days are numbered. A later change that leaves the bid in place paints its
 // own numbered squares beside that bid count. Days still left before those
 // times become contracted are an arrow pointing at a box around that day.
+// When the countdown finishes as bid or bump, the resolution date also gets
+// a BID or BUMP square in that same color.
 export function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY_TONES }) {
   const marks = new Map();
   const days = [...schoolDays].sort();
@@ -403,6 +478,9 @@ export function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY
         resolvesOn: sideCountdown ? existingStart?.resolvesOn ?? null : null,
         goesToBid: sideCountdown ? existingStart?.goesToBid ?? false : false,
         contractedDay: sideCountdown ? existingStart?.contractedDay ?? false : false,
+        result: sideCountdown ? existingStart?.result ?? null : null,
+        resultTone: sideCountdown ? existingStart?.resultTone ?? null : null,
+        extraResults: sideCountdown ? existingStart?.extraResults ?? null : null,
         arrowOrigin: sideCountdown ? existingStart?.arrowOrigin ?? false : false,
         arrowFromWindow: sideCountdown ? existingStart?.arrowFromWindow ?? false : false,
       })
@@ -417,7 +495,8 @@ export function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY
       return;
     }
 
-    if (usesFifteenDayWindow(row, fifteen)) {
+    const usesWindow = usesFifteenDayWindow(row, fifteen);
+    if (usesWindow) {
       paintWindowDays(marks, fifteen, nextDate, toneIndex, tone, label, hover);
     }
 
@@ -448,6 +527,9 @@ export function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY
             windowDay: existing?.windowDay ?? null,
             windowTone: existing?.windowTone ?? null,
             extraWindows: existing?.extraWindows ?? null,
+            result: existing?.result ?? null,
+            resultTone: existing?.resultTone ?? null,
+            extraResults: existing?.extraResults ?? null,
             arrow: true,
             arrowHead: cursor === arrowLast,
             resolvesOn: arrow.end,
@@ -474,9 +556,24 @@ export function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY
           arrow: existing?.arrow ?? false,
           arrowHead: existing?.arrowHead ?? false,
           resolvesOn: existing?.resolvesOn ?? null,
+          result: existing?.result ?? null,
+          resultTone: existing?.resultTone ?? null,
+          extraResults: existing?.extraResults ?? null,
           contractedDay: true,
         })
       );
+    }
+
+    // After the numbered countdown finishes, put BID or BUMP on the date
+    // that countdown resolves to — same square style, outcome text instead
+    // of a day number. A later change must not erase that mark when the
+    // posting day already landed before the replacement took over.
+    if (usesWindow && countdownSeriesFinished(fifteen, nextDate)) {
+      const result = resolutionResult(row);
+      const day = String(row.contracted?.becomes_on || '').slice(0, 10);
+      if (result && /^\d{4}-\d{2}-\d{2}$/.test(day) && (!nextDate || day < nextDate)) {
+        paintResultDay(marks, day, result, toneIndex, tone, label, hover);
+      }
     }
   });
 

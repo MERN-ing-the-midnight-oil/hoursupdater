@@ -258,6 +258,54 @@ describe('employee hours snapshot', () => {
     assert.equal(snap.schedule_history.at(-1).contracted.status, 'bid_pending');
   });
 
+  it('keeps the posted-for-bid date when a same-day side countdown also finishes', () => {
+    const log = [
+      makeSeed('AM', '6:40-8:40', '2026-08-31'),
+      makeSeed('PM', '14:05-16:25', '2026-08-31'),
+      makeChange({
+        id: 'oct5-pm',
+        segment: 'PM',
+        previous_time: '14:05-16:25',
+        new_time: '14:05-16:45',
+        delta_minutes: 20,
+        effective_date: '2026-10-05',
+        submitted_at: '2026-10-05T23:23:13.464Z',
+      }),
+      makeChange({
+        id: 'oct6-pm',
+        segment: 'PM',
+        previous_time: '14:05-16:45',
+        new_time: '14:05-17:10',
+        delta_minutes: 25,
+        effective_date: '2026-10-06',
+        submitted_at: '2026-10-06T17:10:12.697Z',
+      }),
+      makeChange({
+        id: 'oct6-am',
+        segment: 'AM',
+        previous_time: '6:40-8:40',
+        new_time: '6:35-8:40',
+        delta_minutes: 5,
+        effective_date: '2026-10-06',
+        submitted_at: '2026-10-09T15:56:00.159Z',
+      }),
+    ];
+    const rounding = { snapContractClocks: true, bidBumpUseSnappedTimes: true };
+    const entry = rebuildEmployeeRouteState(log, calendar, '2026-10-30', {}, rounding);
+    const snap = buildEmployeeSnapshot({
+      profile: { name: 'S 10', start_date: '2026-08-31' },
+      changeLog: log,
+      entry,
+      calendar,
+      asOfDate: '2026-10-30',
+      ...rounding,
+    });
+    const oct6 = snap.schedule_history.find((row) => row.date === '2026-10-06');
+    assert.equal(oct6?.contracted?.status, 'bid_pending');
+    assert.equal(oct6?.contracted?.projected_outcome, 'BID_PENDING');
+    assert.match(String(oct6?.contracted?.label || ''), /up for bid/i);
+  });
+
   it('previews the same contracted date the state machine will use', () => {
     const log = [makeSeed('AM', '6:35-8:55')];
     const entry = rebuildEmployeeRouteState(log, calendar, '2026-09-08');
@@ -628,6 +676,7 @@ describe('independent browser profiles', () => {
     const { deleteChange, recordChange, setupProfile, updateChange } = await import(
       '../employee-tracker/web/engine.js'
     );
+    const { getCurrentProfile, saveProfile } = await import('../employee-tracker/web/store.js');
     const storage = memoryStorage();
     setupProfile(
       {
@@ -638,6 +687,9 @@ describe('independent browser profiles', () => {
       },
       storage
     );
+    const profile = getCurrentProfile(storage);
+    profile.view_as_of = '2026-09-20';
+    saveProfile(profile, storage);
     const wrong = recordChange(
       {
         segment: 'AM',
@@ -673,6 +725,7 @@ describe('independent browser profiles', () => {
     const { correctCurrentTimes, recordChange, setupProfile } = await import(
       '../employee-tracker/web/engine.js'
     );
+    const { getCurrentProfile, saveProfile } = await import('../employee-tracker/web/store.js');
     const storage = memoryStorage();
     setupProfile(
       {
@@ -683,6 +736,9 @@ describe('independent browser profiles', () => {
       },
       storage
     );
+    const profile = getCurrentProfile(storage);
+    profile.view_as_of = '2026-09-20';
+    saveProfile(profile, storage);
     recordChange(
       {
         segment: 'AM',

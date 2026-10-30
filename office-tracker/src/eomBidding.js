@@ -174,10 +174,21 @@ function routePacketRow({
  * close), then predicted history / open-window rows. A later change must not
  * hide a bid that already finalized inside this month's posting window.
  */
-export function routesUpForBid({ snapshots = [], calendar, monthKey, asOf }) {
+export function routesUpForBid({
+  snapshots = [],
+  calendar,
+  monthKey,
+  asOf,
+  snapContractClocks,
+  contractSnapBreaks,
+} = {}) {
   const period = periodForMonthKey(calendar, monthKey);
   if (!period) return [];
   const schoolDays = getSchoolDays(calendar);
+  const rounding = {
+    snapContractClocks: snapContractClocks === true,
+    ...(contractSnapBreaks ? { contractSnapBreaks } : {}),
+  };
   const out = [];
   const seen = new Set();
 
@@ -199,10 +210,10 @@ export function routesUpForBid({ snapshots = [], calendar, monthKey, asOf }) {
       if (!becomesOn || becomesOn < period.start || becomesOn > period.end) continue;
       const beforeMinutes =
         report.see_the_math?.before?.payroll_rounded_total_minutes ??
-        scheduleRoundedMinutes(scheduleFromSegments(report.before_segments));
+        scheduleRoundedMinutes(scheduleFromSegments(report.before_segments), rounding);
       const afterMinutes =
         report.see_the_math?.after?.payroll_rounded_total_minutes ??
-        scheduleRoundedMinutes(scheduleFromSegments(report.after_segments));
+        scheduleRoundedMinutes(scheduleFromSegments(report.after_segments), rounding);
       pushRow(
         routePacketRow({
           profile,
@@ -226,8 +237,8 @@ export function routesUpForBid({ snapshots = [], calendar, monthKey, asOf }) {
       const becomesOn = String(row.contracted?.becomes_on || '').slice(0, 10);
       if (!becomesOn || becomesOn < period.start || becomesOn > period.end) return;
       const previous = history[index - 1];
-      const previousMinutes = scheduleRoundedMinutes(previous?.schedule);
-      const currentMinutes = scheduleRoundedMinutes(row.schedule);
+      const previousMinutes = scheduleRoundedMinutes(previous?.schedule, rounding);
+      const currentMinutes = scheduleRoundedMinutes(row.schedule, rounding);
       const predicted = row.contracted?.status === 'predicted';
       pushRow(
         routePacketRow({
@@ -286,12 +297,29 @@ export function routesUpForBid({ snapshots = [], calendar, monthKey, asOf }) {
  * (route status remains BID_PENDING). These often stay on the hall board
  * alongside the new end-of-month postings.
  */
-export function routesStillOpenForBid({ snapshots = [], calendar, monthKey, asOf }) {
+export function routesStillOpenForBid({
+  snapshots = [],
+  calendar,
+  monthKey,
+  asOf,
+  snapContractClocks,
+  contractSnapBreaks,
+} = {}) {
   const period = periodForMonthKey(calendar, monthKey);
   if (!period) return [];
   const schoolDays = getSchoolDays(calendar);
+  const snapOpts = {
+    snapContractClocks,
+    ...(contractSnapBreaks ? { contractSnapBreaks } : {}),
+  };
+  const rounding = {
+    snapContractClocks: snapContractClocks === true,
+    ...(contractSnapBreaks ? { contractSnapBreaks } : {}),
+  };
   const postingNames = new Set(
-    routesUpForBid({ snapshots, calendar, monthKey, asOf }).map((route) => route.routeName)
+    routesUpForBid({ snapshots, calendar, monthKey, asOf, ...snapOpts }).map(
+      (route) => route.routeName
+    )
   );
   const out = [];
   for (const item of snapshots) {
@@ -315,11 +343,11 @@ export function routesStillOpenForBid({ snapshots = [], calendar, monthKey, asOf
 
     const beforeMinutes =
       report?.see_the_math?.before?.payroll_rounded_total_minutes ??
-      scheduleRoundedMinutes(scheduleFromSegments(report?.before_segments));
+      scheduleRoundedMinutes(scheduleFromSegments(report?.before_segments), rounding);
     const afterMinutes =
       report?.see_the_math?.after?.payroll_rounded_total_minutes ??
-      scheduleRoundedMinutes(historyRow?.schedule) ??
-      scheduleRoundedMinutes(scheduleFromSegments(report?.after_segments));
+      scheduleRoundedMinutes(historyRow?.schedule, rounding) ??
+      scheduleRoundedMinutes(scheduleFromSegments(report?.after_segments), rounding);
     const changeIds = report ? reportChangeIds(report) : changeIdsFor(historyRow);
     out.push({
       ...routePacketRow({
@@ -354,18 +382,29 @@ export function routesStillOpenForBid({ snapshots = [], calendar, monthKey, asOf
  * Routes still counting toward bid, or posted for a later month than selected.
  * Excludes routes that already appear on the selected month's posting list.
  */
-export function routesApproachingBid({ snapshots = [], calendar, monthKey, asOf }) {
+export function routesApproachingBid({
+  snapshots = [],
+  calendar,
+  monthKey,
+  asOf,
+  snapContractClocks,
+  contractSnapBreaks,
+} = {}) {
   const period = periodForMonthKey(calendar, monthKey);
+  const snapOpts = {
+    snapContractClocks,
+    ...(contractSnapBreaks ? { contractSnapBreaks } : {}),
+  };
   const postingNow = new Set(
     [
-      ...routesUpForBid({ snapshots, calendar, monthKey, asOf }),
-      ...routesStillOpenForBid({ snapshots, calendar, monthKey, asOf }),
+      ...routesUpForBid({ snapshots, calendar, monthKey, asOf, ...snapOpts }),
+      ...routesStillOpenForBid({ snapshots, calendar, monthKey, asOf, ...snapOpts }),
     ].map((route) => `${route.routeName}|${route.becomesOn}`)
   );
   const openNames = new Set(
     [
-      ...routesUpForBid({ snapshots, calendar, monthKey, asOf }),
-      ...routesStillOpenForBid({ snapshots, calendar, monthKey, asOf }),
+      ...routesUpForBid({ snapshots, calendar, monthKey, asOf, ...snapOpts }),
+      ...routesStillOpenForBid({ snapshots, calendar, monthKey, asOf, ...snapOpts }),
     ].map((route) => route.routeName)
   );
   const out = [];

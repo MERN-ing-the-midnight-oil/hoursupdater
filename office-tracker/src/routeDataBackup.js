@@ -1,10 +1,10 @@
 // Office settings for the Current Route Data spreadsheet backup.
-// Reminds the office to download on a chosen schedule. Daily is the default.
+// Reminds the office to download on a chosen schedule. Off is the default.
 
 import { ROUTE_DATA_FILE_BASE, stampedWorkbookFilename } from './downloadName.js';
 
 export const ROUTE_BACKUP_REMINDERS = ['off', 'daily', 'weekly', 'monthly'];
-export const DEFAULT_ROUTE_BACKUP_REMINDER = 'daily';
+export const DEFAULT_ROUTE_BACKUP_REMINDER = 'off';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

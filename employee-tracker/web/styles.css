@@ -365,7 +365,8 @@ button:hover { background: var(--accent-deep); }
 
 .history-pip.is-window, .history-pip.is-established { background: var(--tone, var(--accent)); }
 
-.history-pip.is-window {
+.history-pip.is-window,
+.history-pip.is-result {
   display: grid;
   place-items: center;
   width: 1.55rem;
@@ -375,6 +376,14 @@ button:hover { background: var(--accent-deep); }
   color: #fff;
   font-size: 0.55rem;
   font-weight: 700;
+}
+
+.history-pip.is-result {
+  width: 1.85rem;
+  min-width: 1.85rem;
+  background: var(--tone, var(--accent));
+  font-size: 0.48rem;
+  letter-spacing: 0.02em;
 }
 
 .history-pip.is-established { box-shadow: 0 0 0 1px #fff, 0 0 0 2px var(--tone, var(--accent)); }

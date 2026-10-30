@@ -71,6 +71,64 @@ function formatClockMinutesFromDay(minutesSinceMidnight) {
   return `${hours}:${String(minutes).padStart(2, '0')}`;
 }
 
+// Office contract-clock snap bands (minute-of-hour cutoffs).
+// :00–toHour → :00
+// toHour+1–toQuarter → :15
+// toQuarter+1–toHalf → :30
+// toHalf+1–(toNextHour-1) → :45
+// toNextHour–:59 → next hour :00
+export const DEFAULT_CONTRACT_SNAP_BREAKS = Object.freeze({
+  toHour: 6,
+  toQuarter: 21,
+  toHalf: 36,
+  toNextHour: 52,
+});
+
+function clampMinuteCutoff(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(59, Math.max(0, Math.trunc(number)));
+}
+
+// Keep the four cutoffs ordered so each band is non-empty when possible.
+export function normalizeContractSnapBreaks(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  let toHour = clampMinuteCutoff(source.toHour, DEFAULT_CONTRACT_SNAP_BREAKS.toHour);
+  let toQuarter = clampMinuteCutoff(source.toQuarter, DEFAULT_CONTRACT_SNAP_BREAKS.toQuarter);
+  let toHalf = clampMinuteCutoff(source.toHalf, DEFAULT_CONTRACT_SNAP_BREAKS.toHalf);
+  let toNextHour = clampMinuteCutoff(
+    source.toNextHour,
+    DEFAULT_CONTRACT_SNAP_BREAKS.toNextHour
+  );
+  if (toQuarter <= toHour) toQuarter = Math.min(59, toHour + 1);
+  if (toHalf <= toQuarter) toHalf = Math.min(59, toQuarter + 1);
+  if (toNextHour <= toHalf) toNextHour = Math.min(59, toHalf + 1);
+  return { toHour, toQuarter, toHalf, toNextHour };
+}
+
+// Snap one clock using the office contract bands (not nearest-quarter math).
+export function snapContractClockToBreaks(clock, breaks) {
+  const text = String(clock ?? '').trim();
+  if (!text) return '';
+  const total = parseClockTime(text);
+  const hour = Math.floor(total / 60);
+  const minute = total % 60;
+  const band = normalizeContractSnapBreaks(breaks);
+  let snappedTotal;
+  if (minute <= band.toHour) {
+    snappedTotal = hour * 60;
+  } else if (minute <= band.toQuarter) {
+    snappedTotal = hour * 60 + 15;
+  } else if (minute <= band.toHalf) {
+    snappedTotal = hour * 60 + 30;
+  } else if (minute < band.toNextHour) {
+    snappedTotal = hour * 60 + 45;
+  } else {
+    snappedTotal = (hour + 1) * 60;
+  }
+  return formatClockMinutesFromDay(snappedTotal % (24 * 60));
+}
+
 // Round minutes to the nearest quarter hour for Payroll reporting only.
 // Payroll rounds each run (AM, midday, PM) on its own, adds those rounded
 // minutes, then rounds that sum for the contracted daily total. Never use
@@ -83,19 +141,99 @@ export function roundToQuarterHourForPayroll(minutes) {
   return Math.round(minutes / 15) * 15 || 0;
 }
 
+// Snap both ends of a contract range with the office minute bands.
+// Default bands turn "14:05-17:25" into "14:00-17:30". Used for official
+// contracted hours when the office snaps contract clocks, and for Art. 3.08
+// drift when bid/bump windows also use snapped contract times.
+export function snapContractTimeRange(range, breaks) {
+  const trimmed = String(range ?? '').trim();
+  const parts = trimmed.split('-');
+  if (parts.length !== 2) {
+    throw new Error(
+      `Invalid time range format: "${range}". Expected "H:MM-H:MM".`
+    );
+  }
+  const start = snapContractClockToBreaks(parts[0], breaks);
+  const end = snapContractClockToBreaks(parts[1], breaks);
+  if (!start || !end) {
+    throw new Error(`Invalid time range format: "${range}". Expected "H:MM-H:MM".`);
+  }
+  return `${start}-${end}`;
+}
+
+// Minutes used for one run when computing official contracted hours.
+// With snapContractClocks, each end snaps with the office minute bands first.
+function contractRunMinutesForPayroll(time, snapContractClocks, breaks) {
+  const exact = parseTimeRange(time);
+  if (!snapContractClocks) {
+    return {
+      duration_minutes: exact.durationMinutes,
+      snapped_time: null,
+    };
+  }
+  try {
+    const snapped_time = snapContractTimeRange(time, breaks);
+    return {
+      duration_minutes: parseTimeRange(snapped_time).durationMinutes,
+      snapped_time,
+    };
+  } catch {
+    return {
+      duration_minutes: exact.durationMinutes,
+      snapped_time: null,
+    };
+  }
+}
+
+// Difference in snapped contracted daily totals between two schedules.
+// Used when Art. 3.08 bid/bump windows follow snapped contract times.
+export function snappedContractScheduleDeltaMinutes(
+  beforeSegments,
+  afterSegments,
+  options = {}
+) {
+  const rounding = {
+    snapContractClocks: true,
+    contractSnapBreaks: options.contractSnapBreaks,
+  };
+  const before = buildPayrollRoundingBreakdown(beforeSegments || {}, rounding)
+    .payroll_rounded_total_minutes;
+  const after = buildPayrollRoundingBreakdown(afterSegments || {}, rounding)
+    .payroll_rounded_total_minutes;
+  return after - before;
+}
+
 // Full breakdown for Payroll contracted hours (and phase-4 "see the math" UI).
-// Each run is rounded on its own. Those rounded minutes are added, and that
-// sum is rounded again for the contracted daily total.
-export function buildPayrollRoundingBreakdown(segments) {
+// Default: each run's exact duration is rounded, those minutes are added, and
+// that sum is rounded again for the contracted daily total.
+// When options.snapContractClocks is true, each run's start and end snap with
+// the office minute bands before duration is counted, then the same per-run /
+// daily rounding still applies. Exact wall-clock totals stay on
+// exact_total_minutes for schedule-change copy. Art. 3.08 drift uses this only
+// when bid/bump windows are set to follow snapped contract times.
+export function buildPayrollRoundingBreakdown(segments, options = {}) {
+  const snapContractClocks = options.snapContractClocks === true;
+  const breaks = normalizeContractSnapBreaks(options.contractSnapBreaks);
   const detail = (['AM', 'MIDDAY', 'PM']).map((segment) => {
     const time = segments?.[segment] ?? null;
     if (!time) {
-      return { segment, time: null, duration_minutes: null, rounded_minutes: null };
+      return {
+        segment,
+        time: null,
+        snapped_time: null,
+        duration_minutes: null,
+        rounded_minutes: null,
+      };
     }
-    const duration_minutes = parseTimeRange(time).durationMinutes;
+    const { duration_minutes, snapped_time } = contractRunMinutesForPayroll(
+      time,
+      snapContractClocks,
+      breaks
+    );
     return {
       segment,
       time,
+      snapped_time,
       duration_minutes,
       rounded_minutes: roundToQuarterHourForPayroll(duration_minutes),
     };
@@ -109,6 +247,8 @@ export function buildPayrollRoundingBreakdown(segments) {
   return {
     segments: detail,
     exact_total_minutes,
+    snap_contract_clocks: snapContractClocks,
+    contract_snap_breaks: breaks,
     payroll_rounded_total_minutes: roundToQuarterHourForPayroll(rounded_piece_total),
   };
 }

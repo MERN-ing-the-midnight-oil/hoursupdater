@@ -12,10 +12,50 @@ import {
 import { contractWindowPlan, forcedOctober1ContractPlan, isForcedOctober1Contract } from './contractWindows.js';
 import {
   buildPayrollRoundingBreakdown,
+  normalizeContractSnapBreaks,
   scheduleDateForMath,
+  snappedContractScheduleDeltaMinutes,
   toDateString,
 } from './timeUtils.js';
 import { buildChangeReport } from './changeReport.js';
+
+// Pass-through for payroll snap and optional snapped Art. 3.08 drift.
+function contractRoundingOptions(options = {}) {
+  const snapContractClocks = options.snapContractClocks === true;
+  return {
+    snapContractClocks,
+    bidBumpUseSnappedTimes: options.bidBumpUseSnappedTimes === true,
+    ...(snapContractClocks
+      ? { contractSnapBreaks: normalizeContractSnapBreaks(options.contractSnapBreaks) }
+      : {}),
+  };
+}
+
+// Minutes that feed the open window / 30-minute threshold for this change.
+// Default: exact wall-clock (or Admin override). With bidBumpUseSnappedTimes,
+// use the snapped contracted daily-total difference unless Admin overrode the
+// stored delta.
+function driftDeltaForChange(changeEvent, segmentsAfter, deltaOverride, options = {}) {
+  const adminOverride =
+    typeof deltaOverride === 'number' && deltaOverride !== changeEvent.delta_minutes;
+  if (adminOverride) return deltaOverride;
+
+  if (
+    options.bidBumpUseSnappedTimes === true &&
+    options.snapContractClocks === true
+  ) {
+    const after = { ...(segmentsAfter || {}) };
+    const before = {
+      ...after,
+      [changeEvent.segment]: changeEvent.previous_time,
+    };
+    return snappedContractScheduleDeltaMinutes(before, after, {
+      contractSnapBreaks: options.contractSnapBreaks,
+    });
+  }
+
+  return typeof deltaOverride === 'number' ? deltaOverride : changeEvent.delta_minutes;
+}
 
 
 
@@ -346,7 +386,8 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
 
   const state = cloneRouteState(routeState);
   const exactDrift = state.cumulative_drift_minutes;
-  const payrollBreakdown = buildPayrollRoundingBreakdown(state.segments);
+  const rounding = contractRoundingOptions(options);
+  const payrollBreakdown = buildPayrollRoundingBreakdown(state.segments, rounding);
   const payrollRoundedTotal = payrollBreakdown.payroll_rounded_total_minutes;
   const forcedOctober1 = state.window_rule === 'forced_october_1_contract';
   const outcome = forcedOctober1 ? 'STABLE' : windowFinalizationOutcome(exactDrift);
@@ -402,6 +443,7 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
       after_segments: { ...state.segments },
       contributing_changes,
       forced_october_1: forcedOctober1,
+      ...rounding,
     });
     state.change_reports = [...(state.change_reports ?? []), report];
 
@@ -616,6 +658,7 @@ function buildSeparateCountdownReport(state, side, options) {
     before_segments: before,
     after_segments: { ...state.segments },
     contributing_changes,
+    ...contractRoundingOptions(options),
   });
   return { ...report, separate_countdown: true };
 }
@@ -634,12 +677,14 @@ export function applyChangeToRoute(
   let state = routeState
     ? cloneRouteState(routeState)
     : createInitialRouteState(changeEvent);
+  const rounding = contractRoundingOptions(options);
 
   state = applyWindowExpiration(state, changeDate, {
     routeId: changeEvent.route_id,
     changeLog: options.changeLog,
     effectiveDeltas: options.effectiveDeltas,
     schoolCalendar,
+    ...rounding,
   });
 
   state.driver_name = changeEvent.driver_name?.trim() || null;
@@ -651,13 +696,15 @@ export function applyChangeToRoute(
   state.segments[changeEvent.segment] = changeEvent.new_time;
   state.last_updated = changeEvent.submitted_at;
 
-  // Unrounded delta only — never round before adding to the running total.
-  // Prefer Admin-resolved override when rebuilding; otherwise use delta_minutes
-  // (which already reflects any Routing-time adjustment).
-  const delta =
-    typeof deltaOverride === 'number'
-      ? deltaOverride
-      : changeEvent.delta_minutes;
+  // Exact wall-clock minutes by default. When bid/bump windows use snapped
+  // contract times, the running total follows snapped daily contracted hours
+  // instead. Admin ADJUSTMENT overrides still win.
+  const delta = driftDeltaForChange(
+    changeEvent,
+    state.segments,
+    deltaOverride,
+    rounding
+  );
 
   // Seed-only schedule write (create route / add another segment with no
   // prior→new change): update segment times only — do not open a 15-day window.
@@ -693,12 +740,13 @@ export function applyChangeToRoute(
       changeLog: options.changeLog,
       effectiveDeltas: options.effectiveDeltas,
       schoolCalendar,
+      ...rounding,
     });
   }
 
   if (hasOpenAccumulationWindow(state, changeDate)) {
     foldSideWindows(state);
-    // Rule 3: extend existing window (sum exact deltas; round later if at all)
+    // Rule 3: extend existing window (sum drift deltas; payroll rounds at lock-in)
     state.cumulative_drift_minutes += delta;
     state.contributing_change_ids.push(changeEvent.id);
 
@@ -747,11 +795,13 @@ export function applyChangeToRoute(
     changeLog: options.changeLog,
     effectiveDeltas: options.effectiveDeltas,
     schoolCalendar,
+    ...rounding,
   });
 }
 
 // Expire windows across all routes as of a given date (no new change applied).
 export function applyAllWindowExpirations(routeStateMap, asOfDate, options = {}) {
+  const rounding = contractRoundingOptions(options);
   const updated = {};
   for (const [routeId, entry] of Object.entries(routeStateMap)) {
     updated[routeId] = applyWindowExpiration(entry, asOfDate, {
@@ -759,6 +809,7 @@ export function applyAllWindowExpirations(routeStateMap, asOfDate, options = {})
       changeLog: options.changeLog,
       effectiveDeltas: options.effectiveDeltas,
       schoolCalendar: options.schoolCalendar,
+      ...rounding,
     });
   }
   return updated;
@@ -860,6 +911,7 @@ export function applyPendingChanges(
   const reportOptions = {
     changeLog: options.changeLog,
     effectiveDeltas,
+    ...contractRoundingOptions(options),
   };
 
   for (const change of ordered) {
@@ -981,7 +1033,10 @@ export function reconcileFinalizedStatusFlips(
           schoolCalendar,
           effectiveDeltas,
           asOfDate,
-          { changeLog }
+          {
+            changeLog,
+            ...contractRoundingOptions(options),
+          }
         );
         next.review_history = [
           ...(prior.review_history ?? []),
@@ -1037,7 +1092,10 @@ export function reconcileFinalizedStatusFlips(
           schoolCalendar,
           effectiveDeltas,
           asOfDate,
-          { changeLog }
+          {
+            changeLog,
+            ...contractRoundingOptions(options),
+          }
         );
         next.review_history = withAdminHistory(prior, historyNote);
       }
@@ -1162,7 +1220,11 @@ export function rebuildRouteStateFromChangeLog(
     const { base, pending } = splitBaseAndPendingChanges(routeChanges, holdAfter);
     pendingByRoute[routeId] = pending;
 
-    const reportOptions = { changeLog, effectiveDeltas };
+    const reportOptions = {
+      changeLog,
+      effectiveDeltas,
+      ...contractRoundingOptions(options),
+    };
     for (const change of base) {
       const effectiveDelta = effectiveDeltas.has(change.id)
         ? effectiveDeltas.get(change.id)
@@ -1182,6 +1244,7 @@ export function rebuildRouteStateFromChangeLog(
     changeLog,
     effectiveDeltas,
     schoolCalendar,
+    ...contractRoundingOptions(options),
   });
 
   if (!options.priorRouteState) {
@@ -1199,6 +1262,7 @@ export function rebuildRouteStateFromChangeLog(
         schoolCalendar,
         effectiveDeltas,
         asOfDate,
+        ...contractRoundingOptions(options),
       }
     ),
     changeLog,

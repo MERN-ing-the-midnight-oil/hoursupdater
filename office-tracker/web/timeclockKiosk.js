@@ -79,6 +79,9 @@ import { driverPhotoSrc } from './driverPhotos.js';
 import {
   compareRouteNumbers,
   clockRoundingMode,
+  bidBumpUseSnappedContractTimesEnabled,
+  contractQuarterHourSnapEnabled,
+  contractSnapBreaksFromState,
   driversFromState,
   normalizeClockNameSize,
   normalizeClockRounding,
@@ -733,6 +736,10 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   schoolYearCalendar?.addEventListener('click', onSchoolYearDay);
   earlyReleaseForm?.addEventListener('submit', onSaveEarlyRelease);
   quarterClockForms.forEach((form) => form.addEventListener('submit', onSaveQuarterClocks));
+  document.querySelector('#contract-snap-form')?.addEventListener('submit', onSaveContractSnap);
+  document
+    .querySelector('#contract-quarter-hour-snap')
+    ?.addEventListener('change', syncBidBumpSnapEnabled);
   overtimeForms.forEach((form) => form.addEventListener('submit', onSaveOvertimeRules));
   nameSizeForm?.addEventListener('submit', onSaveNameSize);
   punchSoundForm?.addEventListener('submit', onSavePunchSounds);
@@ -1256,6 +1263,102 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       const input = form.querySelector(`[data-quarter-clocks][value="${mode}"]`);
       if (input instanceof HTMLInputElement) input.checked = true;
     });
+  }
+
+  function readContractSnapBreaksFromForm() {
+    const valueOf = (id, fallback) => {
+      const input = document.querySelector(`#${id}`);
+      if (!(input instanceof HTMLInputElement)) return fallback;
+      const number = Number(input.value);
+      return Number.isFinite(number) ? number : fallback;
+    };
+    return contractSnapBreaksFromState({
+      contractSnapBreaks: {
+        toHour: valueOf('contract-snap-to-hour', 6),
+        toQuarter: valueOf('contract-snap-to-quarter', 21),
+        toHalf: valueOf('contract-snap-to-half', 36),
+        toNextHour: valueOf('contract-snap-to-next-hour', 52),
+      },
+    });
+  }
+
+  function fillContractSnapBreaks(breaks) {
+    const bands = contractSnapBreaksFromState({ contractSnapBreaks: breaks });
+    const fields = [
+      ['contract-snap-to-hour', bands.toHour],
+      ['contract-snap-to-quarter', bands.toQuarter],
+      ['contract-snap-to-half', bands.toHalf],
+      ['contract-snap-to-next-hour', bands.toNextHour],
+    ];
+    for (const [id, value] of fields) {
+      const input = document.querySelector(`#${id}`);
+      if (!(input instanceof HTMLInputElement) || input === document.activeElement) continue;
+      input.value = String(value);
+    }
+  }
+
+  function setContractSnapExtrasVisible(snapOn) {
+    const bands = document.querySelector('#contract-snap-bands');
+    const bidField = document.querySelector('#bid-bump-snap-field');
+    if (bands instanceof HTMLElement) bands.hidden = !snapOn;
+    if (bidField instanceof HTMLElement) bidField.hidden = !snapOn;
+    const bidInput = document.querySelector('#bid-bump-use-snapped-times');
+    if (bidInput instanceof HTMLInputElement) {
+      bidInput.disabled = !snapOn;
+      if (!snapOn) bidInput.checked = false;
+    }
+    const hint = document.querySelector('#bid-bump-snap-hint');
+    if (hint) {
+      hint.textContent = snapOn
+        ? 'On: the 15-school-day countdown and 30-minute bid/bump line use snapped contracted hours. Off: they use exact minute changes (written clocks).'
+        : 'Turn on quarter-hour snapping for contract times to choose how bid/bump windows count minutes.';
+    }
+  }
+
+  function fillContractSnap() {
+    const snapOn = contractQuarterHourSnapEnabled(state());
+    const snapInput = document.querySelector('#contract-quarter-hour-snap');
+    if (snapInput instanceof HTMLInputElement && snapInput !== document.activeElement) {
+      snapInput.checked = snapOn;
+    }
+    setContractSnapExtrasVisible(snapOn);
+    fillContractSnapBreaks(contractSnapBreaksFromState(state()));
+    const bidInput = document.querySelector('#bid-bump-use-snapped-times');
+    if (bidInput instanceof HTMLInputElement && bidInput !== document.activeElement) {
+      bidInput.checked = snapOn && bidBumpUseSnappedContractTimesEnabled(state());
+    }
+  }
+
+  function syncBidBumpSnapEnabled() {
+    const snapInput = document.querySelector('#contract-quarter-hour-snap');
+    const snapOn = snapInput instanceof HTMLInputElement ? snapInput.checked : true;
+    setContractSnapExtrasVisible(snapOn);
+  }
+
+  function onSaveContractSnap(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const snapInput = document.querySelector('#contract-quarter-hour-snap');
+    const bidInput = document.querySelector('#bid-bump-use-snapped-times');
+    const snapOn = snapInput instanceof HTMLInputElement ? snapInput.checked : true;
+    const bidOn =
+      snapOn && (bidInput instanceof HTMLInputElement ? bidInput.checked : true);
+    const breaks = readContractSnapBreaksFromForm();
+    const next = state();
+    next.contractQuarterHourSnap = snapOn;
+    next.bidBumpUseSnappedContractTimes = bidOn;
+    next.contractSnapBreaks = breaks;
+    writeState(next);
+    fillContractSnap();
+    const hoursMsg = snapOn
+      ? `Official contracted hours snap with bands :00–:${String(breaks.toHour).padStart(2, '0')} → :00, through :${String(breaks.toQuarter).padStart(2, '0')} → :15, through :${String(breaks.toHalf).padStart(2, '0')} → :30, from :${String(breaks.toNextHour).padStart(2, '0')} → next hour.`
+      : 'Official contracted hours use exact contract clocks, then round each run and the daily total.';
+    const bidMsg = !snapOn
+      ? ' Bid/bump windows use exact minute changes.'
+      : bidOn
+        ? ' Bid/bump windows use snapped contract times.'
+        : ' Bid/bump windows use exact minute changes.';
+    setFormStatus(form, `${hoursMsg}${bidMsg}`, 'ok');
   }
 
   function onSaveQuarterClocks(event) {
@@ -5613,6 +5716,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     fillSchoolYear();
     fillEarlyRelease();
     fillQuarterClocks();
+    fillContractSnap();
     fillOvertimeRules();
     fillPayDefaults();
     renderPayBrowser();

@@ -111,14 +111,22 @@ export function rebuildEmployeeRouteState(
   changeLog,
   calendar,
   asOfDate,
-  prior = {}
+  prior = {},
+  options = {}
 ) {
   const map = rebuildRouteStateFromChangeLog(
     changeLog,
     {},
     calendar,
     asOfDate,
-    { priorRouteState: prior }
+    {
+      priorRouteState: prior,
+      snapContractClocks: options.snapContractClocks === true,
+      bidBumpUseSnappedTimes: options.bidBumpUseSnappedTimes === true,
+      ...(options.contractSnapBreaks
+        ? { contractSnapBreaks: options.contractSnapBreaks }
+        : {}),
+    }
   );
   return map[EMPLOYEE_ROUTE_ID] ?? null;
 }
@@ -129,6 +137,59 @@ export function describeSchedule(segments) {
     out[segment] = splitSegmentRange(segments?.[segment] ?? null);
   }
   return out;
+}
+
+// Segments map from a schedule_history row's describeSchedule shape.
+function segmentsFromSchedule(schedule) {
+  const segments = {};
+  for (const segment of SEGMENTS) {
+    const range = schedule?.[segment]?.range;
+    if (range) segments[segment] = range;
+  }
+  return segments;
+}
+
+function payrollRoundedTotal(segments, rounding = {}) {
+  return buildPayrollRoundingBreakdown(segments || {}, rounding)
+    .payroll_rounded_total_minutes;
+}
+
+// When contract-clock snap is on, the Change column uses the same snapped
+// daily total as Scheduled Hours — not exact wall-clock minute deltas.
+function applySnappedChangeColumnLabels(rows, rounding) {
+  if (rounding?.snapContractClocks !== true || !rows?.length) return;
+  for (let index = 1; index < rows.length; index += 1) {
+    const row = rows[index];
+    if (row?.kind !== 'change') continue;
+    const previous = payrollRoundedTotal(
+      segmentsFromSchedule(rows[index - 1].schedule),
+      rounding
+    );
+    const current = payrollRoundedTotal(segmentsFromSchedule(row.schedule), rounding);
+    const delta = current - previous;
+    row.delta_minutes = delta;
+    row.delta_label = formatSignedMinutes(delta);
+  }
+}
+
+// Snapped daily-total effect of undoing `changes` from `segmentsAfter`.
+function snappedUndoDelta(segmentsAfter, changes, rounding) {
+  const before = { ...(segmentsAfter || {}) };
+  for (const change of [...(changes || [])].reverse()) {
+    if (!change?.segment || !SEGMENTS.includes(change.segment)) continue;
+    before[change.segment] = change.previous_time || null;
+  }
+  return payrollRoundedTotal(segmentsAfter, rounding) - payrollRoundedTotal(before, rounding);
+}
+
+function changeByIdMap(changeLog) {
+  const byId = new Map();
+  for (const entry of changeLog || []) {
+    if (entry?.id && (!entry.type || entry.type === 'CHANGE')) {
+      byId.set(entry.id, entry);
+    }
+  }
+  return byId;
 }
 
 function isSeedChange(change) {
@@ -361,8 +422,12 @@ function earliestChangeDate(ids, datesById) {
 // minutes. A later change added into that clock does not rename it.
 // A change that does not move an already-qualified bid is a separate
 // countdown, named for the day that change started.
-function countdownsFromState(state, datesById) {
+// With snapContractClocks, minutes follow the snapped Scheduled Hours total
+// for that countdown's changes — not exact wall-clock deltas.
+function countdownsFromState(state, datesById, changeLog, calendar, rounding = {}) {
   if (!state) return [];
+  const snap = rounding.snapContractClocks === true;
+  const byId = snap ? changeByIdMap(changeLog) : null;
   const countdowns = [];
   const windowOpen =
     state.status === 'ACCUMULATING' &&
@@ -371,9 +436,25 @@ function countdownsFromState(state, datesById) {
     const started =
       state.window_opened_date || earliestChangeDate(state.contributing_change_ids, datesById);
     if (started) {
+      let minutes = state.cumulative_drift_minutes ?? 0;
+      if (snap) {
+        const changes = (state.contributing_change_ids || [])
+          .map((id) => byId.get(id))
+          .filter(Boolean)
+          .sort(chronologicalChangeCompare);
+        const after = { ...(state.baseline_segments || {}) };
+        for (const change of changes) {
+          if (change.segment && SEGMENTS.includes(change.segment)) {
+            after[change.segment] = change.new_time || null;
+          }
+        }
+        minutes =
+          payrollRoundedTotal(after, rounding) -
+          payrollRoundedTotal(state.baseline_segments, rounding);
+      }
       countdowns.push({
         started_on: started,
-        minutes: state.cumulative_drift_minutes ?? 0,
+        minutes,
       });
     }
   }
@@ -383,16 +464,30 @@ function countdownsFromState(state, datesById) {
   for (const side of sides) {
     const started = side.opened_date || earliestChangeDate(side.contributing_change_ids, datesById);
     if (!started) continue;
+    let minutes = side.drift_minutes ?? 0;
+    if (snap && calendar) {
+      const sideState = rebuildEmployeeRouteState(
+        logThroughDate(changeLog, started),
+        calendar,
+        started,
+        {},
+        rounding
+      );
+      const changes = (side.contributing_change_ids || [])
+        .map((id) => byId.get(id))
+        .filter(Boolean);
+      minutes = snappedUndoDelta(sideState?.segments, changes, rounding);
+    }
     countdowns.push({
       started_on: started,
-      minutes: side.drift_minutes ?? 0,
+      minutes,
     });
   }
   return countdowns;
 }
 
 // As of each schedule row, every countdown still open that day.
-export function annotateOpenCountdowns(rows, changeLog, calendar) {
+export function annotateOpenCountdowns(rows, changeLog, calendar, rounding = {}) {
   if (!calendar || !rows?.length) return rows;
   const datesById = new Map();
   for (const change of changeLog || []) {
@@ -401,18 +496,33 @@ export function annotateOpenCountdowns(rows, changeLog, calendar) {
   }
   for (const row of rows) {
     if (row?.kind !== 'change' || !row.date) continue;
-    const state = rebuildEmployeeRouteState(logThroughDate(changeLog, row.date), calendar, row.date);
-    row.countdowns = countdownsFromState(state, datesById);
+    const state = rebuildEmployeeRouteState(
+      logThroughDate(changeLog, row.date),
+      calendar,
+      row.date,
+      {},
+      rounding
+    );
+    row.countdowns = countdownsFromState(state, datesById, changeLog, calendar, rounding);
   }
   return rows;
 }
 
 // A same-day row can mix the open bid with a later change that did not
-// move it. The date column follows the bid, not that later countdown.
+// move it. The date column follows the bid (predicted or already posted),
+// not that later side countdown.
 function contractedStatusForChanges(changes, context) {
   const statuses = changes.map((change) => contractedStatusForChange(change, context));
   const standing = statuses.find((item) => item.status === 'predicted' && item.becomes_on);
-  return standing || statuses.at(-1);
+  if (standing) return standing;
+  const posted = statuses.find(
+    (item) =>
+      item.status === 'bid_pending' ||
+      item.status === 'bump_eligible' ||
+      item.status === 'became_contracted'
+  );
+  if (posted) return posted;
+  return statuses.at(-1);
 }
 
 function contractedStatusForChange(change, { reports, openIds, lastOpenId, entry, window, sideWindows = [] }) {
@@ -597,18 +707,23 @@ function annotateBidPosting(history, schoolDays) {
   }
 }
 
-export function officialContractedMinutes(entry) {
+export function officialContractedMinutes(entry, options = {}) {
   if (!entry) {
     return null;
-  }
-  if (entry.payroll_rounded_total_minutes != null) {
-    return entry.payroll_rounded_total_minutes;
   }
   const source =
     entry.status === 'ACCUMULATING'
       ? entry.baseline_segments
       : entry.segments;
-  return buildPayrollRoundingBreakdown(source).payroll_rounded_total_minutes;
+  // When the office passes the contract-snap setting (on or off), recompute
+  // so a toggle updates hours without waiting for the next finalization.
+  if (Object.prototype.hasOwnProperty.call(options, 'snapContractClocks') && source) {
+    return buildPayrollRoundingBreakdown(source, options).payroll_rounded_total_minutes;
+  }
+  if (entry.payroll_rounded_total_minutes != null) {
+    return entry.payroll_rounded_total_minutes;
+  }
+  return buildPayrollRoundingBreakdown(source, options).payroll_rounded_total_minutes;
 }
 
 export function buildEmployeeSnapshot({
@@ -619,8 +734,27 @@ export function buildEmployeeSnapshot({
   asOfDate,
   calendarSummary,
   calendarSource,
+  snapContractClocks,
+  bidBumpUseSnappedTimes,
+  contractSnapBreaks,
 }) {
   const asOf = toDateString(asOfDate);
+  const rounding =
+    snapContractClocks === undefined &&
+    bidBumpUseSnappedTimes === undefined &&
+    contractSnapBreaks === undefined
+      ? {}
+      : {
+          ...(snapContractClocks === undefined
+            ? {}
+            : { snapContractClocks: snapContractClocks === true }),
+          ...(bidBumpUseSnappedTimes === undefined
+            ? {}
+            : { bidBumpUseSnappedTimes: bidBumpUseSnappedTimes === true }),
+          ...(contractSnapBreaks === undefined
+            ? {}
+            : { contractSnapBreaks }),
+        };
   const setup_complete = Boolean(profile && entry);
   const changes = changeLog
     .filter((item) => !item.type || item.type === 'CHANGE')
@@ -647,17 +781,36 @@ export function buildEmployeeSnapshot({
 
   const schedule = describeSchedule(entry?.segments ?? {});
   const scheduledExact = entry
-    ? buildPayrollRoundingBreakdown(entry.segments)
+    ? buildPayrollRoundingBreakdown(entry.segments, rounding)
     : null;
-  const contractedMinutes = officialContractedMinutes(entry);
-  const window = entry ? buildWindowView(entry, calendar, asOf) : null;
+  const contractedMinutes = officialContractedMinutes(entry, rounding);
+  const window = entry ? buildWindowView(entry, calendar, asOf, rounding) : null;
   const schedule_history = buildScheduleHistory(
     changeLog,
     entry,
     window,
     profile?.start_date ?? null
   );
-  annotateOpenCountdowns(schedule_history, changeLog, calendar);
+  annotateOpenCountdowns(schedule_history, changeLog, calendar, rounding);
+  applySnappedChangeColumnLabels(schedule_history, rounding);
+  if (rounding.snapContractClocks === true) {
+    // Countdown minutes already used snap above; refresh Change · labels from
+    // consecutive snapped Scheduled Hours, then rebuild cumulative labels from
+    // those row deltas so hover copy matches the column.
+    for (const row of schedule_history) {
+      if (row?.kind !== 'change') continue;
+      if (row.change_ids?.length > 1) {
+        // One snapped total for the whole same-day edit; attribute it to the
+        // last change id so cumulative sums still advance once per row.
+        row.delta_by_id = Object.fromEntries(
+          row.change_ids.map((id) => [id, id === row.change_id ? row.delta_minutes : 0])
+        );
+      } else if (row.change_id) {
+        row.delta_by_id = { [row.change_id]: row.delta_minutes };
+      }
+    }
+    annotateCumulativeDrift(schedule_history, entry);
+  }
   const schoolDays = getSchoolDays(calendar);
   annotateBidPosting(schedule_history, schoolDays);
   annotateContractHoursChange(schedule_history, schoolDays);
@@ -708,7 +861,7 @@ export function buildEmployeeSnapshot({
   };
 }
 
-function buildWindowView(entry, calendar, asOf) {
+function buildWindowView(entry, calendar, asOf, rounding = {}) {
   const status = entry.status;
   const copy = STATUS_COPY[status] ?? {
     label: status,
@@ -733,10 +886,14 @@ function buildWindowView(entry, calendar, asOf) {
       ? OUTCOME_COPY[projectedOutcome]
       : null;
   const math = open
-    ? buildSeeTheMathFromSegments(entry.baseline_segments, entry.segments)
+    ? buildSeeTheMathFromSegments(entry.baseline_segments, entry.segments, rounding)
     : null;
-  const currentContractMinutes =
-    typeof entry.payroll_rounded_total_minutes === 'number'
+  const currentContractMinutes = Object.prototype.hasOwnProperty.call(
+    rounding,
+    'snapContractClocks'
+  )
+    ? officialContractedMinutes(entry, rounding)
+    : typeof entry.payroll_rounded_total_minutes === 'number'
       ? entry.payroll_rounded_total_minutes
       : math?.before?.payroll_rounded_total_minutes;
   const openWindowStatement =
@@ -847,6 +1004,9 @@ export function previewEmployeeChange({
   change_date,
   force_oct1_contract = false,
   changeLog = null,
+  snapContractClocks,
+  bidBumpUseSnappedTimes,
+  contractSnapBreaks,
 }) {
   if (!entry) {
     throw new Error('Set up your starting schedule before previewing a change.');
@@ -881,8 +1041,23 @@ export function previewEmployeeChange({
     entered_by: 'Self',
     force_oct1_contract: isForcedOctober1Contract(force_oct1_contract),
   };
+  const rounding =
+    snapContractClocks === undefined &&
+    bidBumpUseSnappedTimes === undefined &&
+    contractSnapBreaks === undefined
+      ? {}
+      : {
+          ...(snapContractClocks === undefined
+            ? {}
+            : { snapContractClocks: snapContractClocks === true }),
+          ...(bidBumpUseSnappedTimes === undefined
+            ? {}
+            : { bidBumpUseSnappedTimes: bidBumpUseSnappedTimes === true }),
+          ...(contractSnapBreaks === undefined ? {} : { contractSnapBreaks }),
+        };
   const next = applyChangeToRoute(entry, hypothetical, calendar, changeDate, delta, {
     changeLog: [...(changeLog ?? []), hypothetical],
+    ...rounding,
   });
   const closedReport = (next.change_reports ?? []).find(
     (report) =>
@@ -915,11 +1090,13 @@ export function previewEmployeeChange({
       : null;
   const compared = closedReport
     ? null
-    : buildSeeTheMathFromSegments(next.baseline_segments, next.segments);
+    : buildSeeTheMathFromSegments(next.baseline_segments, next.segments, rounding);
   const previewCurrentMinutes =
-    typeof entry.payroll_rounded_total_minutes === 'number'
-      ? entry.payroll_rounded_total_minutes
-      : compared?.before?.payroll_rounded_total_minutes;
+    Object.prototype.hasOwnProperty.call(rounding, 'snapContractClocks')
+      ? officialContractedMinutes(entry, rounding)
+      : typeof entry.payroll_rounded_total_minutes === 'number'
+        ? entry.payroll_rounded_total_minutes
+        : compared?.before?.payroll_rounded_total_minutes;
   const math = closedReport
     ? {
         contracted_hours_changed: closedReport.contracted_hours_changed,

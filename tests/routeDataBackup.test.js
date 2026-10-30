@@ -30,13 +30,13 @@ function memoryStorage() {
   };
 }
 
-test('route backup reminders default to daily', () => {
+test('route backup reminders default to off', () => {
   assert.equal(normalizeRouteBackupReminder(''), DEFAULT_ROUTE_BACKUP_REMINDER);
-  assert.equal(normalizeRouteBackupReminder('nope'), 'daily');
+  assert.equal(normalizeRouteBackupReminder('nope'), 'off');
   assert.equal(normalizeRouteBackupReminder('WEEKLY'), 'weekly');
   assert.equal(normalizeRouteBackupReminder('off'), 'off');
   const prefs = normalizeRouteDataBackup(undefined);
-  assert.equal(prefs.reminder, 'daily');
+  assert.equal(prefs.reminder, 'off');
   assert.equal(prefs.fileBase, ROUTE_DATA_FILE_BASE);
   assert.equal(prefs.lastDownloadedAt, '');
   assert.equal(prefs.lastFilename, '');

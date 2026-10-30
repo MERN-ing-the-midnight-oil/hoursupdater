@@ -74,10 +74,12 @@ describe('schedule clock differences', () => {
       [false, true, false, false, false, false]
     );
     assert.equal(changedAm[1].text, '8:55');
-    assert.match(rows[1], /Change · \+15 min/);
-    assert.match(rows[1], /Cumulative change · \+15 min/);
-    assert.match(rows[2], /Change · \+15 min/);
-    assert.match(rows[2], /Cumulative change · \+30 min/);
+    assert.match(html, /<th scope="col">Change<\/th>/);
+    assert.match(rows[1], /<th scope="row">Fri, Sep 11, 2026<\/th>/);
+    assert.match(rows[1], /change-figure[\s\S]*Change · \+15 min/);
+    assert.match(rows[1], /change-figure[\s\S]*Cumulative change · \+15 min/);
+    assert.match(rows[2], /change-figure[\s\S]*Change · \+15 min/);
+    assert.match(rows[2], /change-figure[\s\S]*Cumulative change · \+30 min/);
 
     const changedPm = marks(rows[2]);
     assert.deepEqual(

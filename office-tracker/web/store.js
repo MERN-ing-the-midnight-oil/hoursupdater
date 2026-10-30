@@ -26,6 +26,10 @@ import { normalizeOvertimeRules } from '../src/overtimeRules.js';
 import { mergePaperBackup, normalizePaperBackup } from '../src/paperClockBackup.js';
 import { mergeRouteDataBackup, normalizeRouteDataBackup } from '../src/routeDataBackup.js';
 import { normalizePunchSound } from './punchSounds.js';
+import {
+  DEFAULT_CONTRACT_SNAP_BREAKS,
+  normalizeContractSnapBreaks,
+} from '../../src/logic/timeUtils.js';
 
 export const STORAGE_KEY = 'transportation-timechange.v1';
 
@@ -234,6 +238,45 @@ export function quarterHourClocksEnabled(state) {
   return clockRoundingMode(state) === CLOCK_ROUNDING_SNAP;
 }
 
+// Office practice: snap contract start/end clocks with the office minute bands
+// before counting official contracted hours. Missing means on (current practice).
+// Turn off to roll back to exact contract clocks, then duration rounding.
+export function contractQuarterHourSnapEnabled(state) {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return true;
+  if (!Object.prototype.hasOwnProperty.call(state, 'contractQuarterHourSnap')) return true;
+  return state.contractQuarterHourSnap !== false;
+}
+
+// When contract-clock snap is on, Art. 3.08 bid/bump windows can follow those
+// snapped daily totals instead of exact wall-clock minute deltas. Missing means
+// on (office practice). Ignored when contract snap itself is off.
+export function bidBumpUseSnappedContractTimesEnabled(state) {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return true;
+  if (!Object.prototype.hasOwnProperty.call(state, 'bidBumpUseSnappedContractTimes')) {
+    return true;
+  }
+  return state.bidBumpUseSnappedContractTimes !== false;
+}
+
+export function contractSnapBreaksFromState(state) {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) {
+    return { ...DEFAULT_CONTRACT_SNAP_BREAKS };
+  }
+  return normalizeContractSnapBreaks(state.contractSnapBreaks);
+}
+
+// Options bag for contracted-hours math and Art. 3.08 drift across the office app.
+export function contractSnapOptions(state) {
+  const snapContractClocks = contractQuarterHourSnapEnabled(state);
+  const contractSnapBreaks = contractSnapBreaksFromState(state);
+  return {
+    snapContractClocks,
+    bidBumpUseSnappedTimes:
+      snapContractClocks && bidBumpUseSnappedContractTimesEnabled(state),
+    ...(snapContractClocks ? { contractSnapBreaks } : {}),
+  };
+}
+
 function quarterHourClocksField(source) {
   if (!source || typeof source !== 'object') return {};
   const saved = {};
@@ -245,6 +288,15 @@ function quarterHourClocksField(source) {
   }
   if (Object.prototype.hasOwnProperty.call(source, 'clockQuarterHourClocks')) {
     saved.clockQuarterHourClocks = source.clockQuarterHourClocks !== false;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, 'contractQuarterHourSnap')) {
+    saved.contractQuarterHourSnap = source.contractQuarterHourSnap !== false;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, 'bidBumpUseSnappedContractTimes')) {
+    saved.bidBumpUseSnappedContractTimes = source.bidBumpUseSnappedContractTimes !== false;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, 'contractSnapBreaks')) {
+    saved.contractSnapBreaks = normalizeContractSnapBreaks(source.contractSnapBreaks);
   }
   return saved;
 }
@@ -784,6 +836,16 @@ export function mergeSharedDriverList(remoteState, localState) {
   }
   if (localState && Object.prototype.hasOwnProperty.call(localState, 'clockQuarterHourClocks')) {
     remote.clockQuarterHourClocks = localState.clockQuarterHourClocks !== false;
+  }
+  if (localState && Object.prototype.hasOwnProperty.call(localState, 'contractQuarterHourSnap')) {
+    remote.contractQuarterHourSnap = localState.contractQuarterHourSnap !== false;
+  }
+  if (localState && Object.prototype.hasOwnProperty.call(localState, 'bidBumpUseSnappedContractTimes')) {
+    remote.bidBumpUseSnappedContractTimes =
+      localState.bidBumpUseSnappedContractTimes !== false;
+  }
+  if (localState && Object.prototype.hasOwnProperty.call(localState, 'contractSnapBreaks')) {
+    remote.contractSnapBreaks = normalizeContractSnapBreaks(localState.contractSnapBreaks);
   }
   if (localState && Object.prototype.hasOwnProperty.call(localState, 'overtimeRules')) {
     remote.overtimeRules = normalizeOvertimeRules(localState.overtimeRules);

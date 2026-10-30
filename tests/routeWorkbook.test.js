@@ -39,7 +39,7 @@ describe('current route data workbook', () => {
     assert.equal(clock.getRow(2).getCell(1).value, 'Driver');
     assert.equal(clock.getRow(2).getCell(2).value, 'Alex Driver');
     assert.deepEqual(
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((col) => clock.getRow(4).getCell(col).value),
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((col) => clock.getRow(4).getCell(col).value),
       [
         'Force Oct 1 Contract',
         'New Schedule Started',
@@ -49,6 +49,7 @@ describe('current route data workbook', () => {
         'Midday end',
         'PM start',
         'PM end',
+        'Change',
         'Scheduled Hours',
         'Contract Time Change',
         'Date, if Contracted',
@@ -60,16 +61,18 @@ describe('current route data workbook', () => {
     assert.equal(clock.getRow(5).getCell(3).value.toISOString(), '1899-12-30T06:15:00.000Z');
     assert.equal(clock.getRow(5).getCell(3).numFmt, 'h:mm AM/PM');
     assert.equal(clock.getRow(5).getCell(7).value.toISOString(), '1899-12-30T14:10:00.000Z');
-    assert.equal(clock.getRow(5).getCell(9).value, '6 hr 15 min');
-    assert.equal(clock.getRow(5).getCell(10).value, '—');
-    assert.equal(clock.getRow(5).getCell(11).value, '09/08/2026');
+    assert.equal(clock.getRow(5).getCell(9).value, 'Established');
+    assert.equal(clock.getRow(5).getCell(10).value, '6 hr 15 min');
+    assert.equal(clock.getRow(5).getCell(11).value, '—');
+    assert.equal(clock.getRow(5).getCell(12).value, '09/08/2026');
     assert.equal(clock.getColumn(1).hidden, true);
     assert.equal(clock.getRow(6).getCell(1).value, 'Off');
     assert.equal(clock.getRow(6).getCell(4).value.toISOString(), '1899-12-30T09:00:00.000Z');
     assert.equal(clock.getRow(6).getCell(4).font.bold, true);
-    assert.equal(clock.getRow(6).getCell(9).value, '6 hr 30 min');
-    assert.equal(clock.getRow(6).getCell(10).value, 'Oct 28');
-    assert.match(String(clock.getRow(6).getCell(11).value), /Note: Fifteen minutes added, after the stop/);
+    assert.match(String(clock.getRow(6).getCell(9).value), /Change · \+15 min/);
+    assert.equal(clock.getRow(6).getCell(10).value, '6 hr 30 min');
+    assert.equal(clock.getRow(6).getCell(11).value, 'Oct 28');
+    assert.match(String(clock.getRow(6).getCell(12).value), /Note: Fifteen minutes added, after the stop/);
 
     const p32 = workbook.getWorksheet('P32');
     assert.equal(p32.getRow(5).getCell(5).value, null);

@@ -4,9 +4,13 @@ import {
   buildPayrollRoundingBreakdown,
   computeDeltaMinutes,
   computeExactRouteDailyTotalMinutes,
+  normalizeContractSnapBreaks,
   parseTimeRange,
   roundClockToQuarterHour,
   roundToQuarterHourForPayroll,
+  snapContractClockToBreaks,
+  snapContractTimeRange,
+  snappedContractScheduleDeltaMinutes,
   toDateString,
 } from '../src/logic/timeUtils.js';
 
@@ -120,6 +124,69 @@ describe('timeUtils', () => {
       assert.equal(breakdown.payroll_rounded_total_minutes, 300);
       assert.equal(roundToQuarterHourForPayroll(321), 315);
       assert.notEqual(breakdown.payroll_rounded_total_minutes, 315);
+    });
+
+    it('can snap contract clocks before counting official hours', () => {
+      assert.equal(snapContractTimeRange('14:05-17:25'), '14:00-17:30');
+      const exact = buildPayrollRoundingBreakdown({
+        AM: null,
+        MIDDAY: null,
+        PM: '14:05-17:25', // 200 → 195
+      });
+      assert.equal(exact.payroll_rounded_total_minutes, 195);
+      const snapped = buildPayrollRoundingBreakdown(
+        {
+          AM: null,
+          MIDDAY: null,
+          PM: '14:05-17:25',
+        },
+        { snapContractClocks: true }
+      );
+      assert.equal(snapped.exact_total_minutes, 200);
+      assert.equal(snapped.segments[2].snapped_time, '14:00-17:30');
+      assert.equal(snapped.segments[2].duration_minutes, 210);
+      assert.equal(snapped.payroll_rounded_total_minutes, 210);
+      assert.equal(snapped.snap_contract_clocks, true);
+    });
+
+    it('uses office minute bands instead of nearest-quarter for contract clocks', () => {
+      assert.equal(snapContractClockToBreaks('6:00'), '6:00');
+      assert.equal(snapContractClockToBreaks('6:06'), '6:00');
+      assert.equal(snapContractClockToBreaks('6:07'), '6:15');
+      assert.equal(snapContractClockToBreaks('6:21'), '6:15');
+      assert.equal(snapContractClockToBreaks('6:22'), '6:30');
+      assert.equal(snapContractClockToBreaks('6:36'), '6:30');
+      assert.equal(snapContractClockToBreaks('6:37'), '6:45');
+      assert.equal(snapContractClockToBreaks('6:51'), '6:45');
+      assert.equal(snapContractClockToBreaks('6:52'), '7:00');
+      assert.equal(snapContractClockToBreaks('6:59'), '7:00');
+      assert.deepEqual(normalizeContractSnapBreaks({ toHour: 8, toQuarter: 5, toHalf: 40, toNextHour: 39 }), {
+        toHour: 8,
+        toQuarter: 9,
+        toHalf: 40,
+        toNextHour: 41,
+      });
+      assert.equal(
+        snapContractClockToBreaks('6:08', { toHour: 8, toQuarter: 21, toHalf: 36, toNextHour: 52 }),
+        '6:00'
+      );
+    });
+
+    it('measures a schedule change by snapped contracted daily totals', () => {
+      assert.equal(
+        snappedContractScheduleDeltaMinutes(
+          { AM: '6:40-8:40', MIDDAY: null, PM: '14:05-16:25' },
+          { AM: '6:40-8:40', MIDDAY: null, PM: '14:05-16:45' }
+        ),
+        15
+      );
+      assert.equal(
+        snappedContractScheduleDeltaMinutes(
+          { AM: '6:40-8:40', MIDDAY: null, PM: '14:05-16:05' },
+          { AM: '6:40-8:40', MIDDAY: null, PM: '14:05-16:34' }
+        ),
+        30
+      );
     });
   });
 });

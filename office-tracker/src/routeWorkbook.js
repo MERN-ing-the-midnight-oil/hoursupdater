@@ -18,6 +18,7 @@ import {
   omittedDriverKeys,
   splitPersonName,
 } from '../web/store.js';
+import { scheduleChangeKind } from '../../employee-tracker/src/clockHistory.js';
 import { contractColumnsForHistory } from './historyMarkup.js';
 import { clockRowsFromState, stateFromClockRows } from './routesCsv.js';
 
@@ -34,6 +35,7 @@ const SCHEDULE_HEADERS = [
   'Midday end',
   'PM start',
   'PM end',
+  'Change',
   'Scheduled Hours',
   'Contract Time Change',
   'Date, if Contracted',
@@ -279,6 +281,7 @@ function writeRouteSheet(workbook, profile, history, usedNames) {
       excelClock(schedule.MIDDAY?.clock_out),
       excelClock(schedule.PM?.clock_in),
       excelClock(schedule.PM?.clock_out),
+      scheduleChangeKind(row),
       column.hours,
       column.contractTimeChange,
       contractedCellText(row, column),
@@ -287,7 +290,7 @@ function writeRouteSheet(workbook, profile, history, usedNames) {
       const cell = added.getCell(col);
       cell.alignment = {
         vertical: 'middle',
-        wrapText: col === 11,
+        wrapText: col === 9 || col === 12,
         horizontal: 'left',
       };
       if (shaded) cell.fill = BAND_FILL;
@@ -306,7 +309,9 @@ function writeRouteSheet(workbook, profile, history, usedNames) {
         cell.fill = CHANGED_FILL;
       }
     }
-    const wraps = String(added.getCell(11).value ?? '').includes('\n');
+    const wraps =
+      String(added.getCell(9).value ?? '').includes('\n') ||
+      String(added.getCell(12).value ?? '').includes('\n');
     if (wraps) added.height = 48;
     shaded = !shaded;
   });
@@ -374,13 +379,13 @@ export async function buildRouteWorkbook(state, options = {}) {
     [''],
     ['Route clock times', { bold: true, size: 14 }],
     [
-      'The column headings match Route clock times in the dashboard: New Schedule Started, AM start, AM end, Midday start, Midday end, PM start, PM end, Scheduled Hours, Contract Time Change, and Date, if Contracted.',
+      'The column headings match Route clock times in the dashboard: New Schedule Started, AM start, AM end, Midday start, Midday end, PM start, PM end, Change, Scheduled Hours, Contract Time Change, and Date, if Contracted.',
     ],
     [
       'The first row of times is the established starting schedule. Later rows are changes, oldest to newest. Runs that moved on the same date share one row, and bold highlighted times are the runs that changed.',
     ],
     [
-      'Scheduled Hours is the rounded total of the clock times on that row. Contract Time Change is the date those rounded hours changed, or the date they are predicted to change, such as Nov 4. For a route that goes up for bid, that date is the 15th school day after the change. A row that rounds to the same total as the row above has no date there. Date, if Contracted is the date those hours became the contract, or "predicted: mm/dd/yyyy" for the next contracted date if no further change is logged. A route posted during the last five school days of the month says "Predicted up for bid mm/dd–mm/dd". A later change with a different date says "new predicted: mm/dd/yyyy" or "New predicted up for bid mm/dd–mm/dd", and the date it replaces says "old predicted" or "Old predicted up for bid". A line that starts with Note: is the note for that change.',
+      'New Schedule Started is the date only. Change holds the minute change, cumulative change, and countdown lines. Scheduled Hours is the rounded total of the clock times on that row. Contract Time Change is the date those rounded hours changed, or the date they are predicted to change, such as Nov 4. For a route that goes up for bid, that date is the 15th school day after the change. A row that rounds to the same total as the row above has no date there. Date, if Contracted is the date those hours became the contract, or "predicted: mm/dd/yyyy" for the next contracted date if no further change is logged. A route posted during the last five school days of the month says "Predicted up for bid mm/dd–mm/dd". A later change with a different date says "new predicted: mm/dd/yyyy" or "New predicted up for bid mm/dd–mm/dd", and the date it replaces says "old predicted" or "Old predicted up for bid". A line that starts with Note: is the note for that change.',
     ],
     [
       'A hidden column keeps October 1 contract marks from earlier this school year. Leave that column in the file so those contract dates stay the same when this workbook is opened again.',

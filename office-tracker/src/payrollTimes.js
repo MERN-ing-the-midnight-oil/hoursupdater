@@ -16,6 +16,7 @@ import {
   CLOCK_ROUNDING_DAILY,
   CLOCK_ROUNDING_SNAP,
   clockRoundingMode,
+  contractSnapOptions,
   driversFromState,
   compareRouteNumbers,
   normalizeClockRounding,
@@ -720,7 +721,13 @@ export function payrollDriverRows(state, options = {}) {
     if (!driverName) continue;
     assigned.add(driverName.toLowerCase());
     const driver = directory.get(driverName.toLowerCase());
-    const entry = rebuildEmployeeRouteState(profile.changeLog ?? [], calendar, asOf);
+    const entry = rebuildEmployeeRouteState(
+      profile.changeLog ?? [],
+      calendar,
+      asOf,
+      {},
+      contractSnapOptions(state)
+    );
     rows.push(
       rowForRoute(driver?.email ?? '', driverName, profile.name, entry, {
         startDate: profile.start_date,

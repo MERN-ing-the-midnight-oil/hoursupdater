@@ -157,7 +157,8 @@ describe('clock history calendar marks', () => {
     assert.equal(marks.get('2026-11-19')?.arrowHead, true);
     assert.equal(marks.get('2026-11-19')?.goesToBid, true);
     assert.equal(Boolean(marks.get('2026-11-20')?.contractedDay), false);
-    assert.equal(marks.has('2026-11-20'), false);
+    assert.equal(marks.get('2026-11-20')?.result, 'BID');
+    assert.equal(marks.get('2026-11-20')?.window, false);
     assert.equal(marks.has('2026-12-01'), false);
     assert.equal(november?.start, '2026-11-20');
     assert.equal(november?.end, '2026-11-30');
@@ -168,6 +169,79 @@ describe('clock history calendar marks', () => {
       '2026-11-25',
       '2026-11-30',
     ]);
+  });
+
+  it('puts a BUMP square on the resolution date after a finished countdown', () => {
+    const fifteenth = addSchoolDays(schoolDays, '2026-10-09', 15);
+    const bumpOn = addSchoolDays(schoolDays, fifteenth, 1);
+    const marks = buildClockHistoryMarks(
+      [
+        row({
+          date: '2026-10-09',
+          delta_minutes: -35,
+          delta_label: '−35 min',
+          contracted: {
+            status: 'predicted',
+            projected_outcome: 'BUMP_ELIGIBLE',
+            becomes_on: bumpOn,
+          },
+        }),
+      ],
+      { schoolDays }
+    );
+
+    assert.equal(marks.get(fifteenth)?.windowDay, 15);
+    assert.equal(marks.get(bumpOn)?.result, 'BUMP');
+    assert.equal(Boolean(marks.get(bumpOn)?.contractedDay), false);
+    assert.equal(marks.get(bumpOn)?.window, false);
+  });
+
+  it('keeps a BID square when a later change opens a new window after posting day', () => {
+    const marks = buildClockHistoryMarks(
+      [
+        {
+          kind: 'initial',
+          date: '2026-08-31',
+          contracted: { status: 'established' },
+        },
+        row({
+          date: '2026-10-05',
+          delta_minutes: 15,
+          delta_label: '+15 min',
+          contracted: {
+            status: 'bid_pending',
+            projected_outcome: 'BID_PENDING',
+            becomes_on: '2026-10-27',
+          },
+        }),
+        row({
+          date: '2026-10-06',
+          delta_minutes: 45,
+          delta_label: '+45 min',
+          contracted: {
+            status: 'separate_countdown',
+            becomes_on: '2026-10-28',
+          },
+        }),
+        row({
+          date: '2026-11-02',
+          delta_minutes: 30,
+          delta_label: '+30 min',
+          contracted: {
+            status: 'predicted',
+            projected_outcome: 'BID_PENDING',
+            becomes_on: '2026-11-25',
+          },
+        }),
+      ],
+      { schoolDays }
+    );
+
+    assert.equal(marks.get('2026-10-26')?.windowDay, 15);
+    assert.equal(marks.get('2026-10-27')?.result, 'BID');
+    assert.equal(marks.get('2026-10-27')?.toneIndex, 1);
+    assert.equal(marks.get('2026-11-25')?.result, 'BID');
+    assert.equal(marks.get('2026-11-25')?.toneIndex, 3);
   });
 
   it('stops an earlier 15-day window when the next change resets it', () => {

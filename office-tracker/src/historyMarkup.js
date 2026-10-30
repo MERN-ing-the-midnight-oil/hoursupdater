@@ -64,16 +64,17 @@ export function shortMonthDay(iso) {
 }
 
 // Payroll-rounded daily total for one schedule row.
-// Each run is rounded to the nearest 15 minutes, those amounts are added,
-// and that sum is rounded again.
-export function scheduleRoundedMinutes(schedule) {
+// Default: each run is rounded to the nearest 15 minutes, those amounts are
+// added, and that sum is rounded again. With snapContractClocks, each run's
+// clocks snap to the nearest quarter hour before that math.
+export function scheduleRoundedMinutes(schedule, options = {}) {
   const segments = {};
   for (const run of RUNS) {
     const range = schedule?.[run.id]?.range;
     if (range) segments[run.id] = range;
   }
   if (!Object.keys(segments).length) return null;
-  return buildPayrollRoundingBreakdown(segments).payroll_rounded_total_minutes;
+  return buildPayrollRoundingBreakdown(segments, options).payroll_rounded_total_minutes;
 }
 
 function hoursText(minutes) {
@@ -84,10 +85,10 @@ function hoursText(minutes) {
 // predicted to change, written as "Nov 4". A monthly bid uses the 15th
 // school day after the change. A row that rounds to the same total as the
 // row above did not change the contracted hours, so it has no date here.
-function contractTimeChangeText(rows, index) {
+function contractTimeChangeText(rows, index, options = {}) {
   if (index <= 0) return '—';
-  const current = scheduleRoundedMinutes(rows[index]?.schedule);
-  const previous = scheduleRoundedMinutes(rows[index - 1]?.schedule);
+  const current = scheduleRoundedMinutes(rows[index]?.schedule, options);
+  const previous = scheduleRoundedMinutes(rows[index - 1]?.schedule, options);
   if (current == null || previous == null || current === previous) return '—';
   return shortMonthDay(rows[index]?.contracted?.hours_change_on) || '—';
 }
@@ -172,7 +173,9 @@ function standingPredictedRow(rows, index) {
 }
 
 // Scheduled Hours is the rounded total of the clock times on that row.
-export function contractColumnsForHistory(rows, schoolDays) {
+// When snapContractClocks is on, the Change column uses that same snapped
+// total for Change and Countdown lines (see applySnappedChangeColumnLabels).
+export function contractColumnsForHistory(rows, schoolDays, options = {}) {
   const list = rows || [];
   const roles = predictedDateRoles(list);
   return list.map((row, index) => {
@@ -181,8 +184,8 @@ export function contractColumnsForHistory(rows, schoolDays) {
       ? contractedDateText(standing.row, roles.get(standing.index) || 'predicted', schoolDays)
       : contractedDateText(row, roles.get(index), schoolDays);
     return {
-      hours: hoursText(scheduleRoundedMinutes(row.schedule)),
-      contractTimeChange: contractTimeChangeText(list, index),
+      hours: hoursText(scheduleRoundedMinutes(row.schedule, options)),
+      contractTimeChange: contractTimeChangeText(list, index, options),
       contractedDate,
     };
   });
@@ -249,10 +252,7 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES)
         : '';
       const note = row.note ? `<span class="change-note">${escapeHtml(row.note)}</span>` : '';
       return `<tr class="is-history${predicted ? ' is-predicted' : ''}" style="--tone:${toneForRow(index, tones)}">
-        <th scope="row">
-          ${escapeHtml(prettyDate(row.date))}
-          ${kind}
-        </th>
+        <th scope="row">${escapeHtml(prettyDate(row.date))}</th>
         ${RUNS.map((run) => {
           const item = row.schedule?.[run.id];
           const changed = row.segment === run.id || row.segments?.includes(run.id);
@@ -270,6 +270,7 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES)
             })
             .join('');
         }).join('')}
+        <td class="change-figure">${kind}</td>
         <td class="hours-figure">${escapeHtml(column.hours)}</td>
         <td class="hours-figure">${escapeHtml(column.contractTimeChange)}</td>
         <td>
@@ -290,6 +291,7 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES)
         <th scope="col">Midday end</th>
         <th scope="col">PM start</th>
         <th scope="col">PM end</th>
+        <th scope="col">Change</th>
         <th scope="col">Scheduled Hours</th>
         <th scope="col">Contract Time Change</th>
         <th scope="col">Date, if Contracted</th>
@@ -320,8 +322,97 @@ export function historyMonthsThroughNext(months, asOf) {
   });
 }
 
+// Months from the earliest through the latest notice send-by date.
+export function monthsSpanningIsoDates(months, dates) {
+  const keys = [...(dates || [])]
+    .map((value) => String(value || '').slice(0, 10))
+    .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))
+    .map((value) => value.slice(0, 7))
+    .sort();
+  if (!keys.length) return [];
+  const start = keys[0];
+  const end = keys[keys.length - 1];
+  return (months || []).filter((item) => {
+    const key = calendarMonthKey(item);
+    return Boolean(key) && key >= start && key <= end;
+  });
+}
+
+// School-year month grids with prebuilt mark HTML keyed by YYYY-MM-DD.
+// Light beige bid-rect shading matches the route history calendar for the
+// last five school days of each month, October through April.
+export function contractNoticeCalendarHtml({
+  calendar,
+  months,
+  marksByDate = {},
+  asOf = '',
+} = {}) {
+  const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const today = String(asOf || '').slice(0, 10);
+  const source = months || [];
+  if (!source.length) return '';
+  const bidRanges = calendar ? bidPeriodRanges(getSchoolDays(calendar)) : [];
+  return source
+    .map((month) => {
+      const first = month.days?.[0];
+      const pad = first ? new Date(`${first.date}T00:00:00Z`).getUTCDay() : 0;
+      const blanks = Array.from({ length: pad }, (_, index) => {
+        return `<div class="cal-day" style="grid-column:${index + 1};grid-row:2"></div>`;
+      });
+      const days = (month.days || []).map((day, index) => {
+        const num = Number(day.date.slice(-2));
+        const offReason = day.is_school_day ? '' : day.reason || 'Off';
+        const skipLabel =
+          !offReason ||
+          offReason === 'Weekend' ||
+          offReason.startsWith('Outside school year');
+        const short =
+          !day.is_school_day && !skipLabel ? offReason.replace(' (students off)', '') : '';
+        const slot = pad + index;
+        const col = (slot % 7) + 1;
+        const row = Math.floor(slot / 7) + 2;
+        const isToday = day.date === today;
+        const inBid = bidRanges.some((range) => day.date >= range.start && day.date <= range.end);
+        const marks = marksByDate[day.date] || '';
+        const classes = [
+          'cal-day',
+          day.is_school_day ? 'is-school' : 'is-off',
+          inBid ? 'is-bid-period' : '',
+          isToday ? 'is-today' : '',
+          marks ? 'has-contract-notice' : '',
+        ]
+          .filter(Boolean)
+          .join(' ');
+        const titleParts = [day.is_school_day ? 'School day' : offReason];
+        if (isToday) titleParts.unshift("Today's date");
+        if (inBid) titleParts.push('End-of-month bid period');
+        return `<div class="${classes}" style="grid-column:${col};grid-row:${row}" title="${escapeHtml(
+          titleParts.join(' · ')
+        )}"><span class="num">${num}</span>${marks}${
+          short ? `<span class="why">${escapeHtml(short)}</span>` : ''
+        }</div>`;
+      });
+      const rects = bidRectMarkup(bidRanges, month.days || [], pad);
+      return `<div class="month-block">
+        <h3>${escapeHtml(month.label)}</h3>
+        <div class="month-grid">
+          ${dows
+            .map(
+              (label, index) =>
+                `<div class="dow" style="grid-column:${index + 1};grid-row:1">${label}</div>`
+            )
+            .join('')}
+          ${blanks.join('')}${days.join('')}${rects}
+        </div>
+      </div>`;
+    })
+    .join('');
+}
+
 // Colorful countdown squares for one calendar day. A day can carry more than
-// one numbered count when a later change runs beside an open bid.
+// one numbered count when a later change runs beside an open bid. When a
+// countdown finishes as bid or bump, that resolution date gets a BID or BUMP
+// square in the same series color instead of a day number.
 function historyPipsHtml(mark) {
   if (!mark) return '';
   const parts = [];
@@ -348,6 +439,22 @@ function historyPipsHtml(mark) {
     if (!extra?.windowDay) continue;
     parts.push(
       `<span class="history-pip is-window" style="--tone:${extra.tone}" aria-hidden="true">#${extra.windowDay}</span>`
+    );
+  }
+  if (mark.result) {
+    const resultTone = mark.resultTone || mark.tone;
+    parts.push(
+      `<span class="history-pip is-result" style="--tone:${resultTone}" aria-hidden="true">${escapeHtml(
+        mark.result
+      )}</span>`
+    );
+  }
+  for (const extra of mark.extraResults || []) {
+    if (!extra?.result) continue;
+    parts.push(
+      `<span class="history-pip is-result" style="--tone:${extra.tone}" aria-hidden="true">${escapeHtml(
+        extra.result
+      )}</span>`
     );
   }
   if (!parts.length) return '';
@@ -424,6 +531,12 @@ export function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTOR
             if (extra?.windowDay) titleParts.push(`school day ${extra.windowDay} of 15`);
           }
           if (mark.contractedDay) titleParts.push('became contracted');
+          if (mark.result === 'BID') titleParts.push('posted for bid');
+          else if (mark.result === 'BUMP') titleParts.push('bump eligible');
+          for (const extra of mark.extraResults || []) {
+            if (extra?.result === 'BID') titleParts.push('posted for bid');
+            else if (extra?.result === 'BUMP') titleParts.push('bump eligible');
+          }
         }
         const popupLines = [
           ...titleParts,

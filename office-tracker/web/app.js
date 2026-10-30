@@ -23,6 +23,10 @@ import {
   importState,
   listDrivers,
   compareRouteNumbers,
+  bidBumpUseSnappedContractTimesEnabled,
+  contractQuarterHourSnapEnabled,
+  contractSnapBreaksFromState,
+  contractSnapOptions,
   listProfiles,
   loadContractNotice,
   loadContractReminder,
@@ -57,6 +61,7 @@ import {
   buildPayrollWorkbook,
   changedPayrollLabels,
   contractedSegments,
+  contractStartedOn,
   payrollBaselineRows,
   payrollDriverRows,
 } from '../src/payrollTimes.js';
@@ -90,6 +95,7 @@ import {
   normalizeDriverPay,
   normalizePayStatusByRun,
 } from '../src/driverPay.js';
+import { snapContractTimeRange } from '../../src/logic/timeUtils.js';
 
 bindCalculatorStore({
   deleteProfile,
@@ -98,6 +104,7 @@ bindCalculatorStore({
   listProfiles,
   saveProfile,
   setCurrentProfile,
+  contractSnapOptions: () => contractSnapOptions(loadState()),
 });
 import { formatClockAmPm, localDateString } from '../../employee-tracker/src/clockTimes.js';
 import { getSchoolDays } from '../../src/logic/calendar.js';
@@ -167,8 +174,10 @@ import { initCitations } from '../../employee-tracker/web/citations.js';
 import {
   calendarMonthsHtml,
   contractColumnsForHistory,
+  contractNoticeCalendarHtml,
   escapeHtml,
   historyLegendHtml,
+  monthsSpanningIsoDates,
   prettyDate,
   scheduleClockDiffers,
   scheduleHistoryTableHtml,
@@ -1785,62 +1794,85 @@ function fillChangeFormFromSegment() {
     : '';
 }
 
-function renderHero() {
-  const windowInfo = snapshot.window;
-  const contracted = snapshot.contracted;
-  const name = snapshot.employee?.name;
-  const outcome = windowInfo?.projected_outcome;
-  hero.className = `hero panel${
-    outcome === 'BID_PENDING'
-      ? ' outcome-bid'
-      : outcome === 'BUMP_ELIGIBLE'
-        ? ' outcome-bump'
-        : ''
-  }`;
+function scheduleRunsLabel(schedule) {
+  return RUNS.map((run) => {
+    const item = schedule?.[run.id];
+    if (!item?.clock_in || !item?.clock_out) return `${run.label} —`;
+    return `${run.label} ${formatClockAmPm(`${item.clock_in}-${item.clock_out}`)}`;
+  }).join(' · ');
+}
 
-  const title = windowInfo?.bid_posting_phrase
-    ? windowInfo.bid_posting_phrase
-    : windowInfo?.becomes_contracted_on
-    ? `Becomes contracted on ${prettyDate(windowInfo.becomes_contracted_on)}`
-    : windowInfo?.status === 'STABLE'
-      ? 'No open window'
-      : windowInfo?.status_label || 'Route hours';
+function contractedRunsLabel(segments, snap = {}) {
+  return RUNS.map((run) => {
+    let range = segments?.[run.id] || null;
+    if (range && snap.snapContractClocks === true) {
+      try {
+        range = snapContractTimeRange(range, snap.contractSnapBreaks);
+      } catch {
+        // Keep the written range if snap cannot read it.
+      }
+    }
+    if (!range) return `${run.label} —`;
+    return `${run.label} ${formatClockAmPm(range)}`;
+  }).join(' · ');
+}
+
+function establishedLine(date) {
+  const iso = String(date || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return 'Established date unknown';
+  return `Established ${prettyDate(iso)}`;
+}
+
+function renderHero() {
+  hero.className = 'hero panel';
+
   const profile = getCurrentProfile();
+  const name = snapshot.employee?.name;
   const driver = profile?.driver_name;
   const officeNote = String(profile?.note ?? '').trim();
-  const routeLabel = name ? `Route ${name}` : '';
+  const routeLabel = name ? `Route ${name}` : 'Route';
+  const title = driver ? `${routeLabel} · ${driver}` : routeLabel;
 
-  const showPredicted =
-    windowInfo?.status === 'ACCUMULATING' && snapshot.scheduled?.if_locked_label;
-  const contractedCaption = showPredicted ? 'Current contracted hours' : 'Contracted hours';
-  const predictedStat = showPredicted
-    ? `<li><span>Predicted contracted hours</span><strong>${snapshot.scheduled.if_locked_label}</strong></li>`
-    : '';
+  const history = snapshot.schedule_history || [];
+  const clockEstablished =
+    history.at(-1)?.date || snapshot.employee?.start_date || profile?.start_date || null;
+  const clockTimes = scheduleRunsLabel(snapshot.schedule);
+
+  const snap = contractSnapOptions(loadState());
+  let contractedTimes = 'AM — · Midday — · PM —';
+  let contractEstablished = null;
+  try {
+    const entry = rebuildEmployeeRouteState(
+      profile?.changeLog ?? [],
+      calendarPayload(),
+      getAsOfDate(),
+      {},
+      snap
+    );
+    contractedTimes = contractedRunsLabel(contractedSegments(entry), snap);
+    contractEstablished = contractStartedOn(entry, {
+      startDate: profile?.start_date || snapshot.employee?.start_date || '',
+      changeLog: profile?.changeLog ?? [],
+    });
+  } catch {
+    // Keep empty contracted times if the route state cannot be rebuilt yet.
+  }
 
   hero.innerHTML = `
-    <p class="hero-kicker">${routeLabel ? `${routeLabel}${driver ? ` · ${escapeHtml(driver)}` : ''} · ` : ''}${windowInfo?.status_label || 'Not set up'}</p>
-    <h1 class="hero-title">${title}</h1>
-    <p class="hero-detail">${windowInfo?.headline || ''}</p>
-    ${windowInfo?.side_window_note ? `<p class="hero-detail">${escapeHtml(windowInfo.side_window_note)}</p>` : ''}
-    <ul class="stat-row">
-      <li><span>${contractedCaption}</span><strong>${contracted?.label || '—'}</strong></li>
-      ${predictedStat}
-      <li><span>Accumulated difference</span><strong>${windowInfo?.cumulative_drift_label || '0 min'}</strong></li>
-      <li><span>School days left in window</span><strong>${
-        windowInfo?.days_remaining == null ? '—' : windowInfo.days_remaining
-      }</strong></li>
+    <h1 class="hero-title">${escapeHtml(title)}</h1>
+    <ul class="hero-times">
+      <li>
+        <span class="hero-times-label">Current clock times</span>
+        <strong>${escapeHtml(clockTimes)}</strong>
+        <span class="hero-times-when">${escapeHtml(establishedLine(clockEstablished))}</span>
+      </li>
+      <li>
+        <span class="hero-times-label">Current contracted times</span>
+        <strong>${escapeHtml(contractedTimes)}</strong>
+        <span class="hero-times-when">${escapeHtml(establishedLine(contractEstablished))}</span>
+      </li>
     </ul>
     ${officeNote ? `<p class="hero-detail">${escapeHtml(officeNote)}</p>` : ''}
-    ${
-      windowInfo?.projected_outcome_detail
-        ? `<p class="hero-detail">${windowInfo.projected_outcome_detail}</p>`
-        : ''
-    }
-    ${
-      windowInfo?.contracted_hours_statement
-        ? `<p class="hero-detail">${windowInfo.contracted_hours_statement}</p>`
-        : ''
-    }
     <div class="actions">
       <button type="button" id="assign-driver-btn">${iconHtml('user')} Assign to different driver</button>
     </div>
@@ -1855,9 +1887,10 @@ function formatRange(item) {
 function renderScheduleHistory() {
   const start = snapshot.employee?.start_date;
   const rows = snapshot.schedule_history || [];
-  const noticeHint = ' Saving a change offers to send the notice. If that notice was already sent, you will be warned first. The email uses the chosen memorandum and downloads a calendar PDF. Attach that PDF if you want the driver to see the calendar. The complete time change history can be downloaded too, when that attachment is turned on.';
+  const noticeHint =
+    ' The mail icon on a change sends the notice. If that notice was already sent, you will be warned first. The email uses the chosen memorandum and downloads a calendar PDF. Attach that PDF if you want the driver to see the calendar. The complete time change history can be downloaded too, when that attachment is turned on.';
   const hoursHint =
-    ' Scheduled Hours is the rounded total of the clock times on that row. Contract Time Change is the date those rounded hours changed, or the date they are predicted to change, such as Nov 4. For a route that goes up for bid, that date is the 15th school day after the change. A row that rounds to the same total as the row above has no date there. Date, if Contracted is the date that schedule became the contract, a predicted contract date, or "Predicted up for bid mm/dd–mm/dd" when the route goes up for bid during the last five school days of the month.';
+    ' New Schedule Started is the date only. Change holds the minute change, cumulative change, and countdown lines. Scheduled Hours is the rounded total of the clock times on that row. When “Use quarter hour snapping for contract times” is on, Change (including Countdown lines) uses that same snapped schedule instead of exact minutes. When “Bid/bump windows use snapped contract times” is also on, the 15-school-day countdown and 30-minute bid/bump line use those snapped totals too. Contract Time Change is the date those rounded hours changed, or the date they are predicted to change, such as Nov 4. For a route that goes up for bid, that date is the 15th school day after the change. A row that rounds to the same total as the row above has no date there. Date, if Contracted is the date that schedule became the contract, a predicted contract date, or "Predicted up for bid mm/dd–mm/dd" when the route goes up for bid during the last five school days of the month.';
   scheduleLead.textContent = start
     ? `Each row is a full schedule. The first row is the established starting times from ${prettyDate(start)}. Later rows are changes, oldest to newest.${hoursHint}${noticeHint}`
     : `Each row is a full schedule. The first row is the established starting times. Later rows are changes, oldest to newest.${hoursHint}${noticeHint}`;
@@ -1873,11 +1906,11 @@ function renderScheduleHistory() {
   const body = scheduleHistory.querySelector('tbody');
   if (!rows.length) {
     body.innerHTML =
-      '<tr><td colspan="11" class="empty">No clock times recorded yet.</td></tr>';
+      '<tr><td colspan="12" class="empty">No clock times recorded yet.</td></tr>';
     return;
   }
 
-  const columns = contractColumnsForHistory(rows);
+  const columns = contractColumnsForHistory(rows, undefined, contractSnapOptions(loadState()));
   body.innerHTML =
     rows
       .map((row, index) => {
@@ -1894,8 +1927,10 @@ function renderScheduleHistory() {
           row.change_ids?.length ? ` data-change-ids="${escapeHtml(row.change_ids.join(','))}"` : ''
         }${row.segment ? ` data-segment="${escapeHtml(row.segment)}"` : ''}>
         <th scope="row">
-          ${scheduleDateField(row.date, { allowNull: row.kind === 'change' })}
-          ${kind}
+          ${scheduleDateField(row.date, {
+            allowNull: false,
+            sendNotice: row.kind === 'change',
+          })}
         </th>
         ${RUNS.map((run) => {
           const item = row.schedule?.[run.id];
@@ -1912,6 +1947,7 @@ function renderScheduleHistory() {
             })
             .join('');
         }).join('')}
+        <td class="change-figure">${kind}</td>
         <td class="hours-figure">${escapeHtml(column.hours)}</td>
         <td class="hours-figure">${escapeHtml(column.contractTimeChange)}</td>
         <td>
@@ -1949,15 +1985,28 @@ function markScheduleTimeDiffs() {
   });
 }
 
-function scheduleDateField(value, { id = '', className = 'js-history-date', label = 'New schedule started', allowNull = true } = {}) {
+function scheduleDateField(
+  value,
+  {
+    id = '',
+    className = 'js-history-date',
+    label = 'New schedule started',
+    allowNull = true,
+    sendNotice = false,
+  } = {}
+) {
   const empty = !value;
   const idAttr = id ? ` id="${id}"` : '';
-  const nullButton = allowNull
-    ? `<button type="button" class="schedule-date-null js-date-null" aria-pressed="${empty ? 'true' : 'false'}">N/A</button>`
-    : '';
+  const trailing = sendNotice
+    ? `<button type="button" class="schedule-date-mail js-send-notice" aria-label="Send notice" title="Send notice">${iconHtml(
+        'mail'
+      )}</button>`
+    : allowNull
+      ? `<button type="button" class="schedule-date-null js-date-null" aria-pressed="${empty ? 'true' : 'false'}">N/A</button>`
+      : '';
   return `<div class="schedule-date${empty && allowNull ? ' is-null' : ''}">
     <input${idAttr} class="entry-input ${className}" type="date" aria-label="${label}" value="${escapeHtml(value || '')}" />
-    ${nullButton}
+    ${trailing}
   </div>`;
 }
 
@@ -2077,12 +2126,12 @@ function entryRowMarkup(rows) {
   return `<tr class="is-entry is-new-change">
     <th scope="row">
       ${scheduleDateField(lastDate, { id: 'entry_date', className: '', label: 'Date the change takes effect' })}
-      <span class="row-kind">New time change</span>
     </th>
     ${RUNS.map((run) => {
       const item = schedule[run.id];
       return `<td class="${run.shade}">${timeField(run, 'in', item?.clock_in)}</td><td class="${run.shade}">${timeField(run, 'out', item?.clock_out)}</td>`;
     }).join('')}
+    <td class="change-figure"><span class="row-kind">New time change</span></td>
     <td></td>
     <td></td>
     <td class="is-editor">
@@ -2337,6 +2386,7 @@ function contractNoticeItems() {
         previousRow: history[index - 1],
         calendar,
         asOf,
+        ...contractSnapOptions(loadState()),
       });
       if (!described || described.skip || !described.changeId) return;
       const entry = (profile.changeLog || []).find((item) => item.id === described.changeId);
@@ -2428,6 +2478,7 @@ function contractNoticeDocument(changeId) {
     previousRow: history[index - 1],
     calendar: calendarPayload(),
     asOf: getAsOfDate(),
+    ...contractSnapOptions(loadState()),
   });
   if (!described || described.skip || !described.changeId) {
     return { ok: false, message: 'That change does not have a contract time notice.' };
@@ -2685,6 +2736,63 @@ function contractLetterMark(item) {
   return `<span class="notice-letter">${icon}<span>${escapeHtml(item?.kindLabel || '')}</span></span>`;
 }
 
+function contractNoticeCalendarMarkHtml(item) {
+  const route = String(item?.routeName || '').trim() || '—';
+  const driver = String(item?.driverName || '').trim() || 'No driver';
+  const kind = item?.kindIcon || '';
+  const badge = contractKindBadgeHtml(kind);
+  const label = item?.kindLabel || 'Contract notice';
+  const when = item?.sendByDate || prettyDate(item?.sendByOn);
+  const title = [driver, `Route ${route}`, label, when ? `Send by ${when}` : '']
+    .filter(Boolean)
+    .join(' · ');
+  return `<span class="contract-notice-mark${kind ? ` contract-notice-mark-${kind}` : ''}" title="${escapeHtml(
+    title
+  )}">${badge}<span class="contract-notice-route">${escapeHtml(route)}</span></span>`;
+}
+
+function contractNoticeCalendarSummary(items) {
+  const count = items.length;
+  if (!count) return 'No contract notices are recorded yet.';
+  if (count === 1) return '1 notice is plotted on its Send by date.';
+  return `${count} notices are plotted on their Send by dates.`;
+}
+
+function renderContractNoticeCalendar(items = contractNoticeItems()) {
+  const root = document.querySelector('#contract-notice-calendar-months');
+  const summary = document.querySelector('#contract-notice-calendar-summary');
+  if (!root) return;
+  const asOf = getAsOfDate();
+  if (summary) summary.textContent = contractNoticeCalendarSummary(items);
+  const dated = items
+    .filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(String(item.sendByOn || '')))
+    .slice()
+    .sort((a, b) => {
+      const byDate = String(a.sendByOn).localeCompare(String(b.sendByOn));
+      if (byDate !== 0) return byDate;
+      return compareRouteNumbers(a.routeName, b.routeName);
+    });
+  if (!dated.length) {
+    root.innerHTML = '<p class="empty">No contract notices are recorded yet.</p>';
+    return;
+  }
+  const byDate = {};
+  for (const item of dated) {
+    const key = item.sendByOn;
+    if (!byDate[key]) byDate[key] = [];
+    byDate[key].push(item);
+  }
+  const marksByDate = Object.fromEntries(
+    Object.entries(byDate).map(([date, dayItems]) => [
+      date,
+      `<span class="contract-notice-marks">${dayItems.map(contractNoticeCalendarMarkHtml).join('')}</span>`,
+    ])
+  );
+  const calendar = calendarPayload();
+  const months = monthsSpanningIsoDates(calendar?.months || [], dated.map((item) => item.sendByOn));
+  root.innerHTML = contractNoticeCalendarHtml({ calendar, months, marksByDate, asOf });
+}
+
 function renderContractNoticeQueue() {
   const body = document.querySelector('#contract-notice-queue-body');
   const summary = document.querySelector('#contract-notice-queue-summary');
@@ -2694,6 +2802,7 @@ function renderContractNoticeQueue() {
   const overdue = contractNoticeOverdue(items, asOf);
   if (summary) summary.textContent = contractNoticeQueueSummary(items, asOf);
   paintQueueUnsent('#contract-notice-queue', overdue.length);
+  renderContractNoticeCalendar(items);
   if (!items.length) {
     body.innerHTML = '<tr><td colspan="10" class="empty">No contract notices are recorded yet.</td></tr>';
     syncNoticeSelection('#contract-notice-queue');
@@ -2764,9 +2873,10 @@ function eomBiddingPacketData(options = {}) {
   const monthKey = eomSelectedMonthKey(options);
   const period = periodForMonthKey(calendar, monthKey);
   const snapshots = eomBiddingSnapshots();
-  const routes = routesUpForBid({ snapshots, calendar, monthKey, asOf });
-  const stillOpen = routesStillOpenForBid({ snapshots, calendar, monthKey, asOf });
-  const approaching = routesApproachingBid({ snapshots, calendar, monthKey, asOf });
+  const snap = contractSnapOptions(loadState());
+  const routes = routesUpForBid({ snapshots, calendar, monthKey, asOf, ...snap });
+  const stillOpen = routesStillOpenForBid({ snapshots, calendar, monthKey, asOf, ...snap });
+  const approaching = routesApproachingBid({ snapshots, calendar, monthKey, asOf, ...snap });
   const roster = biddingDriverRoster({
     state: loadState(),
     listedDrivers: listDrivers(),
@@ -2782,9 +2892,10 @@ function eomBiddingRouteCount() {
     const monthKey = eomMonthOptions(calendar, asOf).find((option) => option.selected)?.value || '';
     if (!monthKey) return 0;
     const snapshots = eomBiddingSnapshots();
+    const snap = contractSnapOptions(loadState());
     return (
-      routesUpForBid({ snapshots, calendar, monthKey, asOf }).length +
-      routesStillOpenForBid({ snapshots, calendar, monthKey, asOf }).length
+      routesUpForBid({ snapshots, calendar, monthKey, asOf, ...snap }).length +
+      routesStillOpenForBid({ snapshots, calendar, monthKey, asOf, ...snap }).length
     );
   } catch {
     return 0;
@@ -2991,6 +3102,7 @@ async function deliverContractNotice(changeId) {
     previousRow: history[index - 1],
     calendar: calendarPayload(),
     asOf: getAsOfDate(),
+    ...contractSnapOptions(loadState()),
   });
   if (!described || described.skip || !described.changeId) {
     return { ok: false, message: 'That change does not have a contract time notice.' };
@@ -4395,7 +4507,7 @@ function renderApp() {
     driverHistoryView.hidden = true;
     setupView.hidden = true;
     appView.hidden = true;
-    document.title = `Calendar Year · ${APP_TITLE}`;
+    document.title = `Teamster Tracker Settings · ${APP_TITLE}`;
     timeclockDesk.refresh();
     return;
   }
@@ -5336,6 +5448,11 @@ document.addEventListener('click', (event) => {
 
 scheduleHistory.addEventListener('click', (event) => {
   if (event.target.closest('.js-date-null')) return;
+  const sendNotice = event.target.closest('.js-send-notice');
+  if (sendNotice) {
+    sendChangeNotice(sendNotice);
+    return;
+  }
   const stamp = event.target.closest('.js-change-stamp');
   if (stamp) {
     const pop = stamp.parentElement?.querySelector('.change-stamp-pop');
@@ -5708,6 +5825,15 @@ async function adoptStarterOffice() {
     ...(Object.prototype.hasOwnProperty.call(current, 'clockQuarterHourClocks')
       ? { clockQuarterHourClocks: current.clockQuarterHourClocks }
       : {}),
+    ...(Object.prototype.hasOwnProperty.call(current, 'contractQuarterHourSnap')
+      ? { contractQuarterHourSnap: current.contractQuarterHourSnap }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(current, 'bidBumpUseSnappedContractTimes')
+      ? { bidBumpUseSnappedContractTimes: current.bidBumpUseSnappedContractTimes }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(current, 'contractSnapBreaks')
+      ? { contractSnapBreaks: current.contractSnapBreaks }
+      : {}),
     ...(Object.prototype.hasOwnProperty.call(current, 'overtimeRules')
       ? { overtimeRules: current.overtimeRules }
       : {}),
@@ -5840,12 +5966,20 @@ function ensureTimeclock() {
       timeclockDesk = mountTimeclock({
   readState: loadState,
     writeState(state) {
-    const before = JSON.stringify(savedSchoolYear(loadState()));
+    const beforeYear = JSON.stringify(savedSchoolYear(loadState()));
+    const beforeSnap = contractQuarterHourSnapEnabled(loadState());
+    const beforeBidSnap = bidBumpUseSnappedContractTimesEnabled(loadState());
+    const beforeBreaks = JSON.stringify(contractSnapBreaksFromState(loadState()));
     saveState(state);
     syncSchoolYearCalendar();
     if (activeSheet === 'payroll' || activeSheet === 'clocking') clockDesk.refresh();
     refreshPaperRecords();
-    if (JSON.stringify(savedSchoolYear(state)) !== before) loadAll();
+    const yearChanged = JSON.stringify(savedSchoolYear(state)) !== beforeYear;
+    const snapChanged =
+      contractQuarterHourSnapEnabled(state) !== beforeSnap ||
+      bidBumpUseSnappedContractTimesEnabled(state) !== beforeBidSnap ||
+      JSON.stringify(contractSnapBreaksFromState(state)) !== beforeBreaks;
+    if (yearChanged || snapChanged) loadAll();
   },
   listPeople() {
     const state = loadState();
@@ -5895,7 +6029,15 @@ function ensureTimeclock() {
   contractedMinutes(driverName, dateKey) {
     return contractedRunMinutes(loadState().profiles, driverName, dateKey, (profile, date) => {
       try {
-        return contractedSegments(rebuildEmployeeRouteState(profile?.changeLog ?? [], calendarPayload(), date));
+        return contractedSegments(
+          rebuildEmployeeRouteState(
+            profile?.changeLog ?? [],
+            calendarPayload(),
+            date,
+            {},
+            contractSnapOptions(loadState())
+          )
+        );
       } catch {
         return {};
       }

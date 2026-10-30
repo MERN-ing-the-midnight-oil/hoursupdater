@@ -10,6 +10,9 @@ import {
   mergeSharedDriverList,
   normalizeClockNameSize,
   clockRoundingMode,
+  bidBumpUseSnappedContractTimesEnabled,
+  contractQuarterHourSnapEnabled,
+  contractSnapOptions,
   quarterHourClocksEnabled,
   normalizeClockReasonCodes,
   normalizeOfficePunches,
@@ -480,6 +483,77 @@ test('clock rounding defaults to snapping each clock, and the office picks one c
     mergeSharedDriverList(remote, { ...localUnset, clockRounding: 'snap', clockQuarterHourClocks: true }).clockRounding,
     'snap'
   );
+});
+
+test('contract quarter-hour snap defaults on, and the office can turn it off', () => {
+  const storage = memoryStorage();
+  const state = loadState(storage);
+  assert.equal(contractQuarterHourSnapEnabled(state), true);
+  assert.equal(Object.prototype.hasOwnProperty.call(state, 'contractQuarterHourSnap'), false);
+
+  state.profiles = { 'route-12': { id: 'route-12', name: '12' } };
+  state.contractQuarterHourSnap = false;
+  saveState(state, storage);
+  assert.equal(loadState(storage).contractQuarterHourSnap, false);
+  assert.equal(contractQuarterHourSnapEnabled(loadState(storage)), false);
+
+  const remote = { ...loadState(storage), contractQuarterHourSnap: true };
+  const localUnset = loadState(storage);
+  delete localUnset.contractQuarterHourSnap;
+  assert.equal(mergeSharedDriverList(remote, localUnset).contractQuarterHourSnap, true);
+  assert.equal(
+    mergeSharedDriverList(remote, { ...localUnset, contractQuarterHourSnap: false }).contractQuarterHourSnap,
+    false
+  );
+});
+
+test('bid/bump snapped windows default on with contract snap, and can be turned off', () => {
+  const storage = memoryStorage();
+  const state = loadState(storage);
+  assert.equal(bidBumpUseSnappedContractTimesEnabled(state), true);
+  assert.deepEqual(contractSnapOptions(state), {
+    snapContractClocks: true,
+    bidBumpUseSnappedTimes: true,
+    contractSnapBreaks: { toHour: 6, toQuarter: 21, toHalf: 36, toNextHour: 52 },
+  });
+
+  state.profiles = { 'route-12': { id: 'route-12', name: '12' } };
+  state.bidBumpUseSnappedContractTimes = false;
+  saveState(state, storage);
+  assert.equal(bidBumpUseSnappedContractTimesEnabled(loadState(storage)), false);
+  assert.deepEqual(contractSnapOptions(loadState(storage)), {
+    snapContractClocks: true,
+    bidBumpUseSnappedTimes: false,
+    contractSnapBreaks: { toHour: 6, toQuarter: 21, toHalf: 36, toNextHour: 52 },
+  });
+
+  state.contractQuarterHourSnap = false;
+  state.bidBumpUseSnappedContractTimes = true;
+  saveState(state, storage);
+  assert.deepEqual(contractSnapOptions(loadState(storage)), {
+    snapContractClocks: false,
+    bidBumpUseSnappedTimes: false,
+  });
+});
+
+test('contract snap minute bands save with the office settings', () => {
+  const storage = memoryStorage();
+  const state = loadState(storage);
+  state.profiles = { 'route-12': { id: 'route-12', name: '12' } };
+  state.contractSnapBreaks = { toHour: 7, toQuarter: 22, toHalf: 37, toNextHour: 53 };
+  saveState(state, storage);
+  assert.deepEqual(loadState(storage).contractSnapBreaks, {
+    toHour: 7,
+    toQuarter: 22,
+    toHalf: 37,
+    toNextHour: 53,
+  });
+  assert.deepEqual(contractSnapOptions(loadState(storage)).contractSnapBreaks, {
+    toHour: 7,
+    toQuarter: 22,
+    toHalf: 37,
+    toNextHour: 53,
+  });
 });
 
 test('substitute drivers and a substitute clock-in stay with the office', () => {

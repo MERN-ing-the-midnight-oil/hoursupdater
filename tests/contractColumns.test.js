@@ -285,6 +285,127 @@ describe('route clock time columns', () => {
     assert.doesNotMatch(legend, /Cumulative change/);
   });
 
+  it('uses snapped Scheduled Hours for the Change column when snap is on', () => {
+    function timed(id, segment, previous, next, date, submittedAt) {
+      const delta = computeDeltaMinutes(previous, next);
+      return {
+        id,
+        route_id: EMPLOYEE_ROUTE_ID,
+        driver_name: 'Alex Driver',
+        driver_id: null,
+        segment,
+        submitted_at: submittedAt || `${date}T15:00:00.000Z`,
+        effective_date: date,
+        previous_time: previous,
+        new_time: next,
+        computed_delta_minutes: delta,
+        delta_minutes: delta,
+        routing_adjustment: null,
+        reason_category: 'OTHER',
+        note: '',
+        entered_by: 'Alex Driver',
+      };
+    }
+    const changes = [
+      seed('AM', '6:40-8:40'),
+      seed('PM', '14:05-16:25'),
+      timed('plus-20', 'PM', '14:05-16:25', '14:05-16:45', '2026-10-05'),
+    ];
+    const entry = rebuildEmployeeRouteState(changes, calendar, '2026-10-05');
+    const exact = buildEmployeeSnapshot({
+      profile,
+      changeLog: changes,
+      entry,
+      calendar,
+      asOfDate: '2026-10-05',
+    });
+    const snapped = buildEmployeeSnapshot({
+      profile,
+      changeLog: changes,
+      entry,
+      calendar,
+      asOfDate: '2026-10-05',
+      snapContractClocks: true,
+    });
+    assert.deepEqual(scheduleChangeKindLines(exact.schedule_history[1]), [
+      'Change · +20 min',
+      '10/05 Countdown, +20 min',
+    ]);
+    // Snapped clocks: 14:05-16:25 → 14:00-16:30 (150), 14:05-16:45 → 14:00-16:45 (165).
+    assert.deepEqual(scheduleChangeKindLines(snapped.schedule_history[1]), [
+      'Change · +15 min',
+      '10/05 Countdown, +15 min',
+    ]);
+    const columns = contractColumnsForHistory(
+      snapped.schedule_history,
+      undefined,
+      { snapContractClocks: true }
+    );
+    assert.equal(columns[0].hours, '4 hr 30 min');
+    assert.equal(columns[1].hours, '4 hr 45 min');
+  });
+
+  it('can drive bid/bump windows from snapped contracted totals', () => {
+    function timed(id, segment, previous, next, date) {
+      const delta = computeDeltaMinutes(previous, next);
+      return {
+        id,
+        route_id: EMPLOYEE_ROUTE_ID,
+        driver_name: 'Alex Driver',
+        driver_id: null,
+        segment,
+        submitted_at: `${date}T15:00:00.000Z`,
+        effective_date: date,
+        previous_time: previous,
+        new_time: next,
+        computed_delta_minutes: delta,
+        delta_minutes: delta,
+        routing_adjustment: null,
+        reason_category: 'OTHER',
+        note: '',
+        entered_by: 'Alex Driver',
+      };
+    }
+    const changes = [
+      seed('AM', '6:40-8:40'),
+      seed('PM', '14:05-16:05'),
+      // Exact +29; snapped contracted daily total moves +30.
+      timed('plus-29', 'PM', '14:05-16:05', '14:05-16:34', '2026-10-06'),
+    ];
+    const exactEntry = rebuildEmployeeRouteState(changes, calendar, '2026-10-27');
+    const snappedEntry = rebuildEmployeeRouteState(changes, calendar, '2026-10-27', {}, {
+      snapContractClocks: true,
+      bidBumpUseSnappedTimes: true,
+    });
+    assert.equal(exactEntry.cumulative_drift_minutes, 29);
+    assert.equal(exactEntry.status, 'ACCUMULATING');
+    assert.equal(snappedEntry.cumulative_drift_minutes, 30);
+    assert.equal(snappedEntry.status, 'ACCUMULATING');
+
+    const exact = buildEmployeeSnapshot({
+      profile,
+      changeLog: changes,
+      entry: exactEntry,
+      calendar,
+      asOfDate: '2026-10-27',
+      snapContractClocks: true,
+      bidBumpUseSnappedTimes: false,
+    });
+    const snapped = buildEmployeeSnapshot({
+      profile,
+      changeLog: changes,
+      entry: snappedEntry,
+      calendar,
+      asOfDate: '2026-10-27',
+      snapContractClocks: true,
+      bidBumpUseSnappedTimes: true,
+    });
+    assert.equal(exact.schedule_history.at(-1).contracted.projected_outcome, 'STABLE');
+    assert.match(exact.schedule_history.at(-1).contracted.label, /become contracted/);
+    assert.equal(snapped.schedule_history.at(-1).contracted.projected_outcome, 'BID_PENDING');
+    assert.match(snapped.schedule_history.at(-1).contracted.label, /up for bid 10\/28–10\/30/);
+  });
+
   it('shows the 15th school day when a monthly bid changes the rounded hours', () => {
     function timed(id, segment, previous, next, date) {
       const delta = computeDeltaMinutes(previous, next);
