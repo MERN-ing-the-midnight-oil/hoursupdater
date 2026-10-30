@@ -2046,8 +2046,15 @@ details.notice-queue[open] > summary .notice-queue-preview {
   margin: 0.15rem 0 0;
 }
 
-.contract-notice-sample-text .template-fill {
-  background: linear-gradient(180deg, transparent 8%, #ffe566 8%, #ffe566 92%, transparent 92%);
+.template-fill {
+  --template-token: #ffe566;
+  background: linear-gradient(
+    180deg,
+    transparent 8%,
+    var(--template-token) 8%,
+    var(--template-token) 92%,
+    transparent 92%
+  );
   border-radius: 0.12em;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
@@ -2056,15 +2063,135 @@ details.notice-queue[open] > summary .notice-queue-preview {
   padding: 0 0.12em;
 }
 
-.contract-notice-sample-text .template-fill:hover {
-  background: linear-gradient(180deg, transparent 4%, #ffd11a 4%, #ffd11a 96%, transparent 96%);
-  outline: 1px solid color-mix(in srgb, #b8860b 45%, transparent);
+.template-fill:hover {
+  background: linear-gradient(
+    180deg,
+    transparent 4%,
+    color-mix(in srgb, var(--template-token) 72%, #000) 4%,
+    color-mix(in srgb, var(--template-token) 72%, #000) 96%,
+    transparent 96%
+  );
+  outline: 1px solid color-mix(in srgb, var(--template-token) 55%, #000);
 }
 
-.contract-notice-sample-text .template-fill:empty::before {
+.template-fill:empty::before {
   content: attr(data-token);
   opacity: 0.55;
   font-style: italic;
+}
+
+.template-fill-driver_name {
+  --template-token: #c4dbff;
+}
+
+.template-fill-route_name,
+.template-fill-routes {
+  --template-token: #b8f0e3;
+}
+
+.template-fill-date {
+  --template-token: #ffd0b8;
+}
+
+.template-fill-effective_date {
+  --template-token: #ffc089;
+}
+
+.template-fill-previous_hours {
+  --template-token: #f5c6e0;
+}
+
+.template-fill-contract_hours {
+  --template-token: #c8efc0;
+}
+
+.template-fill-change_amount {
+  --template-token: #dcc4ff;
+}
+
+.template-fill-timing {
+  --template-token: #9fdfff;
+}
+
+.template-fill-citation_label {
+  --template-token: #ffe08a;
+}
+
+.template-fill-citation_text {
+  --template-token: #d4f0c8;
+}
+
+.template-fill-route_times {
+  --template-token: #c9d4ff;
+}
+
+.template-fill-notices {
+  --template-token: #efe4a8;
+}
+
+.template-field-shell {
+  position: relative;
+  display: grid;
+  grid-template: 1fr / 1fr;
+  width: 100%;
+  min-width: 0;
+}
+
+.template-field-shell > input,
+.template-field-shell > textarea,
+.template-field-backdrop {
+  grid-area: 1 / 1;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  line-height: 1.45;
+  letter-spacing: inherit;
+  tab-size: 4;
+}
+
+.template-field-backdrop {
+  margin: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--ink);
+  background: #fff;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.template-field-shell.is-single .template-field-backdrop {
+  white-space: pre;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.template-field-shell > input,
+.template-field-shell > textarea {
+  position: relative;
+  z-index: 1;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: var(--ink);
+  background: transparent;
+}
+
+.template-field-shell > input::selection,
+.template-field-shell > textarea::selection {
+  background: color-mix(in srgb, var(--purple) 28%, transparent);
+  color: transparent;
+}
+
+.template-field-backdrop .template-fill {
+  cursor: default;
+}
+
+.template-field-shell > textarea {
+  resize: vertical;
 }
 
 @media (min-width: 1100px) {
@@ -2517,6 +2644,22 @@ body.is-tracker-settings .sheet-bar {
   align-self: center;
   padding: 0.28rem 0.7rem;
   font-size: 0.88rem;
+}
+
+.driver-notice-sample {
+  margin: 0 0.85rem 0.9rem 1.85rem;
+  padding-left: 0.85rem;
+  border-left: 2px solid var(--line);
+}
+
+.driver-notice-sample-text {
+  white-space: pre-wrap;
+}
+
+.driver-notice-sample .email-content-editor {
+  margin: 0.85rem 0 0;
+  padding-left: 0;
+  border-left: 0;
 }
 
 .email-content-editor {

@@ -135,6 +135,7 @@ import {
   loadSentChangeIds,
   loadSentChangeRecords,
   memorandumMail,
+  memorandumTemplate,
   noticeSentLineForIds,
   noticeCcAddress,
   noticeCalendarFilename,
@@ -144,6 +145,7 @@ import {
   rememberChangeNoticesSent,
   routeHistoryFilename,
   routeHistoryMail,
+  routeTimesPhrase,
   timeChangeNoticeDocument,
 } from '../src/noticeMail.js';
 import { contractCitations } from '../../public/shared/contractCitations.js';
@@ -1219,27 +1221,48 @@ function collectMemorandumTemplates() {
   return templates;
 }
 
-function driverNoticePreviewText() {
-  const mail = memorandumMail({
-    memorandumId: selectedMemorandumId(),
-    templates: collectMemorandumTemplates(),
-    driverName: 'Sample Driver',
-    routeName: '50',
-    row: {
-      date: '2026-09-14',
-      schedule: {
-        AM: { clock_in: '6:10', clock_out: '8:40' },
-        PM: { clock_in: '14:00', clock_out: '16:20' },
-      },
-    },
-    asOf: '2026-09-14',
-  });
-  const attachment = checkedChoice('notice_attach')
-    ? '\n\nA complete time change history PDF is also downloaded to attach.'
-    : '';
-  const copy = noticeCcAddress('sample.driver@example.com', document.querySelector('#driver-notice-secretary')?.value);
-  const ccLine = copy ? `Cc: ${copy}\n` : '';
-  return `Sample email\n${ccLine}${mail.subject}\n\n${mail.body}${attachment}`;
+function driverNoticeSampleValues() {
+  const routeName = '50';
+  const asOf = '2026-09-14';
+  const schedule = {
+    AM: { clock_in: '6:10', clock_out: '8:40' },
+    PM: { clock_in: '14:00', clock_out: '16:20' },
+  };
+  return {
+    driver_name: 'Sample Driver',
+    route_name: routeName,
+    date: prettyDate(asOf),
+    effective_date: prettyDate(asOf),
+    route_times: routeTimesPhrase(routeName, schedule),
+  };
+}
+
+function paintDriverMemoSample(memoId) {
+  const box = document.querySelector(`#driver-notice-memoranda [data-sample="${memoId}"]`);
+  if (!box) return;
+  const memo = memorandumTemplate(memoId, collectMemorandumTemplates());
+  const values = driverNoticeSampleValues();
+  const copy = noticeCcAddress(
+    'sample.driver@example.com',
+    document.querySelector('#driver-notice-secretary')?.value
+  );
+  box.replaceChildren();
+  const title = document.createElement('h3');
+  title.textContent = 'Example';
+  box.append(title);
+  box.append('To: sample.driver@example.com\n');
+  if (copy) box.append(`Cc: ${copy}\n`);
+  appendFilledTemplate(box, memo.subject, values);
+  box.append('\n\n');
+  appendFilledTemplate(box, String(memo.body ?? '').trimEnd(), values);
+  box.append('\n');
+  if (checkedChoice('notice_attach')) {
+    box.append('\nA complete time change history PDF is also downloaded to attach.');
+  }
+}
+
+function paintDriverNoticePreview() {
+  for (const memo of DRIVER_MEMORANDA) paintDriverMemoSample(memo.id);
 }
 
 function appendTemplateField(editor, labelText, controlId, control) {
@@ -1251,6 +1274,7 @@ function appendTemplateField(editor, labelText, controlId, control) {
   control.id = controlId;
   field.append(label, control);
   editor.append(field);
+  wireTemplateHighlightField(control);
 }
 
 function renderEmailContentOptions(selectedId, templates) {
@@ -1286,6 +1310,12 @@ function renderEmailContentOptions(selectedId, templates) {
     name.textContent = memo.label;
     summary.append(chevron, radio, name);
 
+    const sample = document.createElement('div');
+    sample.className = 'template-preview driver-notice-sample';
+    const sampleText = document.createElement('div');
+    sampleText.className = 'driver-notice-sample-text';
+    sampleText.dataset.sample = memo.id;
+
     const editor = document.createElement('div');
     editor.className = 'email-content-editor';
     const subject = document.createElement('input');
@@ -1301,16 +1331,18 @@ function renderEmailContentOptions(selectedId, templates) {
     const hint = document.createElement('p');
     hint.className = 'field-hint';
     hint.textContent =
-      'You can use {{driver_name}}, {{route_name}}, {{date}}, {{effective_date}}, and {{route_times}}.';
+      'You can use {{driver_name}}, {{route_name}}, {{date}}, {{effective_date}}, and {{route_times}}. In the example above, each highlighted color is one field—hover a highlight to see which one. The same colors mark {{placeholders}} in the email template.';
     editor.append(hint);
+    sample.append(sampleText, editor);
 
     details.addEventListener('toggle', () => {
       if (!details.open || radio.checked) return;
       radio.checked = true;
       radio.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    details.append(summary, editor);
+    details.append(summary, sample);
     root.append(details);
+    paintDriverMemoSample(memo.id);
   }
 }
 
@@ -1340,7 +1372,7 @@ function fillDriverNoticeSettings() {
   if (subject) subject.value = settings.subject;
   if (body) body.value = settings.body;
   syncNoticeAttachmentFields();
-  paintTemplatePreview('#driver-notice-preview', driverNoticePreviewText());
+  paintDriverNoticePreview();
   if (status) setStatus(status, '');
 }
 
@@ -1386,7 +1418,7 @@ document.querySelector('#reminder-invitees')?.addEventListener('click', (event) 
 
 document.querySelector('#driver-notice-form')?.addEventListener('input', () => {
   syncNoticeAttachmentFields();
-  paintTemplatePreview('#driver-notice-preview', driverNoticePreviewText());
+  paintDriverNoticePreview();
 });
 
 document.querySelector('#driver-notice-reset')?.addEventListener('click', () => {
@@ -1395,7 +1427,7 @@ document.querySelector('#driver-notice-reset')?.addEventListener('click', () => 
   renderEmailContentOptions(DEFAULT_MEMORANDUM_ID, {});
   if (subject) subject.value = DEFAULT_DRIVER_NOTICE_SUBJECT;
   if (body) body.value = DEFAULT_DRIVER_NOTICE_BODY;
-  paintTemplatePreview('#driver-notice-preview', driverNoticePreviewText());
+  paintDriverNoticePreview();
 });
 
 document.querySelector('#driver-notice-form')?.addEventListener('submit', async (event) => {
@@ -3350,7 +3382,7 @@ function renderContractNoticeEditors(templates) {
     const hint = document.createElement('p');
     hint.className = 'field-hint';
     hint.textContent =
-      'You can use {{driver_name}}, {{route_name}}, {{date}}, {{effective_date}}, {{previous_hours}}, {{contract_hours}}, {{change_amount}}, {{timing}}, {{citation_label}}, and {{citation_text}}. The citation lines are the contract wording for this change. In the example above, highlighted text comes from those fields—hover a highlight to see which one.';
+      'You can use {{driver_name}}, {{route_name}}, {{date}}, {{effective_date}}, {{previous_hours}}, {{contract_hours}}, {{change_amount}}, {{timing}}, {{citation_label}}, and {{citation_text}}. The citation lines are the contract wording for this change. In the example above, each highlighted color is one field—hover a highlight to see which one. The same colors mark {{placeholders}} in the email template.';
     const editorActions = document.createElement('div');
     editorActions.className = 'contract-notice-editor-actions actions';
     const save = document.createElement('button');
@@ -3358,6 +3390,8 @@ function renderContractNoticeEditors(templates) {
     save.textContent = 'Save contract notice';
     editorActions.append(save);
     editor.append(subjectField, bodyField, hint, editorActions);
+    wireTemplateHighlightField(subject);
+    wireTemplateHighlightField(body);
     const refreshSample = () => paintContractCardSample(kind.id);
     subject.addEventListener('input', refreshSample);
     body.addEventListener('input', refreshSample);
@@ -3379,6 +3413,17 @@ function renderContractNoticeEditors(templates) {
 
 const TEMPLATE_TOKEN_RE = /\{\{\s*([a-z_]+)\s*\}\}/g;
 
+function escapeTemplateHtml(text) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function templateFillClass(key) {
+  return `template-fill template-fill-${key}`;
+}
+
 function appendFilledTemplate(parent, template, values) {
   const source = String(template ?? '');
   let last = 0;
@@ -3396,7 +3441,8 @@ function appendFilledTemplate(parent, template, values) {
     }
     const text = String(values[key] ?? '');
     const mark = document.createElement('mark');
-    mark.className = 'template-fill';
+    mark.className = templateFillClass(key);
+    mark.dataset.key = key;
     mark.dataset.token = token;
     mark.title = token;
     mark.setAttribute('aria-label', text ? `${token}: ${text}` : `${token} (empty)`);
@@ -3405,6 +3451,58 @@ function appendFilledTemplate(parent, template, values) {
     last = match.index + match[0].length;
   }
   if (last < source.length) parent.append(source.slice(last));
+}
+
+function templateSourceHighlightHtml(template) {
+  const source = String(template ?? '');
+  let html = '';
+  let last = 0;
+  TEMPLATE_TOKEN_RE.lastIndex = 0;
+  let match;
+  while ((match = TEMPLATE_TOKEN_RE.exec(source))) {
+    if (match.index > last) html += escapeTemplateHtml(source.slice(last, match.index));
+    const key = match[1];
+    const token = match[0];
+    html += `<mark class="${templateFillClass(key)}" data-key="${escapeTemplateHtml(
+      key
+    )}" data-token="{{${escapeTemplateHtml(key)}}}">${escapeTemplateHtml(token)}</mark>`;
+    last = match.index + match[0].length;
+  }
+  if (last < source.length) html += escapeTemplateHtml(source.slice(last));
+  return html;
+}
+
+function paintTemplateFieldBackdrop(control) {
+  const backdrop = control?.parentElement?.querySelector('.template-field-backdrop');
+  if (!backdrop) return;
+  backdrop.innerHTML = templateSourceHighlightHtml(control.value);
+  backdrop.scrollTop = control.scrollTop;
+  backdrop.scrollLeft = control.scrollLeft;
+}
+
+function wireTemplateHighlightField(control) {
+  if (!control || control.dataset.templateHighlight === 'yes') return control;
+  const shell = document.createElement('div');
+  shell.className = `template-field-shell ${
+    control.tagName === 'TEXTAREA' ? 'is-multiline' : 'is-single'
+  }`;
+  const backdrop = document.createElement('pre');
+  backdrop.className = 'template-field-backdrop';
+  backdrop.setAttribute('aria-hidden', 'true');
+  control.parentNode?.insertBefore(shell, control);
+  shell.append(backdrop, control);
+  control.dataset.templateHighlight = 'yes';
+  const sync = () => paintTemplateFieldBackdrop(control);
+  control.addEventListener('input', sync);
+  control.addEventListener('scroll', () => {
+    backdrop.scrollTop = control.scrollTop;
+    backdrop.scrollLeft = control.scrollLeft;
+  });
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(sync).observe(control);
+  }
+  sync();
+  return control;
 }
 
 function contractNoticeSamplePeople(kindId) {
