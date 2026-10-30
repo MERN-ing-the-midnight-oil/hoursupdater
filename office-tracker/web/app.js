@@ -78,6 +78,7 @@ import {
 } from './accounts.js';
 import { attributionForChange } from './attribution.js';
 import { recentRouteChanges } from '../src/recentChanges.js';
+import { shouldDeferSharedUiRefresh } from '../src/sharedUiRefresh.js';
 import { ensureExampleRoutes, isSampleOffice } from './exampleRoutes.js';
 import { mountClockDesk } from './clockDesk.js';
 import {
@@ -271,6 +272,7 @@ const changeEditForm = document.querySelector('#change-edit-form');
 const changeEditStatus = document.querySelector('#change-edit-status');
 
 let snapshot = null;
+let pendingSharedUiRefresh = false;
 let addingPerson = false;
 const officeSection = new URLSearchParams(location.search).get('section');
 const driversApp = officeSection === 'clock-records' ? 'clocking' : officeSection === 'drivers' ? 'payroll' : '';
@@ -2691,6 +2693,65 @@ function paintQueueUnsent(queueSelector, count) {
   if (number) number.textContent = waiting === 1 ? '1 unsent' : `${waiting} unsent`;
 }
 
+const NOTICE_QUEUE_PREVIEW_LIMIT = 3;
+
+function paintNoticeQueuePreview(previewId, lines, emptyText) {
+  const root = document.querySelector(previewId);
+  if (!root) return;
+  root.replaceChildren();
+  if (!lines.length) {
+    const empty = document.createElement('p');
+    empty.className = 'notice-queue-preview-empty';
+    empty.textContent = emptyText;
+    root.append(empty);
+    return;
+  }
+  const list = document.createElement('ul');
+  list.className = 'notice-queue-preview-list';
+  for (const line of lines.slice(0, NOTICE_QUEUE_PREVIEW_LIMIT)) {
+    const item = document.createElement('li');
+    if (line.attention) item.classList.add('is-unsent');
+    item.textContent = line.text;
+    list.append(item);
+  }
+  root.append(list);
+  const rest = lines.length - NOTICE_QUEUE_PREVIEW_LIMIT;
+  if (rest > 0) {
+    const more = document.createElement('p');
+    more.className = 'notice-queue-preview-more field-hint';
+    more.textContent = rest === 1 ? 'and 1 more…' : `and ${rest} more…`;
+    root.append(more);
+  }
+}
+
+function driverNoticePreviewLines(items) {
+  return items.map((item) => {
+    const change = [item.segmentLabel, item.previousLabel, '→', item.newLabel]
+      .filter(Boolean)
+      .join(' ');
+    const effect = item.effectiveDate ? prettyDate(item.effectiveDate) : '';
+    return {
+      attention: !item.sent,
+      text: [`Route ${item.routeName || '—'}`, item.driverName || 'No driver', change, effect]
+        .filter(Boolean)
+        .join(' · '),
+    };
+  });
+}
+
+function contractNoticePreviewLines(items, asOf) {
+  return items.map((item) => {
+    const letter = item.kindLabel || 'Contract notice';
+    const sendBy = item.sendByDate ? `Send by ${item.sendByDate}` : '';
+    return {
+      attention: contractNoticeNeedsAttention(item, asOf),
+      text: [`Route ${item.routeName || '—'}`, item.driverName || 'No driver', letter, sendBy]
+        .filter(Boolean)
+        .join(' · '),
+    };
+  });
+}
+
 function renderDriverNoticeQueue() {
   const body = document.querySelector('#notice-queue-body');
   const summary = document.querySelector('#notice-queue-summary');
@@ -2698,6 +2759,11 @@ function renderDriverNoticeQueue() {
   const items = driverNoticeItems();
   if (summary) summary.textContent = noticeQueueSummary(items, 'clock-time changes');
   paintQueueUnsent('#notice-queue', items.filter((item) => !item.sent).length);
+  paintNoticeQueuePreview(
+    '#notice-queue-preview',
+    driverNoticePreviewLines(items),
+    'No clock-time changes are recorded yet.'
+  );
   if (!items.length) {
     body.innerHTML = '<tr><td colspan="9" class="empty">No clock-time changes are recorded yet.</td></tr>';
     syncNoticeSelection('#notice-queue');
@@ -2802,6 +2868,11 @@ function renderContractNoticeQueue() {
   const overdue = contractNoticeOverdue(items, asOf);
   if (summary) summary.textContent = contractNoticeQueueSummary(items, asOf);
   paintQueueUnsent('#contract-notice-queue', overdue.length);
+  paintNoticeQueuePreview(
+    '#contract-notice-queue-preview',
+    contractNoticePreviewLines(items, asOf),
+    'No contract notices are recorded yet.'
+  );
   renderContractNoticeCalendar(items);
   if (!items.length) {
     body.innerHTML = '<tr><td colspan="10" class="empty">No contract notices are recorded yet.</td></tr>';
@@ -4627,6 +4698,48 @@ function syncSchoolYearCalendar() {
   useSchoolYearCalendar(savedSchoolYear(loadState()));
 }
 
+function routeClockTimesUiState() {
+  const active = document.activeElement;
+  const focusIn = (root) => root instanceof HTMLElement && active instanceof Node && root.contains(active);
+  return {
+    startEditOpen: Boolean(startEditForm && !startEditForm.hidden),
+    changeEditOpen: Boolean(changeEditForm && !changeEditForm.hidden),
+    changeDialogOpen: Boolean(changeDialog?.open),
+    focusInScheduleHistory: focusIn(scheduleHistory),
+    focusInStartEdit: focusIn(startEditForm),
+    focusInChangeEdit: focusIn(changeEditForm),
+    setupVisible: Boolean(setupView && !setupView.hidden),
+    focusInSetup: focusIn(setupForm),
+  };
+}
+
+function isEditingRouteClockTimes() {
+  return shouldDeferSharedUiRefresh(routeClockTimesUiState());
+}
+
+function applySharedOfficeUiRefresh() {
+  pendingSharedUiRefresh = false;
+  loadAll();
+  showRecentRouteChanges(loadState());
+  if (activeSheet === 'admin-reminder') fillReminderSettings();
+  if (activeSheet === 'driver-notice') fillDriverNoticeSettings();
+  if (activeSheet === 'contract-notice') fillContractNoticeSettings();
+  if (activeSheet === 'bidding') renderEomBidding({ preserveMonth: true });
+}
+
+function requestSharedOfficeUiRefresh() {
+  if (isEditingRouteClockTimes()) {
+    pendingSharedUiRefresh = true;
+    return;
+  }
+  applySharedOfficeUiRefresh();
+}
+
+function flushPendingSharedOfficeUiRefresh() {
+  if (!pendingSharedUiRefresh || isEditingRouteClockTimes()) return;
+  applySharedOfficeUiRefresh();
+}
+
 function loadAll() {
   syncSchoolYearCalendar();
   startEditForm.hidden = true;
@@ -5094,6 +5207,7 @@ function closeChangeDialog() {
   if (changeDialog.open) {
     changeDialog.close();
   }
+  flushPendingSharedOfficeUiRefresh();
 }
 
 const dayDialog = document.querySelector('#day-dialog');
@@ -5267,6 +5381,7 @@ document.querySelector('#edit-start-btn').addEventListener('click', openStartEdi
 document.querySelector('#start-edit-cancel').addEventListener('click', () => {
   startEditForm.hidden = true;
   setStatus(startEditStatus, '');
+  flushPendingSharedOfficeUiRefresh();
 });
 
 startEditForm.addEventListener('submit', (event) => {
@@ -5293,6 +5408,7 @@ startEditForm.addEventListener('submit', (event) => {
     startEditForm.hidden = true;
     setStatus(scheduleStatus, 'Starting times corrected.', 'ok');
     renderApp();
+    flushPendingSharedOfficeUiRefresh();
     if (driverChanged) offerDuplicateRunChoice(getCurrentProfile(), localDateString());
   } catch (error) {
     setStatus(startEditStatus, error.message, 'error');
@@ -5515,6 +5631,7 @@ changeEditForm.addEventListener('submit', (event) => {
     changeEditForm.hidden = true;
     announcePredictedReminders('Change corrected.', [changeId], { [changeId]: previousOn });
     renderApp();
+    flushPendingSharedOfficeUiRefresh();
   } catch (error) {
     setStatus(changeEditStatus, error.message, 'error');
   }
@@ -5523,6 +5640,7 @@ changeEditForm.addEventListener('submit', (event) => {
 document.querySelector('#change-edit-cancel').addEventListener('click', () => {
   changeEditForm.hidden = true;
   setStatus(changeEditStatus, '');
+  flushPendingSharedOfficeUiRefresh();
 });
 
 document.querySelector('#add-driver-row').addEventListener('click', () => {
@@ -6202,7 +6320,10 @@ function refreshDeskFromAnotherWindow() {
     });
     return;
   }
-  if (!startEditForm.hidden || !changeEditForm.hidden) return;
+  if (isEditingRouteClockTimes()) {
+    pendingSharedUiRefresh = true;
+    return;
+  }
   snapshot = addingPerson ? buildSnapshot(null) : currentSnapshot();
   renderApp();
 }
@@ -6212,6 +6333,11 @@ window.addEventListener('storage', (event) => {
   syncSchoolYearCalendar();
   refreshDeskFromAnotherWindow();
 });
+
+document.addEventListener('focusout', () => {
+  window.setTimeout(() => flushPendingSharedOfficeUiRefresh(), 0);
+});
+changeDialog?.addEventListener('close', () => flushPendingSharedOfficeUiRefresh());
 
 renderSetupRuns();
 armPayrollTools();
@@ -6239,12 +6365,8 @@ startAccounts({
         ensureExampleRoutes();
         await adoptStarterOffice();
         beginSessionRouteTracking();
-        const active = document.activeElement;
-        const editingField =
-          active instanceof HTMLInputElement ||
-          active instanceof HTMLTextAreaElement ||
-          active instanceof HTMLSelectElement;
-        if (!editingField) loadAll();
+        if (!isEditingRouteClockTimes()) loadAll();
+        else pendingSharedUiRefresh = true;
         await createAutomaticNotices();
       } catch (error) {
         setStatus(setupStatus, error.message, 'error');
@@ -6253,12 +6375,7 @@ startAccounts({
     })();
   },
   onRemoteReset() {
-    loadAll();
-    showRecentRouteChanges(loadState());
-    if (activeSheet === 'admin-reminder') fillReminderSettings();
-    if (activeSheet === 'driver-notice') fillDriverNoticeSettings();
-    if (activeSheet === 'contract-notice') fillContractNoticeSettings();
-    if (activeSheet === 'bidding') renderEomBidding({ preserveMonth: true });
+    requestSharedOfficeUiRefresh();
   },
 }).catch((error) => {
   if (document.body.dataset.holdBoot !== 'timeclock') document.body.classList.remove('is-booting');

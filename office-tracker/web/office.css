@@ -1500,6 +1500,10 @@ details.notice-queue > summary .field-hint {
   margin: 0;
 }
 
+details.notice-queue > summary > .field-hint {
+  flex: 1 1 100%;
+}
+
 .notice-queue-unsent {
   display: inline-flex;
   align-items: center;
@@ -1526,6 +1530,45 @@ details.notice-queue:not([open]) > :not(summary) {
 
 details.notice-queue[open] > summary {
   margin-bottom: 0.7rem;
+}
+
+.notice-queue-preview {
+  flex: 1 1 100%;
+  margin: 0.15rem 0 0;
+  min-width: 0;
+}
+
+details.notice-queue[open] > summary .notice-queue-preview {
+  display: none;
+}
+
+.notice-queue-preview-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.28rem;
+}
+
+.notice-queue-preview-list li {
+  position: relative;
+  margin: 0;
+  padding: 0.35rem 0.55rem 0.35rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.notice-queue-preview-list li.is-unsent {
+  box-shadow: inset 3px 0 0 #c42323;
+}
+
+.notice-queue-preview-empty,
+.notice-queue-preview-more {
+  margin: 0.25rem 0 0;
 }
 
 .notice-queue-table {
@@ -1759,7 +1802,8 @@ details.notice-queue[open] > summary {
   font-weight: 700;
 }
 
-.contract-notice-templates.email-content {
+.contract-notice-templates.email-content,
+#driver-notice-templates.email-content {
   border: 0;
   padding: 0;
   margin: 0 0 1.4rem;

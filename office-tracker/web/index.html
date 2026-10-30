@@ -1626,7 +1626,7 @@
         </p>
         <details id="notice-queue" class="notice-queue">
           <summary>
-            <h2>Time changes</h2>
+            <h2>Time Changes Queue</h2>
             <span class="notice-queue-unsent" hidden>
               <span class="notice-flag" aria-hidden="true">
                 <svg class="icon" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22V15"/></svg>
@@ -1634,6 +1634,7 @@
               <span class="notice-queue-unsent-count"></span>
             </span>
             <p id="notice-queue-summary" class="field-hint"></p>
+            <div id="notice-queue-preview" class="notice-queue-preview" aria-hidden="true"></div>
           </summary>
           <div id="notice-queue-status" class="status" role="status" hidden></div>
           <div class="notice-queue-toolbar">
@@ -1644,17 +1645,56 @@
             <table class="notice-queue-table">
               <thead>
                 <tr>
-                  <th scope="col" class="notice-select">
+                  <th
+                    scope="col"
+                    class="notice-select"
+                    title="Select one or more rows, then use Mark Sent above the list to mark several notices at once."
+                  >
                     <input type="checkbox" class="js-notice-select-all" aria-label="Select all clock-time changes" />
                   </th>
-                  <th scope="col"><span class="visually-hidden">Notice</span></th>
-                  <th scope="col">Route</th>
-                  <th scope="col">Driver</th>
-                  <th scope="col">Change</th>
-                  <th scope="col">Takes effect</th>
-                  <th scope="col">Recorded</th>
-                  <th scope="col">Notice sent</th>
-                  <th scope="col"><span class="visually-hidden">Send</span></th>
+                  <th
+                    scope="col"
+                    title="A red flag means this clock-time notice has not been sent."
+                  >
+                    <span class="visually-hidden">Notice</span>
+                  </th>
+                  <th scope="col" title="Route number for this clock-time change.">Route</th>
+                  <th
+                    scope="col"
+                    title="Driver assigned to the route on the date this change takes effect. Assign a driver before sending."
+                  >
+                    Driver
+                  </th>
+                  <th
+                    scope="col"
+                    title="Which clock segment changed, and the previous and new clock times."
+                  >
+                    Change
+                  </th>
+                  <th
+                    scope="col"
+                    title="The day these new clock times take effect."
+                  >
+                    Takes effect
+                  </th>
+                  <th
+                    scope="col"
+                    title="When this clock-time change was entered, and who entered it when that was recorded."
+                  >
+                    Recorded
+                  </th>
+                  <th
+                    scope="col"
+                    title="Whether this notice was marked sent, and who marked it with the date. Send and Mark Sent both record that. Unmark clears it."
+                  >
+                    Notice sent?
+                  </th>
+                  <th
+                    scope="col"
+                    title="Send opens the email and marks the notice sent. Print opens the same notice for the printer without marking it sent. Mark Sent records who marked it and the date without opening email. Unmark clears that."
+                  >
+                    <span class="visually-hidden">Send</span>
+                  </th>
                 </tr>
               </thead>
               <tbody id="notice-queue-body"></tbody>
@@ -1669,35 +1709,39 @@
               Every driver time-change notice copies this address. Leave it blank to email only the driver.
             </p>
           </div>
-          <fieldset class="email-content">
-            <legend>Email content</legend>
-            <p class="field-hint">
-              Click a memorandum to open its template. Edit the subject and the message, then save. The selected memorandum is the email.
-            </p>
-            <div id="driver-notice-memoranda" class="email-content-list"></div>
-          </fieldset>
-          <div class="template-preview" id="driver-notice-preview"></div>
-          <fieldset class="yes-no">
-            <legend>Attach complete time change history</legend>
-            <label><input type="radio" name="notice_attach" value="no" checked /> No</label>
-            <label><input type="radio" name="notice_attach" value="yes" /> Yes</label>
-            <p class="field-hint">
-              Yes downloads a PDF of this route’s original clock times and every change to date. A short opening can be edited below. The email itself stays the memorandum.
-            </p>
-          </fieldset>
-          <div id="driver-notice-attachment-wording" hidden>
-            <div class="field">
-              <label for="driver-notice-subject">Notice PDF title</label>
-              <input id="driver-notice-subject" name="subject" type="text" />
-            </div>
-            <div class="field">
-              <label for="driver-notice-body">Notice PDF opening</label>
-              <textarea id="driver-notice-body" name="body" rows="6"></textarea>
+          <details id="driver-notice-templates" class="notice-queue email-content">
+            <summary>
+              <h2>Driver time-change notice templates</h2>
               <p class="field-hint">
-                You can use {{driver_name}}, {{routes}}, {{notices}}, and {{date}}. The clock-time history is added after this opening.
+                Click a memorandum to open its template. Edit the subject and the
+                message, then save. The selected memorandum is the email. You can
+                also turn on a complete time-change history PDF attachment below.
               </p>
+            </summary>
+            <div id="driver-notice-memoranda" class="email-content-list"></div>
+            <div class="template-preview" id="driver-notice-preview"></div>
+            <fieldset class="yes-no">
+              <legend>Attach complete time change history</legend>
+              <label><input type="radio" name="notice_attach" value="no" checked /> No</label>
+              <label><input type="radio" name="notice_attach" value="yes" /> Yes</label>
+              <p class="field-hint">
+                Yes downloads a PDF of this route’s original clock times and every change to date. A short opening can be edited below. The email itself stays the memorandum.
+              </p>
+            </fieldset>
+            <div id="driver-notice-attachment-wording" hidden>
+              <div class="field">
+                <label for="driver-notice-subject">Notice PDF title</label>
+                <input id="driver-notice-subject" name="subject" type="text" />
+              </div>
+              <div class="field">
+                <label for="driver-notice-body">Notice PDF opening</label>
+                <textarea id="driver-notice-body" name="body" rows="6"></textarea>
+                <p class="field-hint">
+                  You can use {{driver_name}}, {{routes}}, {{notices}}, and {{date}}. The clock-time history is added after this opening.
+                </p>
+              </div>
             </div>
-          </div>
+          </details>
           <div class="actions">
             <button type="submit">Save driver notice</button>
             <button type="button" class="secondary" id="driver-notice-reset">Use the usual wording</button>
@@ -1736,6 +1780,7 @@
               <span class="notice-queue-unsent-count"></span>
             </span>
             <p id="contract-notice-queue-summary" class="field-hint"></p>
+            <div id="contract-notice-queue-preview" class="notice-queue-preview" aria-hidden="true"></div>
           </summary>
           <div id="contract-notice-queue-status" class="status" role="status" hidden></div>
           <div class="notice-queue-toolbar">
