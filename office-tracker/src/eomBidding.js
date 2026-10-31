@@ -592,6 +592,73 @@ function routeSummaryRowsHtml(routes) {
 }
 
 /**
+ * One printable Open Bid Sign-Up Sheet for a single route.
+ */
+export function renderEomBiddingRouteSheetHtml({
+  route,
+  period,
+  calendar,
+  roster,
+  paperBidSheet = PAPER_BID_SHEET_DEFAULTS,
+} = {}) {
+  if (!route) return '';
+  const windowText = period
+    ? `${prettyDate(period.start)}–${prettyDate(period.end)}`
+    : '—';
+  const sheet = { ...PAPER_BID_SHEET_DEFAULTS, ...paperBidSheet };
+  const drivers = roster?.drivers || [];
+  const hasSeniorityData = Boolean(roster?.hasSeniorityData);
+  const signupDue =
+    route.signupDue ||
+    (calendar && route.becomesOn ? signupDueDate(calendar, route.becomesOn) : '') ||
+    '';
+  const intro = fillPaperBidTemplate(sheet.intro, {
+    bid_response_due_date: prettyDate(signupDue) || signupDue || '—',
+  });
+  const footer = fillPaperBidTemplate(sheet.footer, {});
+  const approaching = route.approaching || route.predicted;
+  const kicker = route.carriedOver
+    ? `${sheet.title} · still open from earlier posting`
+    : approaching
+      ? `${sheet.title} · approaching bid`
+      : `${sheet.title} · Art. 3.08(b)(1)`;
+  return `<article class="bid-print-page bid-print-route">
+    <p class="bid-print-kicker">${escapeHtml(kicker)}</p>
+    <h1>Route ${escapeHtml(route.routeName)}</h1>
+    <dl class="bid-route-facts">
+      <div><dt>Incumbent</dt><dd>${escapeHtml(route.driverName || '—')}</dd></div>
+      <div><dt>Previous hours</dt><dd>${escapeHtml(route.previousHours || '—')}</dd></div>
+      <div><dt>New hours</dt><dd>${escapeHtml(route.contractHours || '—')}</dd></div>
+      <div><dt>Increase</dt><dd>${escapeHtml(route.increaseLabel || '—')}</dd></div>
+      <div><dt>Posting window</dt><dd>${escapeHtml(route.postingWindowText || windowText)}</dd></div>
+      <div><dt>Sign-up due</dt><dd>${escapeHtml(prettyDate(signupDue) || '—')}</dd></div>
+    </dl>
+    <p class="bid-print-lead">${escapeHtml(intro)}</p>
+    <p class="bid-print-note">
+      Per Art. 3.08, a successful bidder may not bid back to their previous route when that
+      route is subsequently posted because of their successful bid. All resulting changes
+      take effect on the same day.
+    </p>
+    <table class="bid-print-table bid-driver-table">
+      <thead>
+        <tr>
+          <th scope="col">${hasSeniorityData ? 'Sen.' : '#'}</th>
+          <th scope="col">Driver</th>
+          <th scope="col">Current route(s)</th>
+          <th scope="col">Initial</th>
+        </tr>
+      </thead>
+      <tbody>${driverRowsHtml(drivers, {
+        holderName: route.driverName,
+        forInterest: true,
+        hasSeniorityData,
+      })}</tbody>
+    </table>
+    <p class="bid-print-footer">${escapeHtml(footer)}</p>
+  </article>`;
+}
+
+/**
  * Multi-page printable HTML: cover sheet, then one sheet per route.
  */
 export function renderEomBiddingPacketHtml({
@@ -622,7 +689,6 @@ export function renderEomBiddingPacketHtml({
         .at(-1) || '';
   }
 
-  const sheet = { ...PAPER_BID_SHEET_DEFAULTS, ...paperBidSheet };
   const drivers = roster?.drivers || [];
   const hasSeniorityData = Boolean(roster?.hasSeniorityData);
   const stillOpenNote = stillOpen.length
@@ -680,49 +746,15 @@ export function renderEomBiddingPacketHtml({
   </article>`;
 
   const routePages = packetRoutes
-    .map((route) => {
-      const intro = fillPaperBidTemplate(sheet.intro, {
-        bid_response_due_date: prettyDate(route.signupDue) || route.signupDue || '—',
-      });
-      const footer = fillPaperBidTemplate(sheet.footer, {});
-      const kicker = route.carriedOver
-        ? `${sheet.title} · still open from earlier posting`
-        : `${sheet.title} · Art. 3.08(b)(1)`;
-      return `<article class="bid-print-page bid-print-route">
-        <p class="bid-print-kicker">${escapeHtml(kicker)}</p>
-        <h1>Route ${escapeHtml(route.routeName)}</h1>
-        <dl class="bid-route-facts">
-          <div><dt>Incumbent</dt><dd>${escapeHtml(route.driverName || '—')}</dd></div>
-          <div><dt>Previous hours</dt><dd>${escapeHtml(route.previousHours)}</dd></div>
-          <div><dt>New hours</dt><dd>${escapeHtml(route.contractHours)}</dd></div>
-          <div><dt>Increase</dt><dd>${escapeHtml(route.increaseLabel)}</dd></div>
-          <div><dt>Posting window</dt><dd>${escapeHtml(route.postingWindowText || windowText)}</dd></div>
-          <div><dt>Sign-up due</dt><dd>${escapeHtml(prettyDate(route.signupDue) || '—')}</dd></div>
-        </dl>
-        <p class="bid-print-lead">${escapeHtml(intro)}</p>
-        <p class="bid-print-note">
-          Per Art. 3.08, a successful bidder may not bid back to their previous route when that
-          route is subsequently posted because of their successful bid. All resulting changes
-          take effect on the same day.
-        </p>
-        <table class="bid-print-table bid-driver-table">
-          <thead>
-            <tr>
-              <th scope="col">${hasSeniorityData ? 'Sen.' : '#'}</th>
-              <th scope="col">Driver</th>
-              <th scope="col">Current route(s)</th>
-              <th scope="col">Initial</th>
-            </tr>
-          </thead>
-          <tbody>${driverRowsHtml(drivers, {
-            holderName: route.driverName,
-            forInterest: true,
-            hasSeniorityData,
-          })}</tbody>
-        </table>
-        <p class="bid-print-footer">${escapeHtml(footer)}</p>
-      </article>`;
-    })
+    .map((route) =>
+      renderEomBiddingRouteSheetHtml({
+        route,
+        period,
+        calendar,
+        roster,
+        paperBidSheet,
+      })
+    )
     .join('');
 
   return `${cover}${routePages}`;

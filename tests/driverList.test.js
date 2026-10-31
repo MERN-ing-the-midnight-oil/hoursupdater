@@ -514,6 +514,7 @@ test('bid/bump snapped windows default on with contract snap, and can be turned 
   assert.deepEqual(contractSnapOptions(state), {
     snapContractClocks: true,
     bidBumpUseSnappedTimes: true,
+    requireAcceptForStable: true,
     contractSnapBreaks: { toHour: 6, toQuarter: 21, toHalf: 36, toNextHour: 52 },
   });
 
@@ -524,6 +525,7 @@ test('bid/bump snapped windows default on with contract snap, and can be turned 
   assert.deepEqual(contractSnapOptions(loadState(storage)), {
     snapContractClocks: true,
     bidBumpUseSnappedTimes: false,
+    requireAcceptForStable: true,
     contractSnapBreaks: { toHour: 6, toQuarter: 21, toHalf: 36, toNextHour: 52 },
   });
 
@@ -533,6 +535,7 @@ test('bid/bump snapped windows default on with contract snap, and can be turned 
   assert.deepEqual(contractSnapOptions(loadState(storage)), {
     snapContractClocks: false,
     bidBumpUseSnappedTimes: false,
+    requireAcceptForStable: true,
   });
 });
 

@@ -9,6 +9,7 @@ import {
   normalizeContractReminder,
   planReminderPublish,
   prepareContractReminder,
+  reminderCancelFilename,
   reminderDayFilename,
   reminderEventSignature,
 } from '../office-tracker/src/contractReminder.js';
@@ -139,6 +140,7 @@ test('a predicted contract becomes a one-minute free Outlook invite', () => {
   assert.match(ics, /mailto:ada@bps.org/);
   assert.match(ics, /mailto:grace@bps.org/);
   assert.equal(reminderDayFilename('2026-10-05'), 'contract-reminder-20261005.ics');
+  assert.equal(reminderCancelFilename('2026-10-05'), 'contract-reminder-cancel-20261005.ics');
   assert.equal(prepareContractReminder({
     routeName: 'S5',
     row: { contracted: { status: 'superseded' } },

@@ -53,9 +53,13 @@ import { computeDeltaMinutes } from '../../src/logic/timeUtils.js';
 import {
   compareSuggestions,
   contractAcceptUrl,
+  contractChangeReasonLabel,
   contractTimeChangeKeyHtml,
   contractTimeChangeMarkHtml,
+  effectiveDateHoverText,
   suggestionFromHistoryRow,
+  timesLabel,
+  timesStackHtml,
 } from '../src/contractTimeChanges.js';
 import {
   payrollWorkbookFilename,
@@ -119,7 +123,13 @@ bindCalculatorStore({
   setCurrentProfile,
   contractSnapOptions: () => contractSnapOptions(loadState()),
 });
-import { formatClockAmPm, formatSegmentRange, localDateString } from '../../employee-tracker/src/clockTimes.js';
+import {
+  formatClockAmPm,
+  formatSegmentRange,
+  localDateString,
+  splitSegmentRange,
+  toTimeInputValue,
+} from '../../employee-tracker/src/clockTimes.js';
 import { getSchoolDays } from '../../src/logic/calendar.js';
 import { DEFAULT_DRIVER_PIN, driverClockPin } from '../../src/logic/clockKiosk.js';
 import { earlyReleaseClock, isEarlyReleaseDate } from '../../src/logic/earlyRelease.js';
@@ -136,6 +146,7 @@ import {
   isPredictedContract,
   planReminderPublish,
   prepareContractReminder,
+  reminderCancelFilename,
   reminderDayFilename,
 } from '../src/contractReminder.js';
 import {
@@ -180,7 +191,7 @@ import {
   eomOutsidePostingSeasonMessage,
   PAPER_BID_SHEET_DEFAULTS,
   periodForMonthKey,
-  renderEomBiddingPacketHtml,
+  renderEomBiddingRouteSheetHtml,
   routesApproachingBid,
   routesStillOpenForBid,
   routesUpForBid,
@@ -272,7 +283,7 @@ const eomBiddingStillOpenBody = document.querySelector('#eom-bidding-still-open-
 const eomBiddingStillOpenSummary = document.querySelector('#eom-bidding-still-open-summary');
 const eomBiddingApproachingBody = document.querySelector('#eom-bidding-approaching-body');
 const eomBiddingApproachingSummary = document.querySelector('#eom-bidding-approaching-summary');
-const eomBiddingPrint = document.querySelector('#eom-bidding-print');
+const eomBiddingPanel = document.querySelector('#eom-bidding-panel');
 const allRoutesView = document.querySelector('#all-routes-view');
 const allRoutesSheet = document.querySelector('#all-routes-sheet');
 const driverHistoryView = document.querySelector('#driver-history-view');
@@ -348,6 +359,8 @@ const ICONS = {
   bump: '<path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="m21 8-4-4-4 4"/><path d="M17 4v16"/>',
   decrease: '<path d="M22 17 13.5 8.5 8.5 13.5 2 7"/><path d="M16 17h6v-6"/>',
   increase: '<path d="m22 7-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/>',
+  'alert-triangle':
+    '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
 };
 
 function iconHtml(name) {
@@ -1128,7 +1141,11 @@ biddingTab?.addEventListener('click', showBidding);
 eomBiddingMonth?.addEventListener('change', () => {
   renderEomBidding({ preserveMonth: true });
 });
-eomBiddingPrint?.addEventListener('click', printEomBiddingPacket);
+eomBiddingPanel?.addEventListener('click', (event) => {
+  const button = event.target.closest('.js-eom-print-route');
+  if (!button || !eomBiddingPanel.contains(button)) return;
+  printEomBiddingRoute(button);
+});
 
 let reminderInvitees = [];
 let officeUsers = [];
@@ -1521,10 +1538,17 @@ document.querySelector('#notice-queue')?.addEventListener('change', (event) => {
 });
 
 document.querySelector('#contract-accept-queue')?.addEventListener('click', (event) => {
-  const button = event.target.closest('.js-accept-contract');
-  if (!button) return;
-  const changeId = button.closest('[data-change-id]')?.dataset.changeId || button.dataset.changeId;
-  if (changeId) openContractAcceptDialog(changeId);
+  const record = event.target.closest('.js-record-contract');
+  if (record) {
+    const changeId = record.closest('[data-change-id]')?.dataset.changeId || record.dataset.changeId;
+    if (changeId) openContractAcceptDialog(changeId);
+    return;
+  }
+  const edit = event.target.closest('.js-edit-contract');
+  if (edit) {
+    const changeId = edit.closest('[data-change-id]')?.dataset.changeId || edit.dataset.changeId;
+    if (changeId) openContractEditForm(changeId);
+  }
 });
 
 document.querySelector('#contract-accept-close')?.addEventListener('click', () => {
@@ -1547,7 +1571,7 @@ document.querySelector('#contract-accept-confirm')?.addEventListener('click', ()
     if (status) {
       setStatus(
         status,
-        'Accepted. Those hours are contracted — report that same date and hours to Bellingham Schools Payroll.',
+        'Recorded. Those hours are contracted and added to the Payroll Reminder.',
         'ok'
       );
     }
@@ -1556,11 +1580,21 @@ document.querySelector('#contract-accept-confirm')?.addEventListener('click', ()
   }
 });
 
+document.querySelector('#contract-set-cancel-edit')?.addEventListener('click', () => {
+  clearContractSetEdit();
+  const status = document.querySelector('#contract-set-status');
+  if (status) setStatus(status, 'Edit cancelled.', 'ok');
+});
+
 document.querySelector('#contract-set-form')?.addEventListener('submit', (event) => {
   event.preventDefault();
   const status = document.querySelector('#contract-set-status');
+  const form = event.target;
+  const editChangeId = String(form?.dataset?.editChangeId || '').trim();
   try {
-    commitArbitraryContractSet();
+    if (editChangeId) commitEditedContractSuggestion(editChangeId);
+    else commitArbitraryContractSet();
+    clearContractSetEdit();
     loadAll();
     renderContractAcceptQueue();
     fillContractSetRouteOptions();
@@ -1568,11 +1602,11 @@ document.querySelector('#contract-set-form')?.addEventListener('submit', (event)
     if (status) {
       setStatus(
         status,
-        'Contracted times saved and Accepted. Report that same date and hours to Bellingham Schools Payroll.',
+        'Contract change recorded and added to the Payroll Reminder.',
         'ok'
       );
     }
-    event.target.reset?.();
+    form.reset?.();
   } catch (error) {
     if (status) setStatus(status, error.message, 'error');
   }
@@ -2981,6 +3015,7 @@ function renderContractNoticeCalendar(items = contractNoticeItems()) {
 function officeContractSuggestions() {
   const asOf = getAsOfDate();
   const acceptances = loadContractAcceptances();
+  const snapOpts = contractSnapOptions(loadState());
   const items = [];
   const seen = new Set();
   for (const profile of listProfiles()) {
@@ -2992,12 +3027,17 @@ function officeContractSuggestions() {
     }
     for (const row of snap?.schedule_history || []) {
       const acceptance = acceptances[row?.change_id] || null;
+      const onChange = assignmentOnDate(profile, row.date);
       const item = suggestionFromHistoryRow({
         profile,
         row,
-        driverName: driverForDate(profile, row.date),
+        driverName: onChange?.driver_name || driverForDate(profile, row.date),
+        awardedOn: onChange?.from || '',
         asOf,
         acceptance,
+        ...snapOpts,
+        windowRule: snap?.window?.window_rule || '',
+        openedDate: snap?.window?.opened_date || '',
       });
       if (!item?.changeId || seen.has(item.changeId)) continue;
       seen.add(item.changeId);
@@ -3007,24 +3047,37 @@ function officeContractSuggestions() {
   for (const record of Object.values(acceptances)) {
     if (!record?.changeId || seen.has(record.changeId)) continue;
     seen.add(record.changeId);
+    const reasonKey =
+      record.source === 'arbitrary_set'
+        ? 'arbitrary_set'
+        : record.source === 'suggestion_edit'
+          ? 'suggestion_edit'
+          : 'forced_contract_on';
+    const reasonLabel = contractChangeReasonLabel(reasonKey, 'Office recorded these contracted hours');
+    const profile =
+      listProfiles().find((item) => String(item?.id || '') === String(record.routeId || '')) || null;
+    const onEffective = profile ? assignmentOnDate(profile, record.effectiveDate) : null;
     items.push({
       changeId: record.changeId,
       changeIds: [record.changeId],
       routeId: record.routeId,
       routeName: record.routeName || record.routeId,
-      driverName: '',
+      driverName: onEffective?.driver_name || (profile ? driverForDate(profile, record.effectiveDate) : ''),
+      awardedOn: onEffective?.from || '',
       changeDate: record.effectiveDate,
       becomesOn: record.effectiveDate,
       times: record.times,
-      timesLabel: [
-        record.times?.AM ? `AM ${formatClockAmPm(record.times.AM)}` : '',
-        record.times?.MIDDAY ? `Midday ${formatClockAmPm(record.times.MIDDAY)}` : '',
-        record.times?.PM ? `PM ${formatClockAmPm(record.times.PM)}` : '',
-      ]
-        .filter(Boolean)
-        .join(' · ') || 'Accepted hours',
+      timesLabel: timesLabel(record.times) || 'Accepted hours',
       outcome: 'STABLE',
-      outcomeLabel: 'Accepted contracted hours',
+      outcomeLabel: reasonLabel,
+      reason: reasonKey,
+      reasonLabel,
+      effectiveHover: effectiveDateHoverText({
+        windowRule: reasonKey,
+        changeDate: record.effectiveDate,
+        becomesOn: record.effectiveDate,
+        source: record.source || '',
+      }),
       accepted: true,
       overdue: false,
       acceptance: record,
@@ -3043,7 +3096,7 @@ function renderContractTimeChangeCalendar(items = officeContractSuggestions()) {
   for (const item of items) {
     const day = String(item.becomesOn || '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
-    const mark = contractTimeChangeMarkHtml(item, { iconHtml });
+    const mark = contractTimeChangeMarkHtml(item);
     marksByDate[day] = `${marksByDate[day] || ''}${mark}`;
   }
   for (const day of Object.keys(marksByDate)) {
@@ -3091,39 +3144,54 @@ function renderContractAcceptQueue() {
   const pending = items.filter((item) => !item.accepted);
   if (summary) {
     summary.textContent = pending.length
-      ? `${pending.length} waiting for Accept${
+      ? `${pending.length} waiting to be recorded${
           items.some((item) => item.overdue) ? ' · some are past due' : ''
         }.`
       : items.length
-        ? 'Every suggested contract time-change has been Accepted.'
+        ? 'Every suggested contract time-change has been recorded.'
         : 'No predicted contract time-changes right now.';
   }
   if (!body) return;
   if (!items.length) {
     body.innerHTML =
-      '<tr><td colspan="7">When Teamster rules predict a contract date, it will show up here for Accept.</td></tr>';
+      '<tr><td colspan="7">When Teamster rules predict a contract date, it will show up here to Record or Edit.</td></tr>';
     return;
   }
   body.innerHTML = items
     .map((item) => {
       const status = item.accepted
-        ? 'Accepted'
+        ? 'Recorded'
         : item.overdue
           ? 'Past due'
-          : 'Pending Accept';
+          : 'Pending';
       const action = item.accepted
-        ? '<span class="field-hint">Reported to Payroll</span>'
-        : `<button type="button" class="js-accept-contract" data-change-id="${escapeHtml(
-            item.changeId
-          )}">Accept &amp; report to Payroll</button>`;
+        ? '<span class="field-hint">Added to Payroll Reminder</span>'
+        : `<div class="contract-change-actions">
+            <button type="button" class="js-record-contract" data-change-id="${escapeHtml(
+              item.changeId
+            )}">Record this Contract Change</button>
+            <button type="button" class="secondary js-edit-contract" data-change-id="${escapeHtml(
+              item.changeId
+            )}">Edit this Contract Change</button>
+          </div>`;
       return `<tr class="${item.overdue ? 'is-overdue' : ''}${
         item.accepted ? ' is-accepted' : ''
       }" data-change-id="${escapeHtml(item.changeId)}">
-        <td>${escapeHtml(prettyDate(item.becomesOn))}</td>
         <td>${escapeHtml(item.routeName)}</td>
-        <td>${escapeHtml(item.driverName || 'Unassigned')}</td>
-        <td>${escapeHtml(item.timesLabel)}</td>
-        <td>${escapeHtml(item.outcomeLabel || item.outcome || '')}</td>
+        <td><span class="contract-driver-stack"><span>${escapeHtml(
+          item.driverName || 'Unassigned'
+        )}</span>${
+          item.awardedOn
+            ? `<span class="contract-driver-awarded" title="Date this driver was awarded the route">${escapeHtml(
+                prettyDate(item.awardedOn)
+              )}</span>`
+            : ''
+        }</span></td>
+        <td>${timesStackHtml(item.times, escapeHtml)}</td>
+        <td title="${escapeHtml(item.effectiveHover || '')}">${escapeHtml(prettyDate(item.becomesOn))}</td>
+        <td title="${escapeHtml(item.reasonLabel || item.outcomeLabel || '')}">${escapeHtml(
+          item.reasonLabel || item.outcomeLabel || item.outcome || ''
+        )}</td>
         <td>${escapeHtml(status)}</td>
         <td>${action}</td>
       </tr>`;
@@ -3137,10 +3205,107 @@ function openContractAcceptDialog(changeId) {
   const message = document.querySelector('#contract-accept-message');
   if (!item || !dialog || !message) return;
   dialog.dataset.changeId = item.changeId;
-  message.textContent = `Route ${item.routeName}: accept contracted hours effective ${prettyDate(
+  message.textContent = `Route ${item.routeName}: record contracted hours effective ${prettyDate(
     item.becomesOn
   )} (${item.timesLabel}).`;
   if (!dialog.open) dialog.showModal();
+}
+
+function fillTimeInputsFromRange(range, inId, outId) {
+  const parts = splitSegmentRange(range);
+  const inEl = document.querySelector(inId);
+  const outEl = document.querySelector(outId);
+  if (inEl) inEl.value = parts ? toTimeInputValue(parts.clock_in) : '';
+  if (outEl) outEl.value = parts ? toTimeInputValue(parts.clock_out) : '';
+}
+
+function clearContractSetEdit() {
+  const form = document.querySelector('#contract-set-form');
+  const cancel = document.querySelector('#contract-set-cancel-edit');
+  if (form) delete form.dataset.editChangeId;
+  if (cancel) cancel.hidden = true;
+}
+
+function openContractEditForm(changeId) {
+  const item = officeContractSuggestions().find((row) => row.changeId === changeId);
+  if (!item || item.accepted) return;
+  const panel = document.querySelector('#contract-set-panel');
+  const form = document.querySelector('#contract-set-form');
+  const cancel = document.querySelector('#contract-set-cancel-edit');
+  const status = document.querySelector('#contract-set-status');
+  fillContractSetRouteOptions();
+  const route = document.querySelector('#contract-set-route');
+  const date = document.querySelector('#contract-set-date');
+  const note = document.querySelector('#contract-set-note');
+  if (route) route.value = item.routeId;
+  if (date) date.value = item.becomesOn;
+  if (note) {
+    note.value = `Edited from suggested contract change for route ${item.routeName}`;
+  }
+  fillTimeInputsFromRange(item.times?.AM, '#contract-set-am-in', '#contract-set-am-out');
+  fillTimeInputsFromRange(item.times?.MIDDAY, '#contract-set-mid-in', '#contract-set-mid-out');
+  fillTimeInputsFromRange(item.times?.PM, '#contract-set-pm-in', '#contract-set-pm-out');
+  if (form) form.dataset.editChangeId = item.changeId;
+  if (cancel) cancel.hidden = false;
+  if (panel) panel.open = true;
+  if (status) {
+    setStatus(
+      status,
+      `Editing route ${item.routeName}. Adjust the times or date, then Record this Contract Change.`,
+      'ok'
+    );
+  }
+  panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  date?.focus();
+}
+
+function readContractSetTimes() {
+  return {
+    AM: rangeFromTimeInputs('#contract-set-am-in', '#contract-set-am-out'),
+    MIDDAY: rangeFromTimeInputs('#contract-set-mid-in', '#contract-set-mid-out'),
+    PM: rangeFromTimeInputs('#contract-set-pm-in', '#contract-set-pm-out'),
+  };
+}
+
+function commitEditedContractSuggestion(changeId) {
+  const item = officeContractSuggestions().find((row) => row.changeId === changeId);
+  if (!item) throw new Error('That suggested contract time-change was not found.');
+  const effectiveDate = String(document.querySelector('#contract-set-date')?.value || '').slice(0, 10);
+  const note = String(document.querySelector('#contract-set-note')?.value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate)) throw new Error('Choose an effective date.');
+  const times = readContractSetTimes();
+  if (!times.AM && !times.MIDDAY && !times.PM) {
+    throw new Error('Enter at least one run’s contracted clock times.');
+  }
+  const sameDate = effectiveDate === item.becomesOn;
+  const sameTimes =
+    (times.AM || null) === (item.times?.AM || null) &&
+    (times.MIDDAY || null) === (item.times?.MIDDAY || null) &&
+    (times.PM || null) === (item.times?.PM || null);
+  if (sameDate && sameTimes) {
+    return commitContractAccept(changeId, { note, source: 'suggestion_edit' });
+  }
+  commitArbitraryContractSet();
+  applyForceContractOnToChange(item.routeId, item.changeId, effectiveDate);
+  const account = currentAccount();
+  const acceptedBy = String(account?.name || account?.email || 'Office').trim() || 'Office';
+  return saveContractAcceptance({
+    changeId: item.changeId,
+    routeId: item.routeId,
+    routeName: item.routeName,
+    effectiveDate,
+    times: {
+      AM: times.AM || item.times?.AM || null,
+      MIDDAY: times.MIDDAY || item.times?.MIDDAY || null,
+      PM: times.PM || item.times?.PM || null,
+    },
+    acceptedBy,
+    acceptedAt: new Date().toISOString(),
+    reportedToPayroll: true,
+    reportedToPayrollAt: new Date().toISOString(),
+    note,
+    source: 'suggestion_edit',
+  });
 }
 
 function commitContractAccept(changeId, options = {}) {
@@ -3458,10 +3623,11 @@ function renderEomBidding(options = {}) {
             <td>${escapeHtml(route.postingWindowText || prettyDate(route.becomesOn))}</td>
             <td>${escapeHtml(prettyDate(route.signupDue) || '—')}</td>
             <td>${route.bidNoticeSent ? 'Sent' : 'Not sent'}</td>
+            <td class="notice-row-actions">${eomBiddingPrintButton(route, 'routes')}</td>
           </tr>`
         )
         .join('')
-    : `<tr><td colspan="7">No routes are posted for bid in this window.</td></tr>`;
+    : `<tr><td colspan="8">No routes are posted for bid in this window.</td></tr>`;
 
   if (eomBiddingStillOpenSummary) {
     eomBiddingStillOpenSummary.textContent = data.stillOpen.length
@@ -3479,10 +3645,11 @@ function renderEomBidding(options = {}) {
               <td>${escapeHtml(route.increaseLabel)}</td>
               <td>${escapeHtml(prettyDate(route.becomesOn))}</td>
               <td>${route.bidNoticeSent ? 'Sent' : 'Not sent'}</td>
+              <td class="notice-row-actions">${eomBiddingPrintButton(route, 'stillOpen')}</td>
             </tr>`
           )
           .join('')
-      : `<tr><td colspan="6">No earlier bids are still open.</td></tr>`;
+      : `<tr><td colspan="7">No earlier bids are still open.</td></tr>`;
   }
 
   if (eomBiddingApproachingSummary) {
@@ -3500,19 +3667,13 @@ function renderEomBidding(options = {}) {
               <td>${escapeHtml(route.increaseLabel)}</td>
               <td>${escapeHtml(prettyDate(route.becomesOn))}${route.predicted ? ' · predicted' : ''}</td>
               <td>${route.bidNoticeSent ? 'Sent' : 'Not sent'}</td>
+              <td class="notice-row-actions">${eomBiddingPrintButton(route, 'approaching')}</td>
             </tr>`
           )
           .join('')
-      : `<tr><td colspan="5">No approaching bids.</td></tr>`;
+      : `<tr><td colspan="6">No approaching bids.</td></tr>`;
   }
 
-  const packetCount = data.routes.length + data.stillOpen.length;
-  if (eomBiddingPrint) {
-    eomBiddingPrint.disabled = !data.period;
-    eomBiddingPrint.textContent = packetCount
-      ? `Print bidding packet (${packetCount + 1} pages)`
-      : 'Print cover sheet';
-  }
   if (eomBiddingStatus) {
     if (!data.period) {
       setStatus(eomBiddingStatus, 'Choose an October–April posting month on the school calendar.', 'error');
@@ -3522,35 +3683,47 @@ function renderEomBidding(options = {}) {
         'Driver lists print alphabetically until hire dates or seniority numbers are stored on driver records.',
         'warn'
       );
-    } else if (!packetCount) {
-      setStatus(
-        eomBiddingStatus,
-        'No routes are up for bid in this window. You can still print the cover sheet and driver acknowledgment list.',
-        'warn'
-      );
     } else {
       eomBiddingStatus.hidden = true;
     }
   }
 }
 
-function printEomBiddingPacket() {
+function eomBiddingPrintButton(route, section) {
+  const label = `Print sign-up sheet for route ${route.routeName}`;
+  return `<button type="button" class="secondary js-eom-print-route" data-section="${escapeHtml(section)}" data-route-name="${escapeHtml(route.routeName)}" data-becomes-on="${escapeHtml(route.becomesOn || '')}" aria-label="${escapeHtml(label)}">Print</button>`;
+}
+
+function printEomBiddingRoute(button) {
+  const section = String(button?.dataset?.section || '');
+  const routeName = String(button?.dataset?.routeName || '');
+  const becomesOn = String(button?.dataset?.becomesOn || '');
   const data = eomBiddingPacketData({ preserveMonth: true });
-  if (!data.period) {
-    setStatus(eomBiddingStatus, 'Choose an October–April posting month before printing.', 'error');
+  const list =
+    section === 'stillOpen'
+      ? data.stillOpen
+      : section === 'approaching'
+        ? data.approaching
+        : data.routes;
+  const route = list.find(
+    (item) => item.routeName === routeName && String(item.becomesOn || '') === becomesOn
+  );
+  if (!route) {
+    setStatus(eomBiddingStatus, 'That route could not be found for printing.', 'error');
     return;
   }
   const sheet = document.querySelector('#notice-print');
   if (!sheet) return;
-  sheet.innerHTML = renderEomBiddingPacketHtml({
-    monthKey: data.monthKey,
+  const printRoute =
+    section === 'approaching'
+      ? { ...route, approaching: true, previousHours: route.previousHours || '—', contractHours: route.contractHours || '—' }
+      : route;
+  sheet.innerHTML = renderEomBiddingRouteSheetHtml({
+    route: printRoute,
     period: data.period,
     calendar: data.calendar,
-    routes: data.routes,
-    stillOpen: data.stillOpen,
     roster: data.roster,
     paperBidSheet: PAPER_BID_SHEET_DEFAULTS,
-    asOf: data.asOf,
   });
   document.body.classList.add('is-notice-print');
   window.addEventListener(
@@ -3564,6 +3737,13 @@ function printEomBiddingPacket() {
   window.print();
 }
 
+// Past-due Accept alert flashes three times on first paint this visit, then stops.
+let contractAcceptFlashPending = true;
+
+function stopContractAcceptFlash() {
+  contractNoticeTab?.classList.remove('is-flashing-accept');
+}
+
 function paintNoticeTabFlags() {
   const clockWaiting = driverNoticeItems().filter((item) => !item.sent).length;
   const acceptItems = officeContractSuggestions();
@@ -3574,7 +3754,19 @@ function paintNoticeTabFlags() {
   paintNoticeTabFlag('#driver-notice-flag', '#driver-notice-flag-count', clockWaiting);
   paintNoticeTabFlag('#contract-notice-flag', '#contract-notice-flag-count', contractWaiting);
   paintNoticeTabFlag('#bidding-flag', '#bidding-flag-count', eomBiddingRouteCount());
-  contractNoticeTab?.classList.toggle('is-flashing-accept', acceptOverdue > 0);
+  if (acceptOverdue > 0 && contractAcceptFlashPending) {
+    contractAcceptFlashPending = false;
+    const tab = contractNoticeTab;
+    if (tab) {
+      tab.classList.remove('is-flashing-accept');
+      // Force a reflow so a prior partial animation cannot swallow this one.
+      void tab.offsetWidth;
+      tab.classList.add('is-flashing-accept');
+      tab.addEventListener('animationend', stopContractAcceptFlash, { once: true });
+    }
+  } else if (acceptOverdue <= 0) {
+    stopContractAcceptFlash();
+  }
   const flagLabel = contractNoticeTab?.querySelector('.visually-hidden');
   if (flagLabel) {
     flagLabel.textContent =
@@ -4155,20 +4347,18 @@ function publishReminderItems(events, stamp) {
   };
   const active = list.filter((event) => !event.cancelled);
   const cancelled = list.filter((event) => event.cancelled);
-  if (active.length) {
+  // One stable file per reminder day so updates keep the same download name
+  // and Outlook can match the existing UID for that day.
+  for (const event of active) {
     downloadTextFile(
-      buildContractReminderCalendar({ ...calendarInput, events: active }),
-      active.length === 1 ? reminderDayFilename(active[0].reminderDate) : 'contract-reminders.ics'
+      buildContractReminderCalendar({ ...calendarInput, events: [event] }),
+      reminderDayFilename(event.reminderDate)
     );
   }
-  if (cancelled.length) {
-    const filename =
-      cancelled.length === 1
-        ? `contract-reminder-cancel-${String(cancelled[0].reminderDate).replaceAll('-', '')}.ics`
-        : 'contract-reminder-cancellations.ics';
+  for (const event of cancelled) {
     downloadTextFile(
-      buildContractReminderCalendar({ ...calendarInput, events: cancelled, method: 'CANCEL' }),
-      filename
+      buildContractReminderCalendar({ ...calendarInput, events: [event], method: 'CANCEL' }),
+      reminderCancelFilename(event.reminderDate)
     );
   }
   rememberPublishedReminders(list, stamp);

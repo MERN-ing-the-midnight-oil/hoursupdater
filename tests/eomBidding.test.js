@@ -11,6 +11,7 @@ import {
   PAPER_BID_SHEET_DEFAULTS,
   periodForMonthKey,
   renderEomBiddingPacketHtml,
+  renderEomBiddingRouteSheetHtml,
   routesApproachingBid,
   routesStillOpenForBid,
   routesUpForBid,
@@ -401,4 +402,15 @@ test('print packet includes cover sheet and one page per route', () => {
     fillPaperBidTemplate('due {{bid_response_due_date}}', { bid_response_due_date: '11/24/2026' }),
     'due 11/24/2026'
   );
+
+  const oneRoute = renderEomBiddingRouteSheetHtml({
+    route: routes[0],
+    period: november,
+    calendar,
+    roster,
+    paperBidSheet: PAPER_BID_SHEET_DEFAULTS,
+  });
+  assert.match(oneRoute, /Route 50/);
+  assert.match(oneRoute, /Open Bid Sign-Up Sheet/);
+  assert.doesNotMatch(oneRoute, /Driver acknowledgment/);
 });

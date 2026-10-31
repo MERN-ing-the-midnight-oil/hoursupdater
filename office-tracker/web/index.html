@@ -909,7 +909,7 @@
                   <path d="M12 7v5l3 2" />
                 </svg>
               </span>
-              Contract times
+              Snap Contract Times
             </h2>
             <p class="field-hint">
               Official contracted hours can snap each contract start and end with office minute bands
@@ -962,7 +962,7 @@
                 </p>
               </div>
               <div class="actions">
-                <button type="submit" class="secondary">Save contract times</button>
+                <button type="submit" class="secondary">Save Settings</button>
               </div>
             </form>
           </section>
@@ -1591,7 +1591,7 @@
           Admin contract reminder
         </h1>
         <p class="lead">
-          This reminds the office before suggested contracted hours take effect, so you can Accept them on Contract time-changes and report that same date and hours to Bellingham Schools Payroll. When the app predicts that date, it downloads an Outlook calendar file with an Accept link. Open the file in Outlook and send it.
+          This reminds the office before suggested contracted hours take effect, so you can Record them on Contract time-changes. When the app predicts that date, it downloads an Outlook calendar file with a Record link. Open the file in Outlook and send it. Each reminder day reuses the same .ics filename so updates replace the earlier download for that day.
         </p>
         <form id="reminder-form" novalidate>
           <div class="section-block tone-alert">
@@ -1869,10 +1869,11 @@
         </h1>
         <p class="lead">
           Teamster countdown rules suggest when route clock-time changes become
-          contracted hours. Accept makes those hours the legal contracted schedule
-          and commits you to report that same date and hours to Bellingham Schools
-          Payroll. Until Accept, suggested under-30 lock-ins stay pending. You can
-          also set contracted times arbitrarily. Written determination letters for
+          contracted hours. Record this Contract Change makes those hours the legal
+          contracted schedule and adds them to the Payroll Reminder workflow. Edit
+          this Contract Change lets you adjust the times or date first. Until
+          recorded, suggested under-30 lock-ins stay pending. You can also set
+          contracted times arbitrarily below. Written determination letters for
           drivers stay in Notices below.
         </p>
 
@@ -1901,13 +1902,18 @@
             <table class="notice-queue-table" id="contract-accept-table">
               <thead>
                 <tr>
-                  <th scope="col" title="Suggested or accepted effective date for these contracted hours.">Effective</th>
                   <th scope="col" title="Route number.">Route</th>
-                  <th scope="col" title="Driver on the route for the change date.">Driver</th>
-                  <th scope="col" title="Suggested contracted AM, Midday, and PM clock times.">Hours</th>
-                  <th scope="col" title="Teamster outcome predicted for this countdown.">Outcome</th>
-                  <th scope="col" title="Pending Accept, past due, or already Accepted for Payroll.">Status</th>
-                  <th scope="col"><span class="visually-hidden">Accept</span></th>
+                  <th scope="col" title="Driver on the route for the change date, with the date they were awarded the route.">Driver</th>
+                  <th scope="col" title="Suggested contracted AM, Midday, and PM clock times.">New Contract Hours</th>
+                  <th scope="col" title="Suggested or accepted effective date for these contracted hours.">Effective</th>
+                  <th
+                    scope="col"
+                    title="Why these contracted hours change under Art. 3.08 (or an office record/edit)."
+                  >
+                    Change Reason
+                  </th>
+                  <th scope="col" title="Pending Accept, past due, or already recorded for Payroll.">Status</th>
+                  <th scope="col"><span class="visually-hidden">Actions</span></th>
                 </tr>
               </thead>
               <tbody id="contract-accept-queue-body"></tbody>
@@ -1928,8 +1934,9 @@
             </h2>
             <p class="field-hint">
               Set new contracted AM, Midday, and PM times for a route on a chosen
-              date without waiting on a countdown. Saving Accepts them and commits
-              you to report that date and hours to Payroll.
+              date without waiting on a countdown, or edit a suggested change from
+              the queue above. Recording locks those hours and adds them to the
+              Payroll Reminder workflow.
             </p>
           </summary>
           <form id="contract-set-form" novalidate>
@@ -1976,7 +1983,8 @@
               <input id="contract-set-note" name="note" type="text" maxlength="200" />
             </div>
             <div class="actions">
-              <button type="submit">Accept &amp; report to Payroll</button>
+              <button type="submit">Record this Contract Change</button>
+              <button type="button" class="secondary" id="contract-set-cancel-edit" hidden>Cancel edit</button>
             </div>
             <div id="contract-set-status" class="status" role="status" hidden></div>
           </form>
@@ -2188,10 +2196,10 @@
           Bidding
         </h1>
         <p class="lead">
-          Paper tools for Teamster route bidding. End of Month Bidding prints a
-          cover sheet of every route posted in the last five school days
-          (October–April) plus one sign-up sheet per route with a seniority
-          driver list and initial boxes
+          Paper tools for Teamster route bidding. End of Month Bidding lists
+          routes posted in the last five school days (October–April). Print on
+          a route opens that route’s sign-up sheet with a seniority driver list
+          and initial boxes
           (<a class="contract-cite-link" data-citation="3.08(b)(1)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=7">Art. 3.08(b)(1)</a>).
         </p>
 
@@ -2204,9 +2212,8 @@
         <div id="eom-bidding-panel" class="eom-bidding-panel">
           <h2 class="bidding-tool-title">End of Month Bidding</h2>
           <p class="field-hint">
-            Print a packet for the board: one cover page with all routes and a
-            driver acknowledgment list, then a separate sheet for each route up
-            for bid. Sign-up closes two school days after posting
+            Print next to a route opens that route’s Open Bid Sign-Up Sheet for
+            the board. Sign-up closes two school days after posting
             (Art. 3.08(c)(1)). Written determination for the incumbent is tracked
             on Contract time-changes.
           </p>
@@ -2217,9 +2224,6 @@
           </div>
           <div id="eom-bidding-season-note" class="status" role="status" hidden></div>
           <div id="eom-bidding-status" class="status" role="status" hidden></div>
-          <div class="actions">
-            <button type="button" id="eom-bidding-print">Print bidding packet</button>
-          </div>
 
           <details class="notice-queue tone-bid" id="eom-bidding-routes" open>
             <summary>
@@ -2249,6 +2253,7 @@
                     <th scope="col">Posting</th>
                     <th scope="col">Sign-up due</th>
                     <th scope="col">Written notice</th>
+                    <th scope="col">Print</th>
                   </tr>
                 </thead>
                 <tbody id="eom-bidding-routes-body"></tbody>
@@ -2279,6 +2284,7 @@
                     <th scope="col">Increase</th>
                     <th scope="col">Originally posted</th>
                     <th scope="col">Written notice</th>
+                    <th scope="col">Print</th>
                   </tr>
                 </thead>
                 <tbody id="eom-bidding-still-open-body"></tbody>
@@ -2312,6 +2318,7 @@
                     <th scope="col">Increase</th>
                     <th scope="col">Bid date</th>
                     <th scope="col">Written notice</th>
+                    <th scope="col">Print</th>
                   </tr>
                 </thead>
                 <tbody id="eom-bidding-approaching-body"></tbody>
@@ -2903,15 +2910,15 @@
 
     <dialog id="contract-accept-dialog" class="change-dialog" aria-labelledby="contract-accept-title">
       <div class="change-dialog-header">
-        <h2 id="contract-accept-title">Accept &amp; report to Payroll</h2>
+        <h2 id="contract-accept-title">Record this Contract Change</h2>
         <button type="button" class="secondary" id="contract-accept-close">Close</button>
       </div>
       <p class="lead" id="contract-accept-message"></p>
       <p class="field-hint">
-        Accept makes these the legal contracted hours for this route and commits you to report that same date and hours to Bellingham Schools Payroll.
+        Recording makes these the legal contracted hours for this route and adds them to the Payroll Reminder workflow. Track what you send to district Payroll on your own.
       </p>
       <div class="actions">
-        <button type="button" id="contract-accept-confirm">Accept &amp; report to Payroll</button>
+        <button type="button" id="contract-accept-confirm">Record this Contract Change</button>
         <button type="button" class="secondary" id="contract-accept-cancel">Cancel</button>
       </div>
     </dialog>

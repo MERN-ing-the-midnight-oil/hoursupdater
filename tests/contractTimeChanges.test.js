@@ -17,7 +17,9 @@ import {
   contractAcceptUrl,
   contractAcceptanceMap,
   normalizeContractAcceptance,
+  snapSuggestionTimes,
   suggestionFromHistoryRow,
+  timesLabel,
 } from '../office-tracker/src/contractTimeChanges.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -167,11 +169,20 @@ describe('contractTimeChanges helpers', () => {
     });
     const row = (snap.schedule_history || []).find((item) => item.change_id === 'open');
     const pending = suggestionFromHistoryRow({
-      profile: { id: 'p1', name: '104' },
+      profile: {
+        id: 'p1',
+        name: '104',
+        driver_name: 'Jane Driver',
+        start_date: '2025-09-02',
+        assignments: [{ driver_name: 'Jane Driver', from: '2025-09-02', until: null }],
+      },
       row,
+      driverName: 'Jane Driver',
       asOf: '2025-10-06',
     });
     assert.equal(pending?.accepted, false);
+    assert.equal(pending?.awardedOn, '2025-09-02');
+    assert.equal(pending?.driverName, 'Jane Driver');
     const late = suggestionFromHistoryRow({
       profile: { id: 'p1', name: '104' },
       row,
@@ -179,5 +190,76 @@ describe('contractTimeChanges helpers', () => {
     });
     assert.equal(late?.overdue, true);
     assert.equal(compareSuggestions(late, pending) < 0, true);
+  });
+
+  it('snaps suggested Hours when quarter-hour contract snap is on', () => {
+    const times = snapSuggestionTimes(
+      { AM: '7:00-9:20', MIDDAY: null, PM: '14:05-16:50' },
+      { snapContractClocks: true }
+    );
+    // Default bands: :20→:15, :05→:00, :50→:45.
+    assert.deepEqual(times, { AM: '7:00-9:15', MIDDAY: null, PM: '14:00-16:45' });
+    assert.equal(
+      timesLabel(times),
+      'AM 7:00 AM-9:15 AM · PM 2:00 PM-4:45 PM'
+    );
+    assert.deepEqual(
+      snapSuggestionTimes(
+        { AM: '7:00-9:20', MIDDAY: null, PM: '14:05-16:50' },
+        { snapContractClocks: false }
+      ),
+      { AM: '7:00-9:20', MIDDAY: null, PM: '14:05-16:50' }
+    );
+
+    const change = makeChange({
+      id: 'snap-hours',
+      delta_minutes: 15,
+      previous_time: '7:00-9:05',
+      new_time: '7:00-9:20',
+    });
+    const log = [
+      {
+        ...seedLog()[0],
+        previous_time: '7:00-9:05',
+        new_time: '7:00-9:05',
+      },
+      {
+        id: 'seed-pm',
+        route_id: 'SELF',
+        driver_name: 'Jane Driver',
+        segment: 'PM',
+        submitted_at: '2025-09-02T08:00:00.000Z',
+        effective_date: '2025-09-02',
+        previous_time: '14:05-16:50',
+        new_time: '14:05-16:50',
+        computed_delta_minutes: 0,
+        delta_minutes: 0,
+        reason_category: 'OTHER',
+        note: '',
+        entered_by: 'Office',
+      },
+      change,
+    ];
+    const entry = rebuildEmployeeRouteState(log, calendar, '2025-10-06', {}, {
+      requireAcceptForStable: true,
+    });
+    const snap = buildEmployeeSnapshot({
+      profile: { name: '104', start_date: '2025-09-02' },
+      changeLog: log,
+      entry,
+      calendar,
+      asOfDate: '2025-10-06',
+    });
+    const row = (snap.schedule_history || []).find((item) => item.change_id === 'snap-hours');
+    const suggestion = suggestionFromHistoryRow({
+      profile: { id: 'p1', name: '104' },
+      row,
+      asOf: '2025-10-06',
+      snapContractClocks: true,
+    });
+    assert.equal(suggestion?.times?.AM, '7:00-9:15');
+    assert.equal(suggestion?.times?.PM, '14:00-16:45');
+    assert.match(suggestion?.timesLabel || '', /9:15 AM/);
+    assert.match(suggestion?.timesLabel || '', /2:00 PM-4:45 PM/);
   });
 });

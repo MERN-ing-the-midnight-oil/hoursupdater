@@ -14,7 +14,7 @@ export const DEFAULT_REMINDER_BODY = [
   '{{change}}',
   '{{outcome}}',
   '',
-  'Open Contract time-changes, Accept these hours, and report that same date and hours to Bellingham Schools Payroll.',
+  'Open Contract time-changes and Record this Contract Change when ready.',
   '{{accept_link}}',
 ].join('\n');
 
@@ -238,9 +238,16 @@ export function planReminderPublish(currentEvents, previousMap = {}, previousSig
   return publish;
 }
 
+// Stable download name for one reminder day. Reuse this name on updates so
+// Outlook keeps matching the same UID/day instead of a new random file.
 export function reminderDayFilename(reminderDate) {
   const day = toDateString(reminderDate).replaceAll('-', '');
   return `contract-reminder-${day}.ics`;
+}
+
+export function reminderCancelFilename(reminderDate) {
+  const day = toDateString(reminderDate).replaceAll('-', '');
+  return `contract-reminder-cancel-${day}.ics`;
 }
 
 function icsText(value) {
