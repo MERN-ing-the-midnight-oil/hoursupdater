@@ -81,12 +81,20 @@ const WINDOW_RULE_HEADLINE = {
     'After October 1 a 30-minute decrease is bump-eligible after it has lasted 15 school days (Art. 3.08(b)(2)).',
   forced_october_1_contract:
     'This schedule becomes contracted on October 1. The size of the change and the 15-school-day countdown are not used.',
+  forced_contract_on:
+    'An office Accept set these contracted hours on the chosen date. Report that same date and hours to Payroll.',
 };
 
 const FORCED_OCT1_COPY = {
   label: 'Contracted on October 1',
   detail:
     'This schedule becomes contracted on October 1. The size of the change and the 15-school-day countdown are not used.',
+};
+
+const FORCED_ACCEPT_COPY = {
+  label: 'Accepted contracted hours',
+  detail:
+    'An office Accept set these contracted hours. Report that same date and hours to Bellingham Schools Payroll.',
 };
 
 const OUTCOME_COPY = {
@@ -123,6 +131,7 @@ export function rebuildEmployeeRouteState(
       priorRouteState: prior,
       snapContractClocks: options.snapContractClocks === true,
       bidBumpUseSnappedTimes: options.bidBumpUseSnappedTimes === true,
+      requireAcceptForStable: options.requireAcceptForStable === true,
       ...(options.contractSnapBreaks
         ? { contractSnapBreaks: options.contractSnapBreaks }
         : {}),
@@ -547,8 +556,13 @@ function contractedStatusForChange(change, { reports, openIds, lastOpenId, entry
       }
       const outcomeCopy = OUTCOME_COPY[report.outcome];
     if (report.outcome === 'STABLE') {
-      const forced = Boolean(report.forced_october_1);
-      const copy = forced ? FORCED_OCT1_COPY : outcomeCopy;
+      const forcedOct1 = Boolean(report.forced_october_1);
+      const forcedAccept = Boolean(report.forced_contract_on);
+      const copy = forcedOct1
+        ? FORCED_OCT1_COPY
+        : forcedAccept
+          ? FORCED_ACCEPT_COPY
+          : outcomeCopy;
       return {
         status: 'became_contracted',
         becomes_on: becomesOn,
@@ -608,18 +622,24 @@ function contractedStatusForChange(change, { reports, openIds, lastOpenId, entry
   if (entry?.status === 'ACCUMULATING' && openIds.includes(change.id)) {
     if (change.id === lastOpenId) {
       const becomesOn = window?.becomes_contracted_on ?? null;
-      const forced = window?.window_rule === 'forced_october_1_contract';
+      const forcedOct1 = window?.window_rule === 'forced_october_1_contract';
+      const forcedAccept = window?.window_rule === 'forced_contract_on';
+      const forcedCopy = forcedOct1
+        ? FORCED_OCT1_COPY
+        : forcedAccept
+          ? FORCED_ACCEPT_COPY
+          : null;
       return {
         status: 'predicted',
         becomes_on: becomesOn,
         projected_outcome: window?.projected_outcome ?? null,
-        projected_outcome_label: forced
-          ? FORCED_OCT1_COPY.label
+        projected_outcome_label: forcedCopy
+          ? forcedCopy.label
           : window?.projected_outcome_label ?? null,
         label: becomesOn
           ? `Predicted to become contracted on ${prettyDate(becomesOn)}`
           : 'Predicted to become contracted',
-        detail: forced ? FORCED_OCT1_COPY.detail : window?.projected_outcome_detail ?? null,
+        detail: forcedCopy ? forcedCopy.detail : window?.projected_outcome_detail ?? null,
       };
     }
     return {
@@ -869,7 +889,9 @@ function buildWindowView(entry, calendar, asOf, rounding = {}) {
   };
   const open = status === 'ACCUMULATING' && entry.window_expires_date;
   const drift = entry.cumulative_drift_minutes ?? 0;
-  const forced = entry.window_rule === 'forced_october_1_contract';
+  const forcedOct1 = entry.window_rule === 'forced_october_1_contract';
+  const forcedAccept = entry.window_rule === 'forced_contract_on';
+  const forced = forcedOct1 || forcedAccept;
   const daysRemaining = open
     ? daysRemainingInWindow(calendar, asOf, entry.window_expires_date)
     : null;
@@ -880,11 +902,13 @@ function buildWindowView(entry, calendar, asOf, rounding = {}) {
       ? bidPostingSpan(getSchoolDays(calendar), becomesOn)
       : null;
   const bidPhrase = bidSpan ? bidPostingPhrase(bidSpan) : null;
-  const outcomeCopy = forced
+  const outcomeCopy = forcedOct1
     ? FORCED_OCT1_COPY
-    : projectedOutcome
-      ? OUTCOME_COPY[projectedOutcome]
-      : null;
+    : forcedAccept
+      ? FORCED_ACCEPT_COPY
+      : projectedOutcome
+        ? OUTCOME_COPY[projectedOutcome]
+        : null;
   const math = open
     ? buildSeeTheMathFromSegments(entry.baseline_segments, entry.segments, rounding)
     : null;

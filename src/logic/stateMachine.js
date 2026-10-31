@@ -9,7 +9,13 @@ import {
   isWindowExpired,
   nextCalendarDate,
 } from './calendar.js';
-import { contractWindowPlan, forcedOctober1ContractPlan, isForcedOctober1Contract } from './contractWindows.js';
+import {
+  contractWindowPlan,
+  forcedContractOnDate,
+  forcedContractOnPlan,
+  forcedOctober1ContractPlan,
+  isForcedOctober1Contract,
+} from './contractWindows.js';
 import {
   buildPayrollRoundingBreakdown,
   normalizeContractSnapBreaks,
@@ -390,7 +396,19 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
   const payrollBreakdown = buildPayrollRoundingBreakdown(state.segments, rounding);
   const payrollRoundedTotal = payrollBreakdown.payroll_rounded_total_minutes;
   const forcedOctober1 = state.window_rule === 'forced_october_1_contract';
-  const outcome = forcedOctober1 ? 'STABLE' : windowFinalizationOutcome(exactDrift);
+  const forcedAccept = state.window_rule === 'forced_contract_on';
+  const forcedContract = forcedOctober1 || forcedAccept;
+  const outcome = forcedContract ? 'STABLE' : windowFinalizationOutcome(exactDrift);
+  // Under-30 lock-in waits for admin Accept when the office asks for it.
+  // Bid and bump still close on the Teamster date so those letters can go out.
+  if (
+    options.requireAcceptForStable === true &&
+    outcome === 'STABLE' &&
+    !forcedContract &&
+    !windowHasForcedContract(state, options)
+  ) {
+    return state;
+  }
   // The window closed the day after it expired. A later viewing date
   // must not move that close onto the day the calendar is opened.
   const closedOn = nextCalendarDate(state.window_expires_date);
@@ -443,6 +461,10 @@ export function applyWindowExpiration(routeState, asOfDate, options = {}) {
       after_segments: { ...state.segments },
       contributing_changes,
       forced_october_1: forcedOctober1,
+      forced_contract_on:
+        forcedAccept || (windowHasForcedContract(state, options) && !forcedOctober1)
+          ? closedOn
+          : false,
       ...rounding,
     });
     state.change_reports = [...(state.change_reports ?? []), report];
@@ -565,6 +587,35 @@ function forcesOctober1Contract(changeEvent) {
   return isForcedOctober1Contract(changeEvent?.force_oct1_contract);
 }
 
+function forcesContractOn(changeEvent) {
+  return forcedContractOnDate(changeEvent?.force_contract_on);
+}
+
+function forcesAnyContract(changeEvent) {
+  return forcesOctober1Contract(changeEvent) || Boolean(forcesContractOn(changeEvent));
+}
+
+// True when a contributing change already carries an Accept / Oct 1 mark.
+function windowHasForcedContract(state, options = {}) {
+  const ids = state?.contributing_change_ids || [];
+  if (!ids.length) return false;
+  const byId = new Map();
+  for (const entry of options.changeLog || []) {
+    if (entry?.id) byId.set(entry.id, entry);
+  }
+  for (const id of ids) {
+    if (forcesAnyContract(byId.get(id))) return true;
+  }
+  return false;
+}
+
+function contractPlanForChange(changeEvent, changeDate, schoolCalendar, cumulativeDrift) {
+  const acceptedOn = forcesContractOn(changeEvent);
+  if (acceptedOn) return forcedContractOnPlan(acceptedOn, changeDate);
+  if (forcesOctober1Contract(changeEvent)) return forcedOctober1ContractPlan(changeDate);
+  return contractWindowPlan(schoolCalendar, changeDate, cumulativeDrift);
+}
+
 // Minutes on countdowns that were split off an open bid.
 function sideWindowDrift(state) {
   return (state.side_windows ?? []).reduce(
@@ -684,6 +735,7 @@ export function applyChangeToRoute(
     changeLog: options.changeLog,
     effectiveDeltas: options.effectiveDeltas,
     schoolCalendar,
+    requireAcceptForStable: options.requireAcceptForStable === true,
     ...rounding,
   });
 
@@ -716,7 +768,7 @@ export function applyChangeToRoute(
   }
 
   if (
-    !forcesOctober1Contract(changeEvent) &&
+    !forcesAnyContract(changeEvent) &&
     hasOpenAccumulationWindow(state, changeDate) &&
     keepsBidAboveThreshold(state, delta)
   ) {
@@ -740,6 +792,7 @@ export function applyChangeToRoute(
       changeLog: options.changeLog,
       effectiveDeltas: options.effectiveDeltas,
       schoolCalendar,
+      requireAcceptForStable: options.requireAcceptForStable === true,
       ...rounding,
     });
   }
@@ -778,13 +831,12 @@ export function applyChangeToRoute(
     state.bid_signup = null;
   }
 
-  const plan = forcesOctober1Contract(changeEvent)
-    ? forcedOctober1ContractPlan(changeDate)
-    : contractWindowPlan(
-        schoolCalendar,
-        changeDate,
-        state.cumulative_drift_minutes
-      );
+  const plan = contractPlanForChange(
+    changeEvent,
+    changeDate,
+    schoolCalendar,
+    state.cumulative_drift_minutes
+  );
   state.window_expires_date = plan.window_expires_date;
   state.window_rule = plan.rule;
 
@@ -795,6 +847,7 @@ export function applyChangeToRoute(
     changeLog: options.changeLog,
     effectiveDeltas: options.effectiveDeltas,
     schoolCalendar,
+    requireAcceptForStable: options.requireAcceptForStable === true,
     ...rounding,
   });
 }
@@ -809,6 +862,7 @@ export function applyAllWindowExpirations(routeStateMap, asOfDate, options = {})
       changeLog: options.changeLog,
       effectiveDeltas: options.effectiveDeltas,
       schoolCalendar: options.schoolCalendar,
+      requireAcceptForStable: options.requireAcceptForStable === true,
       ...rounding,
     });
   }
@@ -911,6 +965,7 @@ export function applyPendingChanges(
   const reportOptions = {
     changeLog: options.changeLog,
     effectiveDeltas,
+    requireAcceptForStable: options.requireAcceptForStable === true,
     ...contractRoundingOptions(options),
   };
 
@@ -1223,6 +1278,7 @@ export function rebuildRouteStateFromChangeLog(
     const reportOptions = {
       changeLog,
       effectiveDeltas,
+      requireAcceptForStable: options.requireAcceptForStable === true,
       ...contractRoundingOptions(options),
     };
     for (const change of base) {
@@ -1244,6 +1300,7 @@ export function rebuildRouteStateFromChangeLog(
     changeLog,
     effectiveDeltas,
     schoolCalendar,
+    requireAcceptForStable: options.requireAcceptForStable === true,
     ...contractRoundingOptions(options),
   });
 

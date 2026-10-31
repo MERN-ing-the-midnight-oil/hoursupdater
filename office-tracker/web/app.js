@@ -28,6 +28,8 @@ import {
   contractSnapBreaksFromState,
   contractSnapOptions,
   listProfiles,
+  applyForceContractOnToChange,
+  loadContractAcceptances,
   loadContractNotice,
   loadContractReminder,
   loadCreatedContractEvents,
@@ -35,6 +37,7 @@ import {
   loadReminderSignatures,
   loadState,
   rememberPublishedReminders,
+  saveContractAcceptance,
   saveContractNotice,
   saveContractReminder,
   saveDriver,
@@ -45,6 +48,15 @@ import {
   STORAGE_KEY,
   beginSessionRouteTracking,
 } from './store.js';
+import { createId } from '../../src/logic/createId.js';
+import { computeDeltaMinutes } from '../../src/logic/timeUtils.js';
+import {
+  compareSuggestions,
+  contractAcceptUrl,
+  contractTimeChangeKeyHtml,
+  contractTimeChangeMarkHtml,
+  suggestionFromHistoryRow,
+} from '../src/contractTimeChanges.js';
 import {
   payrollWorkbookFilename,
   workbookTitleFromFilename,
@@ -107,7 +119,7 @@ bindCalculatorStore({
   setCurrentProfile,
   contractSnapOptions: () => contractSnapOptions(loadState()),
 });
-import { formatClockAmPm, localDateString } from '../../employee-tracker/src/clockTimes.js';
+import { formatClockAmPm, formatSegmentRange, localDateString } from '../../employee-tracker/src/clockTimes.js';
 import { getSchoolDays } from '../../src/logic/calendar.js';
 import { DEFAULT_DRIVER_PIN, driverClockPin } from '../../src/logic/clockKiosk.js';
 import { earlyReleaseClock, isEarlyReleaseDate } from '../../src/logic/earlyRelease.js';
@@ -276,16 +288,27 @@ const changeEditStatus = document.querySelector('#change-edit-status');
 let snapshot = null;
 let pendingSharedUiRefresh = false;
 let addingPerson = false;
-const officeSection = new URLSearchParams(location.search).get('section');
+const officeSearch = new URLSearchParams(location.search);
+const officeSection = officeSearch.get('section');
+const officeSheetParam = officeSearch.get('sheet');
+const officeAcceptParam = officeSearch.get('accept');
 const driversApp = officeSection === 'clock-records' ? 'clocking' : officeSection === 'drivers' ? 'payroll' : '';
 const driversWindow = Boolean(driversApp);
 if (driversWindow) {
   document.body.classList.add('is-drivers-window');
   document.body.dataset.driversApp = driversApp;
 }
-let activeSheet = driversApp === 'clocking' ? 'clocking' : driversApp === 'payroll' ? 'payroll' : 'drivers';
+let activeSheet =
+  officeSheetParam === 'contract-time-changes' || officeSheetParam === 'contract-notice'
+    ? 'contract-notice'
+    : driversApp === 'clocking'
+      ? 'clocking'
+      : driversApp === 'payroll'
+        ? 'payroll'
+        : 'drivers';
 let viewingDriver = '';
 let sheetBeforeOffice = 'drivers';
+let pendingAcceptDeepLink = String(officeAcceptParam || '').trim();
 
 function isTripBoard(sheet = activeSheet) {
   return sheet === 'weekly-work' || sheet === 'daily-work' || sheet === 'roster-trips';
@@ -1024,12 +1047,18 @@ function showDriverNotice() {
   fillDriverNoticeSettings();
 }
 
-function showContractNotice() {
+function showContractNotice(options = {}) {
   addingPerson = false;
   viewingDriver = '';
   activeSheet = 'contract-notice';
   loadAll();
   fillContractNoticeSettings();
+  renderContractAcceptQueue();
+  fillContractSetRouteOptions();
+  const acceptId = String(options.acceptId || '').trim();
+  if (acceptId) {
+    requestAnimationFrame(() => openContractAcceptDialog(acceptId));
+  }
 }
 
 function showBidding() {
@@ -1489,6 +1518,64 @@ document.querySelector('#notice-queue')?.addEventListener('change', (event) => {
     });
   }
   syncNoticeSelection('#notice-queue');
+});
+
+document.querySelector('#contract-accept-queue')?.addEventListener('click', (event) => {
+  const button = event.target.closest('.js-accept-contract');
+  if (!button) return;
+  const changeId = button.closest('[data-change-id]')?.dataset.changeId || button.dataset.changeId;
+  if (changeId) openContractAcceptDialog(changeId);
+});
+
+document.querySelector('#contract-accept-close')?.addEventListener('click', () => {
+  document.querySelector('#contract-accept-dialog')?.close();
+});
+document.querySelector('#contract-accept-cancel')?.addEventListener('click', () => {
+  document.querySelector('#contract-accept-dialog')?.close();
+});
+document.querySelector('#contract-accept-confirm')?.addEventListener('click', () => {
+  const dialog = document.querySelector('#contract-accept-dialog');
+  const changeId = dialog?.dataset.changeId || '';
+  const status = document.querySelector('#contract-accept-queue-status');
+  try {
+    commitContractAccept(changeId);
+    dialog?.close();
+    loadAll();
+    renderContractAcceptQueue();
+    fillContractSetRouteOptions();
+    paintNoticeTabFlags();
+    if (status) {
+      setStatus(
+        status,
+        'Accepted. Those hours are contracted — report that same date and hours to Bellingham Schools Payroll.',
+        'ok'
+      );
+    }
+  } catch (error) {
+    if (status) setStatus(status, error.message, 'error');
+  }
+});
+
+document.querySelector('#contract-set-form')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const status = document.querySelector('#contract-set-status');
+  try {
+    commitArbitraryContractSet();
+    loadAll();
+    renderContractAcceptQueue();
+    fillContractSetRouteOptions();
+    paintNoticeTabFlags();
+    if (status) {
+      setStatus(
+        status,
+        'Contracted times saved and Accepted. Report that same date and hours to Bellingham Schools Payroll.',
+        'ok'
+      );
+    }
+    event.target.reset?.();
+  } catch (error) {
+    if (status) setStatus(status, error.message, 'error');
+  }
 });
 
 document.querySelector('#contract-notice-queue')?.addEventListener('click', (event) => {
@@ -2891,6 +2978,311 @@ function renderContractNoticeCalendar(items = contractNoticeItems()) {
   root.innerHTML = contractNoticeCalendarHtml({ calendar, months, marksByDate, asOf });
 }
 
+function officeContractSuggestions() {
+  const asOf = getAsOfDate();
+  const acceptances = loadContractAcceptances();
+  const items = [];
+  const seen = new Set();
+  for (const profile of listProfiles()) {
+    let snap;
+    try {
+      snap = buildSnapshot(profile, asOf);
+    } catch {
+      continue;
+    }
+    for (const row of snap?.schedule_history || []) {
+      const acceptance = acceptances[row?.change_id] || null;
+      const item = suggestionFromHistoryRow({
+        profile,
+        row,
+        driverName: driverForDate(profile, row.date),
+        asOf,
+        acceptance,
+      });
+      if (!item?.changeId || seen.has(item.changeId)) continue;
+      seen.add(item.changeId);
+      items.push(item);
+    }
+  }
+  for (const record of Object.values(acceptances)) {
+    if (!record?.changeId || seen.has(record.changeId)) continue;
+    seen.add(record.changeId);
+    items.push({
+      changeId: record.changeId,
+      changeIds: [record.changeId],
+      routeId: record.routeId,
+      routeName: record.routeName || record.routeId,
+      driverName: '',
+      changeDate: record.effectiveDate,
+      becomesOn: record.effectiveDate,
+      times: record.times,
+      timesLabel: [
+        record.times?.AM ? `AM ${formatClockAmPm(record.times.AM)}` : '',
+        record.times?.MIDDAY ? `Midday ${formatClockAmPm(record.times.MIDDAY)}` : '',
+        record.times?.PM ? `PM ${formatClockAmPm(record.times.PM)}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ') || 'Accepted hours',
+      outcome: 'STABLE',
+      outcomeLabel: 'Accepted contracted hours',
+      accepted: true,
+      overdue: false,
+      acceptance: record,
+    });
+  }
+  return items.sort(compareSuggestions);
+}
+
+function renderContractTimeChangeCalendar(items = officeContractSuggestions()) {
+  const root = document.querySelector('#contract-time-change-calendar-months');
+  const summary = document.querySelector('#contract-time-change-calendar-summary');
+  const key = document.querySelector('#contract-time-change-calendar-key');
+  if (key) key.innerHTML = contractTimeChangeKeyHtml();
+  if (!root) return;
+  const marksByDate = {};
+  for (const item of items) {
+    const day = String(item.becomesOn || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    const mark = contractTimeChangeMarkHtml(item, { iconHtml });
+    marksByDate[day] = `${marksByDate[day] || ''}${mark}`;
+  }
+  for (const day of Object.keys(marksByDate)) {
+    marksByDate[day] = `<span class="contract-notice-marks">${marksByDate[day]}</span>`;
+  }
+  const dates = Object.keys(marksByDate).sort();
+  if (summary) {
+    const pending = items.filter((item) => !item.accepted).length;
+    const overdue = items.filter((item) => item.overdue).length;
+    summary.textContent = dates.length
+      ? `${dates.length} marked day${dates.length === 1 ? '' : 's'} · ${pending} pending${
+          overdue ? ` · ${overdue} past due` : ''
+        }`
+      : 'No suggested or accepted contract time-changes yet.';
+  }
+  if (!dates.length) {
+    root.innerHTML = '';
+    return;
+  }
+  const calendar = calendarPayload();
+  const months = monthsSpanningIsoDates(calendar?.months || [], dates);
+  root.innerHTML = contractNoticeCalendarHtml({
+    calendar,
+    months,
+    marksByDate,
+    asOf: getAsOfDate(),
+  });
+}
+
+function renderContractAcceptQueue() {
+  const body = document.querySelector('#contract-accept-queue-body');
+  const summary = document.querySelector('#contract-accept-queue-summary');
+  const items = officeContractSuggestions();
+  renderContractTimeChangeCalendar(items);
+  const overdueCount = items.filter((item) => item.overdue).length;
+  const badge = document.querySelector('#contract-accept-queue .notice-queue-unsent');
+  if (badge) {
+    badge.hidden = overdueCount <= 0;
+    const number = badge.querySelector('.notice-queue-unsent-count');
+    if (number) {
+      number.textContent =
+        overdueCount === 1 ? '1 past due' : `${overdueCount} past due`;
+    }
+  }
+  const pending = items.filter((item) => !item.accepted);
+  if (summary) {
+    summary.textContent = pending.length
+      ? `${pending.length} waiting for Accept${
+          items.some((item) => item.overdue) ? ' · some are past due' : ''
+        }.`
+      : items.length
+        ? 'Every suggested contract time-change has been Accepted.'
+        : 'No predicted contract time-changes right now.';
+  }
+  if (!body) return;
+  if (!items.length) {
+    body.innerHTML =
+      '<tr><td colspan="7">When Teamster rules predict a contract date, it will show up here for Accept.</td></tr>';
+    return;
+  }
+  body.innerHTML = items
+    .map((item) => {
+      const status = item.accepted
+        ? 'Accepted'
+        : item.overdue
+          ? 'Past due'
+          : 'Pending Accept';
+      const action = item.accepted
+        ? '<span class="field-hint">Reported to Payroll</span>'
+        : `<button type="button" class="js-accept-contract" data-change-id="${escapeHtml(
+            item.changeId
+          )}">Accept &amp; report to Payroll</button>`;
+      return `<tr class="${item.overdue ? 'is-overdue' : ''}${
+        item.accepted ? ' is-accepted' : ''
+      }" data-change-id="${escapeHtml(item.changeId)}">
+        <td>${escapeHtml(prettyDate(item.becomesOn))}</td>
+        <td>${escapeHtml(item.routeName)}</td>
+        <td>${escapeHtml(item.driverName || 'Unassigned')}</td>
+        <td>${escapeHtml(item.timesLabel)}</td>
+        <td>${escapeHtml(item.outcomeLabel || item.outcome || '')}</td>
+        <td>${escapeHtml(status)}</td>
+        <td>${action}</td>
+      </tr>`;
+    })
+    .join('');
+}
+
+function openContractAcceptDialog(changeId) {
+  const item = officeContractSuggestions().find((row) => row.changeId === changeId);
+  const dialog = document.querySelector('#contract-accept-dialog');
+  const message = document.querySelector('#contract-accept-message');
+  if (!item || !dialog || !message) return;
+  dialog.dataset.changeId = item.changeId;
+  message.textContent = `Route ${item.routeName}: accept contracted hours effective ${prettyDate(
+    item.becomesOn
+  )} (${item.timesLabel}).`;
+  if (!dialog.open) dialog.showModal();
+}
+
+function commitContractAccept(changeId, options = {}) {
+  const id = String(changeId || '').trim();
+  const item =
+    options.item ||
+    officeContractSuggestions().find((row) => row.changeId === id);
+  if (!item) throw new Error('That suggested contract time-change was not found.');
+  if (item.accepted) return item.acceptance;
+  const account = currentAccount();
+  const acceptedBy = String(account?.name || account?.email || 'Office').trim() || 'Office';
+  applyForceContractOnToChange(item.routeId, item.changeId, item.becomesOn);
+  const record = saveContractAcceptance({
+    changeId: item.changeId,
+    routeId: item.routeId,
+    routeName: item.routeName,
+    effectiveDate: item.becomesOn,
+    times: item.times,
+    acceptedBy,
+    acceptedAt: new Date().toISOString(),
+    reportedToPayroll: true,
+    reportedToPayrollAt: new Date().toISOString(),
+    note: options.note || '',
+    source: options.source || 'suggestion',
+  });
+  downloadDueContractReminders();
+  return record;
+}
+
+function fillContractSetRouteOptions() {
+  const select = document.querySelector('#contract-set-route');
+  if (!select) return;
+  const current = select.value;
+  const options = listProfiles()
+    .map(
+      (profile) =>
+        `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)}</option>`
+    )
+    .join('');
+  select.innerHTML = `<option value="">Choose a route</option>${options}`;
+  if ([...select.options].some((option) => option.value === current)) select.value = current;
+}
+
+function timeInputToClock(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const [hours, minutes] = text.split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return '';
+  return `${hours}:${String(minutes).padStart(2, '0')}`;
+}
+
+function rangeFromTimeInputs(inId, outId) {
+  const clockIn = timeInputToClock(document.querySelector(inId)?.value);
+  const clockOut = timeInputToClock(document.querySelector(outId)?.value);
+  if (!clockIn && !clockOut) return null;
+  if (!clockIn || !clockOut) {
+    throw new Error('Each run needs both a start and an end, or leave both blank.');
+  }
+  return formatSegmentRange(clockIn, clockOut);
+}
+
+function commitArbitraryContractSet() {
+  const routeId = String(document.querySelector('#contract-set-route')?.value || '').trim();
+  const effectiveDate = String(document.querySelector('#contract-set-date')?.value || '').slice(0, 10);
+  const note = String(document.querySelector('#contract-set-note')?.value || '').trim();
+  const profile = listProfiles().find((item) => item.id === routeId);
+  if (!profile) throw new Error('Choose a route.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate)) throw new Error('Choose an effective date.');
+  const times = {
+    AM: rangeFromTimeInputs('#contract-set-am-in', '#contract-set-am-out'),
+    MIDDAY: rangeFromTimeInputs('#contract-set-mid-in', '#contract-set-mid-out'),
+    PM: rangeFromTimeInputs('#contract-set-pm-in', '#contract-set-pm-out'),
+  };
+  if (!times.AM && !times.MIDDAY && !times.PM) {
+    throw new Error('Enter at least one run’s contracted clock times.');
+  }
+  const snapOpts = contractSnapOptions(loadState());
+  const entry = rebuildEmployeeRouteState(
+    profile.changeLog || [],
+    calendarPayload(),
+    effectiveDate,
+    {},
+    snapOpts
+  );
+  const current = contractedSegments(entry);
+  const account = currentAccount();
+  const enteredBy = String(account?.name || account?.email || 'Office').trim() || 'Office';
+  const added = [];
+  for (const run of RUNS) {
+    const next = times[run.id];
+    if (!next) continue;
+    const previous = current[run.id] || next;
+    const delta = computeDeltaMinutes(previous, next);
+    const changeId = createId();
+    added.push({
+      id: changeId,
+      route_id: 'SELF',
+      driver_name: profile.driver_name || profile.name,
+      driver_id: null,
+      segment: run.id,
+      submitted_at: new Date().toISOString(),
+      effective_date: effectiveDate,
+      previous_time: previous,
+      new_time: next,
+      computed_delta_minutes: delta,
+      delta_minutes: delta,
+      routing_adjustment: null,
+      reason_category: 'OTHER',
+      note: note || 'Admin set contracted times',
+      entered_by: enteredBy,
+      entered_by_user_id: account?.id || null,
+      force_oct1_contract: false,
+      force_contract_on: effectiveDate,
+      schedule_id: null,
+    });
+  }
+  if (!added.length) throw new Error('Enter at least one run’s contracted clock times.');
+  profile.changeLog = [...(profile.changeLog || []), ...added];
+  saveProfile(profile);
+  for (const change of added) {
+    saveContractAcceptance({
+      changeId: change.id,
+      routeId: profile.id,
+      routeName: profile.name,
+      effectiveDate,
+      times: {
+        AM: times.AM || current.AM,
+        MIDDAY: times.MIDDAY || current.MIDDAY,
+        PM: times.PM || current.PM,
+      },
+      acceptedBy: enteredBy,
+      acceptedAt: new Date().toISOString(),
+      reportedToPayroll: true,
+      reportedToPayrollAt: new Date().toISOString(),
+      note,
+      source: 'arbitrary_set',
+    });
+  }
+  downloadDueContractReminders();
+  return added[0].id;
+}
+
 function renderContractNoticeQueue() {
   const body = document.querySelector('#contract-notice-queue-body');
   const summary = document.querySelector('#contract-notice-queue-summary');
@@ -3174,10 +3566,26 @@ function printEomBiddingPacket() {
 
 function paintNoticeTabFlags() {
   const clockWaiting = driverNoticeItems().filter((item) => !item.sent).length;
-  const contractWaiting = contractNoticeOverdue(contractNoticeItems()).length;
+  const acceptItems = officeContractSuggestions();
+  const acceptPending = acceptItems.filter((item) => !item.accepted).length;
+  const acceptOverdue = acceptItems.filter((item) => item.overdue).length;
+  const noticeOverdue = contractNoticeOverdue(contractNoticeItems()).length;
+  const contractWaiting = acceptPending || noticeOverdue;
   paintNoticeTabFlag('#driver-notice-flag', '#driver-notice-flag-count', clockWaiting);
   paintNoticeTabFlag('#contract-notice-flag', '#contract-notice-flag-count', contractWaiting);
   paintNoticeTabFlag('#bidding-flag', '#bidding-flag-count', eomBiddingRouteCount());
+  contractNoticeTab?.classList.toggle('is-flashing-accept', acceptOverdue > 0);
+  const flagLabel = contractNoticeTab?.querySelector('.visually-hidden');
+  if (flagLabel) {
+    flagLabel.textContent =
+      acceptOverdue > 0
+        ? acceptOverdue === 1
+          ? '1 contract change past due'
+          : `${acceptOverdue} contract changes past due`
+        : acceptPending > 0
+          ? 'pending Accept'
+          : 'not sent';
+  }
 }
 
 function paintRecentNoticeFlags() {
@@ -3670,17 +4078,22 @@ function officeContractReminders() {
   const settings = loadContractReminder();
   const calendar = calendarPayload();
   const items = [];
+  const acceptOrigin = location.origin;
   for (const profile of listProfiles()) {
     const routeName = String(profile?.name || '').trim();
     const snap = buildSnapshot(profile, getAsOfDate());
     for (const row of snap?.schedule_history || []) {
       try {
+        const changeId = String(row?.change_id || '').trim();
         const item = prepareContractReminder({
           routeName,
           driverName: driverForDate(profile, row.date),
           row,
           settings,
           calendar,
+          acceptUrl: changeId
+            ? contractAcceptUrl({ origin: acceptOrigin, changeId, pathname: location.pathname })
+            : '',
         });
         if (item?.changeId) items.push(item);
       } catch {
@@ -4651,7 +5064,11 @@ function renderApp() {
   if (biddingView) biddingView.hidden = !onBidding;
   paintNoticeTabFlags();
   if (onDriverNotice) renderDriverNoticeQueue();
-  if (onContractNotice) renderContractNoticeQueue();
+  if (onContractNotice) {
+    renderContractAcceptQueue();
+    renderContractNoticeQueue();
+    fillContractSetRouteOptions();
+  }
   if (onBidding) renderEomBidding({ preserveMonth: true });
   if (driversWindow && onDriverHistory) {
     if (payrollView) payrollView.hidden = true;
@@ -6083,6 +6500,11 @@ async function adoptStarterOffice() {
       : current.contractReminderSignatures
         ? { contractReminderSignatures: current.contractReminderSignatures }
         : {}),
+    ...(next.contractAcceptances
+      ? { contractAcceptances: next.contractAcceptances }
+      : current.contractAcceptances
+        ? { contractAcceptances: current.contractAcceptances }
+        : {}),
   });
 }
 
@@ -6466,6 +6888,16 @@ startAccounts({
         if (!isEditingRouteClockTimes()) loadAll();
         else pendingSharedUiRefresh = true;
         await createAutomaticNotices();
+        if (
+          activeSheet === 'contract-notice' ||
+          pendingAcceptDeepLink ||
+          officeSheetParam === 'contract-time-changes' ||
+          officeSheetParam === 'contract-notice'
+        ) {
+          const acceptId = pendingAcceptDeepLink;
+          pendingAcceptDeepLink = '';
+          showContractNotice({ acceptId });
+        }
       } catch (error) {
         setStatus(setupStatus, error.message, 'error');
         setupView.hidden = false;

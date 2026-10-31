@@ -1,6 +1,10 @@
 import { renameDriverOnRoute, sameDriver } from '../src/assignments.js';
 import { normalizeContractReminder, reminderEventSignature } from '../src/contractReminder.js';
 import {
+  contractAcceptanceMap,
+  normalizeContractAcceptance,
+} from '../src/contractTimeChanges.js';
+import {
   applyTimeSummaryEdit,
   mergeTimeSummaryEdits,
   isPayLineId,
@@ -266,6 +270,7 @@ export function contractSnapBreaksFromState(state) {
 }
 
 // Options bag for contracted-hours math and Art. 3.08 drift across the office app.
+// Under-30 lock-in waits for admin Accept on Contract time-changes.
 export function contractSnapOptions(state) {
   const snapContractClocks = contractQuarterHourSnapEnabled(state);
   const contractSnapBreaks = contractSnapBreaksFromState(state);
@@ -273,6 +278,7 @@ export function contractSnapOptions(state) {
     snapContractClocks,
     bidBumpUseSnappedTimes:
       snapContractClocks && bidBumpUseSnappedContractTimesEnabled(state),
+    requireAcceptForStable: true,
     ...(snapContractClocks ? { contractSnapBreaks } : {}),
   };
 }
@@ -468,6 +474,9 @@ export function loadState(storage = globalThis.localStorage) {
         : {}),
       ...(parsed.contractReminderSignatures && typeof parsed.contractReminderSignatures === 'object'
         ? { contractReminderSignatures: parsed.contractReminderSignatures }
+        : {}),
+      ...(parsed.contractAcceptances && typeof parsed.contractAcceptances === 'object'
+        ? { contractAcceptances: contractAcceptanceMap(parsed.contractAcceptances) }
         : {}),
     };
   } catch {
@@ -917,6 +926,56 @@ export function saveContractNotice(settings, storage = globalThis.localStorage) 
   return next;
 }
 
+export function loadContractAcceptances(storage = globalThis.localStorage) {
+  return contractAcceptanceMap(loadState(storage).contractAcceptances);
+}
+
+export function getContractAcceptance(changeId, storage = globalThis.localStorage) {
+  const id = String(changeId || '').trim();
+  if (!id) return null;
+  return loadContractAcceptances(storage)[id] || null;
+}
+
+export function saveContractAcceptance(raw, storage = globalThis.localStorage) {
+  const record = normalizeContractAcceptance(raw);
+  if (!record) {
+    throw new Error('That contract acceptance is missing a route, change, or date.');
+  }
+  const state = loadState(storage);
+  const map = contractAcceptanceMap(state.contractAcceptances);
+  map[record.changeId] = record;
+  state.contractAcceptances = map;
+  saveState(state, storage);
+  return record;
+}
+
+// Stamp force_contract_on on the change so rebuild locks those hours on Accept.
+export function applyForceContractOnToChange(
+  profileId,
+  changeId,
+  effectiveDate,
+  storage = globalThis.localStorage
+) {
+  const state = loadState(storage);
+  const profile = state.profiles?.[profileId];
+  if (!profile) throw new Error('That route was not found.');
+  const id = String(changeId || '').trim();
+  const on = String(effectiveDate || '').slice(0, 10);
+  if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(on)) {
+    throw new Error('Accept needs a change and an effective date.');
+  }
+  let found = false;
+  profile.changeLog = (profile.changeLog || []).map((entry) => {
+    if (entry?.id !== id) return entry;
+    found = true;
+    return { ...entry, force_contract_on: on };
+  });
+  if (!found) throw new Error('That clock-time change was not found on this route.');
+  state.profiles[profileId] = profile;
+  saveState(state, storage);
+  return profile;
+}
+
 function createdContractEventMap(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
   const map = {};
@@ -1105,6 +1164,9 @@ export function importState(json, storage = globalThis.localStorage) {
       : {}),
     ...(parsed.contractReminderSignatures && typeof parsed.contractReminderSignatures === 'object'
       ? { contractReminderSignatures: parsed.contractReminderSignatures }
+      : {}),
+    ...(parsed.contractAcceptances && typeof parsed.contractAcceptances === 'object'
+      ? { contractAcceptances: contractAcceptanceMap(parsed.contractAcceptances) }
       : {}),
   };
   if (next.currentProfileId && !next.profiles[next.currentProfileId]) {

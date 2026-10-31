@@ -320,13 +320,13 @@
               <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
               <path d="M4 22V15"/>
             </svg>
-            Contract time-change notice
+            Contract time-changes
             <span id="contract-notice-flag" class="notice-tab-flag" hidden>
               <span class="notice-flag" aria-hidden="true">
                 <svg class="icon" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22V15"/></svg>
               </span>
               <span id="contract-notice-flag-count" class="notice-tab-count"></span>
-              <span class="visually-hidden">not sent</span>
+              <span class="visually-hidden">pending Accept</span>
             </span>
           </button>
           <button type="button" class="office-sheet" id="bidding-tab" role="tab" aria-selected="false">
@@ -852,17 +852,39 @@
                 The same choice is in Timeclock settings.
               </p>
             </div>
-            <h2>Waiting to print</h2>
-            <ul id="paper-record-waiting" class="paper-record-list"></ul>
-            <p id="paper-record-open" class="field-hint"></p>
-            <div class="actions">
-              <button type="submit" class="secondary">Save reminder</button>
-              <button type="button" id="paper-record-print-waiting">Print waiting pages</button>
-              <button type="button" class="secondary" id="paper-record-print-open">Print the current page</button>
-              <button type="button" class="secondary" id="paper-backup-ytd">Download year-to-date</button>
+            <div class="section-block tone-print">
+              <h2>
+                <span class="section-ico" aria-hidden="true">
+                  <svg class="icon" viewBox="0 0 24 24">
+                    <path d="M6 9V3h12v6" />
+                    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                    <rect x="6" y="14" width="12" height="7" />
+                  </svg>
+                </span>
+                Waiting to print
+              </h2>
+              <ul id="paper-record-waiting" class="paper-record-list"></ul>
+              <p id="paper-record-open" class="field-hint"></p>
+              <div class="actions">
+                <button type="submit" class="secondary">Save reminder</button>
+                <button type="button" id="paper-record-print-waiting">Print waiting pages</button>
+                <button type="button" class="secondary" id="paper-record-print-open">Print the current page</button>
+                <button type="button" class="secondary" id="paper-backup-ytd">Download year-to-date</button>
+              </div>
             </div>
-            <h2>Printed pages</h2>
-            <ul id="paper-record-printed" class="paper-record-list"></ul>
+            <div class="section-block tone-archive">
+              <h2>
+                <span class="section-ico" aria-hidden="true">
+                  <svg class="icon" viewBox="0 0 24 24">
+                    <path d="M22 12H2" />
+                    <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+                    <path d="M6 16h4" />
+                  </svg>
+                </span>
+                Printed pages
+              </h2>
+              <ul id="paper-record-printed" class="paper-record-list"></ul>
+            </div>
           </form>
           <p id="paper-backup-status" class="status" role="status" hidden></p>
         </div>
@@ -879,8 +901,16 @@
         </h1>
         <p id="tracker-settings-status" class="status" role="status" hidden></p>
         <div class="settings-stack">
-          <section class="settings-card">
-            <h2>Contract times</h2>
+          <section class="settings-card tone-contract">
+            <h2>
+              <span class="settings-ico" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 7v5l3 2" />
+                </svg>
+              </span>
+              Contract times
+            </h2>
             <p class="field-hint">
               Official contracted hours can snap each contract start and end with office minute bands
               before the day is counted. Default: :00–:06 → :00, :07–:21 → :15, :22–:36 → :30,
@@ -936,8 +966,18 @@
               </div>
             </form>
           </section>
-          <section class="settings-card">
-            <h2>Calendar Year</h2>
+          <section class="settings-card tone-calendar">
+            <h2>
+              <span class="settings-ico" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <rect x="3" y="4" width="18" height="18" rx="2" />
+                  <path d="M16 2v4" />
+                  <path d="M8 2v4" />
+                  <path d="M3 10h18" />
+                </svg>
+              </span>
+              Calendar Year
+            </h2>
             <p class="field-hint">
               This is the calendar Time Changes, payroll, and the timeclock use.
               Open the school year to see every month. Blue days have no school. Orange days are half days.
@@ -992,7 +1032,7 @@
         </div>
         <p id="timeclock-settings-status" class="status" role="status" hidden></p>
         <div class="settings-stack">
-          <section class="settings-card">
+          <section class="settings-card tone-calendar">
           <h2>
             <span class="settings-ico" aria-hidden="true">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1017,7 +1057,7 @@
           </div>
           <p id="timeclock-screen-status" class="status" role="status" hidden></p>
           </section>
-          <section class="settings-card">
+          <section class="settings-card tone-lock">
           <h2>
             <span class="settings-ico" aria-hidden="true">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1048,7 +1088,7 @@
             </div>
           </form>
           </section>
-          <section class="settings-card">
+          <section class="settings-card tone-print">
           <h2>
             <span class="settings-ico" aria-hidden="true">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1075,7 +1115,7 @@
             </div>
           </form>
           </section>
-          <section class="settings-card">
+          <section class="settings-card tone-alert">
           <h2>
             <span class="settings-ico" aria-hidden="true">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1109,7 +1149,7 @@
             </div>
           </form>
           </section>
-          <section class="settings-card">
+          <section class="settings-card tone-set">
           <h2>
             <span class="settings-ico" aria-hidden="true">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1136,7 +1176,7 @@
             </div>
           </form>
           </section>
-          <section class="settings-card">
+          <section class="settings-card tone-contract">
           <h2>
             <span class="settings-ico" aria-hidden="true">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1177,7 +1217,7 @@
             <p class="status" data-form-status role="status" hidden></p>
           </form>
           </section>
-          <section class="settings-card">
+          <section class="settings-card tone-set">
           <h2>
             <span class="settings-ico" aria-hidden="true">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1238,7 +1278,7 @@
             <p class="status" data-form-status role="status" hidden></p>
           </form>
           </section>
-          <section class="settings-card">
+          <section class="settings-card tone-people">
           <h2>
             <span class="settings-ico" aria-hidden="true">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1267,7 +1307,7 @@
             </div>
           </form>
           </section>
-          <section class="settings-card">
+          <section class="settings-card tone-sound">
           <h2>
             <span class="settings-ico" aria-hidden="true">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1312,7 +1352,7 @@
             </div>
           </form>
           </section>
-          <section class="settings-card">
+          <section class="settings-card tone-archive">
           <h2>
             <span class="settings-ico" aria-hidden="true">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1336,7 +1376,7 @@
           </form>
           <ul id="reason-list" class="pin-list"></ul>
           </section>
-          <section class="settings-card" id="driver-pins-card">
+          <section class="settings-card tone-lock" id="driver-pins-card">
           <h2>
             <span class="settings-ico" aria-hidden="true">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1366,7 +1406,7 @@
             <tbody id="pin-list"></tbody>
           </table>
           </section>
-          <section class="settings-card">
+          <section class="settings-card tone-people">
           <h2>
             <span class="settings-ico" aria-hidden="true">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1392,7 +1432,7 @@
           </form>
           <ul id="substitute-list" class="pin-list"></ul>
           </section>
-          <section class="settings-card">
+          <section class="settings-card tone-calendar">
           <h2>
             <span class="settings-ico" aria-hidden="true">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1427,7 +1467,7 @@
             <p class="status" data-form-status role="status" hidden></p>
           </form>
           </section>
-          <section class="settings-card">
+          <section class="settings-card tone-templates">
           <h2>
             <span class="settings-ico" aria-hidden="true">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1464,7 +1504,7 @@
             <p class="status" data-form-status role="status" hidden></p>
           </form>
           </section>
-          <section class="settings-card">
+          <section class="settings-card tone-people">
           <h2>
             <span class="settings-ico" aria-hidden="true">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1551,50 +1591,89 @@
           Admin contract reminder
         </h1>
         <p class="lead">
-          This reminds the office before a route’s hours become contracted. When the app predicts that date, it downloads an Outlook calendar file. Open the file in Outlook and send it.
+          This reminds the office before suggested contracted hours take effect, so you can Accept them on Contract time-changes and report that same date and hours to Bellingham Schools Payroll. When the app predicts that date, it downloads an Outlook calendar file with an Accept link. Open the file in Outlook and send it.
         </p>
         <form id="reminder-form" novalidate>
-          <fieldset class="yes-no">
-            <legend>Create the Outlook reminder automatically</legend>
-            <label><input type="radio" name="reminder_auto" value="yes" checked /> Yes</label>
-            <label><input type="radio" name="reminder_auto" value="no" /> No</label>
-            <p class="field-hint">
-              Toggling to Yes will allow the app to automatically create an Outlook calendar event to remind admin of upcoming contract changes. The event is created as 1 minute long and is considered free time by your calendar so the event will not interfere with your schedule. The event is automatically created whenever a contract change is predicted on a route. The event is updated if the predicted date changes, or if additional routes are predicted to become contracted.
-            </p>
-          </fieldset>
-          <div class="field">
-            <label for="reminder-days">School days before the contract hours change</label>
-            <input id="reminder-days" name="school_days_before" type="number" min="0" max="200" step="1" value="1" required />
-            <p class="field-hint">
-              1 puts the event on the school day before the new contract hours. 0 puts it on the contract date.
-            </p>
-          </div>
-          <div class="field">
-            <label for="reminder-user">Invitees</label>
-            <div class="invitee-add">
-              <select id="reminder-user">
-                <option value="">Choose an account</option>
-              </select>
-              <button type="button" class="secondary" id="reminder-add-invitee">Add</button>
+          <div class="section-block tone-alert">
+            <h2>
+              <span class="section-ico" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <path d="M6 8a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9" />
+                  <path d="M10 21a2 2 0 0 0 4 0" />
+                </svg>
+              </span>
+              Automatic reminder
+            </h2>
+            <fieldset class="yes-no">
+              <legend>Create the Outlook reminder automatically</legend>
+              <label><input type="radio" name="reminder_auto" value="yes" checked /> Yes</label>
+              <label><input type="radio" name="reminder_auto" value="no" /> No</label>
+              <p class="field-hint">
+                Toggling to Yes will allow the app to automatically create an Outlook calendar event to remind admin of upcoming contract changes. The event is created as 1 minute long and is considered free time by your calendar so the event will not interfere with your schedule. The event is automatically created whenever a contract change is predicted on a route. The event is updated if the predicted date changes, or if additional routes are predicted to become contracted.
+              </p>
+            </fieldset>
+            <div class="field">
+              <label for="reminder-days">School days before the contract hours change</label>
+              <input id="reminder-days" name="school_days_before" type="number" min="0" max="200" step="1" value="1" required />
+              <p class="field-hint">
+                1 puts the event on the school day before the new contract hours. 0 puts it on the contract date.
+              </p>
             </div>
-            <p class="field-hint" id="reminder-users-hint">
-              Add one or more accounts. The sign-in address is the Outlook address on the invite.
-            </p>
-            <ul id="reminder-invitees" class="invitee-list"></ul>
           </div>
-          <div class="field">
-            <label for="reminder-subject">Subject template</label>
-            <input id="reminder-subject" name="subject" type="text" required />
+          <div class="section-block tone-people">
+            <h2>
+              <span class="section-ico" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+              </span>
+              Invitees
+            </h2>
+            <div class="field">
+              <label for="reminder-user">Add accounts</label>
+              <div class="invitee-add">
+                <select id="reminder-user">
+                  <option value="">Choose an account</option>
+                </select>
+                <button type="button" class="secondary" id="reminder-add-invitee">Add</button>
+              </div>
+              <p class="field-hint" id="reminder-users-hint">
+                Add one or more accounts. The sign-in address is the Outlook address on the invite.
+              </p>
+              <ul id="reminder-invitees" class="invitee-list"></ul>
+            </div>
           </div>
-          <div class="field">
-            <label for="reminder-body">Message template</label>
-            <textarea id="reminder-body" name="body" rows="6" required></textarea>
-            <p class="field-hint">
-              You can use {{route}}, {{driver}}, {{contract_date}}, {{reminder_date}},
-              {{school_days_before}}, {{change}}, {{outcome}}, and {{note}}.
-            </p>
+          <div class="section-block tone-templates">
+            <h2>
+              <span class="section-ico" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <path d="M14 2v6h6" />
+                  <path d="M16 13H8" />
+                  <path d="M16 17H8" />
+                  <path d="M10 9H8" />
+                </svg>
+              </span>
+              Reminder wording
+            </h2>
+            <div class="field">
+              <label for="reminder-subject">Subject template</label>
+              <input id="reminder-subject" name="subject" type="text" required />
+            </div>
+            <div class="field">
+              <label for="reminder-body">Message template</label>
+              <textarea id="reminder-body" name="body" rows="6" required></textarea>
+              <p class="field-hint">
+                You can use {{route}}, {{driver}}, {{contract_date}}, {{reminder_date}},
+                {{school_days_before}}, {{change}}, {{outcome}}, {{note}}, and {{accept_link}}.
+                {{accept_link}} opens Contract time-changes ready to Accept that route.
+              </p>
+            </div>
+            <div class="template-preview" id="reminder-preview"></div>
           </div>
-          <div class="template-preview" id="reminder-preview"></div>
           <div class="actions">
             <button type="submit">Save admin reminder</button>
             <button type="button" class="secondary" id="reminder-reset">Use the usual wording</button>
@@ -1624,9 +1703,17 @@
           who marked it and the date, without opening an email. Unmark clears that. Check the rows
           you want, then use Mark Sent above the list to mark several at once.
         </p>
-        <details id="notice-queue" class="notice-queue">
+        <details id="notice-queue" class="notice-queue tone-notices">
           <summary>
-            <h2>Time Changes Queue</h2>
+            <h2>
+              <span class="section-ico" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                  <path d="M4 22V15" />
+                </svg>
+              </span>
+              Time Changes Queue
+            </h2>
             <span class="notice-queue-unsent" hidden>
               <span class="notice-flag" aria-hidden="true">
                 <svg class="icon" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22V15"/></svg>
@@ -1702,16 +1789,38 @@
           </div>
         </details>
         <form id="driver-notice-form" novalidate>
-          <div class="field">
-            <label for="driver-notice-secretary">Secretary email</label>
-            <input id="driver-notice-secretary" name="secretary" type="email" autocomplete="email" inputmode="email" />
-            <p class="field-hint">
-              Every driver time-change notice copies this address. Leave it blank to email only the driver.
-            </p>
+          <div class="section-block tone-mail">
+            <h2>
+              <span class="section-ico" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <path d="m4 7 8 6 8-6" />
+                </svg>
+              </span>
+              Secretary email
+            </h2>
+            <div class="field">
+              <label for="driver-notice-secretary">Copy address</label>
+              <input id="driver-notice-secretary" name="secretary" type="email" autocomplete="email" inputmode="email" />
+              <p class="field-hint">
+                Every driver time-change notice copies this address. Leave it blank to email only the driver.
+              </p>
+            </div>
           </div>
-          <details id="driver-notice-templates" class="notice-queue email-content">
+          <details id="driver-notice-templates" class="notice-queue email-content tone-templates">
             <summary>
-              <h2>Driver time-change notice templates</h2>
+              <h2>
+                <span class="section-ico" aria-hidden="true">
+                  <svg class="icon" viewBox="0 0 24 24">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <path d="M14 2v6h6" />
+                    <path d="M16 13H8" />
+                    <path d="M16 17H8" />
+                    <path d="M10 9H8" />
+                  </svg>
+                </span>
+                Driver time-change notice templates
+              </h2>
               <p class="field-hint">
                 Click a memorandum to open its template. Edit the subject and the
                 message, then save. The selected memorandum is the email. You can
@@ -1752,26 +1861,163 @@
       <section id="contract-notice-view" class="panel" hidden>
         <h1 class="panel-title">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-            <path d="M4 22V15" />
+            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+            <path d="M12 9v4" />
+            <path d="M12 17h.01" />
           </svg>
-          Contract time-change notice
+          Contract time-changes
         </h1>
         <p class="lead">
-          Written determinations from every route are listed here. Send uses the
-          email for that result and marks the notice sent, with who sent it and the date. Print opens that same notice for the printer and does not mark it sent. A red flag means it
-          has not been sent. Each result has its own wording: up for bid, eligible
-          to bump, a smaller decrease with no bump, or an optional smaller hours
-          increase. The Teamsters contract does not require the hours-increase
-          letter. The email quotes the Teamsters contract in the message. It does
-          not include a link. Punch-in and punch-out times stay on the driver
-          time-change notice. Mark Sent records who marked it and the date,
-          without opening an email. Unmark clears that. Check the rows you want, then use Mark Sent
-          above the list to mark several at once.
+          Teamster countdown rules suggest when route clock-time changes become
+          contracted hours. Accept makes those hours the legal contracted schedule
+          and commits you to report that same date and hours to Bellingham Schools
+          Payroll. Until Accept, suggested under-30 lock-ins stay pending. You can
+          also set contracted times arbitrarily. Written determination letters for
+          drivers stay in Notices below.
         </p>
-        <details id="contract-notice-queue" class="notice-queue">
+
+        <details id="contract-accept-queue" class="notice-queue tone-accept" open>
           <summary>
-            <h2>Contract Notices Queue</h2>
+            <h2>
+              <span class="section-ico" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                  <path d="M12 9v4" />
+                  <path d="M12 17h.01" />
+                </svg>
+              </span>
+              Suggested contract time-changes
+            </h2>
+            <span class="notice-queue-unsent" hidden>
+              <span class="notice-flag" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+              </span>
+              <span class="notice-queue-unsent-count"></span>
+            </span>
+            <p id="contract-accept-queue-summary" class="field-hint"></p>
+          </summary>
+          <div id="contract-accept-queue-status" class="status" role="status" hidden></div>
+          <div class="table-wrap">
+            <table class="notice-queue-table" id="contract-accept-table">
+              <thead>
+                <tr>
+                  <th scope="col" title="Suggested or accepted effective date for these contracted hours.">Effective</th>
+                  <th scope="col" title="Route number.">Route</th>
+                  <th scope="col" title="Driver on the route for the change date.">Driver</th>
+                  <th scope="col" title="Suggested contracted AM, Midday, and PM clock times.">Hours</th>
+                  <th scope="col" title="Teamster outcome predicted for this countdown.">Outcome</th>
+                  <th scope="col" title="Pending Accept, past due, or already Accepted for Payroll.">Status</th>
+                  <th scope="col"><span class="visually-hidden">Accept</span></th>
+                </tr>
+              </thead>
+              <tbody id="contract-accept-queue-body"></tbody>
+            </table>
+          </div>
+        </details>
+
+        <details id="contract-set-panel" class="notice-queue tone-set">
+          <summary>
+            <h2>
+              <span class="section-ico" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 7v5l3 2" />
+                </svg>
+              </span>
+              Set contracted times
+            </h2>
+            <p class="field-hint">
+              Set new contracted AM, Midday, and PM times for a route on a chosen
+              date without waiting on a countdown. Saving Accepts them and commits
+              you to report that date and hours to Payroll.
+            </p>
+          </summary>
+          <form id="contract-set-form" novalidate>
+            <div class="grid">
+              <div class="field">
+                <label for="contract-set-route">Route</label>
+                <select id="contract-set-route" name="route" required>
+                  <option value="">Choose a route</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="contract-set-date">Effective date</label>
+                <input id="contract-set-date" name="effective_date" type="date" required />
+              </div>
+            </div>
+            <div class="grid clock-grid">
+              <div class="field">
+                <label for="contract-set-am-in">AM in</label>
+                <input id="contract-set-am-in" name="am_in" type="time" />
+              </div>
+              <div class="field">
+                <label for="contract-set-am-out">AM out</label>
+                <input id="contract-set-am-out" name="am_out" type="time" />
+              </div>
+              <div class="field">
+                <label for="contract-set-mid-in">Midday in</label>
+                <input id="contract-set-mid-in" name="mid_in" type="time" />
+              </div>
+              <div class="field">
+                <label for="contract-set-mid-out">Midday out</label>
+                <input id="contract-set-mid-out" name="mid_out" type="time" />
+              </div>
+              <div class="field">
+                <label for="contract-set-pm-in">PM in</label>
+                <input id="contract-set-pm-in" name="pm_in" type="time" />
+              </div>
+              <div class="field">
+                <label for="contract-set-pm-out">PM out</label>
+                <input id="contract-set-pm-out" name="pm_out" type="time" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="contract-set-note">Note</label>
+              <input id="contract-set-note" name="note" type="text" maxlength="200" />
+            </div>
+            <div class="actions">
+              <button type="submit">Accept &amp; report to Payroll</button>
+            </div>
+            <div id="contract-set-status" class="status" role="status" hidden></div>
+          </form>
+        </details>
+
+        <details id="contract-time-change-calendar" class="notice-queue tone-calendar" open>
+          <summary>
+            <h2>
+              <span class="section-ico" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <rect x="3" y="4" width="18" height="18" rx="2" />
+                  <path d="M16 2v4" />
+                  <path d="M8 2v4" />
+                  <path d="M3 10h18" />
+                  <path d="M12 13l3 5H9z" />
+                </svg>
+              </span>
+              Contract time-change calendar
+            </h2>
+            <p id="contract-time-change-calendar-summary" class="field-hint"></p>
+          </summary>
+          <div id="contract-time-change-calendar-key"></div>
+          <p class="field-hint">
+            Triangles mark suggested or accepted contracted-hour dates with the
+            route number. Hover a mark or the key for details. Light shading marks
+            each end-of-month bid period.
+          </p>
+          <div id="contract-time-change-calendar-months" class="calendar-months contract-notice-calendar-months"></div>
+        </details>
+
+        <details id="contract-notice-queue" class="notice-queue tone-notices">
+          <summary>
+            <h2>
+              <span class="section-ico" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                  <path d="M4 22V15" />
+                </svg>
+              </span>
+              Contract Notices Queue
+            </h2>
             <span class="notice-queue-unsent" hidden>
               <span class="notice-flag" aria-hidden="true">
                 <svg class="icon" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22V15"/></svg>
@@ -1852,29 +2098,66 @@
             </table>
           </div>
         </details>
-        <details id="contract-notice-calendar" class="notice-queue" open>
+        <details id="contract-notice-calendar" class="notice-queue tone-calendar">
           <summary>
-            <h2>Contract Time Change Calendar</h2>
+            <h2>
+              <span class="section-ico" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <rect x="3" y="4" width="18" height="18" rx="2" />
+                  <path d="M16 2v4" />
+                  <path d="M8 2v4" />
+                  <path d="M3 10h18" />
+                  <path d="M8 14h.01" />
+                  <path d="M12 14h.01" />
+                  <path d="M16 14h.01" />
+                  <path d="M8 18h.01" />
+                  <path d="M12 18h.01" />
+                </svg>
+              </span>
+              Notice send-by calendar
+            </h2>
             <p id="contract-notice-calendar-summary" class="field-hint"></p>
           </summary>
           <p class="field-hint">
-            Every contract time-change notice appears on its Send by date with
-            that letter’s icon and the route number. Light shading marks each
-            end-of-month bid period (last five school days, October through April).
+            Every written determination letter appears on its Send by date with
+            that letter’s icon and the route number. Contracted-hour dates use
+            the triangle calendar above.
           </p>
           <div id="contract-notice-calendar-months" class="calendar-months contract-notice-calendar-months"></div>
         </details>
         <form id="contract-notice-form" novalidate>
-          <div class="field">
-            <label for="contract-notice-secretary">Secretary email</label>
-            <input id="contract-notice-secretary" name="secretary" type="email" autocomplete="email" inputmode="email" />
-            <p class="field-hint">
-              Every contract time-change notice copies this address. Leave it blank to email only the driver.
-            </p>
+          <div class="section-block tone-mail">
+            <h2>
+              <span class="section-ico" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <path d="m4 7 8 6 8-6" />
+                </svg>
+              </span>
+              Secretary email
+            </h2>
+            <div class="field">
+              <label for="contract-notice-secretary">Copy address</label>
+              <input id="contract-notice-secretary" name="secretary" type="email" autocomplete="email" inputmode="email" />
+              <p class="field-hint">
+                Every contract time-change notice copies this address. Leave it blank to email only the driver.
+              </p>
+            </div>
           </div>
-          <details id="contract-notice-templates" class="notice-queue email-content">
+          <details id="contract-notice-templates" class="notice-queue email-content tone-templates">
             <summary>
-              <h2>Contract time-change notice templates</h2>
+              <h2>
+                <span class="section-ico" aria-hidden="true">
+                  <svg class="icon" viewBox="0 0 24 24">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <path d="M14 2v6h6" />
+                    <path d="M16 13H8" />
+                    <path d="M16 17H8" />
+                    <path d="M10 9H8" />
+                  </svg>
+                </span>
+                Contract time-change notice templates
+              </h2>
               <p class="field-hint">
                 Each card is one result with its own letter. Three are required by
                 the Teamsters contract; Hours increase is optional and does not have
@@ -1925,7 +2208,7 @@
             driver acknowledgment list, then a separate sheet for each route up
             for bid. Sign-up closes two school days after posting
             (Art. 3.08(c)(1)). Written determination for the incumbent is tracked
-            on Contract time-change notice.
+            on Contract time-changes.
           </p>
           <div class="field eom-month-field">
             <label for="eom-bidding-month">Posting month</label>
@@ -1938,9 +2221,21 @@
             <button type="button" id="eom-bidding-print">Print bidding packet</button>
           </div>
 
-          <details class="notice-queue" id="eom-bidding-routes" open>
+          <details class="notice-queue tone-bid" id="eom-bidding-routes" open>
             <summary>
-              <h2>Routes up for bid</h2>
+              <h2>
+                <span class="section-ico" aria-hidden="true">
+                  <svg class="icon" viewBox="0 0 24 24">
+                    <path d="M8 6h13" />
+                    <path d="M8 12h13" />
+                    <path d="M8 18h13" />
+                    <path d="M3 6h.01" />
+                    <path d="M3 12h.01" />
+                    <path d="M3 18h.01" />
+                  </svg>
+                </span>
+                Routes up for bid
+              </h2>
               <p id="eom-bidding-routes-summary" class="field-hint"></p>
             </summary>
             <div class="table-wrap">
@@ -1961,9 +2256,17 @@
             </div>
           </details>
 
-          <details class="notice-queue" id="eom-bidding-still-open" open>
+          <details class="notice-queue tone-set" id="eom-bidding-still-open" open>
             <summary>
-              <h2>Still open from earlier bids</h2>
+              <h2>
+                <span class="section-ico" aria-hidden="true">
+                  <svg class="icon" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 7v5l3 2" />
+                  </svg>
+                </span>
+                Still open from earlier bids
+              </h2>
               <p id="eom-bidding-still-open-summary" class="field-hint"></p>
             </summary>
             <div class="table-wrap">
@@ -1983,9 +2286,21 @@
             </div>
           </details>
 
-          <details class="notice-queue" id="eom-bidding-approaching">
+          <details class="notice-queue tone-calendar" id="eom-bidding-approaching">
             <summary>
-              <h2>Approaching bid</h2>
+              <h2>
+                <span class="section-ico" aria-hidden="true">
+                  <svg class="icon" viewBox="0 0 24 24">
+                    <rect x="3" y="4" width="18" height="18" rx="2" />
+                    <path d="M16 2v4" />
+                    <path d="M8 2v4" />
+                    <path d="M3 10h18" />
+                    <path d="M12 14v4" />
+                    <path d="M10 16h4" />
+                  </svg>
+                </span>
+                Approaching bid
+              </h2>
               <p id="eom-bidding-approaching-summary" class="field-hint"></p>
             </summary>
             <div class="table-wrap">
@@ -2072,12 +2387,14 @@
       <div id="app-view" hidden>
         <section class="hero panel" id="hero"></section>
 
-        <section class="panel">
+        <section class="panel section-panel tone-set">
           <h2 class="panel-title">
-            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="12" cy="12" r="8" />
-              <path d="M12 8v5l3 2" />
-            </svg>
+            <span class="section-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="8" />
+                <path d="M12 8v5l3 2" />
+              </svg>
+            </span>
             Route clock times
           </h2>
           <p class="lead" id="schedule-lead">
@@ -2195,15 +2512,17 @@
           </form>
         </section>
 
-        <section class="panel" id="route-history-panel">
+        <section class="panel section-panel tone-calendar" id="route-history-panel">
           <div class="history-heading">
             <h2 class="panel-title">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                <rect x="3" y="5" width="18" height="16" rx="2" />
-                <path d="M3 10h18" />
-                <path d="M8 3v4" />
-                <path d="M16 3v4" />
-              </svg>
+              <span class="section-ico" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <rect x="3" y="5" width="18" height="16" rx="2" />
+                  <path d="M3 10h18" />
+                  <path d="M8 3v4" />
+                  <path d="M16 3v4" />
+                </svg>
+              </span>
               Route clock-time history
             </h2>
             <button type="button" class="secondary" id="email-route-history" data-pdf-skip>
@@ -2227,11 +2546,13 @@
           </details>
         </section>
 
-        <section class="panel rules">
+        <section class="panel rules section-panel tone-templates">
           <h2 class="panel-title">
-            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 6.5C10.5 5 8 4.5 4 5v13c4-.5 6.5 0 8 1.5 1.5-1.5 4-2 8-1.5V5c-4-.5-6.5 0-8 1.5z" />
-            </svg>
+            <span class="section-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <path d="M12 6.5C10.5 5 8 4.5 4 5v13c4-.5 6.5 0 8 1.5 1.5-1.5 4-2 8-1.5V5c-4-.5-6.5 0-8 1.5z" />
+              </svg>
+            </span>
             How the contract math works
           </h2>
           <ol>
@@ -2577,6 +2898,21 @@
       <div class="actions">
         <button type="button" id="send-notice-offer-send">Send notice</button>
         <button type="button" class="secondary" id="send-notice-offer-skip">Not now</button>
+      </div>
+    </dialog>
+
+    <dialog id="contract-accept-dialog" class="change-dialog" aria-labelledby="contract-accept-title">
+      <div class="change-dialog-header">
+        <h2 id="contract-accept-title">Accept &amp; report to Payroll</h2>
+        <button type="button" class="secondary" id="contract-accept-close">Close</button>
+      </div>
+      <p class="lead" id="contract-accept-message"></p>
+      <p class="field-hint">
+        Accept makes these the legal contracted hours for this route and commits you to report that same date and hours to Bellingham Schools Payroll.
+      </p>
+      <div class="actions">
+        <button type="button" id="contract-accept-confirm">Accept &amp; report to Payroll</button>
+        <button type="button" class="secondary" id="contract-accept-cancel">Cancel</button>
       </div>
     </dialog>
 

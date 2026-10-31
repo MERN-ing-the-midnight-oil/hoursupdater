@@ -339,6 +339,9 @@ function timingSentence(kind, plan, row, calendar) {
   if (rule === 'forced_october_1_contract') {
     timing = `This schedule becomes contracted on October 1${when ? ` (${when})` : ''}. The 15-school-day countdown is not used.`;
   }
+  if (rule === 'forced_contract_on') {
+    timing = `An office Accept set these contracted hours${when ? ` on ${when}` : ''}. Report that same date and hours to Payroll.`;
+  }
   return timing;
 }
 

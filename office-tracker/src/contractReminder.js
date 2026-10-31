@@ -13,6 +13,9 @@ export const DEFAULT_REMINDER_BODY = [
   '',
   '{{change}}',
   '{{outcome}}',
+  '',
+  'Open Contract time-changes, Accept these hours, and report that same date and hours to Bellingham Schools Payroll.',
+  '{{accept_link}}',
 ].join('\n');
 
 const EVENT_START = '080000';
@@ -114,10 +117,18 @@ function describeChange(row) {
   return `${run} change.`;
 }
 
-export function prepareContractReminder({ routeName, driverName, row, settings, calendar }) {
+export function prepareContractReminder({
+  routeName,
+  driverName,
+  row,
+  settings,
+  calendar,
+  acceptUrl = '',
+} = {}) {
   if (!isPredictedContract(row)) return null;
   const contractDate = toDateString(row.contracted.becomes_on);
   const reminderDate = dateSchoolDaysBefore(calendar, contractDate, settings.schoolDaysBefore);
+  const accept_link = String(acceptUrl || '').trim();
   const values = {
     route: String(routeName || '').trim() || 'this route',
     driver: String(driverName || '').trim() || 'Unassigned',
@@ -127,6 +138,7 @@ export function prepareContractReminder({ routeName, driverName, row, settings, 
     change: describeChange(row),
     outcome: String(row.contracted?.projected_outcome_label || row.contracted?.label || '').trim(),
     note: String(row.note || '').trim(),
+    accept_link,
   };
   return {
     changeId: String(row.change_id || ''),

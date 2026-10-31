@@ -294,11 +294,25 @@ describe('payroll driver times', () => {
     assert.equal(row.fullDayRoundedQuarterHours, 5);
   });
 
-  it('uses the new clock times after a small change has been contracted', () => {
+  it('keeps prior contracted times until a small change is Accepted', () => {
     const state = sampleState();
     const asOf = '2026-11-02';
     const route209 = Object.values(state.profiles).find((profile) => profile.name === '209');
-    const locked = rebuildEmployeeRouteState(route209.changeLog, calendar, asOf);
+    const pending = rebuildEmployeeRouteState(route209.changeLog, calendar, asOf, {}, {
+      requireAcceptForStable: true,
+    });
+    assert.equal(pending.status, 'ACCUMULATING');
+
+    const beforeAccept = payrollDriverRows(state, { asOf, calendar }).find(
+      (row) => row.route === '209'
+    );
+    assert.equal(beforeAccept.amOut, '8:00');
+
+    const change = route209.changeLog.find((entry) => entry.delta_minutes);
+    change.force_contract_on = '2026-09-30';
+    const locked = rebuildEmployeeRouteState(route209.changeLog, calendar, asOf, {}, {
+      requireAcceptForStable: true,
+    });
     assert.equal(locked.status, 'STABLE');
 
     const riley = payrollDriverRows(state, { asOf, calendar }).find((row) => row.route === '209');

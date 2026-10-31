@@ -1459,13 +1459,238 @@ button.secondary#open-drivers:focus-visible {
   color: #c42323;
 }
 
+.office-sheet.is-flashing-accept {
+  animation: contract-accept-tab-flash 1.1s ease-in-out infinite;
+}
+
+@keyframes contract-accept-tab-flash {
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow: inset 0 0 0 2px #c42323;
+    background: color-mix(in srgb, #c42323 18%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .office-sheet.is-flashing-accept {
+    animation: none;
+    box-shadow: inset 0 0 0 2px #c42323;
+  }
+}
+
+.contract-time-change-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+}
+
+.contract-time-change-key-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: help;
+}
+
+.contract-time-change-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  margin: 0.1rem 0.15rem 0 0;
+  vertical-align: middle;
+  font-weight: 700;
+  font-size: 0.78rem;
+  line-height: 1;
+  color: #8a4b00;
+}
+
+.contract-time-change-tri {
+  display: inline-flex;
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.contract-time-change-tri .icon {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.contract-time-change-mark.is-pending .contract-time-change-tri .icon,
+.contract-time-change-mark.is-overdue .contract-time-change-tri .icon {
+  fill: none;
+}
+
+.contract-time-change-mark.is-accepted .contract-time-change-tri .icon {
+  fill: currentColor;
+}
+
+.contract-time-change-mark.is-overdue {
+  color: #c42323;
+}
+
+#contract-accept-table tr.is-overdue td {
+  background: color-mix(in srgb, #c42323 8%, transparent);
+}
+
+.section-block,
+.section-panel,
 .notice-queue {
-  margin: 0 0 1.4rem;
+  --section-tone: var(--accent);
+  --section-tone-deep: var(--purple-deep);
+  --section-tone-wash: var(--accent-wash);
+  margin: 0 0 1.25rem;
+  border: 1px solid color-mix(in srgb, var(--section-tone) 22%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--section-tone-wash) 38%, #fff);
+  padding: 0.9rem 1rem 1rem;
+  box-shadow: inset 4px 0 0 var(--section-tone);
+}
+
+.panel.section-panel {
+  padding: 1.35rem 1.4rem 1.5rem;
+}
+
+.panel.section-panel .panel-title {
+  color: var(--section-tone-deep);
+}
+
+.section-block {
+  display: block;
+}
+
+.section-block > h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.55rem;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--section-tone-deep);
+}
+
+.section-block > .field-hint:first-of-type,
+.section-block > .lead {
+  margin-top: 0;
+}
+
+.section-block.tone-accept,
+.notice-queue.tone-accept {
+  --section-tone: var(--daily);
+  --section-tone-deep: var(--daily-deep);
+  --section-tone-wash: var(--daily-hot);
+}
+
+.section-block.tone-set,
+.section-panel.tone-set,
+.notice-queue.tone-set {
+  --section-tone: var(--orange);
+  --section-tone-deep: var(--orange-deep);
+  --section-tone-wash: #ffe8d4;
+}
+
+.section-block.tone-calendar,
+.section-panel.tone-calendar,
+.notice-queue.tone-calendar {
+  --section-tone: var(--clocking);
+  --section-tone-deep: var(--clocking-deep);
+  --section-tone-wash: var(--clocking-hot);
+}
+
+.section-block.tone-notices,
+.notice-queue.tone-notices {
+  --section-tone: var(--reader);
+  --section-tone-deep: var(--reader-deep);
+  --section-tone-wash: #dff3ef;
+}
+
+.section-block.tone-templates,
+.section-panel.tone-templates,
+.notice-queue.tone-templates {
+  --section-tone: var(--purple);
+  --section-tone-deep: var(--purple-deep);
+  --section-tone-wash: var(--accent-wash);
+}
+
+.section-block.tone-bid,
+.notice-queue.tone-bid {
+  --section-tone: var(--roster);
+  --section-tone-deep: var(--roster-deep);
+  --section-tone-wash: var(--roster-hot);
+}
+
+.section-block.tone-print,
+.notice-queue.tone-print {
+  --section-tone: var(--orange);
+  --section-tone-deep: var(--orange-deep);
+  --section-tone-wash: #ffe8d4;
+}
+
+.section-block.tone-archive,
+.notice-queue.tone-archive {
+  --section-tone: #5e6570;
+  --section-tone-deep: #3d434c;
+  --section-tone-wash: #eef0f3;
+}
+
+.section-block.tone-mail,
+.notice-queue.tone-mail {
+  --section-tone: var(--clocking);
+  --section-tone-deep: var(--clocking-deep);
+  --section-tone-wash: var(--clocking-case);
+}
+
+.section-block.tone-alert,
+.notice-queue.tone-alert {
+  --section-tone: var(--daily);
+  --section-tone-deep: var(--daily-deep);
+  --section-tone-wash: var(--daily-hot);
+}
+
+.section-block.tone-people,
+.notice-queue.tone-people {
+  --section-tone: var(--roster);
+  --section-tone-deep: var(--roster-deep);
+  --section-tone-wash: var(--roster-hot);
 }
 
 .notice-queue h2 {
   margin: 0.2rem 0 0.35rem;
   font-size: 1.05rem;
+  color: var(--section-tone-deep);
+}
+
+details.notice-queue[open] {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--section-tone-wash) 55%, #fff) 0,
+    #fff 4.5rem
+  );
+}
+
+.section-ico {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  margin-top: -0.1rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--section-tone-wash) 70%, #fff);
+  color: var(--section-tone-deep);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--section-tone) 28%, transparent);
+}
+
+.section-ico .icon {
+  width: 1.05rem;
+  height: 1.05rem;
 }
 
 details.notice-queue > summary {
@@ -1804,9 +2029,6 @@ details.notice-queue[open] > summary .notice-queue-preview {
 
 .contract-notice-templates.email-content,
 #driver-notice-templates.email-content {
-  border: 0;
-  padding: 0;
-  margin: 0 0 1.4rem;
   min-inline-size: 0;
 }
 
@@ -2965,21 +3187,85 @@ h2.notification-section:first-of-type {
 .settings-stack {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 1.1rem;
   margin-top: 0.35rem;
 }
 
 .settings-card {
-  border: 1px solid var(--line);
+  --section-tone: var(--accent);
+  --section-tone-deep: var(--purple-deep);
+  --section-tone-wash: var(--accent-wash);
+  border: 1px solid color-mix(in srgb, var(--section-tone) 22%, var(--line));
   border-radius: var(--radius);
-  background: #fff;
+  background: color-mix(in srgb, var(--section-tone-wash) 38%, #fff);
   padding: 0.9rem 1rem 0.15rem;
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: inset 4px 0 0 var(--section-tone);
+}
+
+.settings-card.tone-archive {
+  --section-tone: #5e6570;
+  --section-tone-deep: #3d434c;
+  --section-tone-wash: #eef0f3;
+}
+
+.settings-card.tone-templates {
+  --section-tone: var(--purple);
+  --section-tone-deep: var(--purple-deep);
+  --section-tone-wash: var(--accent-wash);
+}
+
+.settings-card.tone-set {
+  --section-tone: var(--orange);
+  --section-tone-deep: var(--orange-deep);
+  --section-tone-wash: #ffe8d4;
+}
+
+.settings-card.tone-contract {
+  --section-tone: var(--purple);
+  --section-tone-deep: var(--purple-deep);
+  --section-tone-wash: var(--accent-wash);
+}
+
+.settings-card.tone-calendar {
+  --section-tone: var(--daily);
+  --section-tone-deep: var(--daily-deep);
+  --section-tone-wash: var(--daily-hot);
+}
+
+.settings-card.tone-lock {
+  --section-tone: var(--clocking);
+  --section-tone-deep: var(--clocking-deep);
+  --section-tone-wash: var(--clocking-hot);
+}
+
+.settings-card.tone-print {
+  --section-tone: var(--orange);
+  --section-tone-deep: var(--orange-deep);
+  --section-tone-wash: #ffe8d4;
+}
+
+.settings-card.tone-alert {
+  --section-tone: var(--daily);
+  --section-tone-deep: var(--daily-deep);
+  --section-tone-wash: var(--daily-hot);
+}
+
+.settings-card.tone-sound {
+  --section-tone: var(--reader);
+  --section-tone-deep: var(--reader-deep);
+  --section-tone-wash: #dff3ef;
+}
+
+.settings-card.tone-people {
+  --section-tone: var(--roster);
+  --section-tone-deep: var(--roster-deep);
+  --section-tone-wash: var(--roster-hot);
 }
 
 .settings-card > h2 {
   align-items: center;
   margin-bottom: 0.55rem;
+  color: var(--section-tone-deep);
 }
 
 .settings-card > .field-hint {
@@ -2994,8 +3280,9 @@ h2.notification-section:first-of-type {
   width: 2rem;
   height: 2rem;
   border-radius: 0.55rem;
-  background: var(--accent-wash);
-  color: var(--purple-deep);
+  background: color-mix(in srgb, var(--section-tone-wash) 70%, #fff);
+  color: var(--section-tone-deep);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--section-tone) 28%, transparent);
 }
 
 .settings-ico .icon {

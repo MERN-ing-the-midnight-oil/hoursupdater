@@ -122,6 +122,14 @@ export function buildChangeReport(input) {
     contracted_hours_delta_minutes: math.contracted_hours_delta_minutes,
     contracted_hours_statement: math.statement,
     ...(input.forced_october_1 ? { forced_october_1: true } : {}),
+    ...(input.forced_contract_on
+      ? {
+          forced_contract_on:
+            typeof input.forced_contract_on === 'string'
+              ? input.forced_contract_on
+              : true,
+        }
+      : {}),
     // Alias for the shared "see the math" UI (after-state is the finalized schedule).
     see_the_math: {
       before: math.before,

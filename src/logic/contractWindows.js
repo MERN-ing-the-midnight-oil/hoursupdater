@@ -23,6 +23,9 @@
 // of the change and whether 15 school days would finish before that date.
 // The dashboard no longer offers a switch for this. Marks already stored
 // on a change stay in place.
+// - An admin Accept (force_contract_on) skips those rules the same way,
+// locking the schedule on the accepted effective date so Payroll can be
+// told those exact hours.
 
 import {
   BID_THRESHOLD_MINUTES,
@@ -45,6 +48,7 @@ import { toDateString } from './timeUtils.js';
 // | 'post_october_1_bid'
 // | 'post_october_1_bump'
 // | 'forced_october_1_contract'
+// | 'forced_contract_on'
 
 const BID_POSTING_MONTH_SET = new Set(MONTHLY_BID_POSTING_MONTHS);
 
@@ -54,6 +58,29 @@ export function isForcedOctober1Contract(value) {
   if (value === true || value === 1) return true;
   const text = String(value ?? '').trim().toLowerCase();
   return text === 'on' || text === 'yes' || text === 'true' || text === '1';
+}
+
+// Admin-accepted contract date on a change (yyyy-mm-dd), or null.
+export function forcedContractOnDate(value) {
+  const day = String(value ?? '').trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
+}
+
+// Contract on a chosen date, ignoring change size and the countdown.
+// The window stays open through the day before that date.
+export function forcedContractOnPlan(effectiveOn, changeDate = effectiveOn) {
+  const on = forcedContractOnDate(effectiveOn);
+  if (!on) {
+    throw new Error('forcedContractOnPlan needs a yyyy-mm-dd effective date.');
+  }
+  const start = toDateString(changeDate || on);
+  const oct1 = october1ForDate(start);
+  return {
+    regime: start < oct1 ? 'pre_october_1' : 'post_october_1',
+    rule: 'forced_contract_on',
+    citation: 'office accept',
+    ...openThroughDayBefore(on),
+  };
 }
 
 // October 1 contract, ignoring change size and the 15-school-day countdown.

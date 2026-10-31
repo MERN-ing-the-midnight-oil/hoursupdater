@@ -159,6 +159,8 @@ test('each day shows the contracted hours in effect on that date', () => {
               new_time: next,
               delta_minutes: computeDeltaMinutes(previous, next),
               computed_delta_minutes: computeDeltaMinutes(previous, next),
+              // Office Accept on the Teamster suggested date locks these hours.
+              force_contract_on: '2026-10-26',
             },
           ],
         },
