@@ -78,16 +78,54 @@ function columnsAsOf(asOf) {
 describe('route clock time columns', () => {
   it('shows the rounded schedule total and a predicted contract date', () => {
     const columns = columnsAsOf('2026-09-08');
-    assert.deepEqual(columns[0], {
-      hours: '4 hr 30 min',
-      contractTimeChange: '—',
-      contractedDate: '09/08/2026',
-    });
-    assert.deepEqual(columns[1], {
-      hours: '4 hr 45 min',
-      contractTimeChange: 'Oct 1',
-      contractedDate: 'predicted: 10/01/2026',
-    });
+    assert.equal(columns[0].hours, '4 hr 30 min');
+    assert.equal(columns[0].contractedDate, '09/08/2026');
+    assert.match(columns[0].contractedDateTitle, /Starting schedule date/);
+    assert.equal(columns[1].hours, '4 hr 45 min');
+    assert.equal(columns[1].contractedDate, 'predicted: 10/01/2026');
+    assert.match(columns[1].contractedDateTitle, /If nothing else changes/);
+  });
+
+  it('explains each Calculated Contract Date value on hover', () => {
+    const columns = contractColumnsForHistory([
+      {
+        kind: 'change',
+        date: '2026-10-06',
+        contracted: { status: 'predicted', becomes_on: '2026-10-28' },
+      },
+      {
+        kind: 'change',
+        date: '2026-10-20',
+        contracted: { status: 'predicted', becomes_on: '2026-11-12' },
+      },
+      {
+        kind: 'change',
+        date: '2026-11-12',
+        contracted: {
+          status: 'bid_pending',
+          becomes_on: '2026-11-20',
+          projected_outcome: 'BID_PENDING',
+          bid_through: '2026-11-30',
+        },
+      },
+      {
+        kind: 'change',
+        date: '2026-11-13',
+        contracted: { status: 'became_contracted', becomes_on: '2026-11-13' },
+      },
+      {
+        kind: 'change',
+        date: '2026-11-14',
+        contracted: { status: 'superseded' },
+      },
+    ]);
+    assert.match(columns[0].contractedDateTitle, /Earlier forecast that a later change replaced/);
+    assert.match(columns[1].contractedDateTitle, /newer date the contract rules would use/i);
+    assert.equal(columns[2].contractedDate, '11/20/2026');
+    assert.equal(columns[2].contractedDateSecondary, 'Up for Bid: 11/20–11/30');
+    assert.match(columns[2].contractedDateSecondaryTitle, /Bid posting date/);
+    assert.match(columns[3].contractedDateTitle, /Calculated date under the contract rules/);
+    assert.match(columns[4].contractedDateTitle, /No calculated contract date/);
   });
 
   it('labels a replaced forecast old and the later date new', () => {
@@ -124,7 +162,7 @@ describe('route clock time columns', () => {
     assert.equal(columns[1].contractedDate, 'predicted: 10/28/2026');
   });
 
-  it('names a monthly bid as the posting window', () => {
+  it('names a monthly bid on a second line under the calculated date', () => {
     const columns = contractColumnsForHistory([
       {
         kind: 'change',
@@ -157,9 +195,28 @@ describe('route clock time columns', () => {
         },
       },
     ]);
-    assert.equal(columns[0].contractedDate, 'Old predicted up for bid 10/28–10/30');
-    assert.equal(columns[1].contractedDate, 'New predicted up for bid 11/20–11/30');
-    assert.equal(columns[2].contractedDate, 'Up for bid 11/20–11/30');
+    assert.equal(columns[0].contractedDate, 'old predicted: 10/28/2026');
+    assert.equal(columns[0].contractedDateSecondary, 'Predicted Up for Bid: 10/28–10/30');
+    assert.equal(columns[1].contractedDate, 'new predicted: 11/20/2026');
+    assert.equal(columns[1].contractedDateSecondary, 'Predicted Up for Bid: 11/20–11/30');
+    assert.equal(columns[2].contractedDate, '11/20/2026');
+    assert.equal(columns[2].contractedDateSecondary, 'Up for Bid: 11/20–11/30');
+  });
+
+  it('puts a predicted bump on a second line', () => {
+    const columns = contractColumnsForHistory([
+      {
+        kind: 'change',
+        date: '2026-10-06',
+        contracted: {
+          status: 'predicted',
+          becomes_on: '2026-10-28',
+          projected_outcome: 'BUMP_ELIGIBLE',
+        },
+      },
+    ]);
+    assert.equal(columns[0].contractedDate, 'predicted: 10/28/2026');
+    assert.equal(columns[0].contractedDateSecondary, 'Predicted Up for Bump: 10/28');
   });
 
   it('repeats the standing predicted date when a side countdown does not move it', () => {
@@ -179,8 +236,10 @@ describe('route clock time columns', () => {
         contracted: { status: 'side_countdown', becomes_on: '2026-11-12' },
       },
     ], getSchoolDays(calendar));
-    assert.equal(columns[0].contractedDate, 'Predicted up for bid 10/28–10/30');
-    assert.equal(columns[1].contractedDate, 'Predicted up for bid 10/28–10/30');
+    assert.equal(columns[0].contractedDate, 'predicted: 10/28/2026');
+    assert.equal(columns[0].contractedDateSecondary, 'Predicted Up for Bid: 10/28–10/30');
+    assert.equal(columns[1].contractedDate, 'predicted: 10/28/2026');
+    assert.equal(columns[1].contractedDateSecondary, 'Predicted Up for Bid: 10/28–10/30');
   });
 
   it('keeps the bid date when a later change stays at or above 30 minutes', () => {
@@ -224,12 +283,13 @@ describe('route clock time columns', () => {
     const dates = snap.schedule_history.map((row, index) => [
       row.date,
       columns[index].contractedDate,
+      columns[index].contractedDateSecondary,
     ]);
     assert.deepEqual(dates, [
-      ['2026-09-08', '09/08/2026'],
-      ['2026-10-05', '—'],
-      ['2026-10-06', 'Predicted up for bid 10/28–10/30'],
-      ['2026-10-20', 'Predicted up for bid 10/28–10/30'],
+      ['2026-09-08', '09/08/2026', null],
+      ['2026-10-05', '—', null],
+      ['2026-10-06', 'predicted: 10/28/2026', 'Predicted Up for Bid: 10/28–10/30'],
+      ['2026-10-20', 'predicted: 10/28/2026', 'Predicted Up for Bid: 10/28–10/30'],
     ]);
     const last = snap.schedule_history.at(-1);
     assert.equal(last.delta_label, '−15 min');
@@ -406,7 +466,7 @@ describe('route clock time columns', () => {
     assert.match(snapped.schedule_history.at(-1).contracted.label, /up for bid 10\/28–10\/30/);
   });
 
-  it('shows the 15th school day when a monthly bid changes the rounded hours', () => {
+  it('shows the bid window when a monthly bid changes the rounded hours', () => {
     function timed(id, segment, previous, next, date) {
       const delta = computeDeltaMinutes(previous, next);
       return {
@@ -444,11 +504,11 @@ describe('route clock time columns', () => {
     const fifteenth = addSchoolDays(getSchoolDays(calendar), '2026-10-14', 15);
     assert.equal(fifteenth, '2026-11-04');
     assert.equal(columns.at(-1).hours, '4 hr 45 min');
-    assert.equal(columns.at(-1).contractTimeChange, 'Nov 4');
-    assert.equal(columns.at(-1).contractedDate, 'Predicted up for bid 11/20–11/30');
+    assert.equal(columns.at(-1).contractedDate, 'predicted: 11/20/2026');
+    assert.equal(columns.at(-1).contractedDateSecondary, 'Predicted Up for Bid: 11/20–11/30');
   });
 
-  it('leaves Contract Time Change blank when the rounded hours do not move', () => {
+  it('keeps a predicted contract date when rounded hours do not move', () => {
     const columns = contractColumnsForHistory([
       {
         kind: 'initial',
@@ -465,16 +525,13 @@ describe('route clock time columns', () => {
     ]);
     assert.equal(columns[0].hours, '2 hr 15 min');
     assert.equal(columns[1].hours, '2 hr 15 min');
-    assert.equal(columns[1].contractTimeChange, '—');
     assert.equal(columns[1].contractedDate, 'predicted: 10/01/2026');
   });
 
   it('shows the contract date once the window has closed', () => {
     const columns = columnsAsOf('2026-10-01');
-    assert.deepEqual(columns[1], {
-      hours: '4 hr 45 min',
-      contractTimeChange: 'Oct 1',
-      contractedDate: '10/01/2026',
-    });
+    assert.equal(columns[1].hours, '4 hr 45 min');
+    assert.equal(columns[1].contractedDate, '10/01/2026');
+    assert.match(columns[1].contractedDateTitle, /Calculated date under the contract rules/);
   });
 });

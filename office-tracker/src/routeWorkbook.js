@@ -37,8 +37,7 @@ const SCHEDULE_HEADERS = [
   'PM end',
   'Change',
   'Scheduled Hours',
-  'Contract Time Change',
-  'Date, if Contracted',
+  'Calculated Contract Date',
 ];
 
 const RUN_COLUMNS = [
@@ -192,6 +191,7 @@ function scheduleHistoryFor(profile, asOf, calendar) {
 
 function contractedCellText(row, column) {
   const lines = [column.contractedDate];
+  if (column.contractedDateSecondary) lines.push(column.contractedDateSecondary);
   const note = row.kind === 'change' ? String(row.note ?? '').trim() : '';
   if (note) lines.push(`Note: ${note.replace(/\s*\n\s*/g, ' ')}`);
   return lines.join('\n');
@@ -283,14 +283,13 @@ function writeRouteSheet(workbook, profile, history, usedNames) {
       excelClock(schedule.PM?.clock_out),
       scheduleChangeKind(row),
       column.hours,
-      column.contractTimeChange,
       contractedCellText(row, column),
     ]);
     for (let col = 1; col <= SCHEDULE_HEADERS.length; col += 1) {
       const cell = added.getCell(col);
       cell.alignment = {
         vertical: 'middle',
-        wrapText: col === 9 || col === 12,
+        wrapText: col === 9 || col === 11,
         horizontal: 'left',
       };
       if (shaded) cell.fill = BAND_FILL;
@@ -311,7 +310,7 @@ function writeRouteSheet(workbook, profile, history, usedNames) {
     }
     const wraps =
       String(added.getCell(9).value ?? '').includes('\n') ||
-      String(added.getCell(12).value ?? '').includes('\n');
+      String(added.getCell(11).value ?? '').includes('\n');
     if (wraps) added.height = 48;
     shaded = !shaded;
   });
@@ -379,13 +378,13 @@ export async function buildRouteWorkbook(state, options = {}) {
     [''],
     ['Route clock times', { bold: true, size: 14 }],
     [
-      'The column headings match Route clock times in the dashboard: New Schedule Started, AM start, AM end, Midday start, Midday end, PM start, PM end, Change, Scheduled Hours, Contract Time Change, and Date, if Contracted.',
+      'The column headings match Route clock times in the dashboard: New Schedule Started, AM start, AM end, Midday start, Midday end, PM start, PM end, Change, Scheduled Hours, and Calculated Contract Date.',
     ],
     [
       'The first row of times is the established starting schedule. Later rows are changes, oldest to newest. Runs that moved on the same date share one row, and bold highlighted times are the runs that changed.',
     ],
     [
-      'New Schedule Started is the date only. Change holds the minute change, cumulative change, and countdown lines. Scheduled Hours is the rounded total of the clock times on that row. Contract Time Change is the date those rounded hours changed, or the date they are predicted to change, such as Nov 4. For a route that goes up for bid, that date is the 15th school day after the change. A row that rounds to the same total as the row above has no date there. Date, if Contracted is the date those hours became the contract, or "predicted: mm/dd/yyyy" for the next contracted date if no further change is logged. A route posted during the last five school days of the month says "Predicted up for bid mm/dd–mm/dd". A later change with a different date says "new predicted: mm/dd/yyyy" or "New predicted up for bid mm/dd–mm/dd", and the date it replaces says "old predicted" or "Old predicted up for bid". A line that starts with Note: is the note for that change.',
+      'New Schedule Started is the date only. Change holds the minute change, cumulative change, and countdown lines. Scheduled Hours is the rounded total of the clock times on that row. Calculated Contract Date is the date the contract rules would use — not when an admin or payroll creates a contract. It may show a rule-based date or "predicted: mm/dd/yyyy". A predicted bid or bump appears on a second line as "Predicted Up for Bid: mm/dd" or "Predicted Up for Bump: mm/dd". A later change with a different date says "new predicted" or "old predicted". A line that starts with Note: is the note for that change.',
     ],
     [
       'A hidden column keeps October 1 contract marks from earlier this school year. Leave that column in the file so those contract dates stay the same when this workbook is opened again.',
@@ -617,7 +616,11 @@ function scheduleHeader(sheet) {
       rowNumber,
       index,
       contracted: labels.findIndex(
-        (label) => label === 'contracted' || label === 'date, if contracted'
+        (label) =>
+          label === 'contracted' ||
+          label === 'date, if contracted' ||
+          label === 'appropriate contract date' ||
+          label === 'calculated contract date'
       ),
       force: labels.findIndex((label) => label === 'force oct 1 contract'),
     };

@@ -142,7 +142,6 @@ import {
   DEFAULT_REMINDER_SUBJECT,
   buildContractReminderCalendar,
   combineRemindersByDay,
-  fillReminderTemplate,
   isPredictedContract,
   planReminderPublish,
   prepareContractReminder,
@@ -200,6 +199,7 @@ import { initCitations } from '../../employee-tracker/web/citations.js';
 import {
   calendarMonthsHtml,
   contractColumnsForHistory,
+  contractedDateStackHtml,
   contractNoticeCalendarHtml,
   escapeHtml,
   historyLegendHtml,
@@ -1218,33 +1218,62 @@ function setChoice(name, yes) {
   if (input) input.checked = true;
 }
 
-function reminderPreviewText() {
+function reminderSampleDraft() {
   const settings = loadContractReminder();
   const draft = {
     schoolDaysBefore: document.querySelector('#reminder-days')?.value ?? settings.schoolDaysBefore,
     subject: document.querySelector('#reminder-subject')?.value,
     body: document.querySelector('#reminder-body')?.value,
   };
-  const normalized = {
+  return {
     schoolDaysBefore: Number.isFinite(Number(draft.schoolDaysBefore))
       ? draft.schoolDaysBefore
       : settings.schoolDaysBefore,
     subject: String(draft.subject || '').trim() || DEFAULT_REMINDER_SUBJECT,
     body: String(draft.body || '').trim() || DEFAULT_REMINDER_BODY,
   };
-  const values = {
+}
+
+function reminderSampleValues(schoolDaysBefore) {
+  return {
     route: '50',
     driver: 'Sample Driver',
     contract_date: 'Thu, Oct 1, 2026',
     reminder_date: 'Wed, Sep 30, 2026',
-    school_days_before: String(normalized.schoolDaysBefore),
+    school_days_before: String(schoolDaysBefore),
     change: 'PM changed from 2:00 PM-4:00 PM to 2:20 PM-4:20 PM.',
     outcome: 'Automatically contracted',
     note: 'Stop added',
+    accept_link: 'https://teamster-time-changes.pages.dev/?accept=sample-change',
   };
-  const subject = fillReminderTemplate(normalized.subject, values);
-  const body = fillReminderTemplate(normalized.body, values);
-  return `Sample\n${subject}\n\n${body}`;
+}
+
+function paintReminderPreview() {
+  const box = document.querySelector('#reminder-preview');
+  if (!box) return;
+  const draft = reminderSampleDraft();
+  const values = reminderSampleValues(draft.schoolDaysBefore);
+  box.replaceChildren();
+  const title = document.createElement('h3');
+  title.textContent = 'Example';
+  box.append(title);
+  appendFilledTemplate(box, draft.subject, values);
+  box.append('\n\n');
+  appendFilledTemplate(box, String(draft.body ?? '').trimEnd(), values);
+  box.append('\n');
+}
+
+function wireReminderTemplateFields() {
+  const subject = document.querySelector('#reminder-subject');
+  const body = document.querySelector('#reminder-body');
+  if (subject) {
+    wireTemplateHighlightField(subject);
+    paintTemplateFieldBackdrop(subject);
+  }
+  if (body) {
+    wireTemplateHighlightField(body);
+    paintTemplateFieldBackdrop(body);
+  }
 }
 
 function selectedMemorandumId() {
@@ -1433,7 +1462,8 @@ async function fillReminderSettings() {
   if (days) days.value = String(settings.schoolDaysBefore);
   if (subject) subject.value = settings.subject;
   if (body) body.value = settings.body;
-  paintTemplatePreview('#reminder-preview', reminderPreviewText());
+  wireReminderTemplateFields();
+  paintReminderPreview();
   if (status) setStatus(status, '');
   try {
     officeUsers = await listOfficeUsers();
@@ -1674,7 +1704,7 @@ document.querySelector('#contract-notice-form')?.addEventListener('submit', (eve
 });
 
 document.querySelector('#reminder-form')?.addEventListener('input', () => {
-  paintTemplatePreview('#reminder-preview', reminderPreviewText());
+  paintReminderPreview();
 });
 
 document.querySelector('#reminder-reset')?.addEventListener('click', () => {
@@ -1682,7 +1712,8 @@ document.querySelector('#reminder-reset')?.addEventListener('click', () => {
   const body = document.querySelector('#reminder-body');
   if (subject) subject.value = DEFAULT_REMINDER_SUBJECT;
   if (body) body.value = DEFAULT_REMINDER_BODY;
-  paintTemplatePreview('#reminder-preview', reminderPreviewText());
+  wireReminderTemplateFields();
+  paintReminderPreview();
 });
 
 document.querySelector('#reminder-form')?.addEventListener('submit', (event) => {
@@ -2045,7 +2076,7 @@ function renderScheduleHistory() {
   const noticeHint =
     ' The mail icon on a change sends the notice. If that notice was already sent, you will be warned first. The email uses the chosen memorandum and downloads a calendar PDF. Attach that PDF if you want the driver to see the calendar. The complete time change history can be downloaded too, when that attachment is turned on.';
   const hoursHint =
-    ' New Schedule Started is the date only. Change holds the minute change, cumulative change, and countdown lines. Scheduled Hours is the rounded total of the clock times on that row. When “Use quarter hour snapping for contract times” is on, Change (including Countdown lines) uses that same snapped schedule instead of exact minutes. When “Bid/bump windows use snapped contract times” is also on, the 15-school-day countdown and 30-minute bid/bump line use those snapped totals too. Contract Time Change is the date those rounded hours changed, or the date they are predicted to change, such as Nov 4. For a route that goes up for bid, that date is the 15th school day after the change. A row that rounds to the same total as the row above has no date there. Date, if Contracted is the date that schedule became the contract, a predicted contract date, or "Predicted up for bid mm/dd–mm/dd" when the route goes up for bid during the last five school days of the month.';
+    ' New Schedule Started is the date only. Change holds the minute change, cumulative change, and countdown lines. Scheduled Hours is the rounded total of the clock times on that row. When “Use quarter hour snapping for contract times” is on, Change (including Countdown lines) uses that same snapped schedule instead of exact minutes. When “Bid/bump windows use snapped contract times” is also on, the 15-school-day countdown and 30-minute bid/bump line use those snapped totals too. Calculated Contract Date is the date the contract rules would use for that schedule. A predicted bid or bump appears on a second line as "Predicted Up for Bid: mm/dd" or "Predicted Up for Bump: mm/dd". Hover a value for what it means. The app does not know when an admin or payroll actually creates a new contract.';
   scheduleLead.textContent = start
     ? `Each row is a full schedule. The first row is the established starting times from ${prettyDate(start)}. Later rows are changes, oldest to newest.${hoursHint}${noticeHint}`
     : `Each row is a full schedule. The first row is the established starting times. Later rows are changes, oldest to newest.${hoursHint}${noticeHint}`;
@@ -2061,7 +2092,7 @@ function renderScheduleHistory() {
   const body = scheduleHistory.querySelector('tbody');
   if (!rows.length) {
     body.innerHTML =
-      '<tr><td colspan="12" class="empty">No clock times recorded yet.</td></tr>';
+      '<tr><td colspan="11" class="empty">No clock times recorded yet.</td></tr>';
     return;
   }
 
@@ -2104,12 +2135,9 @@ function renderScheduleHistory() {
         }).join('')}
         <td class="change-figure">${kind}</td>
         <td class="hours-figure">${escapeHtml(column.hours)}</td>
-        <td class="hours-figure">${escapeHtml(column.contractTimeChange)}</td>
         <td>
           <div class="contracted-cell">
-            <span class="contracted-stack">
-              <span class="contracted-date">${escapeHtml(column.contractedDate)}</span>
-            </span>
+            ${contractedDateStackHtml(column)}
             ${contractedInfoControl(row)}
           </div>
         </td>

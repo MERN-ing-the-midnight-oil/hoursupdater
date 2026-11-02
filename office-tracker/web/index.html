@@ -1659,20 +1659,26 @@
               </span>
               Reminder wording
             </h2>
-            <div class="field">
-              <label for="reminder-subject">Subject template</label>
-              <input id="reminder-subject" name="subject" type="text" required />
+            <div class="template-preview reminder-wording-sample">
+              <div class="reminder-wording-sample-text" id="reminder-preview"></div>
+              <div class="reminder-wording-editor">
+                <div class="field">
+                  <label for="reminder-subject">Subject template</label>
+                  <input id="reminder-subject" name="subject" type="text" required />
+                </div>
+                <div class="field">
+                  <label for="reminder-body">Message template</label>
+                  <textarea id="reminder-body" name="body" rows="6" required></textarea>
+                </div>
+                <p class="field-hint">
+                  You can use {{route}}, {{driver}}, {{contract_date}}, {{reminder_date}},
+                  {{school_days_before}}, {{change}}, {{outcome}}, {{note}}, and {{accept_link}}.
+                  {{accept_link}} opens Contract time-changes ready to Accept that route.
+                  In the example above, each highlighted color is one field—hover a highlight to
+                  see which one. The same colors mark {{placeholders}} in the templates.
+                </p>
+              </div>
             </div>
-            <div class="field">
-              <label for="reminder-body">Message template</label>
-              <textarea id="reminder-body" name="body" rows="6" required></textarea>
-              <p class="field-hint">
-                You can use {{route}}, {{driver}}, {{contract_date}}, {{reminder_date}},
-                {{school_days_before}}, {{change}}, {{outcome}}, {{note}}, and {{accept_link}}.
-                {{accept_link}} opens Contract time-changes ready to Accept that route.
-              </p>
-            </div>
-            <div class="template-preview" id="reminder-preview"></div>
           </div>
           <div class="actions">
             <button type="submit">Save admin reminder</button>
@@ -2411,19 +2417,17 @@
             and countdown lines. Scheduled Hours is the rounded total of the clock
             times on that row. When “Use quarter hour snapping for contract times”
             is on, Change (including Countdown lines) uses that same snapped
-            schedule instead of exact minutes. Contract Time Change is the date
-            those rounded hours changed, or the date they are predicted to
-            change, such as Nov 4. For a route that goes up for bid, that date is
-            the 15th school day after the change. A row that rounds to the same
-            total as the row above has no date there. Date, if Contracted is the
-            date that schedule became the contract, a predicted contract date, or
-            “Predicted up for bid mm/dd–mm/dd” when the route goes up for bid
-            during the last five school days of the month. The mail icon on a
-            change sends the notice. If that notice was already sent, you will be
-            warned first. The email uses the chosen memorandum and downloads a
-            calendar PDF. Attach that PDF if you want the driver to see the
-            calendar. The complete time change history can be downloaded too,
-            when that attachment is turned on.
+            schedule instead of exact minutes. Calculated Contract Date is the
+            date the contract rules would use for that schedule. A predicted
+            bid or bump appears on a second line as “Predicted Up for Bid:
+            mm/dd” or “Predicted Up for Bump: mm/dd”. Hover a value for what
+            it means. The app does not know when an admin or payroll actually
+            creates a new contract. The mail icon on a change sends the
+            notice. If that notice was already sent, you will be warned first.
+            The email uses the chosen memorandum and downloads a calendar PDF.
+            Attach that PDF if you want the driver to see the calendar. The
+            complete time change history can be downloaded too, when that
+            attachment is turned on.
           </p>
           <div class="table-wrap">
             <table class="schedule-history" id="schedule-history">
@@ -2438,8 +2442,7 @@
                   <th scope="col" class="run-pm">PM end</th>
                   <th scope="col">Change</th>
                   <th scope="col">Scheduled Hours</th>
-                  <th scope="col">Contract Time Change</th>
-                  <th scope="col">Date, if Contracted</th>
+                  <th scope="col">Calculated Contract Date</th>
                   <th scope="col"><span class="visually-hidden">Actions</span></th>
                 </tr>
               </thead>

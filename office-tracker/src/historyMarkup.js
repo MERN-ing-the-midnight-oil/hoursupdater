@@ -3,8 +3,8 @@ import { getSchoolDays } from '../../src/logic/calendar.js';
 import { buildPayrollRoundingBreakdown } from '../../src/logic/timeUtils.js';
 import {
   bidPeriodRanges,
-  bidPostingPhrase,
   bidPostingSpan,
+  bidPostingSpanText,
   buildClockHistoryMarks,
   changeDetailLines,
   changeHoverLines,
@@ -53,7 +53,7 @@ export function monthDayYear(iso) {
   return `${match[2]}/${match[3]}/${match[1]}`;
 }
 
-// Short date for Contract Time Change, such as "Nov 4".
+// Short date such as "Nov 4".
 export function shortMonthDay(iso) {
   const match = String(iso ?? '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
@@ -81,20 +81,20 @@ function hoursText(minutes) {
   return minutes == null ? '—' : formatDurationLabel(minutes);
 }
 
-// The date the rounded contracted hours changed, or the date they are
-// predicted to change, written as "Nov 4". A monthly bid uses the 15th
-// school day after the change. A row that rounds to the same total as the
-// row above did not change the contracted hours, so it has no date here.
-function contractTimeChangeText(rows, index, options = {}) {
-  if (index <= 0) return '—';
-  const current = scheduleRoundedMinutes(rows[index]?.schedule, options);
-  const previous = scheduleRoundedMinutes(rows[index - 1]?.schedule, options);
-  if (current == null || previous == null || current === previous) return '—';
-  return shortMonthDay(rows[index]?.contracted?.hours_change_on) || '—';
-}
-
 function isBidContract(contracted) {
   return contracted?.projected_outcome === 'BID_PENDING' || contracted?.status === 'bid_pending';
+}
+
+function isBumpContract(contracted) {
+  return contracted?.projected_outcome === 'BUMP_ELIGIBLE' || contracted?.status === 'bump_eligible';
+}
+
+function monthDay(iso) {
+  const match = String(iso ?? '')
+    .slice(0, 10)
+    .match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return '';
+  return `${match[2]}/${match[3]}`;
 }
 
 // Monthly bid window for this row. The stored end covers a custom school year.
@@ -114,30 +114,132 @@ function bidSpanForContract(contracted, schoolDays) {
   return null;
 }
 
-// Date this row's schedule became the contract, or a predicted date.
-// "predicted" is the next contracted date if no further change is logged.
-// A later change that carries a different date is "new predicted".
-// The date it replaces is "old predicted".
-// A monthly bid names the posting window: "Predicted up for bid 11/20–11/30".
-export function contractedDateText(row, role = 'predicted', schoolDays) {
+// Second line when the rules point at a bid or bump date.
+function bidBumpSecondary(contracted, schoolDays) {
+  const status = contracted?.status;
+  const predicted = status === 'predicted';
+  const on = contracted?.becomes_on;
+  if (!on) return null;
+  if (isBidContract(contracted)) {
+    const span = bidSpanForContract(contracted, schoolDays);
+    const dates = span ? bidPostingSpanText(span) : monthDay(on);
+    if (!dates) return null;
+    if (predicted) {
+      return {
+        text: `Predicted Up for Bid: ${dates}`,
+        title:
+          'Under the contract rules, a large enough increase would go up for bid on this date (or during this end-of-month window). Not confirmation that posting already happened.',
+      };
+    }
+    return {
+      text: `Up for Bid: ${dates}`,
+      title:
+        'Bid posting date the contract rules assign for this change. The app does not know when an admin actually posts the bid.',
+    };
+  }
+  if (isBumpContract(contracted)) {
+    const dates = monthDay(on);
+    if (!dates) return null;
+    if (predicted) {
+      return {
+        text: `Predicted Up for Bump: ${dates}`,
+        title:
+          'Under the contract rules, a large enough decrease would make this route bump-eligible on this date. Not confirmation that a bump already happened.',
+      };
+    }
+    return {
+      text: `Up for Bump: ${dates}`,
+      title:
+        'Bump date the contract rules assign for this change. The app does not know when an admin handles the bump.',
+    };
+  }
+  return null;
+}
+
+// Calculated Contract Date for this row: the date the contract rules would
+// use. Bid/bump predictions ride on a second line. The app does not know when
+// an admin or payroll actually creates a contract.
+// Returns { text, title, secondary, secondaryTitle }.
+export function contractedDateEntry(row, role = 'predicted', schoolDays) {
   const status = row.contracted?.status;
   const on = row.contracted?.becomes_on;
-  if (status === 'side_countdown') return '—';
-  const span = bidSpanForContract(row.contracted, schoolDays);
+  const secondary = status === 'side_countdown' ? null : bidBumpSecondary(row.contracted, schoolDays);
+  const withSecondary = (entry) => ({
+    ...entry,
+    secondary: secondary?.text || null,
+    secondaryTitle: secondary?.title || null,
+  });
+  if (status === 'side_countdown') {
+    return withSecondary({
+      text: '—',
+      title: 'No calculated contract date for this row.',
+    });
+  }
   if (status === 'predicted') {
-    if (!on) return 'predicted';
-    if (span) return bidPostingPhrase(span, role === 'new' || role === 'old' ? role : 'predicted');
+    if (!on) {
+      return withSecondary({
+        text: 'predicted',
+        title:
+          'The contract rules say these hours should become contracted, but the exact date is not set yet. Not a confirmed admin or payroll entry.',
+      });
+    }
     const date = monthDayYear(on);
-    if (role === 'new') return `new predicted: ${date}`;
-    if (role === 'old') return `old predicted: ${date}`;
-    return `predicted: ${date}`;
+    if (role === 'new') {
+      return withSecondary({
+        text: `new predicted: ${date}`,
+        title:
+          'A later change moved the forecast. This is the newer date the contract rules would use. Not a confirmed admin or payroll entry.',
+      });
+    }
+    if (role === 'old') {
+      return withSecondary({
+        text: `old predicted: ${date}`,
+        title:
+          'Earlier forecast that a later change replaced. The app does not know when an admin or payroll actually creates a contract.',
+      });
+    }
+    return withSecondary({
+      text: `predicted: ${date}`,
+      title:
+        'If nothing else changes, the contract rules say these hours should become contracted on this date. Not a confirmed admin or payroll entry.',
+    });
   }
   if (on && status !== 'superseded') {
-    if (span) return bidPostingPhrase(span, 'posted');
-    return monthDayYear(on);
+    return withSecondary({
+      text: monthDayYear(on),
+      title:
+        'Calculated date under the contract rules for when these hours should count as contracted. The app does not know when an admin or payroll actually created a new contract.',
+    });
   }
-  if (row.kind === 'initial' && row.date) return monthDayYear(row.date);
-  return '—';
+  if (row.kind === 'initial' && row.date) {
+    return withSecondary({
+      text: monthDayYear(row.date),
+      title:
+        'Starting schedule date. These hours are treated as contracted from the start. The app does not track when an admin entered that starting contract.',
+    });
+  }
+  return withSecondary({
+    text: '—',
+    title: 'No calculated contract date for this row.',
+  });
+}
+
+export function contractedDateText(row, role = 'predicted', schoolDays) {
+  return contractedDateEntry(row, role, schoolDays).text;
+}
+
+export function contractedDateStackHtml(column) {
+  const secondary = column?.contractedDateSecondary
+    ? `<span class="contracted-date-secondary" title="${escapeHtml(
+        column.contractedDateSecondaryTitle || ''
+      )}">${escapeHtml(column.contractedDateSecondary)}</span>`
+    : '';
+  return `<span class="contracted-stack">
+    <span class="contracted-date" title="${escapeHtml(column?.contractedDateTitle || '')}">${escapeHtml(
+      column?.contractedDate || '—'
+    )}</span>
+    ${secondary}
+  </span>`;
 }
 
 // The latest predicted date is the standing forecast.
@@ -180,13 +282,15 @@ export function contractColumnsForHistory(rows, schoolDays, options = {}) {
   const roles = predictedDateRoles(list);
   return list.map((row, index) => {
     const standing = row?.contracted?.status === 'side_countdown' ? standingPredictedRow(list, index) : null;
-    const contractedDate = standing
-      ? contractedDateText(standing.row, roles.get(standing.index) || 'predicted', schoolDays)
-      : contractedDateText(row, roles.get(index), schoolDays);
+    const entry = standing
+      ? contractedDateEntry(standing.row, roles.get(standing.index) || 'predicted', schoolDays)
+      : contractedDateEntry(row, roles.get(index), schoolDays);
     return {
       hours: hoursText(scheduleRoundedMinutes(row.schedule, options)),
-      contractTimeChange: contractTimeChangeText(list, index, options),
-      contractedDate,
+      contractedDate: entry.text,
+      contractedDateTitle: entry.title,
+      contractedDateSecondary: entry.secondary,
+      contractedDateSecondaryTitle: entry.secondaryTitle,
     };
   });
 }
@@ -272,9 +376,8 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES)
         }).join('')}
         <td class="change-figure">${kind}</td>
         <td class="hours-figure">${escapeHtml(column.hours)}</td>
-        <td class="hours-figure">${escapeHtml(column.contractTimeChange)}</td>
         <td>
-          <span class="contracted-date">${escapeHtml(column.contractedDate)}</span>
+          ${contractedDateStackHtml(column)}
           ${contractedDetail}
           ${note}
         </td>
@@ -293,8 +396,7 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES)
         <th scope="col">PM end</th>
         <th scope="col">Change</th>
         <th scope="col">Scheduled Hours</th>
-        <th scope="col">Contract Time Change</th>
-        <th scope="col">Date, if Contracted</th>
+        <th scope="col">Calculated Contract Date</th>
       </tr>
     </thead>
     <tbody>${body}</tbody>
