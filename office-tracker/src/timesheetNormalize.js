@@ -1,7 +1,14 @@
-import { EXTRACTION_SYSTEM, EXTRACTION_USER_PREFIX } from './timesheetPrompt.js';
+import {
+  BACK_SLOT_COUNT,
+  FRONT_SLOT_COUNT,
+  clockRecordTool,
+  EXTRACTION_SYSTEM,
+  extractionUserPrefix,
+} from './timesheetPrompt.js';
 
-const FRONT_ENTRY_COUNT = 13;
-const BACK_ENTRY_COUNT = 15;
+const FRONT_ENTRY_COUNT = FRONT_SLOT_COUNT;
+const BACK_ENTRY_COUNT = BACK_SLOT_COUNT;
+const ILLEGIBLE = 'illegible';
 
 const MONTHS = {
   jan: 0,
@@ -18,7 +25,40 @@ const MONTHS = {
   dec: 11,
 };
 
-export { EXTRACTION_SYSTEM, EXTRACTION_USER_PREFIX };
+export {
+  BACK_SLOT_COUNT,
+  FRONT_SLOT_COUNT,
+  clockRecordTool,
+  EXTRACTION_SYSTEM,
+  extractionUserPrefix,
+};
+
+/**
+ * Slot count is how the app tells front from back.
+ * @param {number} count
+ * @returns {'front' | 'back' | null}
+ */
+export function sideFromSlotCount(count) {
+  if (count === FRONT_SLOT_COUNT) return 'front';
+  if (count === BACK_SLOT_COUNT) return 'back';
+  return null;
+}
+
+function isIllegibleToken(value) {
+  const text = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  return text === ILLEGIBLE || text === 'redacted';
+}
+
+function illegibleRow(rowIndex) {
+  return {
+    ...blankRow(rowIndex),
+    clock_out_raw: ILLEGIBLE,
+    clock_in_raw: ILLEGIBLE,
+    crossed_out: true,
+  };
+}
 
 /**
  * @param {string | null | undefined} dateOnCard
@@ -48,6 +88,72 @@ export function toLocalWallIso(date) {
   const m = String(date.getMinutes()).padStart(2, '0');
   const s = String(date.getSeconds()).padStart(2, '0');
   return `${y}-${mo}-${da}T${h}:${m}:${s}`;
+}
+
+/**
+ * Split a Clock Record stamp into the four editable parts.
+ * Example: "OCT 7 AM 8:50" → { month: "oct", day: "7", period: "AM", time: "8:50" }
+ * @param {string | null | undefined} raw
+ */
+export function parseStampParts(raw) {
+  const text = String(raw ?? '').trim();
+  if (!text) {
+    return { month: '', day: '', period: '', time: '', illegible: false };
+  }
+  if (/^illegible$/i.test(text) || /^redacted$/i.test(text)) {
+    return { month: '', day: '', period: '', time: '', illegible: true };
+  }
+
+  let match = text.match(
+    /^([A-Za-z]{3})\s+(\d{1,2})\s+(AM|PM)\s+(\d{1,2}:\d{2}(?::\d{2})?)\s*$/i
+  );
+  if (match) {
+    return {
+      month: match[1].toLowerCase(),
+      day: String(parseInt(match[2], 10)),
+      period: match[3].toUpperCase(),
+      time: stripSeconds(match[4]),
+      illegible: false,
+    };
+  }
+
+  match = text.match(
+    /^([A-Za-z]{3})\s+(\d{1,2})\s+(\d{1,2}:\d{2}(?::\d{2})?)\s*(AM|PM)\s*$/i
+  );
+  if (match) {
+    return {
+      month: match[1].toLowerCase(),
+      day: String(parseInt(match[2], 10)),
+      period: match[4].toUpperCase(),
+      time: stripSeconds(match[3]),
+      illegible: false,
+    };
+  }
+
+  return { month: text.toLowerCase(), day: '', period: '', time: '', illegible: false };
+}
+
+/**
+ * Build a stamp string from the four editable parts.
+ * @param {{ month?: string, day?: string, period?: string, time?: string, illegible?: boolean }} parts
+ */
+export function formatStampParts(parts) {
+  if (parts?.illegible) return 'illegible';
+  const month = String(parts?.month ?? '').trim();
+  const day = String(parts?.day ?? '').trim();
+  const period = String(parts?.period ?? '').trim().toUpperCase();
+  const time = String(parts?.time ?? '').trim();
+  if (!month && !day && !period && !time) return null;
+  if (month && day && period && time) {
+    return `${month.toUpperCase()} ${day} ${period} ${time}`;
+  }
+  return [month.toUpperCase(), day, period, time].filter(Boolean).join(' ');
+}
+
+function stripSeconds(time) {
+  const text = String(time ?? '').trim();
+  const match = text.match(/^(\d{1,2}:\d{2})(?::\d{2})?$/);
+  return match ? match[1] : text;
 }
 
 /**
@@ -205,29 +311,15 @@ function normalizeOneRow(raw, fallbackIndex, defaultYear) {
     typeof raw.row_index === 'number' && Number.isFinite(raw.row_index)
       ? Math.floor(raw.row_index)
       : fallbackIndex;
+  // Genie reads Clock Record only. Drop any Description / Hours / Tot. Hrs. values
+  // the model still returns so the card tables stay blank in those columns.
   return {
     row_index: rowIndex,
-    description_of_work:
-      coerceStringOrNull(raw.description_of_work) ?? coerceStringOrNull(raw.description),
-    hours_regular:
-      raw.hours_regular !== undefined
-        ? parseHourField(raw.hours_regular)
-        : raw.hours_reg !== undefined
-          ? parseHourField(raw.hours_reg)
-          : null,
-    hours_overtime:
-      raw.hours_overtime !== undefined
-        ? parseHourField(raw.hours_overtime)
-        : raw.hours_ot !== undefined
-          ? parseHourField(raw.hours_ot)
-          : null,
-    hours_secondary: raw.hours_secondary !== undefined ? parseHourField(raw.hours_secondary) : null,
-    total_hours:
-      raw.total_hours !== undefined
-        ? parseHourField(raw.total_hours)
-        : raw.tot_hours !== undefined
-          ? parseHourField(raw.tot_hours)
-          : null,
+    description_of_work: null,
+    hours_regular: null,
+    hours_overtime: null,
+    hours_secondary: null,
+    total_hours: null,
     clock_in_raw: clockInRaw,
     clock_out_raw: clockOutRaw,
     clock_in_iso: clockInIso,
@@ -321,11 +413,63 @@ function reindexAndPad(rows, count) {
 
 function normalizeHeader(raw) {
   if (raw == null || typeof raw !== 'object') return null;
+  const employee_name =
+    coerceStringOrNull(raw.employee_name) ?? coerceStringOrNull(raw.name);
+  const route_number =
+    coerceStringOrNull(raw.route_number) ?? coerceStringOrNull(raw.route);
+  const date_on_card =
+    coerceStringOrNull(raw.date_on_card) ?? coerceStringOrNull(raw.date);
+  if (!employee_name && !route_number && !date_on_card) return null;
+  return { employee_name, route_number, date_on_card };
+}
+
+/**
+ * Clock Record stamps top-to-bottom. The app labels the first as Out and the second as In.
+ * @param {unknown} stamps
+ * @param {number} rowIndex
+ * @param {number} defaultYear
+ */
+export function rowFromClockStamps(stamps, rowIndex, defaultYear) {
+  const list = Array.isArray(stamps)
+    ? stamps
+        .map((item) => coerceStringOrNull(item))
+        .filter((item) => Boolean(item))
+    : [];
+  if (list.length === 0) return blankRow(rowIndex);
+  if (list.every((item) => isIllegibleToken(item))) return illegibleRow(rowIndex);
+  const outRaw = list[0] || null;
+  const inRaw = list[1] || null;
+  const outIllegible = isIllegibleToken(outRaw);
+  const inIllegible = isIllegibleToken(inRaw);
+  const outIso =
+    outRaw && !outIllegible ? parseLegacyStampToDate(outRaw, defaultYear) : null;
+  const inIso = inRaw && !inIllegible ? parseLegacyStampToDate(inRaw, defaultYear) : null;
   return {
-    employee_name: coerceStringOrNull(raw.employee_name),
-    route_number: coerceStringOrNull(raw.route_number),
-    date_on_card: coerceStringOrNull(raw.date_on_card),
+    ...blankRow(rowIndex),
+    clock_out_raw: outIllegible ? ILLEGIBLE : outRaw,
+    clock_in_raw: inIllegible ? ILLEGIBLE : inRaw,
+    clock_out_iso: outIso ? toLocalWallIso(outIso) : null,
+    clock_in_iso: inIso ? toLocalWallIso(inIso) : null,
+    crossed_out: outIllegible || inIllegible,
   };
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} defaultYear
+ * @param {number} fallbackIndex
+ */
+function rowFromUnknownSlot(value, defaultYear, fallbackIndex) {
+  if (value == null) return blankRow(fallbackIndex);
+  if (typeof value === 'string' && isIllegibleToken(value)) return illegibleRow(fallbackIndex);
+  if (Array.isArray(value)) return rowFromClockStamps(value, fallbackIndex, defaultYear);
+  if (value && typeof value === 'object') {
+    if (Array.isArray(value.stamps)) {
+      return rowFromClockStamps(value.stamps, fallbackIndex, defaultYear);
+    }
+    return normalizeOneRow(value, fallbackIndex, defaultYear);
+  }
+  return blankRow(fallbackIndex);
 }
 
 /**
@@ -334,16 +478,20 @@ function normalizeHeader(raw) {
 export function normalizeTimeCardExtraction(input) {
   const header = input?.header ? normalizeHeader(input.header) : null;
   const defaultYear = inferDefaultYear(header?.date_on_card ?? null);
-  let front = (input?.front_rows ?? []).map((row, index) => normalizeOneRow(row, index + 1, defaultYear));
-  let back = (input?.back_rows ?? []).map((row, index) => normalizeOneRow(row, index + 1, defaultYear));
+  let front = (input?.front_rows ?? []).map((row, index) =>
+    rowFromUnknownSlot(row, defaultYear, index + 1)
+  );
+  let back = (input?.back_rows ?? []).map((row, index) =>
+    rowFromUnknownSlot(row, defaultYear, index + 1)
+  );
   if (needsLegacyStampCollapse(front, FRONT_ENTRY_COUNT)) front = collapseLegacyStampRows(front);
   if (needsLegacyStampCollapse(back, BACK_ENTRY_COUNT)) back = collapseLegacyStampRows(back);
   return {
     header,
     front_rows: reindexAndPad(front, FRONT_ENTRY_COUNT),
     back_rows: reindexAndPad(back, BACK_ENTRY_COUNT),
-    front_reading_order_note: coerceStringOrNull(input?.front_reading_order_note),
-    caveats: Array.isArray(input?.caveats) ? input.caveats.filter((item) => typeof item === 'string') : [],
+    front_reading_order_note: null,
+    caveats: [],
   };
 }
 
@@ -360,19 +508,18 @@ export function normalizeExtractionFromUnknown(parsed) {
       caveats: ['Invalid extraction payload'],
     });
   }
+  // New Genie JSON is stamps only. Keep `header` for older fixtures / legacy payloads.
   const header = normalizeHeader(parsed.header);
   const year = inferDefaultYear(header?.date_on_card ?? null);
-  const frontRaw = parsed.front_rows ?? parsed.front_entries;
-  const backRaw = parsed.back_rows ?? parsed.back_entries;
+  const frontRaw = parsed.front ?? parsed.front_rows ?? parsed.front_entries;
+  const backRaw = parsed.back ?? parsed.back_rows ?? parsed.back_entries;
   return normalizeTimeCardExtraction({
     header,
     front_rows: Array.isArray(frontRaw)
-      ? frontRaw.map((row, index) => normalizeOneRow(row, index + 1, year))
+      ? frontRaw.map((row, index) => rowFromUnknownSlot(row, year, index + 1))
       : [],
     back_rows: Array.isArray(backRaw)
-      ? backRaw.map((row, index) => normalizeOneRow(row, index + 1, year))
+      ? backRaw.map((row, index) => rowFromUnknownSlot(row, year, index + 1))
       : [],
-    front_reading_order_note: coerceStringOrNull(parsed.front_reading_order_note),
-    caveats: Array.isArray(parsed.caveats) ? parsed.caveats.filter((item) => typeof item === 'string') : [],
   });
 }

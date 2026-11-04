@@ -1,18 +1,22 @@
-import { driverForDate } from '../src/assignments.js';
-import { payrollDriverRows } from '../src/payrollTimes.js';
 import {
-  compareCardToContract,
-  contractDailyHours,
-  dashboardSchoolCalendar,
-  formatContractClocks,
-  matchPayrollRow,
-  payrollRowKey,
-  payrollRowLabel,
-} from '../src/timesheetMath.js';
+  formatStampParts,
+  inferDefaultYear,
+  parseLegacyStampToDate,
+  parseStampParts,
+  toLocalWallIso,
+} from '../src/timesheetNormalize.js';
+import { snapRoundedForRow } from '../src/timesheetSnap.js';
+import { DEFAULT_CONTRACT_SNAP_BREAKS } from '../../src/logic/timeUtils.js';
+import { contractSnapBreaksFromState } from './store.js';
 
 const MAX_BYTES = 12 * 1024 * 1024;
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 const CAMERA_KEY = 'teamster-timesheet-camera';
+// Live view and shutter crop match the blue paper cards: about 5 wide by 8 tall.
+const CARD_ASPECT_WIDTH = 5;
+const CARD_ASPECT_HEIGHT = 8;
+const FRONT_SLOT_COUNT = 13;
+const BACK_SLOT_COUNT = 15;
 const previewUrls = { front: '', back: '' };
 
 /**
@@ -139,12 +143,13 @@ function mountTimesheetCamera({ onCapture }) {
       setCameraStatus('The camera is not ready yet. Wait a moment and try again.', 'error');
       return;
     }
+    const crop = coverCropRect(width, height, CARD_ASPECT_WIDTH, CARD_ASPECT_HEIGHT);
     const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = Math.max(1, Math.round(crop.sw));
+    canvas.height = Math.max(1, Math.round(crop.sh));
     const context = canvas.getContext('2d');
     if (!context) return;
-    context.drawImage(video, 0, 0);
+    context.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, canvas.width, canvas.height);
     shutter.disabled = true;
     canvas.toBlob(
       (blob) => {
@@ -179,14 +184,41 @@ function mountTimesheetCamera({ onCapture }) {
 }
 
 async function openStream(deviceId) {
-  const exact = deviceId ? { video: { deviceId: { exact: deviceId } }, audio: false } : null;
+  const facing = {
+    width: { ideal: 1200 },
+    height: { ideal: 1920 },
+    aspectRatio: { ideal: CARD_ASPECT_WIDTH / CARD_ASPECT_HEIGHT },
+  };
+  const exact = deviceId
+    ? { video: { deviceId: { exact: deviceId }, ...facing }, audio: false }
+    : { video: facing, audio: false };
   try {
-    return await navigator.mediaDevices.getUserMedia(exact || { video: true, audio: false });
+    return await navigator.mediaDevices.getUserMedia(exact);
   } catch (error) {
-    if (!deviceId) throw error;
+    if (!deviceId) {
+      return navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    }
     forgetCamera();
     return navigator.mediaDevices.getUserMedia({ video: true, audio: false });
   }
+}
+
+/**
+ * Source rectangle that fills a target aspect the way CSS object-fit: cover does.
+ * @param {number} sourceWidth
+ * @param {number} sourceHeight
+ * @param {number} aspectWidth
+ * @param {number} aspectHeight
+ */
+export function coverCropRect(sourceWidth, sourceHeight, aspectWidth, aspectHeight) {
+  const target = aspectWidth / aspectHeight;
+  const source = sourceWidth / sourceHeight;
+  if (source > target) {
+    const sw = sourceHeight * target;
+    return { sx: (sourceWidth - sw) / 2, sy: 0, sw, sh: sourceHeight };
+  }
+  const sh = sourceWidth / target;
+  return { sx: 0, sy: (sourceHeight - sh) / 2, sw: sourceWidth, sh };
 }
 
 async function listCameras() {
@@ -247,27 +279,36 @@ function clearSidePreview(side) {
 }
 
 /**
- * Timesheet reader desk. It reads dashboard state and never writes it.
- * @param {{ readState: () => object, asOf: () => string }} options
+ * Timecard Genie desk. Reads Clock Record stamps from paper-card photos.
+ * @param {{ readState?: () => object, asOf?: () => string }} [options]
  */
-export function mountTimesheetReader({ readState, asOf }) {
-  const view = document.querySelector('#timesheet-view');
+export function mountTimesheetReader(options = {}) {
+  const view = document.querySelector('#timecard-genie-view');
   const form = document.querySelector('#timesheet-form');
   const status = document.querySelector('#timesheet-status');
+  const statusText = status?.querySelector('.timesheet-progress-text') || status;
   const result = document.querySelector('#timesheet-result');
-  const driverSelect = document.querySelector('#timesheet-driver');
-  if (!view || !form || !status || !result || !driverSelect) {
+  const frontCard = document.querySelector('#timesheet-front-card tbody');
+  const backCard = document.querySelector('#timesheet-back-card tbody');
+  const frontSnap = document.querySelector('#timesheet-front-snap tbody');
+  const backSnap = document.querySelector('#timesheet-back-snap tbody');
+  if (!view || !form || !status || !result || !frontCard || !backCard || !frontSnap || !backSnap) {
     return { refresh() {} };
   }
 
-  /** @type {object[]} */
-  let contractRows = [];
-  /** @type {object | null} */
-  let officeState = null;
-  let asOfDate = '';
+  function snapBreaks() {
+    try {
+      const state = typeof options.readState === 'function' ? options.readState() : null;
+      return contractSnapBreaksFromState(state || {});
+    } catch {
+      return { ...DEFAULT_CONTRACT_SNAP_BREAKS };
+    }
+  }
+
   /** @type {object | null} */
   let extraction = null;
-  let selectedKey = '';
+  /** @type {ReturnType<typeof setInterval> | null} */
+  let progressTimer = null;
 
   const camera = mountTimesheetCamera({
     onCapture: (side, file) => {
@@ -304,68 +345,50 @@ export function mountTimesheetReader({ readState, asOf }) {
   new MutationObserver(() => {
     if (view.hidden) camera.close();
   }).observe(view, { attributes: true, attributeFilter: ['hidden'] });
-  driverSelect.addEventListener('change', () => {
-    selectedKey = driverSelect.value;
-    renderResult();
-  });
 
-  function setStatus(message, kind) {
+  function setStatus(message, kind = '') {
+    stopProgressMessages();
     status.hidden = !message;
-    status.textContent = message || '';
-    status.className = kind ? `status is-${kind}` : 'status';
+    if (statusText) statusText.textContent = message || '';
+    else status.textContent = message || '';
+    status.className = kind
+      ? `status timesheet-progress is-${kind}`
+      : 'status timesheet-progress';
   }
 
-  function contractRowsNow() {
-    officeState = readState();
-    asOfDate = asOf();
-    return payrollDriverRows(officeState, { asOf: asOfDate });
+  function setBusyStatus(message) {
+    status.hidden = !message;
+    if (statusText) statusText.textContent = message || '';
+    else status.textContent = message || '';
+    status.className = 'status timesheet-progress is-busy';
   }
 
-  function optionLabel(row) {
-    const profile = Object.values(officeState?.profiles ?? {}).find(
-      (item) => String(item?.name ?? '') === String(row.route ?? '')
-    );
-    const name = profile ? driverForDate(profile, asOfDate) : '';
-    if (name && row.route) return `${name} · Route ${row.route}`;
-    if (name) return name;
-    return payrollRowLabel(row);
-  }
-
-  function selectedRow() {
-    return contractRows.find((row) => payrollRowKey(row) === selectedKey) ?? null;
-  }
-
-  function fillDrivers() {
-    const previous = selectedKey;
-    driverSelect.replaceChildren();
-    const placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = contractRows.length
-      ? 'Choose a driver'
-      : 'No drivers on the dashboard yet';
-    driverSelect.append(placeholder);
-    for (const row of contractRows) {
-      const option = document.createElement('option');
-      option.value = payrollRowKey(row);
-      option.textContent = optionLabel(row);
-      driverSelect.append(option);
+  function stopProgressMessages() {
+    if (progressTimer != null) {
+      clearInterval(progressTimer);
+      progressTimer = null;
     }
-    if (previous && contractRows.some((row) => payrollRowKey(row) === previous)) {
-      driverSelect.value = previous;
-      selectedKey = previous;
-    } else if (extraction) {
-      const match = matchPayrollRow(contractRows, extraction.header);
-      selectedKey = match ? payrollRowKey(match) : '';
-      driverSelect.value = selectedKey;
-    } else {
-      selectedKey = '';
-      driverSelect.value = '';
-    }
+  }
+
+  /**
+   * Step through waiting copy while the model works on the photos.
+   * @param {string[]} messages
+   * @param {number} [everyMs]
+   */
+  function startProgressMessages(messages, everyMs = 2800) {
+    stopProgressMessages();
+    const lines = messages.filter(Boolean);
+    if (!lines.length) return;
+    let index = 0;
+    setBusyStatus(lines[0]);
+    if (lines.length === 1) return;
+    progressTimer = setInterval(() => {
+      index = (index + 1) % lines.length;
+      setBusyStatus(lines[index]);
+    }, everyMs);
   }
 
   function refresh() {
-    contractRows = contractRowsNow();
-    fillDrivers();
     if (extraction) renderResult();
   }
 
@@ -375,91 +398,33 @@ export function mountTimesheetReader({ readState, asOf }) {
       return;
     }
     result.hidden = false;
-    const row = selectedRow();
-    const who = extraction.header?.employee_name || 'Unread name';
+    const who = extraction.header?.employee_name;
     const route = extraction.header?.route_number ? ` · route ${extraction.header.route_number}` : '';
     const cardDate = extraction.header?.date_on_card ? ` · card date ${extraction.header.date_on_card}` : '';
-    document.querySelector('#timesheet-who').textContent = `${who}${route}${cardDate}`;
-    const clocks = formatContractClocks(row);
-    const daily = contractDailyHours(row);
-    document.querySelector('#timesheet-contract').textContent = row
-      ? `Current contracted clocks: ${clocks || 'none recorded'}. Contracted day: ${daily.toFixed(2)} hours.`
-      : 'Choose the driver on the dashboard to compare these stamps with current contracted clocks.';
-
-    const comparison = compareCardToContract(
-      extraction,
-      daily,
-      dashboardSchoolCalendar()
-    );
-    document.querySelector('#timesheet-period').textContent = comparison.label;
-    const table = document.querySelector('#timesheet-compare');
-    table.innerHTML = `<thead><tr>
-      <th scope="col">Day</th>
-      <th scope="col">Contract hours</th>
-      <th scope="col">Clock hours</th>
-      <th scope="col">Clock − contract</th>
-      <th scope="col">Regular</th>
-      <th scope="col">Overtime</th>
-    </tr></thead>`;
-    const body = document.createElement('tbody');
-    for (const day of comparison.days) {
-      const tr = document.createElement('tr');
-      if (day.clockHours === 0 && day.contractHours === 0) tr.className = 'is-quiet';
-      tr.innerHTML = `
-        <th scope="row">${escapeHtml(day.label)}</th>
-        <td>${day.contractHours.toFixed(2)}</td>
-        <td>${day.clockHours.toFixed(2)}</td>
-        <td class="${differenceClass(day.difference)}">${formatDifference(day.difference)}</td>
-        <td>${day.regular.toFixed(2)}</td>
-        <td>${day.overtime.toFixed(2)}</td>`;
-      body.append(tr);
-    }
-    const totals = comparison.totals;
-    const totalRow = document.createElement('tr');
-    totalRow.innerHTML = `
-      <th scope="row">Period</th>
-      <td>${totals.contractHours.toFixed(2)}</td>
-      <td>${totals.clockHours.toFixed(2)}</td>
-      <td class="${differenceClass(totals.difference)}">${formatDifference(totals.difference)}</td>
-      <td>${totals.regular.toFixed(2)}</td>
-      <td>${totals.overtime.toFixed(2)}</td>`;
-    body.append(totalRow);
-    table.append(body);
-
-    const stamps = document.querySelector('#timesheet-stamps');
-    stamps.innerHTML = `<thead><tr>
-      <th scope="col">Side</th>
-      <th scope="col">Slot</th>
-      <th scope="col">Out</th>
-      <th scope="col">In</th>
-      <th scope="col">Hours</th>
-      <th scope="col">Note</th>
-    </tr></thead>`;
-    const stampBody = document.createElement('tbody');
-    const visible = stampRows(extraction);
-    if (!visible.length) {
-      const empty = document.createElement('tr');
-      empty.innerHTML = '<td colspan="6">No stamps were read on this card.</td>';
-      stampBody.append(empty);
-    }
-    for (const stamp of visible) {
-      const tr = document.createElement('tr');
-      if (stamp.crossed_out) tr.className = 'is-quiet';
-      tr.innerHTML = `
-        <td>${escapeHtml(stamp.side)}</td>
-        <td>${stamp.row_index}</td>
-        <td>${escapeHtml(stamp.clock_out_raw || '')}</td>
-        <td>${escapeHtml(stamp.clock_in_raw || '')}</td>
-        <td>${escapeHtml(hoursText(stamp))}</td>
-        <td>${escapeHtml(stamp.confidence_note || stamp.description_of_work || '')}</td>`;
-      stampBody.append(tr);
-    }
-    stamps.append(stampBody);
+    document.querySelector('#timesheet-who').textContent = who
+      ? `${who}${route}${cardDate}`
+      : 'Clock Record';
+    const breaks = snapBreaks();
+    paintCardSheet(frontCard, extraction.front_rows ?? [], FRONT_SLOT_COUNT);
+    paintCardSheet(backCard, extraction.back_rows ?? [], BACK_SLOT_COUNT);
+    applySnapDerivedFields(extraction.front_rows, FRONT_SLOT_COUNT, breaks, frontCard);
+    applySnapDerivedFields(extraction.back_rows, BACK_SLOT_COUNT, breaks, backCard);
+    paintSnapSheet(frontSnap, extraction.front_rows ?? [], FRONT_SLOT_COUNT, breaks);
+    paintSnapSheet(backSnap, extraction.back_rows ?? [], BACK_SLOT_COUNT, breaks);
+    bindCardEditors(frontCard, extraction.front_rows, FRONT_SLOT_COUNT, {
+      snapBody: frontSnap,
+      breaks,
+    });
+    bindCardEditors(backCard, extraction.back_rows, BACK_SLOT_COUNT, {
+      snapBody: backSnap,
+      breaks,
+    });
+    alignSnapRows(frontCard, frontSnap);
+    alignSnapRows(backCard, backSnap);
 
     const caveats = document.querySelector('#timesheet-caveats');
-    const notes = extraction.caveats ?? [];
-    caveats.hidden = notes.length === 0;
-    caveats.textContent = notes.join(' ');
+    caveats.hidden = true;
+    caveats.textContent = '';
   }
 
   async function readCard() {
@@ -472,35 +437,56 @@ export function mountTimesheetReader({ readState, asOf }) {
     validateFile(front, 'Front');
     validateFile(back, 'Back');
     const button = document.querySelector('#timesheet-read');
+    const clearButton = document.querySelector('#timesheet-clear');
     button.disabled = true;
-    setStatus('Reading the card…', '');
+    if (clearButton) clearButton.disabled = true;
+    const sides = [front && 'front', back && 'back'].filter(Boolean);
+    const photoLabel =
+      sides.length === 2 ? 'photos' : sides[0] === 'front' ? 'front photo' : 'back photo';
     try {
+      setBusyStatus(
+        sides.length === 2 ? 'Preparing the front and back photos…' : `Preparing the ${photoLabel}…`
+      );
+      const frontPayload = front ? await filePayload(front) : null;
+      const backPayload = back ? await filePayload(back) : null;
+
+      setBusyStatus(
+        sides.length === 2
+          ? 'Sending photos for analysis…'
+          : `Sending ${photoLabel} for analysis…`
+      );
+      const waiting = [
+        sides.length === 2 ? 'Reading the photos…' : `Reading the ${photoLabel}…`,
+        'Looking for Clock Record stamps…',
+        'Still analyzing the card…',
+        'Almost done…',
+      ];
+      startProgressMessages(waiting);
+
       const response = await fetch('/api/timesheet-extract', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          front: front ? await filePayload(front) : null,
-          back: back ? await filePayload(back) : null,
+          front: frontPayload,
+          back: backPayload,
         }),
       });
+      stopProgressMessages();
+      setBusyStatus('Building the Front and Back card tables…');
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(payload.error || 'Could not read that card.');
       }
       extraction = payload.extraction;
-      contractRows = contractRowsNow();
-      const match = matchPayrollRow(contractRows, extraction.header);
-      selectedKey = match ? payrollRowKey(match) : '';
-      fillDrivers();
       renderResult();
-      setStatus(
-        match
-          ? `Read the card and matched ${optionLabel(match)}.`
-          : 'Read the card. Choose the driver to compare contracted clocks.',
-        'ok'
-      );
+      setStatus('Read the Clock Record stamps from the card.', 'ok');
+    } catch (error) {
+      stopProgressMessages();
+      setStatus(error?.message || 'Could not read that card.', 'error');
     } finally {
+      stopProgressMessages();
       button.disabled = false;
+      if (clearButton) clearButton.disabled = false;
     }
   }
 
@@ -515,18 +501,331 @@ export function mountTimesheetReader({ readState, asOf }) {
   }
 
   function clearCard() {
+    stopProgressMessages();
     extraction = null;
-    selectedKey = '';
     camera.close();
     form.reset();
     clearSidePreview('front');
     clearSidePreview('back');
+    frontCard.replaceChildren();
+    backCard.replaceChildren();
+    frontSnap.replaceChildren();
+    backSnap.replaceChildren();
     result.hidden = true;
-    fillDrivers();
     setStatus('');
   }
 
   return { refresh };
+}
+
+/**
+ * One side of the blue card: every cell editable.
+ * @param {HTMLElement} body
+ * @param {object[]} rows
+ * @param {number} slotCount
+ */
+export function paintCardSheet(body, rows, slotCount) {
+  body.replaceChildren();
+  const byIndex = new Map(
+    (Array.isArray(rows) ? rows : []).map((row) => [Number(row?.row_index) || 0, row])
+  );
+  for (let index = 1; index <= slotCount; index += 1) {
+    const row = byIndex.get(index) || { row_index: index };
+    if (Array.isArray(rows) && !rows[index - 1]) rows[index - 1] = row;
+    const tr = document.createElement('tr');
+    tr.dataset.rowIndex = String(index);
+    const out = stampText(row.clock_out_raw);
+    const inn = stampText(row.clock_in_raw);
+    const blank = !out && !inn;
+    if (blank) tr.classList.add('is-quiet');
+    if (row.crossed_out) tr.classList.add('is-crossed');
+    tr.innerHTML = `
+      <td class="timesheet-card-blank">
+        <input class="timesheet-edit" data-field="description_of_work" type="text"
+          value="${escapeAttr(row.description_of_work)}" aria-label="Description of Work row ${index}">
+      </td>
+      <td class="timesheet-card-blank">
+        <input class="timesheet-edit" data-field="hours_regular" type="text"
+          value="${escapeAttr(row.hours_regular)}" aria-label="Hours row ${index}">
+      </td>
+      <td class="timesheet-card-blank">
+        <input class="timesheet-edit timesheet-tot-hrs" data-field="total_hours" type="text"
+          value="${escapeAttr(row.total_hours)}" readonly tabindex="-1"
+          aria-label="Tot. Hrs. row ${index} from snap rounded times">
+      </td>
+      <td class="timesheet-card-clock">
+        ${stampEditorHtml('out', row.clock_out_raw, index)}
+        ${stampEditorHtml('in', row.clock_in_raw, index)}
+      </td>`;
+    body.append(tr);
+  }
+}
+
+/**
+ * Keep the extraction rows in sync as the user edits the card tables.
+ * @param {HTMLElement} body
+ * @param {object[]} rows
+ * @param {number} slotCount
+ * @param {{ snapBody?: HTMLElement | null, breaks?: object }} [extras]
+ */
+function bindCardEditors(body, rows, slotCount, extras = {}) {
+  if (!body || !Array.isArray(rows)) return;
+  for (let index = 1; index <= slotCount; index += 1) {
+    if (!rows[index - 1]) {
+      rows[index - 1] = {
+        row_index: index,
+        description_of_work: null,
+        hours_regular: null,
+        hours_overtime: null,
+        hours_secondary: null,
+        total_hours: null,
+        clock_out_raw: null,
+        clock_in_raw: null,
+        clock_out_iso: null,
+        clock_in_iso: null,
+        crossed_out: false,
+      };
+    }
+  }
+  const year = inferDefaultYear(null);
+  const breaks = extras.breaks || DEFAULT_CONTRACT_SNAP_BREAKS;
+  const snapBody = extras.snapBody || null;
+
+  body.oninput = (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || !target.classList.contains('timesheet-edit')) {
+      return;
+    }
+    if (target.dataset.field === 'total_hours') return;
+    const tr = target.closest('tr[data-row-index]');
+    if (!tr) return;
+    const index = Number(tr.dataset.rowIndex) || 0;
+    const row = rows[index - 1];
+    if (!row) return;
+
+    if (target.dataset.field) {
+      const field = target.dataset.field;
+      const text = target.value.trim();
+      if (field === 'hours_regular') {
+        if (!text) row[field] = null;
+        else {
+          const number = Number(text);
+          row[field] = Number.isFinite(number) ? number : text;
+        }
+      } else {
+        row[field] = text || null;
+      }
+      refreshRowState(tr, row);
+      return;
+    }
+
+    const stamp = target.closest('[data-stamp]');
+    if (!stamp) return;
+    const which = stamp.dataset.stamp;
+    if (which !== 'out' && which !== 'in') return;
+    applyStampEdits(row, which, stamp, year);
+    refreshRowState(tr, row);
+    if (target.dataset.role === 'illegible' && !/^illegible$/i.test(target.value.trim())) {
+      stamp.outerHTML = stampEditorHtml(which, row[`clock_${which}_raw`], index);
+      tr.querySelector(`[data-stamp="${which}"] input`)?.focus();
+    }
+    updateRowSnapDerived(tr, row, breaks);
+    if (snapBody) {
+      paintSnapSheet(snapBody, rows, slotCount, breaks);
+      alignSnapRows(body, snapBody);
+    }
+  };
+}
+
+/**
+ * @param {object[]} rows
+ * @param {number} slotCount
+ * @param {object} breaks
+ * @param {HTMLElement} body
+ */
+function applySnapDerivedFields(rows, slotCount, breaks, body) {
+  if (!Array.isArray(rows)) return;
+  for (let index = 1; index <= slotCount; index += 1) {
+    const row = rows[index - 1];
+    if (!row) continue;
+    const snapped = snapRoundedForRow(row, breaks);
+    row.total_hours = snapped.totalHours;
+    const input = body?.querySelector(
+      `tr[data-row-index="${index}"] input[data-field="total_hours"]`
+    );
+    if (input instanceof HTMLInputElement) {
+      input.value = snapped.totalHours == null ? '' : String(snapped.totalHours);
+    }
+  }
+}
+
+/**
+ * @param {HTMLTableRowElement} tr
+ * @param {object} row
+ * @param {object} breaks
+ */
+function updateRowSnapDerived(tr, row, breaks) {
+  const snapped = snapRoundedForRow(row, breaks);
+  row.total_hours = snapped.totalHours;
+  const input = tr.querySelector('input[data-field="total_hours"]');
+  if (input instanceof HTMLInputElement) {
+    input.value = snapped.totalHours == null ? '' : String(snapped.totalHours);
+  }
+}
+
+/**
+ * @param {HTMLElement} body
+ * @param {object[]} rows
+ * @param {number} slotCount
+ * @param {object} breaks
+ */
+export function paintSnapSheet(body, rows, slotCount, breaks) {
+  if (!body) return;
+  body.replaceChildren();
+  for (let index = 1; index <= slotCount; index += 1) {
+    const row = Array.isArray(rows) ? rows[index - 1] : null;
+    const snapped = snapRoundedForRow(row, breaks);
+    const tr = document.createElement('tr');
+    tr.dataset.rowIndex = String(index);
+    const blank = !snapped.outLabel && !snapped.inLabel;
+    if (blank) tr.classList.add('is-quiet');
+    tr.innerHTML = `
+      <td>
+        <div class="timesheet-snap-stamp">
+          <span class="timesheet-card-label">Out</span>
+          <span class="timesheet-snap-value${snapped.outIllegible ? ' is-illegible' : ''}">${escapeHtml(snapped.outLabel || '—')}</span>
+        </div>
+        <div class="timesheet-snap-stamp">
+          <span class="timesheet-card-label">In</span>
+          <span class="timesheet-snap-value${snapped.inIllegible ? ' is-illegible' : ''}">${escapeHtml(snapped.inLabel || '—')}</span>
+        </div>
+      </td>`;
+    body.append(tr);
+  }
+}
+
+/**
+ * Keep snap rows lined up with the blue card rows.
+ * @param {HTMLElement} cardBody
+ * @param {HTMLElement} snapBody
+ */
+function alignSnapRows(cardBody, snapBody) {
+  if (!cardBody || !snapBody) return;
+  const cardRows = [...cardBody.querySelectorAll('tr[data-row-index]')];
+  const snapRows = [...snapBody.querySelectorAll('tr[data-row-index]')];
+  const count = Math.min(cardRows.length, snapRows.length);
+  for (let index = 0; index < count; index += 1) {
+    snapRows[index].style.height = '';
+  }
+  // Force layout, then match heights.
+  for (let index = 0; index < count; index += 1) {
+    const height = Math.max(cardRows[index].getBoundingClientRect().height, 1);
+    snapRows[index].style.height = `${height}px`;
+  }
+  const cardHead = cardBody.closest('table')?.querySelector('thead tr');
+  const snapHead = snapBody.closest('table')?.querySelector('thead tr');
+  if (cardHead && snapHead) {
+    snapHead.style.height = '';
+    snapHead.style.height = `${cardHead.getBoundingClientRect().height}px`;
+  }
+}
+
+/**
+ * @param {object} row
+ * @param {'out' | 'in'} which
+ * @param {Element} stamp
+ * @param {number} year
+ */
+function applyStampEdits(row, which, stamp, year) {
+  const illegibleInput = stamp.querySelector('input[data-role="illegible"]');
+  if (illegibleInput) {
+    const text = illegibleInput.value.trim();
+    if (!text || /^illegible$/i.test(text)) {
+      row[`clock_${which}_raw`] = text ? 'illegible' : null;
+      row[`clock_${which}_iso`] = null;
+    } else {
+      const parts = parseStampParts(text);
+      row[`clock_${which}_raw`] = formatStampParts({ ...parts, illegible: false });
+      const isoDate =
+        row[`clock_${which}_raw`] && !parts.illegible
+          ? parseLegacyStampToDate(row[`clock_${which}_raw`], year)
+          : null;
+      row[`clock_${which}_iso`] = isoDate ? toLocalWallIso(isoDate) : null;
+    }
+  } else {
+    const parts = {
+      month: stamp.querySelector('[data-part="month"]')?.value ?? '',
+      day: stamp.querySelector('[data-part="day"]')?.value ?? '',
+      period: stamp.querySelector('[data-part="period"]')?.value ?? '',
+      time: stamp.querySelector('[data-part="time"]')?.value ?? '',
+      illegible: false,
+    };
+    row[`clock_${which}_raw`] = formatStampParts(parts);
+    const isoDate = row[`clock_${which}_raw`]
+      ? parseLegacyStampToDate(row[`clock_${which}_raw`], year)
+      : null;
+    row[`clock_${which}_iso`] = isoDate ? toLocalWallIso(isoDate) : null;
+  }
+  row.crossed_out =
+    isIllegibleRaw(row.clock_out_raw) || isIllegibleRaw(row.clock_in_raw);
+}
+
+/**
+ * @param {HTMLTableRowElement} tr
+ * @param {object} row
+ */
+function refreshRowState(tr, row) {
+  const blank = !stampText(row.clock_out_raw) && !stampText(row.clock_in_raw);
+  tr.classList.toggle('is-quiet', blank);
+  tr.classList.toggle('is-crossed', Boolean(row.crossed_out));
+}
+
+/**
+ * @param {'out' | 'in'} which
+ * @param {string | null | undefined} raw
+ * @param {number} rowIndex
+ */
+function stampEditorHtml(which, raw, rowIndex) {
+  const label = which === 'out' ? 'Out' : 'In';
+  const parts = parseStampParts(raw);
+  if (parts.illegible) {
+    return `<div class="timesheet-stamp timesheet-stamp-${which}" data-stamp="${which}">
+      <span class="timesheet-card-label">${label}</span>
+      <input class="timesheet-edit timesheet-stamp-illegible" data-role="illegible" type="text"
+        value="illegible" aria-label="${label} stamp row ${rowIndex}">
+    </div>`;
+  }
+  return `<div class="timesheet-stamp timesheet-stamp-${which}" data-stamp="${which}">
+    <span class="timesheet-card-label">${label}</span>
+    <span class="timesheet-stamp-parts">
+      <input class="timesheet-edit" data-part="month" type="text" maxlength="3"
+        value="${escapeAttr(parts.month)}" placeholder="oct" aria-label="${label} month row ${rowIndex}">
+      <input class="timesheet-edit" data-part="day" type="text" maxlength="2"
+        value="${escapeAttr(parts.day)}" placeholder="7" aria-label="${label} day row ${rowIndex}">
+      <input class="timesheet-edit" data-part="period" type="text" maxlength="2"
+        value="${escapeAttr(parts.period)}" placeholder="AM" aria-label="${label} AM or PM row ${rowIndex}">
+      <input class="timesheet-edit" data-part="time" type="text" maxlength="5"
+        value="${escapeAttr(parts.time)}" placeholder="8:50" aria-label="${label} time row ${rowIndex}">
+    </span>
+  </div>`;
+}
+
+function stampText(value) {
+  const text = String(value ?? '').trim();
+  return text || '';
+}
+
+function isIllegibleRaw(value) {
+  return /^illegible$/i.test(String(value ?? '').trim());
+}
+
+function escapeAttr(value) {
+  if (value == null || value === '') return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function validateFile(file, label) {
@@ -552,40 +851,6 @@ function filePayload(file) {
     reader.onerror = () => reject(new Error('Could not read that photo.'));
     reader.readAsDataURL(file);
   });
-}
-
-function stampRows(extraction) {
-  const sides = [
-    ['Front', extraction.front_rows ?? []],
-    ['Back', extraction.back_rows ?? []],
-  ];
-  const rows = [];
-  for (const [side, list] of sides) {
-    for (const row of list) {
-      const hasStamp = row.clock_in_raw || row.clock_out_raw || row.total_hours != null;
-      const hasNote = row.description_of_work || row.confidence_note;
-      if (!hasStamp && !hasNote) continue;
-      rows.push({ ...row, side });
-    }
-  }
-  return rows;
-}
-
-function hoursText(row) {
-  if (row.total_hours == null || row.total_hours === '') return '';
-  return String(row.total_hours);
-}
-
-function formatDifference(value) {
-  if (value === 0) return '0.00';
-  const text = Math.abs(value).toFixed(2);
-  return value > 0 ? `+${text}` : `−${text}`;
-}
-
-function differenceClass(value) {
-  if (value > 0) return 'timesheet-diff is-over';
-  if (value < 0) return 'timesheet-diff is-under';
-  return 'timesheet-diff';
 }
 
 function escapeHtml(value) {

@@ -732,7 +732,7 @@ export function payrollDriverRows(state, options = {}) {
       rowForRoute(driver?.email ?? '', driverName, profile.name, entry, {
         startDate: profile.start_date,
         changeLog: profile.changeLog,
-        punches: state?.punches,
+        punches: options.usePunches === false ? [] : state?.punches,
         roundClocks: rounding,
       })
     );
@@ -742,7 +742,7 @@ export function payrollDriverRows(state, options = {}) {
     if (assigned.has(driver.name.trim().toLowerCase())) continue;
     rows.push(
       rowForRoute(driver.email, driver.name, '', null, {
-        punches: state?.punches,
+        punches: options.usePunches === false ? [] : state?.punches,
         roundClocks: rounding,
       })
     );
@@ -924,6 +924,8 @@ function segmentsFromPunches(punches, driverName) {
   for (const pair of pairs) {
     const run = runForClockPair(pair);
     if (run === 'OTHER') continue;
+    // Same-minute in/out is not a usable span for payroll columns.
+    if (!(pair.end.getTime() > pair.start.getTime())) continue;
     const prev = latest[run];
     if (!prev || pair.start.getTime() > prev.start.getTime()) latest[run] = pair;
   }

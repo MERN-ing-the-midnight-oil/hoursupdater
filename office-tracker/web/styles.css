@@ -25,6 +25,14 @@
   --clocking-ink: #102033;
   --clocking-case: #f4f7fb;
   --clocking-shadow: #102033;
+  --genie: #2f84b8;
+  --genie-deep: #1c5f8a;
+  --genie-signal: #d4a017;
+  --genie-hot: #ffe7a8;
+  --genie-ink: #143048;
+  --genie-case: #eef6fb;
+  --genie-rule: #7eb6d6;
+  --genie-shadow: #143048;
   --daily: #c47b12;
   --daily-deep: #8a5608;
   --daily-signal: #e6a317;
@@ -125,7 +133,8 @@ body {
 
 .app-launch .brand,
 .app-launch-daily .brand,
-.app-launch-reader .brand {
+.app-launch-reader .brand,
+.app-launch-genie .brand {
   max-width: none;
   font-size: 0.92rem;
   letter-spacing: -0.03em;
@@ -183,6 +192,14 @@ body {
 .px-clocking-ink { fill: var(--clocking-ink); }
 .px-clocking-copper { fill: var(--clocking-copper); }
 .px-clocking-hot { fill: var(--clocking-hot); }
+.px-genie-shadow { fill: var(--genie-shadow); }
+.px-genie-frame { fill: var(--genie); }
+.px-genie-case { fill: var(--genie-case); }
+.px-genie-paper { fill: #d7eaf6; }
+.px-genie-ink { fill: var(--genie-ink); }
+.px-genie-rule { fill: var(--genie-rule); }
+.px-genie-gold { fill: var(--genie-signal); }
+.px-genie-hot { fill: var(--genie-hot); }
 .px-daily-shadow { fill: var(--daily-shadow); }
 .px-daily-frame { fill: var(--daily); }
 .px-daily-case { fill: var(--daily-case); }
@@ -226,6 +243,20 @@ body.is-clocking-app {
   --signal: var(--clocking-copper);
 }
 
+body.is-genie-app {
+  --bg: #e6f1f8;
+  --line: #c9dceb;
+  --purple: var(--genie);
+  --purple-deep: var(--genie-deep);
+  --orange: var(--genie-signal);
+  --orange-deep: #a87f0c;
+  --accent: var(--genie);
+  --accent-hover: var(--genie-deep);
+  --accent-wash: #e7f3fa;
+  --accent-line: #b7d4e8;
+  --signal: var(--genie-signal);
+}
+
 body.is-reader-app .topbar,
 body.is-payroll-app .topbar {
   border-bottom-color: var(--reader);
@@ -233,6 +264,10 @@ body.is-payroll-app .topbar {
 
 body.is-clocking-app .topbar {
   border-bottom-color: var(--clocking);
+}
+
+body.is-genie-app .topbar {
+  border-bottom-color: var(--genie);
 }
 
 body.is-daily-app {
@@ -723,6 +758,11 @@ button.app-launch.app-launch-clocking.is-active:hover {
   box-shadow: inset 0 -4px 0 var(--clocking);
 }
 
+button.app-launch.app-launch-genie.is-active,
+button.app-launch.app-launch-genie.is-active:hover {
+  box-shadow: inset 0 -4px 0 var(--genie);
+}
+
 button.app-launch.app-launch-daily.is-active,
 button.app-launch.app-launch-daily.is-active:hover {
   box-shadow: inset 0 -4px 0 var(--daily);
@@ -753,6 +793,10 @@ button.app-launch-reader:focus-visible {
 
 button.app-launch-clocking:focus-visible {
   outline-color: var(--clocking);
+}
+
+button.app-launch-genie:focus-visible {
+  outline-color: var(--genie);
 }
 
 button.app-launch-daily:focus-visible {
@@ -1674,7 +1718,8 @@ button:disabled:hover {
 @media (max-width: 1100px) {
   .app-launch .brand,
   .app-launch-daily .brand,
-  .app-launch-reader .brand {
+  .app-launch-reader .brand,
+  .app-launch-genie .brand {
     font-size: 0.8rem;
   }
 
@@ -1706,7 +1751,8 @@ button:disabled:hover {
 
   .app-launch .brand,
   .app-launch-daily .brand,
-  .app-launch-reader .brand {
+  .app-launch-reader .brand,
+  .app-launch-genie .brand {
     font-size: 0.68rem;
   }
 

@@ -91,6 +91,8 @@ describe('employee clock-time helpers', () => {
       range: '6:35-8:55',
       duration_minutes: 140,
     });
+    assert.equal(splitSegmentRange('19:36-19:36'), null);
+    assert.equal(splitSegmentRange('8:55-6:35'), null);
   });
 });
 

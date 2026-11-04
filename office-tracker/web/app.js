@@ -97,6 +97,7 @@ import { recentRouteChanges } from '../src/recentChanges.js';
 import { shouldDeferSharedUiRefresh } from '../src/sharedUiRefresh.js';
 import { ensureExampleRoutes, isSampleOffice } from './exampleRoutes.js';
 import { mountClockDesk } from './clockDesk.js';
+import { mountTimesheetReader } from './timesheetReader.js';
 import {
   isExternalTimeclockSearch,
   otherTimeclockScreens,
@@ -253,8 +254,10 @@ const driversTab = document.querySelector('#drivers-tab');
 const dashboardApp = document.querySelector('#dashboard-app');
 const payrollTab = document.querySelector('#payroll-tab');
 const clockingTab = document.querySelector('#clocking-tab');
+const timecardGenieTab = document.querySelector('#timecard-genie-tab');
 const payrollView = document.querySelector('#payroll-view');
 const clockingView = document.querySelector('#clocking-view');
+const timecardGenieView = document.querySelector('#timecard-genie-view');
 const weeklyWorkTab = document.querySelector('#weekly-work-tab');
 const dailyWorkTab = document.querySelector('#daily-work-tab');
 const rosterTripsTab = document.querySelector('#roster-trips-tab');
@@ -329,6 +332,7 @@ function isOfficeSheet(sheet = activeSheet) {
   return (
     sheet === 'payroll' ||
     sheet === 'clocking' ||
+    sheet === 'timecard-genie' ||
     sheet === 'clock-settings' ||
     sheet === 'paper-backup' ||
     isTripBoard(sheet)
@@ -377,13 +381,22 @@ function markSectionChrome() {
   const onDrivers = activeSheet === 'drivers' && !addingPerson;
   const onPayroll = activeSheet === 'payroll' && !addingPerson;
   const onClocking = activeSheet === 'clocking' && !addingPerson;
+  const onTimecardGenie = activeSheet === 'timecard-genie' && !addingPerson;
   const onClockSettings = activeSheet === 'clock-settings' && !addingPerson;
   const onPaperBackup = activeSheet === 'paper-backup' && !addingPerson;
   const onWeekly = activeSheet === 'weekly-work' && !addingPerson;
   const onDaily = activeSheet === 'daily-work' && !addingPerson;
   const onRoster = activeSheet === 'roster-trips' && !addingPerson;
   const onSettings = activeSheet === 'settings' && !addingPerson;
-  const onOfficeApp = onPayroll || onClocking || onClockSettings || onPaperBackup || onWeekly || onDaily || onRoster;
+  const onOfficeApp =
+    onPayroll ||
+    onClocking ||
+    onTimecardGenie ||
+    onClockSettings ||
+    onPaperBackup ||
+    onWeekly ||
+    onDaily ||
+    onRoster;
   const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
   const onContractNotice = activeSheet === 'contract-notice' && !addingPerson;
@@ -393,17 +406,20 @@ function markSectionChrome() {
   dashboardApp?.classList.toggle('is-active', !onOfficeApp && !onSettings);
   payrollTab?.classList.toggle('is-active', onPayroll);
   clockingTab?.classList.toggle('is-active', onClocking || onClockSettings || onPaperBackup);
+  timecardGenieTab?.classList.toggle('is-active', onTimecardGenie);
   weeklyWorkTab?.classList.toggle('is-active', onWeekly);
   dailyWorkTab?.classList.toggle('is-active', onDaily);
   rosterTripsTab?.classList.toggle('is-active', onRoster);
   dashboardApp?.removeAttribute('aria-current');
   payrollTab?.removeAttribute('aria-current');
   clockingTab?.removeAttribute('aria-current');
+  timecardGenieTab?.removeAttribute('aria-current');
   weeklyWorkTab?.removeAttribute('aria-current');
   dailyWorkTab?.removeAttribute('aria-current');
   rosterTripsTab?.removeAttribute('aria-current');
   if (onPayroll) payrollTab?.setAttribute('aria-current', 'page');
   else if (onClocking || onClockSettings || onPaperBackup) clockingTab?.setAttribute('aria-current', 'page');
+  else if (onTimecardGenie) timecardGenieTab?.setAttribute('aria-current', 'page');
   else if (onWeekly) weeklyWorkTab?.setAttribute('aria-current', 'page');
   else if (onDaily) dailyWorkTab?.setAttribute('aria-current', 'page');
   else if (onRoster) rosterTripsTab?.setAttribute('aria-current', 'page');
@@ -428,13 +444,22 @@ function renderRouteTabs() {
   const onDriverHistory = activeSheet === 'driver-history' && !addingPerson;
   const onPayroll = activeSheet === 'payroll' && !addingPerson;
   const onClocking = activeSheet === 'clocking' && !addingPerson;
+  const onTimecardGenie = activeSheet === 'timecard-genie' && !addingPerson;
   const onClockSettings = activeSheet === 'clock-settings' && !addingPerson;
   const onPaperBackup = activeSheet === 'paper-backup' && !addingPerson;
   const onWeekly = activeSheet === 'weekly-work' && !addingPerson;
   const onDaily = activeSheet === 'daily-work' && !addingPerson;
   const onRoster = activeSheet === 'roster-trips' && !addingPerson;
   const onSettings = activeSheet === 'settings' && !addingPerson;
-  const onOfficeApp = onPayroll || onClocking || onClockSettings || onPaperBackup || onWeekly || onDaily || onRoster;
+  const onOfficeApp =
+    onPayroll ||
+    onClocking ||
+    onTimecardGenie ||
+    onClockSettings ||
+    onPaperBackup ||
+    onWeekly ||
+    onDaily ||
+    onRoster;
   const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
   const onContractNotice = activeSheet === 'contract-notice' && !addingPerson;
@@ -491,6 +516,7 @@ function chooseRoute(id) {
     activeSheet !== 'driver-history' &&
     activeSheet !== 'payroll' &&
     activeSheet !== 'clocking' &&
+    activeSheet !== 'timecard-genie' &&
     activeSheet !== 'clock-settings' &&
     activeSheet !== 'paper-backup' &&
     activeSheet !== 'weekly-work' &&
@@ -954,6 +980,15 @@ function showClocking() {
   clockingView?.scrollIntoView({ block: 'start' });
 }
 
+function showTimecardGenie() {
+  rememberOfficeSheet();
+  addingPerson = false;
+  viewingDriver = '';
+  activeSheet = 'timecard-genie';
+  loadAll();
+  timecardGenieView?.scrollIntoView({ block: 'start' });
+}
+
 async function showClockSettings() {
   rememberOfficeSheet();
   addingPerson = false;
@@ -1121,6 +1156,7 @@ termsDialog?.addEventListener('close', rememberTermsSeen);
 if (!termsAlreadySeen()) openTermsDialog();
 payrollTab?.addEventListener('click', showPayroll);
 clockingTab?.addEventListener('click', showClocking);
+timecardGenieTab?.addEventListener('click', showTimecardGenie);
 weeklyWorkTab?.addEventListener('click', showWeeklyWork);
 dailyWorkTab?.addEventListener('click', showDailyWork);
 document.querySelector('#daily-work-screen')?.addEventListener('click', () => {
@@ -1748,6 +1784,7 @@ function beginAddRoute() {
   driverHistoryView.hidden = true;
   if (payrollView) payrollView.hidden = true;
   if (clockingView) clockingView.hidden = true;
+  if (timecardGenieView) timecardGenieView.hidden = true;
   if (weeklyWorkView) weeklyWorkView.hidden = true;
   if (dailyWorkView) dailyWorkView.hidden = true;
   if (rosterTripsView) rosterTripsView.hidden = true;
@@ -5234,13 +5271,22 @@ function renderApp() {
   const onDriverHistory = activeSheet === 'driver-history' && !addingPerson;
   const onPayroll = activeSheet === 'payroll' && !addingPerson;
   const onClocking = activeSheet === 'clocking' && !addingPerson;
+  const onTimecardGenie = activeSheet === 'timecard-genie' && !addingPerson;
   const onClockSettings = activeSheet === 'clock-settings' && !addingPerson;
   const onPaperBackup = activeSheet === 'paper-backup' && !addingPerson;
   const onWeekly = activeSheet === 'weekly-work' && !addingPerson;
   const onDaily = activeSheet === 'daily-work' && !addingPerson;
   const onRoster = activeSheet === 'roster-trips' && !addingPerson;
   const onSettings = activeSheet === 'settings' && !addingPerson;
-  const onOfficeApp = onPayroll || onClocking || onClockSettings || onPaperBackup || onWeekly || onDaily || onRoster;
+  const onOfficeApp =
+    onPayroll ||
+    onClocking ||
+    onTimecardGenie ||
+    onClockSettings ||
+    onPaperBackup ||
+    onWeekly ||
+    onDaily ||
+    onRoster;
   const onAdminReminder = activeSheet === 'admin-reminder' && !addingPerson;
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
   const onContractNotice = activeSheet === 'contract-notice' && !addingPerson;
@@ -5248,6 +5294,7 @@ function renderApp() {
   const payrollWindow = driversWindow && driversApp === 'payroll';
   document.body.classList.toggle('is-payroll-app', onPayroll || (payrollWindow && onDriverHistory));
   document.body.classList.toggle('is-clocking-app', onClocking || onClockSettings || onPaperBackup);
+  document.body.classList.toggle('is-genie-app', onTimecardGenie);
   document.body.classList.toggle('is-daily-app', onDaily || onWeekly);
   document.body.classList.toggle('is-roster-app', onRoster);
   document.body.classList.toggle('is-paper-backup', onPaperBackup);
@@ -5260,9 +5307,11 @@ function renderApp() {
       ? '#8b3a4a'
       : onPayroll || (payrollWindow && onDriverHistory)
         ? '#12887a'
-        : onClocking || onClockSettings || onPaperBackup
-          ? '#1a4f8b'
-          : '#6428f0';
+        : onTimecardGenie
+          ? '#2f84b8'
+          : onClocking || onClockSettings || onPaperBackup
+            ? '#1a4f8b'
+            : '#6428f0';
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor);
   const hideRouteTabs = onOfficeApp || onSettings || driversWindow;
   if (routeTabs) routeTabs.hidden = hideRouteTabs;
@@ -5270,6 +5319,7 @@ function renderApp() {
   else renderRouteTabs();
   if (payrollView) payrollView.hidden = !onPayroll;
   if (clockingView) clockingView.hidden = !onClocking;
+  if (timecardGenieView) timecardGenieView.hidden = !onTimecardGenie;
   if (weeklyWorkView) weeklyWorkView.hidden = !onWeekly;
   if (dailyWorkView) dailyWorkView.hidden = !onDaily;
   if (rosterTripsView) rosterTripsView.hidden = !onRoster;
@@ -5291,6 +5341,7 @@ function renderApp() {
   if (driversWindow && onDriverHistory) {
     if (payrollView) payrollView.hidden = true;
     if (clockingView) clockingView.hidden = true;
+    if (timecardGenieView) timecardGenieView.hidden = true;
     if (weeklyWorkView) weeklyWorkView.hidden = true;
     if (dailyWorkView) dailyWorkView.hidden = true;
     if (rosterTripsView) rosterTripsView.hidden = true;
@@ -5343,6 +5394,16 @@ function renderApp() {
     appView.hidden = true;
     openTripFrame(onRoster ? 'roster' : onWeekly ? 'weekly' : 'daily');
     document.title = `${onRoster ? 'Roster Trips' : onWeekly ? 'Weekly Work Admin' : 'Daily/Late Work Admin'} · ${APP_TITLE}`;
+    return;
+  }
+  if (onTimecardGenie) {
+    driversView.hidden = true;
+    allRoutesView.hidden = true;
+    driverHistoryView.hidden = true;
+    setupView.hidden = true;
+    appView.hidden = true;
+    timesheetDesk.refresh();
+    document.title = `Timecard Genie · ${APP_TITLE}`;
     return;
   }
   if (onPayroll || onClocking) {
@@ -6792,6 +6853,11 @@ const clockDesk = mountClockDesk({
     });
     if (accountsEnabled()) await whenSharedOfficeSaved();
   },
+});
+
+const timesheetDesk = mountTimesheetReader({
+  readState: loadState,
+  asOf: getAsOfDate,
 });
 
 // Clock-in for each run on the schedule in effect today. A bad route is skipped

@@ -2662,6 +2662,7 @@ body.needs-account #recent-changes {
 body.is-reader-app .sheet-bar,
 body.is-payroll-app .sheet-bar,
 body.is-clocking-app .sheet-bar,
+body.is-genie-app .sheet-bar,
 body.is-daily-app .sheet-bar,
 body.is-roster-app .sheet-bar {
   display: none;
@@ -2766,6 +2767,10 @@ body.is-payroll-app .topbar {
 
 body.is-clocking-app .topbar {
   border-bottom-color: var(--clocking);
+}
+
+body.is-genie-app .topbar {
+  border-bottom-color: var(--genie);
 }
 
 .tracker-header-tools {
@@ -6500,6 +6505,261 @@ body.is-timeclock {
   background: #fff;
 }
 
+body.is-genie-app .timesheet-side {
+  border-color: var(--genie-rule, #7eb6d6);
+  background: var(--genie-case, #eef6fb);
+}
+
+body.is-genie-app #timesheet-read {
+  background: var(--genie);
+  border-color: var(--genie-deep);
+}
+
+body.is-genie-app #timesheet-read:hover,
+body.is-genie-app #timesheet-read:focus-visible {
+  background: var(--genie-deep);
+}
+
+.timesheet-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 1.6rem;
+}
+
+.timesheet-progress[hidden] {
+  display: none;
+}
+
+.timesheet-spinner {
+  display: none;
+  flex: none;
+  width: 1.05rem;
+  height: 1.05rem;
+  border: 2px solid color-mix(in srgb, var(--genie, #2f84b8) 28%, transparent);
+  border-top-color: var(--genie, #2f84b8);
+  border-radius: 50%;
+  animation: timesheet-spin 0.75s linear infinite;
+}
+
+.timesheet-progress.is-busy .timesheet-spinner {
+  display: inline-block;
+}
+
+.timesheet-progress-text {
+  flex: 1 1 auto;
+}
+
+@keyframes timesheet-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.timesheet-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin: 1rem 0 0.5rem;
+}
+
+.timesheet-card-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.timesheet-card-panel {
+  margin: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--genie-rule, #7eb6d6);
+  border-radius: var(--radius-sm);
+  background: var(--genie-case, #eef6fb);
+}
+
+.timesheet-card-panel h3,
+.timesheet-snap-panel h3 {
+  margin: 0 0 0.65rem;
+  font-size: 1.15rem;
+}
+
+.timesheet-snap-panel {
+  margin: 0;
+  padding: 0.85rem 0.7rem;
+  border: 1px solid #c5d0da;
+  border-radius: var(--radius-sm);
+  background: #f7f9fb;
+  min-width: 9.5rem;
+}
+
+.timesheet-snap-wrap {
+  margin: 0;
+}
+
+.timesheet-snap-sheet {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: "American Typewriter", "Courier New", Courier, monospace;
+  font-size: 0.86rem;
+}
+
+.timesheet-snap-sheet th,
+.timesheet-snap-sheet td {
+  border: 1px solid #c5d0da;
+  padding: 0.35rem 0.45rem;
+  vertical-align: middle;
+  background: #fff;
+}
+
+.timesheet-snap-sheet thead th {
+  background: #e8eef3;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: left;
+}
+
+.timesheet-snap-stamp {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.2rem;
+  white-space: nowrap;
+}
+
+.timesheet-snap-stamp:last-child {
+  margin-bottom: 0;
+}
+
+.timesheet-snap-value.is-illegible {
+  color: #c62828;
+  font-style: italic;
+  font-weight: 700;
+}
+
+.timesheet-snap-sheet tr.is-quiet {
+  color: var(--muted, #5c6b7a);
+}
+
+.timesheet-card-sheet .timesheet-tot-hrs {
+  color: #1f4b66;
+  font-weight: 700;
+  cursor: default;
+}
+
+@media (max-width: 720px) {
+  .timesheet-card-pair {
+    grid-template-columns: 1fr;
+  }
+}
+
+.timesheet-card-wrap {
+  margin: 0;
+  overflow: auto;
+}
+
+.timesheet-card-sheet {
+  width: 100%;
+  border-collapse: collapse;
+  background: #d7eaf6;
+  font-family: "American Typewriter", "Courier New", Courier, monospace;
+  font-size: 0.86rem;
+}
+
+.timesheet-card-sheet th,
+.timesheet-card-sheet td {
+  border: 1px solid #7eb6d6;
+  padding: 0.35rem 0.45rem;
+  vertical-align: top;
+}
+
+.timesheet-card-sheet thead th {
+  background: #b9d7eb;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: left;
+}
+
+.timesheet-card-blank {
+  min-height: 2.4rem;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.timesheet-card-clock {
+  min-width: 14.5rem;
+  background: #fff;
+}
+
+.timesheet-stamp {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.25rem;
+  line-height: 1.25;
+}
+
+.timesheet-stamp:last-child {
+  margin-bottom: 0;
+}
+
+.timesheet-stamp-out {
+  font-weight: 700;
+}
+
+.timesheet-card-label {
+  flex: 0 0 1.6rem;
+  color: var(--muted, #5c6b7a);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.timesheet-stamp-parts {
+  display: grid;
+  grid-template-columns: 2.5rem 1.7rem 2.3rem 3.2rem;
+  gap: 0.15rem;
+  flex: 1 1 auto;
+}
+
+.timesheet-card-sheet .timesheet-edit {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0.15rem 0.2rem;
+  border: 1px solid transparent;
+  border-radius: 0.2rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.timesheet-card-sheet .timesheet-edit:hover,
+.timesheet-card-sheet .timesheet-edit:focus {
+  border-color: #7eb6d6;
+  background: #fff;
+  outline: none;
+}
+
+.timesheet-card-sheet tr.is-quiet .timesheet-card-clock {
+  color: var(--muted, #5c6b7a);
+}
+
+.timesheet-card-sheet tr.is-crossed:not(:focus-within) .timesheet-stamp-parts {
+  opacity: 0.78;
+}
+
+.timesheet-stamp-illegible,
+.timesheet-card-sheet .timesheet-edit.timesheet-stamp-illegible {
+  color: #c62828;
+  font-style: italic;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .timesheet-side h2 {
   margin: 0;
   font-size: 1.05rem;
@@ -6538,8 +6798,8 @@ button.timesheet-file-link:hover {
 }
 
 .timesheet-camera {
-  width: min(36rem, calc(100% - 2rem));
-  max-height: min(92vh, 48rem);
+  width: min(24rem, calc(100% - 2rem));
+  max-height: min(92vh, 52rem);
   overflow: auto;
   padding: 1.35rem 1.45rem 1.4rem;
   border: 1px solid var(--line);
@@ -6779,20 +7039,26 @@ button.timesheet-file-link:hover {
   }
 }
 
+/* Tall card frame: about 5 wide by 8 high, matching the blue paper cards. */
 .timesheet-camera-stage {
-  margin: 0.75rem 0;
+  margin: 0.75rem auto;
+  width: min(100%, 20rem, calc(min(62vh, 34rem) * 5 / 8));
+  aspect-ratio: 5 / 8;
+  max-height: min(62vh, 34rem);
   background: #111;
   border-radius: var(--radius-sm);
   overflow: hidden;
-  min-height: 16rem;
 }
 
 .timesheet-camera-stage video {
   display: block;
   width: 100%;
-  max-height: 60vh;
-  object-fit: contain;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
   background: #111;
+  /* Mirror the live view so lining up the card feels natural; the shutter still saves the actual frame. */
+  transform: scaleX(-1);
 }
 
 #timesheet-compare .is-quiet,

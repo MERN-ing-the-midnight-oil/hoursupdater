@@ -2774,13 +2774,23 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     const button = target?.closest('[data-payroll-tool]');
     if (!(button instanceof HTMLButtonElement)) return;
     const opening = button.getAttribute('aria-expanded') !== 'true';
+    let openedPanel = null;
     document.querySelectorAll('[data-payroll-tool]').forEach((item) => {
       if (!(item instanceof HTMLButtonElement)) return;
       const panel = document.getElementById(item.getAttribute('aria-controls') || '');
       const selected = opening && item === button;
       item.setAttribute('aria-expanded', selected ? 'true' : 'false');
       if (panel) panel.hidden = !selected;
+      if (selected && panel) openedPanel = panel;
     });
+    // Settings panels used to sit under the always-on pay-period block, so a
+    // click looked like a no-op. Hide that block while a tool is open, and
+    // bring the panel into view.
+    const summary = document.getElementById('summary-tool');
+    if (summary) summary.hidden = Boolean(openedPanel);
+    if (openedPanel) {
+      openedPanel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
   });
   document.querySelectorAll('[data-pay-status-catalog]').forEach((catalog) => {
     catalog.addEventListener('click', (event) => {

@@ -71,13 +71,19 @@ export function splitSegmentRange(range) {
   if (!range || !String(range).trim()) {
     return null;
   }
-  const parsed = parseTimeRange(range);
-  return {
-    clock_in: formatClockMinutes(parsed.startMinutes),
-    clock_out: formatClockMinutes(parsed.endMinutes),
-    range: `${formatClockMinutes(parsed.startMinutes)}-${formatClockMinutes(parsed.endMinutes)}`,
-    duration_minutes: parsed.durationMinutes,
-  };
+  // A zero-length or backwards range (for example 19:36-19:36 from a same-minute
+  // punch pair) is treated as missing so one bad clock cannot take down a desk.
+  try {
+    const parsed = parseTimeRange(range);
+    return {
+      clock_in: formatClockMinutes(parsed.startMinutes),
+      clock_out: formatClockMinutes(parsed.endMinutes),
+      range: `${formatClockMinutes(parsed.startMinutes)}-${formatClockMinutes(parsed.endMinutes)}`,
+      duration_minutes: parsed.durationMinutes,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function formatDurationLabel(minutes) {

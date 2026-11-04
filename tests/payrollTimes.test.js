@@ -158,6 +158,23 @@ describe('payroll driver times', () => {
     assert.equal(fromClock.amQuarterClocks, '5:45 AM–8:15 AM');
     assert.equal(fromClock.amTotalMinutes, 150);
 
+    const sameMinute = sampleState();
+    sameMinute.punches = [
+      punch('same-in', 'Alex Driver', 'in', new Date(2026, 8, 16, 19, 36)),
+      punch('same-out', 'Alex Driver', 'out', new Date(2026, 8, 16, 19, 36)),
+    ];
+    const skippedSameMinute = payrollDriverRows(sameMinute, { asOf, calendar }).find(
+      (row) => row.route === '104'
+    );
+    assert.equal(skippedSameMinute.amIn, '6:00');
+    assert.equal(skippedSameMinute.amOut, '8:00');
+
+    const contractOnly = payrollDriverRows(punched, { asOf, calendar, usePunches: false }).find(
+      (row) => row.route === '104'
+    );
+    assert.equal(contractOnly.amIn, '6:00');
+    assert.equal(contractOnly.amOut, '8:00');
+
     const removedClocks = sampleState();
     removedClocks.punches = punched.punches.map((punch) => ({ ...punch, removed: true }));
     const ignored = payrollDriverRows(removedClocks, { asOf, calendar }).find((row) => row.route === '104');
