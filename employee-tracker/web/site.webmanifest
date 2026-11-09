@@ -1,6 +1,6 @@
 {
-  "name": "Route change history",
-  "short_name": "Route history",
+  "name": "Teamster Tools",
+  "short_name": "Teamster Tools",
   "description": "Read-only clock-time changes for drivers and routes",
   "start_url": "./",
   "scope": "./",

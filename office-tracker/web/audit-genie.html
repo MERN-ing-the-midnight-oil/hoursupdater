@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#8a4b12" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>Blue Timecard Checker · Teamster Tracker</title>
+    <link rel="icon" href="./favicon.ico" sizes="48x48" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./office.css" />
+  </head>
+  <body class="audit-genie-page">
+    <header class="audit-page-head">
+      <p class="app-name">Blue Timecard Checker</p>
+      <h1>Check a blue card</h1>
+      <p id="audit-page-lead" class="lead">
+        Photograph the front and back of a blue time card. Use good lighting and hold the card still.
+        The secretary's Reg, OT, and Tot. Hrs. math all gets automatically calculated and checked based on
+        the Clock Record times and your route info on the sticker at the top of the front side.
+      </p>
+    </header>
+    <main id="audit-genie-view">
+        <form id="audit-form" class="timesheet-form" novalidate>
+          <div
+            class="timesheet-hours-mode audit-hours-toggle"
+            id="audit-hours-mode"
+            role="group"
+            aria-label="How clock hours are calculated"
+          >
+            <button type="button" class="timesheet-hours-mode-btn" data-hours-mode="snap" aria-pressed="true">
+              Snap rounded times
+            </button>
+            <button type="button" class="timesheet-hours-mode-btn" data-hours-mode="quarter" aria-pressed="false">
+              Quarter hour rounding
+            </button>
+          </div>
+          <p class="field-hint audit-hours-mode-hint">
+            Snap rounded times is the controversial payroll rule that changes all clock times to the nearest clock quarter hour.
+            Overtime follows the timeclock rules: daily and weekly limits, evenings, weekends, and holidays.
+          </p>
+          <div
+            class="timesheet-capture-source"
+            id="audit-capture-source"
+            role="group"
+            aria-label="How to take the card photos"
+          >
+            <button type="button" class="timesheet-capture-source-btn" data-capture-source="phone" aria-pressed="true">
+              Use my phone
+            </button>
+            <button type="button" class="timesheet-capture-source-btn" data-capture-source="computer" aria-pressed="false">
+              Use my computer
+            </button>
+          </div>
+          <div id="audit-computer-capture" class="timesheet-computer-capture" hidden>
+            <div class="timesheet-sides">
+              <div class="timesheet-side">
+                <h2>Front</h2>
+                <img id="audit-front-preview" class="timesheet-preview" alt="" hidden />
+                <button type="button" id="audit-front-camera">Take front photo</button>
+                <button type="button" class="timesheet-file-link" id="audit-front-file">Choose a file</button>
+                <input id="audit-front" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" />
+              </div>
+              <div class="timesheet-side">
+                <h2>Back</h2>
+                <img id="audit-back-preview" class="timesheet-preview" alt="" hidden />
+                <button type="button" id="audit-back-camera">Take back photo</button>
+                <button type="button" class="timesheet-file-link" id="audit-back-file">Choose a file</button>
+                <input id="audit-back" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" />
+              </div>
+            </div>
+          </div>
+          <div id="audit-phone-capture" class="timesheet-phone-capture">
+            <div class="timesheet-phone-capture-layout">
+              <canvas
+                id="audit-phone-qr"
+                class="timesheet-phone-qr"
+                width="288"
+                height="288"
+                aria-label="QR code. Scan with your phone to take the front and back photos."
+              ></canvas>
+              <div class="timesheet-phone-capture-copy">
+                <h2>Scan to take photos</h2>
+                <p class="lead">
+                  Open the link on your phone (same Wi‑Fi as this computer). Take Front, then Back.
+                  Photos appear here automatically.
+                </p>
+                <p id="audit-phone-status" class="status" role="status" hidden></p>
+                <div class="timesheet-sides timesheet-phone-previews">
+                  <div class="timesheet-side">
+                    <h3>Front</h3>
+                    <img id="audit-phone-front-preview" class="timesheet-preview" alt="" hidden />
+                    <p id="audit-phone-front-state" class="timesheet-phone-state">Waiting…</p>
+                  </div>
+                  <div class="timesheet-side">
+                    <h3>Back</h3>
+                    <img id="audit-phone-back-preview" class="timesheet-preview" alt="" hidden />
+                    <p id="audit-phone-back-state" class="timesheet-phone-state">Waiting…</p>
+                  </div>
+                </div>
+                <div class="actions">
+                  <button type="button" class="secondary" id="audit-phone-refresh">New QR code</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="audit-contract-gate">
+            <label for="audit-contract-hours" id="audit-contract-label">Daily contract hours</label>
+            <input
+              id="audit-contract-hours"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="e.g. 6.50"
+              aria-label="Daily contract hours required before submit"
+              required
+            />
+            <p class="audit-contract-gate-hint">Required before you can submit. Used to check Reg and OT.</p>
+          </div>
+          <div class="actions audit-submit-actions">
+            <button type="submit" id="audit-read" class="audit-submit-btn">Submit these photos</button>
+            <button type="button" id="audit-clear" class="audit-submit-btn">Start over</button>
+          </div>
+        </form>
+        <dialog id="audit-camera" class="timesheet-camera" aria-labelledby="audit-camera-title">
+          <h2 id="audit-camera-title">Front of the time card</h2>
+          <p class="lead">Point the camera at the card. The bright screen helps light it. Press Space to take the photo.</p>
+          <div class="field" id="audit-camera-picker" hidden>
+            <label for="audit-camera-device">Camera</label>
+            <select id="audit-camera-device"></select>
+          </div>
+          <div class="timesheet-camera-stage">
+            <video id="audit-camera-video" autoplay playsinline muted></video>
+          </div>
+          <p id="audit-camera-status" class="status" role="status" hidden></p>
+          <div class="actions">
+            <button type="button" id="audit-camera-shutter">Take photo</button>
+            <button type="button" class="secondary" id="audit-camera-cancel">Cancel</button>
+          </div>
+        </dialog>
+        <p id="audit-status" class="status timesheet-progress" role="status" hidden>
+          <span class="timesheet-spinner" aria-hidden="true"></span>
+          <span class="timesheet-progress-text"></span>
+        </p>
+        <div id="audit-sticker" class="audit-sticker" hidden>
+          <label for="audit-sticker-date" id="audit-sticker-label">Pay period ending</label>
+          <input id="audit-sticker-date" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="MM/DD/YY" aria-label="Pay period ending date on the sticker">
+        </div>
+        <div class="actions" id="audit-result-actions" hidden>
+          <button type="button" id="audit-recalculate">Recalculate</button>
+        </div>
+        <div id="audit-result" hidden>
+          <p class="field-hint">Blue handwriting is what was written on the card. A red number is the calculated hours when they differ.</p>
+          <div class="audit-sides">
+            <section aria-labelledby="audit-front-heading">
+              <h2 id="audit-front-heading">Front</h2>
+              <div class="table-wrap">
+                <table class="audit-card timesheet-card-sheet" id="audit-front-sheet">
+                  <thead>
+                    <tr>
+                      <th scope="col">Desc</th>
+                      <th scope="col">Reg</th>
+                      <th scope="col">OT</th>
+                      <th scope="col">Tot. Hrs.</th>
+                      <th scope="col">Clock Record</th>
+                    </tr>
+                  </thead>
+                  <tbody id="audit-front-body"></tbody>
+                </table>
+              </div>
+            </section>
+            <section aria-labelledby="audit-back-heading">
+              <h2 id="audit-back-heading">Back</h2>
+              <div class="table-wrap">
+                <table class="audit-card timesheet-card-sheet" id="audit-back-sheet">
+                  <thead>
+                    <tr>
+                      <th scope="col">Desc</th>
+                      <th scope="col">Reg</th>
+                      <th scope="col">OT</th>
+                      <th scope="col">Tot. Hrs.</th>
+                      <th scope="col">Clock Record</th>
+                    </tr>
+                  </thead>
+                  <tbody id="audit-back-body"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </div>
+        <div class="actions" id="audit-mark-actions" hidden>
+          <button type="button" id="audit-mark-checked">Mark as Checked?</button>
+        </div>
+        <dialog id="audit-desc-dialog" class="audit-desc-dialog" aria-labelledby="audit-desc-title">
+          <div class="guide-dialog-bar">
+            <h2 id="audit-desc-title">Description of Work</h2>
+            <button type="button" id="audit-desc-cancel">Cancel</button>
+          </div>
+          <label for="audit-desc-text">Description of Work</label>
+          <textarea id="audit-desc-text" rows="4"></textarea>
+          <div class="audit-actions">
+            <button type="button" id="audit-desc-save">Save</button>
+          </div>
+        </dialog>
+    </main>
+    <script type="module" src="./audit-genie.js"></script>
+  </body>
+</html>

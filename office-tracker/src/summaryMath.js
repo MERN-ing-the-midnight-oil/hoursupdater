@@ -66,6 +66,42 @@ export function exDriverDayHours(clocked, contractText) {
   return difference;
 }
 
+// REG + OT for one day on a Timecard Genie summary: that day's contracted
+// hours minus the sum of Tot. Hrs. Null when the contract is missing.
+// Zero when they match. Negative when Tot. Hrs. ran past the contract.
+export function regOtGapHours(contractText, clocked) {
+  if (clocked == null || !Number.isFinite(Number(clocked))) return null;
+  const text = String(contractText ?? '').trim();
+  if (!text) return null;
+  const contract = Number(text);
+  if (!Number.isFinite(contract) || contract <= 0) return null;
+  return Math.round((contract - Number(clocked)) * 4) / 4;
+}
+
+// Split a quarter-hour total across weights. The pieces add back to the total,
+// including when the total is negative.
+export function quarterShares(total, weights) {
+  const units = Math.round(Number(total) * 4);
+  const safe = (Array.isArray(weights) ? weights : []).map((weight) => Math.max(0, Number(weight) || 0));
+  const weightSum = safe.reduce((sum, weight) => sum + weight, 0);
+  if (!safe.length || !(weightSum > 0) || !Number.isFinite(units)) return safe.map(() => 0);
+  const exact = safe.map((weight) => (units * weight) / weightSum);
+  const bases = exact.map((value) => Math.trunc(value));
+  let left = units - bases.reduce((sum, value) => sum + value, 0);
+  const order = exact
+    .map((value, index) => ({ index, frac: Math.abs(value - bases[index]) }))
+    .sort((a, b) => b.frac - a.frac || a.index - b.index);
+  const shares = bases.slice();
+  const step = left >= 0 ? 1 : -1;
+  let cursor = 0;
+  while (left !== 0 && order.length) {
+    shares[order[cursor % order.length].index] += step;
+    left -= step;
+    cursor += 1;
+  }
+  return shares.map((unitsShare) => unitsShare / 4);
+}
+
 // Billable clock hours minus that day's contract hours. Negative when the
 // billable hours are under the contract. Blank when either figure is missing,
 // and blank when they are equal.

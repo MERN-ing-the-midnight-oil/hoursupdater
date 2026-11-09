@@ -1,12 +1,22 @@
+import dotenv from 'dotenv';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { EMPLOYEE_PORT } from './config.js';
+import { handleTimesheetAudit } from '../../office-tracker/src/timesheetExtract.js';
+import { EMPLOYEE_PORT, projectRoot } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const docsDir = path.resolve(__dirname, '../../docs');
 
+dotenv.config({ path: path.resolve(projectRoot, '.env') });
+
 const app = express();
+app.post('/api/timesheet-audit', express.json({ limit: '32mb' }), (req, res) => {
+  handleTimesheetAudit(req, res).catch((error) => {
+    if (res.headersSent) return;
+    res.status(500).json({ error: error.message || 'Could not audit that time card.' });
+  });
+});
 app.use(express.static(docsDir));
 
 app.get('/', (_req, res) => {

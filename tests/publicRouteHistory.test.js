@@ -9,6 +9,7 @@ import {
   PAGE_PASSWORD,
   PUBLISHED_SHARE_URL,
   driverHistoryHtml,
+  historyOptions,
   prepareCalendar,
   profilesFromPayload,
   routeHistoryHtml,
@@ -64,15 +65,15 @@ const profiles = [
 ];
 
 describe('public route history', () => {
-  it('uses the shared 8 digit password', () => {
-    assert.equal(PAGE_PASSWORD, '07041776');
+  it('uses the shared Teamster Tools password', () => {
+    assert.equal(PAGE_PASSWORD, '6111');
     const sql = fs.readFileSync(path.join(root, 'office-tracker/supabase/schema.sql'), 'utf8');
     const start = sql.indexOf('create or replace function public.public_route_history');
     const end = sql.indexOf('grant execute on function public.public_route_history', start);
     assert.notEqual(start, -1);
     assert.ok(end > start);
     const fn = sql.slice(start, end);
-    assert.match(fn, /07041776/);
+    assert.match(fn, /6111/);
     assert.doesNotMatch(fn, /punches/);
     assert.doesNotMatch(fn, /email/);
     assert.doesNotMatch(fn, /phone/);
@@ -91,9 +92,17 @@ describe('public route history', () => {
     assert.match(shareTextHref('Mozilla/5.0 (Linux; Android 14)'), /^sms:\?body=/);
   });
 
-  it('searches drivers and routes from the office payload', () => {
+  it('lists and searches drivers and routes from the office payload', () => {
     prepareCalendar(null);
     const loaded = profilesFromPayload({ profiles });
+    assert.deepEqual(
+      historyOptions(loaded, { by: 'driver' }).map((item) => item.label),
+      ['Ada Lovelace', 'Grace Hopper']
+    );
+    assert.deepEqual(
+      historyOptions(loaded, { by: 'route' }).map((item) => item.label),
+      ['4', '12']
+    );
     assert.deepEqual(
       searchHistory(loaded, { by: 'driver', query: 'ada' }).map((item) => item.label),
       ['Ada Lovelace']

@@ -13,6 +13,9 @@
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" sizes="180x180" />
     <link rel="manifest" href="./site.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./office.css" />
   </head>
@@ -689,45 +692,119 @@
       <section id="timecard-genie-view" class="panel" hidden>
         <h1 class="panel-title">Timecard Genie</h1>
         <p class="lead">
-          Photograph the front and back of a blue paper time card. Genie reads only the Clock Record stamps
-          and shows them on Front and Back card tables. Description of Work, Hours, and Tot. Hrs. stay blank.
-          This path is separate from Clocking. Photos are not kept, and this desk does not change any route.
+          Photograph the front and back of a blue paper time card. Genie copies the card: the Clock Record
+          stamps and the Reg and OT already written on it. Type over any number it could not read.
+          Tot. Hrs. is calculated from the clocks. Reg and OT should only show hours worked past the
+          sticker contract (the line under the route number). A row turns red when written Reg and OT
+          do not match that residual — blank when Tot is at or under contract.
+          Photos are not kept, and this desk does not change any route.
         </p>
         <form id="timesheet-form" class="timesheet-form" novalidate>
-          <div class="timesheet-sides">
-            <div class="timesheet-side">
-              <h2>Front</h2>
-              <img id="timesheet-front-preview" class="timesheet-preview" alt="" hidden />
-              <button type="button" id="timesheet-front-camera">Take front photo</button>
-              <button type="button" class="timesheet-file-link" id="timesheet-front-file">Choose a file</button>
-              <input id="timesheet-front" name="front" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" />
+          <div
+            class="timesheet-capture-source"
+            id="timesheet-capture-source"
+            role="group"
+            aria-label="How to take the card photos"
+          >
+            <button
+              type="button"
+              class="timesheet-capture-source-btn"
+              id="timesheet-source-phone"
+              data-capture-source="phone"
+              aria-pressed="true"
+            >
+              Use my phone
+            </button>
+            <button
+              type="button"
+              class="timesheet-capture-source-btn"
+              id="timesheet-source-computer"
+              data-capture-source="computer"
+              aria-pressed="false"
+            >
+              Use my computer
+            </button>
+          </div>
+          <div id="timesheet-computer-capture" class="timesheet-computer-capture" hidden>
+            <button type="button" id="timesheet-scan">Scan the card</button>
+            <div class="timesheet-sides">
+              <div class="timesheet-side" id="timesheet-front-side" hidden>
+                <h2>Front</h2>
+                <img id="timesheet-front-preview" class="timesheet-preview" alt="" hidden />
+              </div>
+              <div class="timesheet-side" id="timesheet-back-side" hidden>
+                <h2>Back</h2>
+                <img id="timesheet-back-preview" class="timesheet-preview" alt="" hidden />
+              </div>
             </div>
-            <div class="timesheet-side">
-              <h2>Back</h2>
-              <img id="timesheet-back-preview" class="timesheet-preview" alt="" hidden />
-              <button type="button" id="timesheet-back-camera">Take back photo</button>
-              <button type="button" class="timesheet-file-link" id="timesheet-back-file">Choose a file</button>
-              <input id="timesheet-back" name="back" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" />
+            <input id="timesheet-front" name="front" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" />
+            <input id="timesheet-back" name="back" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" />
+          </div>
+          <div id="timesheet-phone-capture" class="timesheet-phone-capture">
+            <div class="timesheet-phone-capture-layout">
+              <canvas
+                id="timesheet-phone-qr"
+                class="timesheet-phone-qr"
+                width="288"
+                height="288"
+                aria-label="QR code. Scan with your phone to take the front and back photos."
+              ></canvas>
+              <div class="timesheet-phone-capture-copy">
+                <h2>Scan to take photos</h2>
+                <p class="lead" id="timesheet-phone-lead">
+                  Open the link on your phone (same Wi‑Fi as this computer). Take Front, then Back.
+                  Photos appear here automatically. Most phones open the Camera app from the button
+                  (flashlight works there). Live in-page preview only appears on HTTPS.
+                </p>
+                <p id="timesheet-phone-status" class="status" role="status" hidden></p>
+                <div class="timesheet-sides timesheet-phone-previews">
+                  <div class="timesheet-side">
+                    <h3>Front</h3>
+                    <img id="timesheet-phone-front-preview" class="timesheet-preview" alt="" hidden />
+                    <p id="timesheet-phone-front-state" class="timesheet-phone-state">Waiting…</p>
+                  </div>
+                  <div class="timesheet-side">
+                    <h3>Back</h3>
+                    <img id="timesheet-phone-back-preview" class="timesheet-preview" alt="" hidden />
+                    <p id="timesheet-phone-back-state" class="timesheet-phone-state">Waiting…</p>
+                  </div>
+                </div>
+                <label class="timesheet-print-save" for="timesheet-save-for-print">
+                  <input id="timesheet-save-for-print" type="checkbox" />
+                  Save for printing
+                </label>
+                <p class="field-hint" id="timesheet-print-save-hint">
+                  When this is on, each finished front and back is also kept in this browser as a grayscale copy.
+                  A new QR code starts the next card. Originals stay on paper.
+                </p>
+                <div class="actions">
+                  <button type="button" class="secondary" id="timesheet-phone-refresh">New QR code</button>
+                  <button type="button" class="secondary" id="timesheet-print-open">Print copies</button>
+                </div>
+              </div>
             </div>
           </div>
           <div class="actions">
-            <button type="submit" id="timesheet-read">Read card</button>
+            <button type="submit" id="timesheet-read">Submit the photos</button>
             <button type="button" class="secondary" id="timesheet-clear">Clear</button>
           </div>
         </form>
         <dialog id="timesheet-camera" class="timesheet-camera" aria-labelledby="timesheet-camera-title">
           <h2 id="timesheet-camera-title">Front of the time card</h2>
-          <p class="lead">Point the camera at the card. A built-in laptop camera is used when one is available.</p>
+          <p id="timesheet-camera-lead" class="lead">Point the camera at the front of the card. The bright screen helps light it. Press Space to take the photo.</p>
           <div class="field" id="timesheet-camera-picker" hidden>
             <label for="timesheet-camera-device">Camera</label>
             <select id="timesheet-camera-device"></select>
           </div>
           <div class="timesheet-camera-stage">
             <video id="timesheet-camera-video" autoplay playsinline muted></video>
+            <img id="timesheet-camera-review" alt="" hidden />
           </div>
           <p id="timesheet-camera-status" class="status" role="status" hidden></p>
           <div class="actions">
             <button type="button" id="timesheet-camera-shutter">Take photo</button>
+            <button type="button" id="timesheet-camera-retake" hidden>Retake</button>
+            <button type="button" id="timesheet-camera-use" hidden>Take the back photo</button>
             <button type="button" class="secondary" id="timesheet-camera-cancel">Cancel</button>
           </div>
         </dialog>
@@ -736,10 +813,105 @@
           <span class="timesheet-progress-text"></span>
         </p>
         <div id="timesheet-result" hidden>
-          <h2 id="timesheet-who" class="panel-title"></h2>
+          <form id="timesheet-card-header" class="timesheet-card-header" autocomplete="off">
+            <h2 class="timesheet-card-header-title">Card header</h2>
+            <div class="timesheet-card-header-fields">
+              <div class="field">
+                <label for="timesheet-header-driver">Driver</label>
+                <input
+                  id="timesheet-header-driver"
+                  name="driver"
+                  list="timesheet-driver-options"
+                  autocomplete="off"
+                  placeholder="Type or pick a name"
+                />
+                <datalist id="timesheet-driver-options"></datalist>
+              </div>
+              <div class="field">
+                <label for="timesheet-header-route">Route</label>
+                <input
+                  id="timesheet-header-route"
+                  name="route"
+                  list="timesheet-route-options"
+                  autocomplete="off"
+                  placeholder="Type or pick a route"
+                />
+                <datalist id="timesheet-route-options"></datalist>
+              </div>
+              <div class="field">
+                <label for="timesheet-header-contract">Contract hours</label>
+                <input id="timesheet-header-contract" name="contract_hours" inputmode="decimal" placeholder="Under the route number" />
+              </div>
+              <div class="field">
+                <label for="timesheet-header-am">AM contract hours</label>
+                <input id="timesheet-header-am" name="am" inputmode="decimal" placeholder="—" />
+              </div>
+              <div class="field">
+                <label for="timesheet-header-mid">Midday contract hours</label>
+                <input id="timesheet-header-mid" name="midday" inputmode="decimal" placeholder="—" />
+              </div>
+              <div class="field">
+                <label for="timesheet-header-pm">PM contract hours</label>
+                <input id="timesheet-header-pm" name="pm" inputmode="decimal" placeholder="—" />
+              </div>
+              <div class="field">
+                <label for="timesheet-header-pay-status">Default pay status</label>
+                <select id="timesheet-header-pay-status" name="pay_status" aria-label="Default pay status for card rows">
+                  <option value="">Choose a pay status</option>
+                </select>
+              </div>
+            </div>
+            <p class="field-hint">
+              Contract hours are read from the sticker, the line under the route number. Type a number if that line could not be read. Rows turn red when Reg and OT do not match hours worked past that contract (blank when Tot is at or under). You can also type any illegible Reg or OT.
+            </p>
+          </form>
           <p class="lead" id="timesheet-clock-lead">
-            Edit the blue card after the read. Snap rounded times follow the office snap rules; Tot. Hrs. is calculated from those snapped clocks.
+            Edit the blue card after the read. Choose how Tot. Hrs. is calculated: snap each clock with office minute bands, or round the exact Out→In duration to the nearest quarter hour.
           </p>
+          <p id="timesheet-caveats" class="status is-error timesheet-caveats" role="status" hidden></p>
+          <div class="timesheet-row-height" id="timesheet-row-height-control">
+            <span class="timesheet-row-height-label" id="timesheet-row-height-label">Row height</span>
+            <div class="timesheet-row-height-tools" role="group" aria-labelledby="timesheet-row-height-label">
+              <button type="button" class="secondary timesheet-row-height-btn" id="timesheet-row-height-down" aria-label="Decrease row height">−</button>
+              <input
+                type="range"
+                id="timesheet-row-height"
+                min="28"
+                max="120"
+                step="1"
+                value="52"
+                aria-labelledby="timesheet-row-height-label"
+              />
+              <button type="button" class="secondary timesheet-row-height-btn" id="timesheet-row-height-up" aria-label="Increase row height">+</button>
+              <output id="timesheet-row-height-value" for="timesheet-row-height">52px</output>
+            </div>
+            <p class="field-hint">Hold a paper card up to the screen and nudge until the rows line up.</p>
+          </div>
+          <div
+            class="timesheet-hours-mode"
+            id="timesheet-hours-mode"
+            role="group"
+            aria-label="How Tot. Hrs. is calculated"
+          >
+            <button
+              type="button"
+              class="timesheet-hours-mode-btn"
+              id="timesheet-mode-snap"
+              data-hours-mode="snap"
+              aria-pressed="true"
+            >
+              Snap rounded times
+            </button>
+            <button
+              type="button"
+              class="timesheet-hours-mode-btn"
+              id="timesheet-mode-quarter"
+              data-hours-mode="quarter"
+              aria-pressed="false"
+            >
+              Quarter hour rounding
+            </button>
+          </div>
           <div class="timesheet-cards" id="timesheet-cards">
             <div class="timesheet-card-pair" data-side="front">
               <article class="timesheet-card-panel" aria-labelledby="timesheet-front-heading">
@@ -748,10 +920,15 @@
                   <table class="timesheet-card-sheet" id="timesheet-front-card">
                     <thead>
                       <tr>
-                        <th scope="col">Description of Work</th>
-                        <th scope="col">Hours</th>
-                        <th scope="col">Tot. Hrs.</th>
-                        <th scope="col">Clock Record</th>
+                        <th scope="col" class="timesheet-card-desc">
+                          <span class="visually-hidden">Description of Work</span>
+                          <span class="timesheet-card-desc-label" aria-hidden="true">Desc</span>
+                        </th>
+                        <th scope="col" class="timesheet-card-reg">Reg</th>
+                        <th scope="col" class="timesheet-card-ot">OT</th>
+                        <th scope="col" class="timesheet-card-tot">Tot. Hrs.</th>
+                        <th scope="col" class="timesheet-card-clock">Clock Record</th>
+                        <th scope="col" class="timesheet-card-actions"><span class="visually-hidden">Row actions</span></th>
                       </tr>
                     </thead>
                     <tbody></tbody>
@@ -764,7 +941,7 @@
                   <table class="timesheet-snap-sheet" id="timesheet-front-snap">
                     <thead>
                       <tr>
-                        <th scope="col">Snap rounded times</th>
+                        <th scope="col" data-timesheet-hours-mode-label>Snap rounded times</th>
                       </tr>
                     </thead>
                     <tbody></tbody>
@@ -779,10 +956,15 @@
                   <table class="timesheet-card-sheet" id="timesheet-back-card">
                     <thead>
                       <tr>
-                        <th scope="col">Description of Work</th>
-                        <th scope="col">Hours</th>
-                        <th scope="col">Tot. Hrs.</th>
-                        <th scope="col">Clock Record</th>
+                        <th scope="col" class="timesheet-card-desc">
+                          <span class="visually-hidden">Description of Work</span>
+                          <span class="timesheet-card-desc-label" aria-hidden="true">Desc</span>
+                        </th>
+                        <th scope="col" class="timesheet-card-reg">Reg</th>
+                        <th scope="col" class="timesheet-card-ot">OT</th>
+                        <th scope="col" class="timesheet-card-tot">Tot. Hrs.</th>
+                        <th scope="col" class="timesheet-card-clock">Clock Record</th>
+                        <th scope="col" class="timesheet-card-actions"><span class="visually-hidden">Row actions</span></th>
                       </tr>
                     </thead>
                     <tbody></tbody>
@@ -795,7 +977,7 @@
                   <table class="timesheet-snap-sheet" id="timesheet-back-snap">
                     <thead>
                       <tr>
-                        <th scope="col">Snap rounded times</th>
+                        <th scope="col" data-timesheet-hours-mode-label>Snap rounded times</th>
                       </tr>
                     </thead>
                     <tbody></tbody>
@@ -804,7 +986,89 @@
               </aside>
             </div>
           </div>
-          <p id="timesheet-caveats" class="lead" hidden></p>
+          <section class="timesheet-pay-period-panel" aria-labelledby="timesheet-pay-period-heading">
+            <h2 id="timesheet-pay-period-heading" class="panel-title">MONTHLY TIME SUMMARY</h2>
+            <p class="lead">
+              Built from the card’s Clock Record stamps. REG and OT follow the pay status on each
+              run. Hours past that day’s sticker contract land on EX DRIVER. Totals use quarter hours
+              (.00, .25, .50, .75).
+            </p>
+            <div id="timesheet-pay-period" class="timesheet-monthly-summary"></div>
+          </section>
+          <dialog id="timesheet-print-dialog" class="timesheet-desc-dialog timesheet-print-dialog" aria-labelledby="timesheet-print-title">
+            <h2 id="timesheet-print-title">Print copies</h2>
+            <p class="lead" id="timesheet-print-lead">
+              Crop any card, then print the whole set or a numbered range. Front and back print as separate pages.
+            </p>
+            <div id="timesheet-print-list"></div>
+            <div id="timesheet-print-crop" class="timesheet-print-crop" hidden>
+              <p class="timesheet-print-crop-label" id="timesheet-print-crop-label">Card</p>
+              <div class="timesheet-print-crop-sides" role="group" aria-label="Which side to crop">
+                <button type="button" id="timesheet-print-crop-front" aria-pressed="true">Front</button>
+                <button type="button" id="timesheet-print-crop-back" aria-pressed="false">Back</button>
+              </div>
+              <div class="timesheet-print-crop-stage" id="timesheet-print-crop-stage">
+                <img id="timesheet-print-crop-image" alt="" />
+                <div id="timesheet-print-crop-box" class="timesheet-print-crop-box"></div>
+                <div id="timesheet-print-crop-layer" class="timesheet-print-crop-layer"></div>
+              </div>
+              <p class="field-hint">Drag on the photo to choose what prints. The box starts on the full photo.</p>
+              <div class="actions">
+                <button type="button" id="timesheet-print-crop-save">Save crop</button>
+                <button type="button" class="secondary" id="timesheet-print-crop-reset">Reset crop</button>
+                <button type="button" class="secondary" id="timesheet-print-crop-back-list">Back to list</button>
+              </div>
+            </div>
+            <div class="timesheet-print-range" id="timesheet-print-range">
+              <label>
+                From
+                <input id="timesheet-print-from" type="number" min="1" step="1" value="1" />
+              </label>
+              <label>
+                To
+                <input id="timesheet-print-to" type="number" min="1" step="1" value="1" />
+              </label>
+            </div>
+            <p id="timesheet-print-status" class="status" role="status" hidden></p>
+            <div class="actions">
+              <button type="button" id="timesheet-print-all">Print all</button>
+              <button type="button" class="secondary" id="timesheet-print-range-btn">Print range</button>
+              <button type="button" class="secondary" id="timesheet-print-close">Close</button>
+            </div>
+          </dialog>
+          <dialog id="timesheet-desc-dialog" class="timesheet-desc-dialog" aria-labelledby="timesheet-desc-title">
+            <h2 id="timesheet-desc-title">Description of Work</h2>
+            <p class="lead" id="timesheet-desc-lead">Edit the description for this row.</p>
+            <label class="field" for="timesheet-desc-text">
+              <span class="visually-hidden">Description of Work</span>
+              <textarea id="timesheet-desc-text" rows="7"></textarea>
+            </label>
+            <div class="actions">
+              <button type="button" id="timesheet-desc-save">Done</button>
+              <button type="button" class="secondary" id="timesheet-desc-cancel">Cancel</button>
+            </div>
+          </dialog>
+          <dialog id="timesheet-slice-dialog" class="timesheet-desc-dialog timesheet-slice-dialog" aria-labelledby="timesheet-slice-title">
+            <h2 id="timesheet-slice-title">Slice clock time</h2>
+            <p class="lead" id="timesheet-slice-lead">Allocate hours from this clock period to a pay status.</p>
+            <p id="timesheet-slice-remaining" class="field-hint"></p>
+            <div id="timesheet-slice-parts" class="timesheet-slice-parts" hidden></div>
+            <div class="timesheet-slice-form">
+              <label class="field" for="timesheet-slice-status">
+                Pay status
+                <select id="timesheet-slice-status"></select>
+              </label>
+              <label class="field" for="timesheet-slice-hours">
+                Hours
+                <input id="timesheet-slice-hours" type="text" inputmode="decimal" placeholder="0.25" />
+              </label>
+            </div>
+            <p id="timesheet-slice-error" class="status is-error" role="status" hidden></p>
+            <div class="actions">
+              <button type="button" id="timesheet-slice-add">Add slice</button>
+              <button type="button" class="secondary" id="timesheet-slice-done">Done</button>
+            </div>
+          </dialog>
         </div>
       </section>
 

@@ -9,21 +9,21 @@ import {
 import { buildSnapshot, getAsOfDate, getCalendarPack, useSchoolYearCalendar } from './engine.js';
 
 // Shared gate for the public page. The office function checks the same value.
-export const PAGE_PASSWORD = '07041776';
+export const PAGE_PASSWORD = '6111';
 
 // The live page. Share this address by itself. The password stays in the message.
 export const PUBLISHED_SHARE_URL = 'https://mern-ing-the-midnight-oil.github.io/hoursupdater/';
 
 export function sharePayload() {
   return {
-    title: 'Route change history',
-    text: `Route change history\n${PUBLISHED_SHARE_URL}\nPassword: ${PAGE_PASSWORD}`,
+    title: 'Teamster Tools',
+    text: `Teamster Tools\n${PUBLISHED_SHARE_URL}\nPassword: ${PAGE_PASSWORD}`,
   };
 }
 
 export function shareMailHref() {
   const body = sharePayload().text;
-  return `mailto:?subject=${encodeURIComponent('Route change history')}&body=${encodeURIComponent(body)}`;
+  return `mailto:?subject=${encodeURIComponent('Teamster Tools')}&body=${encodeURIComponent(body)}`;
 }
 
 // iOS uses sms:&body=. Android uses sms:?body=.
@@ -66,23 +66,25 @@ function driverNames(profiles) {
   return [...names.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 }
 
-// Matches for the search box. `by` is "driver" or "route".
-export function searchHistory(profiles, { by, query } = {}) {
-  const q = String(query || '').trim().toLowerCase();
-  if (!q) return [];
+// Full driver or route list for the lookup menu. `by` is "driver" or "route".
+export function historyOptions(profiles, { by } = {}) {
   if (by === 'route') {
     return (profiles || [])
-      .filter((profile) => routeLabel(profile).toLowerCase().includes(q))
-      .sort((a, b) => compareRouteNumbers(a.name, b.name))
       .map((profile) => ({
         kind: 'route',
         key: routeLabel(profile),
         label: routeLabel(profile),
-      }));
+      }))
+      .sort((a, b) => compareRouteNumbers(a.label, b.label));
   }
-  return driverNames(profiles)
-    .filter((name) => name.toLowerCase().includes(q))
-    .map((name) => ({ kind: 'driver', key: name, label: name }));
+  return driverNames(profiles).map((name) => ({ kind: 'driver', key: name, label: name }));
+}
+
+// Matches for typed filtering. `by` is "driver" or "route".
+export function searchHistory(profiles, { by, query } = {}) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return [];
+  return historyOptions(profiles, { by }).filter((item) => item.label.toLowerCase().includes(q));
 }
 
 function viewCalendar() {

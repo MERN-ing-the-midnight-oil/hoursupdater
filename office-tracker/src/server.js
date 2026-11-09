@@ -26,9 +26,14 @@ import {
 } from './downloadName.js';
 import { buildPayrollWorkbook, rowsFromPayrollWorkbook } from './payrollTimes.js';
 import { buildRouteWorkbook, stateFromRouteWorkbook } from './routeWorkbook.js';
-import { handleTimesheetExtract } from './timesheetExtract.js';
+import { handleTimesheetAudit, handleTimesheetExtract } from './timesheetExtract.js';
 import { clockShareOrigin } from './clockShare.js';
 import { createNoteShare } from './noteShare.js';
+import {
+  createTimesheetCaptureShare,
+  normalizeCaptureSide,
+} from './timesheetCaptureShare.js';
+import { parseMultipartPhoto } from './multipartPhoto.js';
 import extraWorkRouter from '../../src/routes/extraWorkRouter.js';
 import { startDailyAwardClock } from '../../src/logic/dailyWorkClock.js';
 
@@ -51,12 +56,124 @@ function mentionGuide(body) {
 }
 
 const app = express();
+const timesheetCapture = createTimesheetCaptureShare();
+
 app.post('/api/timesheet-extract', express.json({ limit: '32mb' }), (req, res) => {
   handleTimesheetExtract(req, res).catch((error) => {
     if (res.headersSent) return;
     res.status(500).json({ error: error.message || 'Could not read that time card.' });
   });
 });
+app.post('/api/timesheet-audit', express.json({ limit: '32mb' }), (req, res) => {
+  handleTimesheetAudit(req, res).catch((error) => {
+    if (res.headersSent) return;
+    res.status(500).json({ error: error.message || 'Could not audit that time card.' });
+  });
+});
+
+// Phone capture photos are larger than the default JSON limit.
+app.post('/api/timesheet-capture', (_req, res) => {
+  res.json(timesheetCapture.open());
+});
+app.get('/api/timesheet-capture/:token', (req, res) => {
+  const session = timesheetCapture.read(req.params.token);
+  if (!session) {
+    res.status(404).json({ error: 'This photo link is not valid or has expired.' });
+    return;
+  }
+  res.json(session);
+});
+app.put(
+  '/api/timesheet-capture/:token/:side',
+  express.json({ limit: '16mb' }),
+  (req, res) => {
+    try {
+      const saved = timesheetCapture.putPhoto(req.params.token, req.params.side, req.body ?? {});
+      if (!saved) {
+        res.status(404).json({ error: 'This photo link is not valid or has expired.' });
+        return;
+      }
+      res.json(saved);
+    } catch (error) {
+      res.status(400).json({ error: error.message || 'That photo could not be saved.' });
+    }
+  }
+);
+
+// iPhone Safari often tears down the page when Camera opens, so JS fetch never
+// runs. A real form POST survives that round trip and redirects back.
+function readRequestBuffer(req, limit) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(new Error('That photo is too large. Try again a little farther from the card.'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+function captureRedirect(res, token, query) {
+  const params = new URLSearchParams({ t: String(token || '') });
+  for (const [key, value] of Object.entries(query || {})) {
+    if (value != null && value !== '') params.set(key, String(value));
+  }
+  res.redirect(303, `/timesheet-capture.html?${params.toString()}`);
+}
+
+app.post('/api/timesheet-capture-upload/:token/:side', async (req, res) => {
+  const token = String(req.params.token || '').trim();
+  const side = normalizeCaptureSide(req.params.side);
+  try {
+    if (!side) {
+      captureRedirect(res, token, { err: 'Choose front or back.' });
+      return;
+    }
+    const contentType = String(req.headers['content-type'] || '');
+    const raw = await readRequestBuffer(req, 16 * 1024 * 1024);
+    const parsed = parseMultipartPhoto(raw, contentType);
+    if (!parsed?.bytes?.length) {
+      captureRedirect(res, token, { err: 'That photo did not arrive. Try Take photo again.' });
+      return;
+    }
+    const saved = timesheetCapture.putPhotoFile(token, side, parsed);
+    if (!saved) {
+      captureRedirect(res, token, { err: 'This photo link is not valid or has expired.' });
+      return;
+    }
+    captureRedirect(res, token, { saved: side });
+  } catch (error) {
+    captureRedirect(res, token, {
+      err: error?.message || 'That photo could not be saved.',
+    });
+  }
+});
+
+app.get('/api/timesheet-capture/:token/:side', (req, res) => {
+  const photo = timesheetCapture.getPhoto(req.params.token, req.params.side);
+  if (!photo) {
+    res.status(404).json({ error: 'That photo is not ready yet.' });
+    return;
+  }
+  res.setHeader('Content-Type', photo.mime);
+  res.setHeader(
+    'Content-Disposition',
+    `inline; filename="${String(photo.name).replace(/"/g, '')}"`
+  );
+  res.send(photo.bytes);
+});
+app.delete('/api/timesheet-capture/:token', (req, res) => {
+  timesheetCapture.close(req.params.token);
+  res.status(204).end();
+});
+
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(distDir));
 app.get('/board', (_req, res) => {

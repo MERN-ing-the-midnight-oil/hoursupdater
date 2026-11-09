@@ -9,6 +9,7 @@ import {
 const FRONT_ENTRY_COUNT = FRONT_SLOT_COUNT;
 const BACK_ENTRY_COUNT = BACK_SLOT_COUNT;
 const ILLEGIBLE = 'illegible';
+const HANDWRITING = 'HANDWRITING';
 
 const MONTHS = {
   jan: 0,
@@ -51,11 +52,30 @@ function isIllegibleToken(value) {
   return text === ILLEGIBLE || text === 'redacted';
 }
 
+function isHandwritingToken(value) {
+  return String(value ?? '').trim().toUpperCase() === HANDWRITING;
+}
+
+function normalizeBlockedStamp(value) {
+  if (isHandwritingToken(value)) return HANDWRITING;
+  if (isIllegibleToken(value)) return ILLEGIBLE;
+  return null;
+}
+
 function illegibleRow(rowIndex) {
   return {
     ...blankRow(rowIndex),
     clock_out_raw: ILLEGIBLE,
     clock_in_raw: ILLEGIBLE,
+    crossed_out: true,
+  };
+}
+
+function handwritingRow(rowIndex) {
+  return {
+    ...blankRow(rowIndex),
+    clock_out_raw: HANDWRITING,
+    clock_in_raw: HANDWRITING,
     crossed_out: true,
   };
 }
@@ -98,10 +118,13 @@ export function toLocalWallIso(date) {
 export function parseStampParts(raw) {
   const text = String(raw ?? '').trim();
   if (!text) {
-    return { month: '', day: '', period: '', time: '', illegible: false };
+    return { month: '', day: '', period: '', time: '', illegible: false, handwriting: false };
+  }
+  if (isHandwritingToken(text)) {
+    return { month: '', day: '', period: '', time: '', illegible: false, handwriting: true };
   }
   if (/^illegible$/i.test(text) || /^redacted$/i.test(text)) {
-    return { month: '', day: '', period: '', time: '', illegible: true };
+    return { month: '', day: '', period: '', time: '', illegible: true, handwriting: false };
   }
 
   let match = text.match(
@@ -114,6 +137,7 @@ export function parseStampParts(raw) {
       period: match[3].toUpperCase(),
       time: stripSeconds(match[4]),
       illegible: false,
+      handwriting: false,
     };
   }
 
@@ -127,18 +151,20 @@ export function parseStampParts(raw) {
       period: match[4].toUpperCase(),
       time: stripSeconds(match[3]),
       illegible: false,
+      handwriting: false,
     };
   }
 
-  return { month: text.toLowerCase(), day: '', period: '', time: '', illegible: false };
+  return { month: text.toLowerCase(), day: '', period: '', time: '', illegible: false, handwriting: false };
 }
 
 /**
  * Build a stamp string from the four editable parts.
- * @param {{ month?: string, day?: string, period?: string, time?: string, illegible?: boolean }} parts
+ * @param {{ month?: string, day?: string, period?: string, time?: string, illegible?: boolean, handwriting?: boolean }} parts
  */
 export function formatStampParts(parts) {
-  if (parts?.illegible) return 'illegible';
+  if (parts?.handwriting) return HANDWRITING;
+  if (parts?.illegible) return ILLEGIBLE;
   const month = String(parts?.month ?? '').trim();
   const day = String(parts?.day ?? '').trim();
   const period = String(parts?.period ?? '').trim().toUpperCase();
@@ -419,12 +445,32 @@ function normalizeHeader(raw) {
     coerceStringOrNull(raw.route_number) ?? coerceStringOrNull(raw.route);
   const date_on_card =
     coerceStringOrNull(raw.date_on_card) ?? coerceStringOrNull(raw.date);
-  if (!employee_name && !route_number && !date_on_card) return null;
-  return { employee_name, route_number, date_on_card };
+  const contract_am_hours = parseHourField(raw.contract_am_hours);
+  const contract_midday_hours = parseHourField(raw.contract_midday_hours);
+  const contract_pm_hours = parseHourField(raw.contract_pm_hours);
+  if (
+    !employee_name &&
+    !route_number &&
+    !date_on_card &&
+    contract_am_hours == null &&
+    contract_midday_hours == null &&
+    contract_pm_hours == null
+  ) {
+    return null;
+  }
+  return {
+    employee_name,
+    route_number,
+    date_on_card,
+    contract_am_hours,
+    contract_midday_hours,
+    contract_pm_hours,
+  };
 }
 
 /**
- * Clock Record stamps top-to-bottom. The app labels the first as Out and the second as In.
+ * Clock Record stamps top-to-bottom. The app labels the first as Out (leave) and
+ * the second as In (return), matching the printed blue card.
  * @param {unknown} stamps
  * @param {number} rowIndex
  * @param {number} defaultYear
@@ -436,21 +482,22 @@ export function rowFromClockStamps(stamps, rowIndex, defaultYear) {
         .filter((item) => Boolean(item))
     : [];
   if (list.length === 0) return blankRow(rowIndex);
+  if (list.every((item) => isHandwritingToken(item))) return handwritingRow(rowIndex);
   if (list.every((item) => isIllegibleToken(item))) return illegibleRow(rowIndex);
   const outRaw = list[0] || null;
   const inRaw = list[1] || null;
-  const outIllegible = isIllegibleToken(outRaw);
-  const inIllegible = isIllegibleToken(inRaw);
+  const outBlocked = normalizeBlockedStamp(outRaw);
+  const inBlocked = normalizeBlockedStamp(inRaw);
   const outIso =
-    outRaw && !outIllegible ? parseLegacyStampToDate(outRaw, defaultYear) : null;
-  const inIso = inRaw && !inIllegible ? parseLegacyStampToDate(inRaw, defaultYear) : null;
+    outRaw && !outBlocked ? parseLegacyStampToDate(outRaw, defaultYear) : null;
+  const inIso = inRaw && !inBlocked ? parseLegacyStampToDate(inRaw, defaultYear) : null;
   return {
     ...blankRow(rowIndex),
-    clock_out_raw: outIllegible ? ILLEGIBLE : outRaw,
-    clock_in_raw: inIllegible ? ILLEGIBLE : inRaw,
+    clock_out_raw: outBlocked || outRaw,
+    clock_in_raw: inBlocked || inRaw,
     clock_out_iso: outIso ? toLocalWallIso(outIso) : null,
     clock_in_iso: inIso ? toLocalWallIso(inIso) : null,
-    crossed_out: outIllegible || inIllegible,
+    crossed_out: Boolean(outBlocked || inBlocked),
   };
 }
 
@@ -461,6 +508,9 @@ export function rowFromClockStamps(stamps, rowIndex, defaultYear) {
  */
 function rowFromUnknownSlot(value, defaultYear, fallbackIndex) {
   if (value == null) return blankRow(fallbackIndex);
+  if (typeof value === 'string' && isHandwritingToken(value)) {
+    return handwritingRow(fallbackIndex);
+  }
   if (typeof value === 'string' && isIllegibleToken(value)) return illegibleRow(fallbackIndex);
   if (Array.isArray(value)) return rowFromClockStamps(value, fallbackIndex, defaultYear);
   if (value && typeof value === 'object') {

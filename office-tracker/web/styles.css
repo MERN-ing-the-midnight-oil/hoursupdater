@@ -33,6 +33,14 @@
   --genie-case: #eef6fb;
   --genie-rule: #7eb6d6;
   --genie-shadow: #143048;
+  --audit: #8a4b12;
+  --audit-deep: #6b370c;
+  --audit-signal: #d4a017;
+  --audit-hot: #ffe7a8;
+  --audit-ink: #3a2410;
+  --audit-case: #fff6ec;
+  --audit-rule: #e2c4a2;
+  --audit-shadow: #3a2410;
   --daily: #c47b12;
   --daily-deep: #8a5608;
   --daily-signal: #e6a317;
@@ -125,7 +133,7 @@ body {
 .app-switch {
   grid-area: tabs;
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: stretch;
   gap: 0.2rem;
   min-width: 0;
@@ -200,6 +208,13 @@ body {
 .px-genie-rule { fill: var(--genie-rule); }
 .px-genie-gold { fill: var(--genie-signal); }
 .px-genie-hot { fill: var(--genie-hot); }
+.px-audit-shadow { fill: var(--audit-shadow); }
+.px-audit-frame { fill: var(--audit); }
+.px-audit-case { fill: var(--audit-case); }
+.px-audit-paper { fill: #d7eaf6; }
+.px-audit-ink { fill: var(--audit-ink); }
+.px-audit-signal { fill: var(--audit-signal); }
+.px-audit-hot { fill: var(--audit-hot); }
 .px-daily-shadow { fill: var(--daily-shadow); }
 .px-daily-frame { fill: var(--daily); }
 .px-daily-case { fill: var(--daily-case); }
@@ -268,6 +283,24 @@ body.is-clocking-app .topbar {
 
 body.is-genie-app .topbar {
   border-bottom-color: var(--genie);
+}
+
+body.is-audit-app {
+  --bg: #f6efe6;
+  --line: #ead9c4;
+  --purple: var(--audit);
+  --purple-deep: var(--audit-deep);
+  --orange: var(--audit-signal);
+  --orange-deep: #a87f0c;
+  --accent: var(--audit);
+  --accent-hover: var(--audit-deep);
+  --accent-wash: #fff3e6;
+  --accent-line: #ead3b6;
+  --signal: var(--audit-signal);
+}
+
+body.is-audit-app .topbar {
+  border-bottom-color: var(--audit);
 }
 
 body.is-daily-app {
@@ -763,6 +796,11 @@ button.app-launch.app-launch-genie.is-active:hover {
   box-shadow: inset 0 -4px 0 var(--genie);
 }
 
+button.app-launch.app-launch-audit.is-active,
+button.app-launch.app-launch-audit.is-active:hover {
+  box-shadow: inset 0 -4px 0 var(--audit);
+}
+
 button.app-launch.app-launch-daily.is-active,
 button.app-launch.app-launch-daily.is-active:hover {
   box-shadow: inset 0 -4px 0 var(--daily);
@@ -797,6 +835,10 @@ button.app-launch-clocking:focus-visible {
 
 button.app-launch-genie:focus-visible {
   outline-color: var(--genie);
+}
+
+button.app-launch-audit:focus-visible {
+  outline-color: var(--audit);
 }
 
 button.app-launch-daily:focus-visible {

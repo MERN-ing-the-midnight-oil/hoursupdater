@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Route change history</title>
+    <title>Teamster Tools</title>
     <meta name="theme-color" content="#1f5c4a" />
     <link rel="icon" href="./favicon.ico" sizes="48x48" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
@@ -14,35 +14,27 @@
   <body>
     <header class="topbar">
       <div>
-        <p class="eyebrow">For bus drivers</p>
-        <h1>Route change history</h1>
+        <h1 id="page-title">Teamster Tools</h1>
       </div>
       <div class="top-actions">
-        <button type="button" id="share-open">Share</button>
-        <button type="button" id="guide-open">Driver's Guide</button>
+        <button type="button" id="disclaimer-open">Disclaimer</button>
+        <button type="button" id="back" hidden>Back</button>
       </div>
     </header>
 
     <main class="shell">
-      <section class="panel landing-qr" aria-label="QR code for this page">
-        <img src="./share-qr.svg" width="168" height="168" alt="QR code that opens this page" />
-        <p>Point a phone camera here to open this page.</p>
-      </section>
-
       <section id="gate" class="panel">
-        <p class="lead">
-          Look up the clock-time changes the office has logged for a driver or a route.
-          This page only reads that record.
-        </p>
         <form id="gate-form">
           <label for="password">Password</label>
+          <p class="hint" id="gate-hint">our yard gate code ____</p>
           <input
             id="password"
-            type="password"
+            type="text"
             inputmode="numeric"
             autocomplete="off"
-            maxlength="8"
+            maxlength="6"
             required
+            aria-describedby="gate-hint"
           />
           <button type="submit">Open</button>
         </form>
@@ -50,26 +42,275 @@
       </section>
 
       <section id="app" class="panel" hidden>
-        <form id="search-form" role="search">
+        <nav id="tool-home" class="tool-home" aria-label="Teamster tools">
+          <button type="button" class="tool-tile" data-home="history">
+            <span class="tool-tile-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="6" cy="19" r="3" />
+                <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" />
+                <circle cx="18" cy="5" r="3" />
+              </svg>
+            </span>
+            <span class="tool-tile-label">Your Route Time Changes</span>
+          </button>
+          <button type="button" class="tool-tile" data-home="audit">
+            <span class="tool-tile-icon" aria-hidden="true">
+              <svg class="genie-mark" viewBox="0 0 21 21" shape-rendering="crispEdges">
+                <rect fill="#143048" x="4" y="2" width="14" height="18" />
+                <rect fill="#143048" x="2" y="4" width="18" height="14" />
+                <rect fill="#2f84b8" x="3" y="1" width="14" height="18" />
+                <rect fill="#2f84b8" x="1" y="3" width="18" height="14" />
+                <rect fill="#eef6fb" x="3" y="3" width="14" height="14" />
+                <rect fill="#d7eaf6" x="5" y="5" width="10" height="10" />
+                <rect fill="#eef6fb" x="5" y="5" width="1" height="1" />
+                <rect fill="#eef6fb" x="14" y="5" width="1" height="1" />
+                <rect fill="#eef6fb" x="5" y="14" width="1" height="1" />
+                <rect fill="#eef6fb" x="14" y="14" width="1" height="1" />
+                <rect fill="#143048" x="6" y="6" width="5" height="1" />
+                <rect fill="#143048" x="6" y="8" width="5" height="1" />
+                <rect fill="#143048" x="6" y="10" width="5" height="1" />
+                <rect fill="#143048" x="6" y="12" width="4" height="1" />
+                <rect fill="#7eb6d6" x="12" y="6" width="1" height="7" />
+                <rect fill="#d4a017" x="13" y="7" width="1" height="2" />
+                <rect fill="#d4a017" x="13" y="10" width="1" height="2" />
+                <rect fill="#d4a017" x="14" y="3" width="2" height="2" />
+                <rect fill="#ffe7a8" x="14" y="3" width="1" height="1" />
+              </svg>
+            </span>
+            <span class="tool-tile-label">Blue Timecard Checker</span>
+          </button>
+          <button type="button" class="tool-tile" data-home="guide">
+            <span class="tool-tile-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 7v14" />
+                <path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" />
+              </svg>
+            </span>
+            <span class="tool-tile-label">Timechange Rules Explained</span>
+          </button>
+        </nav>
+        <div id="history-tool" hidden>
+        <form id="search-form">
           <fieldset class="mode">
-            <legend>Search by</legend>
+            <legend>Look up by</legend>
             <label><input type="radio" name="by" value="driver" checked /> Driver</label>
             <label><input type="radio" name="by" value="route" /> Route</label>
           </fieldset>
-          <label for="query">Name or route</label>
-          <input id="query" type="search" autocomplete="off" spellcheck="false" placeholder="Type a driver name" />
-          <ul id="suggest" class="suggest" hidden></ul>
-          <p id="suggest-more" class="hint" hidden></p>
+          <label for="lookup" id="lookup-label">Driver</label>
+          <select id="lookup">
+            <option value="">Choose a driver</option>
+          </select>
         </form>
         <p id="page-status" class="status" role="status"></p>
         <div id="history"></div>
+        </div>
+        <div id="audit-tool" hidden>
+          <p class="lead">
+            Photograph the front and back of a blue time card. Use good lighting and hold the card still.
+            The secretary's Reg, OT, and Tot. Hrs. math all gets automatically calculated and checked based on
+            the Clock Record times and your route info on the sticker at the top of the front side.
+          </p>
+          <div id="audit-genie-view">
+            <div class="audit-hours-mode" id="audit-hours-mode" role="group" aria-label="How clock hours are calculated">
+              <button type="button" data-hours-mode="snap" aria-pressed="true">Snap rounded times</button>
+              <button type="button" data-hours-mode="quarter" aria-pressed="false">Quarter hour rounding</button>
+            </div>
+            <p class="hint audit-hours-mode-hint">
+              Snap rounded times is the controversial payroll rule that changes all clock times to the nearest clock quarter hour.
+            </p>
+            <form id="audit-form" novalidate>
+              <div class="audit-sides">
+                <div>
+                  <h2>Front</h2>
+                  <img id="audit-front-preview" class="audit-preview" alt="" hidden />
+                  <button type="button" id="audit-front-camera">Take front photo</button>
+                  <button type="button" class="secondary" id="audit-front-file">Choose a file</button>
+                  <input id="audit-front" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" />
+                </div>
+                <div>
+                  <h2>Back</h2>
+                  <img id="audit-back-preview" class="audit-preview" alt="" hidden />
+                  <button type="button" id="audit-back-camera">Take back photo</button>
+                  <button type="button" class="secondary" id="audit-back-file">Choose a file</button>
+                  <input id="audit-back" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" />
+                </div>
+              </div>
+              <div class="audit-contract-gate">
+                <label for="audit-contract-hours" id="audit-contract-label">Daily contract hours</label>
+                <input
+                  id="audit-contract-hours"
+                  type="text"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="e.g. 6.50"
+                  aria-label="Daily contract hours required before submit"
+                  required
+                />
+                <p class="audit-contract-gate-hint">Required before you can submit. Used to check Reg and OT.</p>
+              </div>
+              <div class="audit-actions">
+                <button type="submit" id="audit-read" class="audit-submit-btn">Submit these photos</button>
+                <button type="button" id="audit-clear" class="audit-submit-btn">Start over</button>
+              </div>
+            </form>
+            <dialog id="audit-camera" class="audit-camera" aria-labelledby="audit-camera-title">
+              <div class="guide-dialog-bar">
+                <h2 id="audit-camera-title">Front of the time card</h2>
+                <button type="button" id="audit-camera-cancel">Cancel</button>
+              </div>
+              <p class="lead">Point the camera at the card. The bright screen helps light it.</p>
+              <div id="audit-camera-picker" hidden>
+                <label for="audit-camera-device">Camera</label>
+                <select id="audit-camera-device"></select>
+              </div>
+              <video id="audit-camera-video" autoplay playsinline muted></video>
+              <p id="audit-camera-status" class="status" role="status" hidden></p>
+              <div class="audit-actions">
+                <button type="button" id="audit-camera-shutter">Take photo</button>
+              </div>
+            </dialog>
+            <p id="audit-status" class="status timesheet-progress" role="status" hidden>
+              <span class="timesheet-spinner" aria-hidden="true"></span>
+              <span class="timesheet-progress-text"></span>
+            </p>
+            <div id="audit-sticker" class="audit-sticker" hidden>
+              <label for="audit-sticker-date" id="audit-sticker-label">Pay period ending</label>
+              <input id="audit-sticker-date" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="MM/DD/YY" aria-label="Pay period ending date on the sticker">
+            </div>
+            <div class="audit-actions" id="audit-result-actions" hidden>
+              <button type="button" id="audit-recalculate">Recalculate</button>
+            </div>
+            <div id="audit-result" hidden>
+              <p class="hint">Blue handwriting is what was written on the card. A red number is the calculated hours when they differ.</p>
+              <section aria-labelledby="audit-front-heading">
+                <h2 id="audit-front-heading">Front</h2>
+                <div class="table-wrap">
+                  <table class="audit-card timesheet-card-sheet" id="audit-front-sheet">
+                    <thead>
+                      <tr>
+                        <th scope="col">Desc</th>
+                        <th scope="col">Reg</th>
+                        <th scope="col">OT</th>
+                        <th scope="col">Tot. Hrs.</th>
+                        <th scope="col">Clock Record</th>
+                      </tr>
+                    </thead>
+                    <tbody id="audit-front-body"></tbody>
+                  </table>
+                </div>
+              </section>
+              <section aria-labelledby="audit-back-heading">
+                <h2 id="audit-back-heading">Back</h2>
+                <div class="table-wrap">
+                  <table class="audit-card timesheet-card-sheet" id="audit-back-sheet">
+                    <thead>
+                      <tr>
+                        <th scope="col">Desc</th>
+                        <th scope="col">Reg</th>
+                        <th scope="col">OT</th>
+                        <th scope="col">Tot. Hrs.</th>
+                        <th scope="col">Clock Record</th>
+                      </tr>
+                    </thead>
+                    <tbody id="audit-back-body"></tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+            <div class="audit-actions" id="audit-mark-actions" hidden>
+              <button type="button" id="audit-mark-checked">Mark as Checked?</button>
+            </div>
+            <dialog id="audit-desc-dialog" class="audit-desc-dialog" aria-labelledby="audit-desc-title">
+              <div class="guide-dialog-bar">
+                <h2 id="audit-desc-title">Description of Work</h2>
+                <button type="button" id="audit-desc-cancel">Cancel</button>
+              </div>
+              <label for="audit-desc-text">Description of Work</label>
+              <textarea id="audit-desc-text" rows="4"></textarea>
+              <div class="audit-actions">
+                <button type="button" id="audit-desc-save">Save</button>
+              </div>
+            </dialog>
+          </div>
+        </div>
       </section>
 
       <p class="fine">
         Made by Rhys Smoker on his own time. Not affiliated with Bellingham Public Schools,
         Transportation, or the Teamsters.
       </p>
+
+      <section id="landing-share" class="panel landing-qr" aria-label="Share this app">
+        <p>Share this app with another bus driver.</p>
+        <div class="landing-share-row">
+          <figure class="landing-qr-code">
+            <figcaption>use this code to share</figcaption>
+            <img src="./share-qr.svg" width="192" height="192" alt="QR code that opens this page" />
+          </figure>
+          <button type="button" id="share-open">Text or email this app to a friend</button>
+        </div>
+        <button type="button" id="install-open" class="install-link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v12" />
+            <path d="m7 10 5 5 5-5" />
+            <path d="M5 21h14" />
+          </svg>
+          Save this app to your phone
+        </button>
+      </section>
     </main>
+
+    <dialog id="disclaimer-dialog" class="day-dialog disclaimer-dialog" aria-labelledby="disclaimer-dialog-title">
+      <div class="guide-dialog-bar">
+        <h2 id="disclaimer-dialog-title">Disclaimer</h2>
+        <button type="button" id="disclaimer-dialog-close">Close</button>
+      </div>
+      <div class="disclaimer-copy">
+        <p>
+          I built Teamster Tools for free, on my own time, as a favor to my fellow bus drivers.
+          It is not affiliated with Bellingham Public Schools, Transportation, or the Teamsters.
+        </p>
+        <p>
+          I do my best to keep the information accurate, but I can get things wrong. Clocks, contract
+          rules, pay math, and anything else in this app can contain errors or outdated details.
+        </p>
+        <p>
+          By using this app, you agree that you will not hold me liable for mistakes, wrong information,
+          missed pay, route decisions, or any other loss that comes from relying on it. Double-check
+          important numbers with the office and your own records.
+        </p>
+        <p>— Rhys Smoker</p>
+      </div>
+    </dialog>
+
+    <dialog id="install-dialog" class="day-dialog" aria-labelledby="install-dialog-title">
+      <div class="guide-dialog-bar">
+        <h2 id="install-dialog-title">Save this app to your phone</h2>
+        <button type="button" id="install-dialog-close">Close</button>
+      </div>
+      <div id="add-to-desktop" class="install-help">
+        <p id="install-either" class="install-note">Open this page on your phone, then follow the steps for that phone.</p>
+        <section data-install="apple">
+          <h2>iPhone</h2>
+          <p class="install-note">Use Safari.</p>
+          <ol>
+            <li>Tap the Share button at the bottom of Safari. It is a square with an arrow pointing up.</li>
+            <li>Scroll the share menu and tap Add to Home Screen.</li>
+            <li>Tap Add. Teamster Tools shows up as an icon on your home screen.</li>
+          </ol>
+        </section>
+        <section data-install="android">
+          <h2>Android</h2>
+          <p class="install-note">Use Chrome.</p>
+          <ol>
+            <li>Tap the three dots in the top corner of Chrome.</li>
+            <li>Tap Add to Home screen. If you see Install app, tap that.</li>
+            <li>Tap Add or Install. Teamster Tools shows up as an icon on your home screen.</li>
+          </ol>
+        </section>
+      </div>
+    </dialog>
 
     <dialog id="share-dialog" class="day-dialog" aria-labelledby="share-dialog-title">
       <div class="guide-dialog-bar">
@@ -83,11 +324,11 @@
       </div>
     </dialog>
 
-    <dialog id="guide-dialog" class="guide-dialog" aria-label="Driver's Guide">
+    <dialog id="guide-dialog" class="guide-dialog" aria-label="Timechange Rules Explained">
       <div class="guide-dialog-bar">
         <button type="button" id="guide-dialog-close">Close</button>
       </div>
-      <iframe id="guide-frame" title="Driver's Guide"></iframe>
+      <iframe id="guide-frame" title="Timechange Rules Explained"></iframe>
     </dialog>
 
     <dialog id="day-dialog" class="day-dialog" aria-labelledby="day-dialog-title">

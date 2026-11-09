@@ -1097,7 +1097,7 @@ declare
   office jsonb;
   profiles jsonb;
 begin
-  if pass is distinct from '07041776' then
+  if pass is distinct from '6111' then
     return null;
   end if;
 

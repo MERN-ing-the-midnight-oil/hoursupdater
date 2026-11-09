@@ -6,6 +6,8 @@
 // pay status. A pair with no status fills REG DRIVER.
 // EX DRIVER is the clocked quarter hours beyond that day's contract hours.
 // Other pay-status rows keep their existing calculation.
+// Timecard Genie fills REG/OT from punch pay status. EX DRIVER stays the
+// hours past that day's contract — no shortfall fill onto REG/OT.
 // Each day column shows the regular contracted hours in effect that day.
 // Those hours come from Time Changes and change when a contracted date
 // falls inside the pay period.
@@ -236,6 +238,14 @@ function dayHours(values, rounding) {
   return sumRoundedQuarterHours(values);
 }
 
+// Genie used to rewrite REG/OT to contracted hours minus Tot. Hrs. (including
+// negatives when clocks ran long). That shortfall fill is wrong: Reg / OT on the
+// card are only residual past contract, and the Monthly Summary keeps punch-based
+// REG/OT with EX DRIVER carrying hours beyond the day's contract.
+function applyRegOtContractGap(_hoursByLine, _clockedByDay, _contractedByDay, _totHoursByDay, _rounding) {
+  return;
+}
+
 // Schedule rows dated after `asOf` have not happened yet. Leaving them in
 // would let a later review window rewrite the contract hours of earlier days.
 function officeStateOnDate(officeState, asOf) {
@@ -256,7 +266,7 @@ function officeStateOnDate(officeState, asOf) {
 // window keeps the earlier contract until its contracted date.
 // Hours from every route the driver holds that day are added together.
 // Daily rounding adds those minutes first, then rounds once.
-function contractedHoursForDays(officeState, driverName, dates, rounding) {
+export function contractedHoursForDays(officeState, driverName, dates, rounding) {
   const byDay = new Map();
   if (!officeState?.profiles || !driverName) return byDay;
   for (const date of dates) {
@@ -480,6 +490,15 @@ export function buildMonthlyTimeSummary(options) {
     covered.flatMap((period) => period.dates),
     rounding
   );
+  const stickerContract = Number(options.stickerContractHours);
+  if (Number.isFinite(stickerContract) && stickerContract > 0 && options.totHoursByDay) {
+    for (const key of options.totHoursByDay.keys()) {
+      contractedByDay.set(key, String(stickerContract));
+    }
+  }
+  if (options.regOtFromContractGap) {
+    applyRegOtContractGap(hoursByLine, clockedByDay, contractedByDay, options.totHoursByDay, rounding);
+  }
   const periods = covered.map((period) => {
     const lines = chosenLines.map((line) => {
       const entry = driverEdits[period.key]?.[line.id] || {};
@@ -719,46 +738,44 @@ export function summaryPdfBasename(driverName) {
   return `${slug || 'driver'}-monthly-time-summary`;
 }
 
-export function renderMonthlyTimeSummaryHtml(summary) {
-  const title = `Monthly Time Summary — ${summary.driverName || 'Driver'}`;
-  const options = summary.periods
-    .map(
-      (period) =>
-        `<option value="${escapeHtml(period.key)}"${period.key === summary.defaultPeriodKey ? ' selected' : ''}>${escapeHtml(period.label)}</option>`
-    )
+/**
+ * One Monthly Time Summary sheet block (banner + table). Shared by the popup
+ * document and the Timecard Genie embed.
+ * @param {object} summary
+ * @param {object} period
+ * @param {{ editable?: boolean }} [options]
+ */
+function monthlySummarySheetInner(summary, period, options = {}) {
+  const editable = Boolean(options.editable);
+  const head = period.days.map((day) => `<th class="day" scope="col">${day}</th>`).join('');
+  const contract = (period.contractedHours || [])
+    .map((hours) => `<td class="day">${escapeHtml(hours)}</td>`)
     .join('');
-  const sheets = summary.periods
-    .map((period) => {
-      const head = period.days.map((day) => `<th class="day" scope="col">${day}</th>`).join('');
-      const contract = (period.contractedHours || [])
-        .map((hours) => `<td class="day">${escapeHtml(hours)}</td>`)
+  const rows = period.lines
+    .map((line) => {
+      const cells = line.cells
+        .map((cell) => {
+          if (editable) {
+            return `<td><input data-kind="day" data-line="${escapeHtml(line.id)}" data-day="${cell.day}" data-calculated="${escapeHtml(cell.calculated)}" value="${escapeHtml(cell.value)}" inputmode="decimal" aria-label="${escapeHtml(line.label)} day ${cell.day}" /></td>`;
+          }
+          return `<td class="day">${escapeHtml(cell.value)}</td>`;
+        })
         .join('');
-      const rows = period.lines
-        .map((line) => {
-          const cells = line.cells
-            .map(
-              (cell) => `<td><input data-kind="day" data-line="${escapeHtml(line.id)}" data-day="${cell.day}" data-calculated="${escapeHtml(cell.calculated)}" value="${escapeHtml(cell.value)}" inputmode="decimal" aria-label="${escapeHtml(line.label)} day ${cell.day}" /></td>`
-            )
-            .join('');
-          return `<tr data-line="${escapeHtml(line.id)}">
+      const comment = editable
+        ? `<td class="comment"><input data-kind="comment" data-line="${escapeHtml(line.id)}" value="${escapeHtml(line.comment)}" maxlength="200" aria-label="Comment for ${escapeHtml(line.label)}" /></td>`
+        : `<td class="comment">${escapeHtml(line.comment)}</td>`;
+      return `<tr data-line="${escapeHtml(line.id)}">
             <th scope="row">${escapeHtml(line.label)}</th>
             <td class="account">${escapeHtml(summary.account).replace(/-/g, '-<wbr>')}</td>
             <td class="rate">${escapeHtml(summary.rate)}</td>
             <td class="ot">${escapeHtml(String(line.otFactor))}</td>
             ${cells}
             <td class="line-total">${escapeHtml(line.total)}</td>
-            <td class="comment"><input data-kind="comment" data-line="${escapeHtml(line.id)}" value="${escapeHtml(line.comment)}" maxlength="200" aria-label="Comment for ${escapeHtml(line.label)}" /></td>
+            ${comment}
           </tr>`;
-        })
-        .join('');
-      const unpaired = period.unpaired.length
-        ? `<section class="unpaired"><h2>Clock records left off this sheet</h2><ul>${period.unpaired
-            .map((item) => `<li>${escapeHtml(item.when)} · ${escapeHtml(item.action)}</li>`)
-            .join('')}</ul><p>A clock in counts only after its clock out is recorded.</p></section>`
-        : '';
-      return `<section class="period-block" data-period="${escapeHtml(period.key)}"${period.key === summary.defaultPeriodKey ? '' : ' hidden'}>
-      <div class="page-frame">
-      <article class="sheet" data-period="${escapeHtml(period.key)}">
+    })
+    .join('');
+  return `<article class="sheet" data-period="${escapeHtml(period.key)}">
         <header class="banner">
           <p class="district">Bellingham Public Schools</p>
           <h1>MONTHLY TIME SUMMARY</h1>
@@ -814,7 +831,63 @@ export function renderMonthlyTimeSummaryHtml(summary) {
           <div><span>Date</span><i></i></div>
           <div><span>Supervisor approval</span><i></i></div>
         </div>
-      </article>
+      </article>`;
+}
+
+/**
+ * Embeddable Monthly Time Summary for Timecard Genie (not a full HTML document).
+ * Totals use quarter-hour decimals (.00, .25, .50, .75).
+ * @param {object} summary
+ */
+export function monthlyTimeSummaryEmbedMarkup(summary) {
+  if (!summary?.periods?.length) return '';
+  const selected = summary.defaultPeriodKey || summary.periods[0]?.key || '';
+  const options = summary.periods
+    .map(
+      (period) =>
+        `<option value="${escapeHtml(period.key)}"${period.key === selected ? ' selected' : ''}>${escapeHtml(period.label)}</option>`
+    )
+    .join('');
+  const picker =
+    summary.periods.length > 1
+      ? `<label class="timesheet-mts-period">Pay period <select data-timesheet-mts-period>${options}</select></label>`
+      : '';
+  const sheets = summary.periods
+    .map((period) => {
+      const unpaired = period.unpaired.length
+        ? `<section class="unpaired"><h2>Clock records left off this sheet</h2><ul>${period.unpaired
+            .map((item) => `<li>${escapeHtml(item.when)} · ${escapeHtml(item.action)}</li>`)
+            .join('')}</ul><p>A clock in counts only after its clock out is recorded.</p></section>`
+        : '';
+      return `<section class="period-block" data-period="${escapeHtml(period.key)}"${
+        period.key === selected ? '' : ' hidden'
+      }>
+      <div class="page-frame">${monthlySummarySheetInner(summary, period, { editable: false })}</div>
+      ${unpaired}
+      </section>`;
+    })
+    .join('');
+  return `${picker}${sheets}`;
+}
+
+export function renderMonthlyTimeSummaryHtml(summary) {
+  const title = `Monthly Time Summary — ${summary.driverName || 'Driver'}`;
+  const options = summary.periods
+    .map(
+      (period) =>
+        `<option value="${escapeHtml(period.key)}"${period.key === summary.defaultPeriodKey ? ' selected' : ''}>${escapeHtml(period.label)}</option>`
+    )
+    .join('');
+  const sheets = summary.periods
+    .map((period) => {
+      const unpaired = period.unpaired.length
+        ? `<section class="unpaired"><h2>Clock records left off this sheet</h2><ul>${period.unpaired
+            .map((item) => `<li>${escapeHtml(item.when)} · ${escapeHtml(item.action)}</li>`)
+            .join('')}</ul><p>A clock in counts only after its clock out is recorded.</p></section>`
+        : '';
+      return `<section class="period-block" data-period="${escapeHtml(period.key)}"${period.key === summary.defaultPeriodKey ? '' : ' hidden'}>
+      <div class="page-frame">
+      ${monthlySummarySheetInner(summary, period, { editable: true })}
       </div>
       ${unpaired}
       </section>`;

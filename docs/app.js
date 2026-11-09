@@ -1,8 +1,2114 @@
+var __create = Object.create;
 var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __commonJS = (cb, mod) => function __require() {
+  try {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  } catch (e) {
+    throw mod = 0, e;
+  }
+};
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+
+// node_modules/qrcode/lib/can-promise.js
+var require_can_promise = __commonJS({
+  "node_modules/qrcode/lib/can-promise.js"(exports, module) {
+    module.exports = function() {
+      return typeof Promise === "function" && Promise.prototype && Promise.prototype.then;
+    };
+  }
+});
+
+// node_modules/qrcode/lib/core/utils.js
+var require_utils = __commonJS({
+  "node_modules/qrcode/lib/core/utils.js"(exports) {
+    var toSJISFunction;
+    var CODEWORDS_COUNT = [
+      0,
+      // Not used
+      26,
+      44,
+      70,
+      100,
+      134,
+      172,
+      196,
+      242,
+      292,
+      346,
+      404,
+      466,
+      532,
+      581,
+      655,
+      733,
+      815,
+      901,
+      991,
+      1085,
+      1156,
+      1258,
+      1364,
+      1474,
+      1588,
+      1706,
+      1828,
+      1921,
+      2051,
+      2185,
+      2323,
+      2465,
+      2611,
+      2761,
+      2876,
+      3034,
+      3196,
+      3362,
+      3532,
+      3706
+    ];
+    exports.getSymbolSize = function getSymbolSize(version5) {
+      if (!version5) throw new Error('"version" cannot be null or undefined');
+      if (version5 < 1 || version5 > 40) throw new Error('"version" should be in range from 1 to 40');
+      return version5 * 4 + 17;
+    };
+    exports.getSymbolTotalCodewords = function getSymbolTotalCodewords(version5) {
+      return CODEWORDS_COUNT[version5];
+    };
+    exports.getBCHDigit = function(data) {
+      let digit = 0;
+      while (data !== 0) {
+        digit++;
+        data >>>= 1;
+      }
+      return digit;
+    };
+    exports.setToSJISFunction = function setToSJISFunction(f) {
+      if (typeof f !== "function") {
+        throw new Error('"toSJISFunc" is not a valid function.');
+      }
+      toSJISFunction = f;
+    };
+    exports.isKanjiModeEnabled = function() {
+      return typeof toSJISFunction !== "undefined";
+    };
+    exports.toSJIS = function toSJIS(kanji) {
+      return toSJISFunction(kanji);
+    };
+  }
+});
+
+// node_modules/qrcode/lib/core/error-correction-level.js
+var require_error_correction_level = __commonJS({
+  "node_modules/qrcode/lib/core/error-correction-level.js"(exports) {
+    exports.L = { bit: 1 };
+    exports.M = { bit: 0 };
+    exports.Q = { bit: 3 };
+    exports.H = { bit: 2 };
+    function fromString(string) {
+      if (typeof string !== "string") {
+        throw new Error("Param is not a string");
+      }
+      const lcStr = string.toLowerCase();
+      switch (lcStr) {
+        case "l":
+        case "low":
+          return exports.L;
+        case "m":
+        case "medium":
+          return exports.M;
+        case "q":
+        case "quartile":
+          return exports.Q;
+        case "h":
+        case "high":
+          return exports.H;
+        default:
+          throw new Error("Unknown EC Level: " + string);
+      }
+    }
+    exports.isValid = function isValid(level) {
+      return level && typeof level.bit !== "undefined" && level.bit >= 0 && level.bit < 4;
+    };
+    exports.from = function from(value, defaultValue) {
+      if (exports.isValid(value)) {
+        return value;
+      }
+      try {
+        return fromString(value);
+      } catch (e) {
+        return defaultValue;
+      }
+    };
+  }
+});
+
+// node_modules/qrcode/lib/core/bit-buffer.js
+var require_bit_buffer = __commonJS({
+  "node_modules/qrcode/lib/core/bit-buffer.js"(exports, module) {
+    function BitBuffer() {
+      this.buffer = [];
+      this.length = 0;
+    }
+    BitBuffer.prototype = {
+      get: function(index) {
+        const bufIndex = Math.floor(index / 8);
+        return (this.buffer[bufIndex] >>> 7 - index % 8 & 1) === 1;
+      },
+      put: function(num, length) {
+        for (let i = 0; i < length; i++) {
+          this.putBit((num >>> length - i - 1 & 1) === 1);
+        }
+      },
+      getLengthInBits: function() {
+        return this.length;
+      },
+      putBit: function(bit) {
+        const bufIndex = Math.floor(this.length / 8);
+        if (this.buffer.length <= bufIndex) {
+          this.buffer.push(0);
+        }
+        if (bit) {
+          this.buffer[bufIndex] |= 128 >>> this.length % 8;
+        }
+        this.length++;
+      }
+    };
+    module.exports = BitBuffer;
+  }
+});
+
+// node_modules/qrcode/lib/core/bit-matrix.js
+var require_bit_matrix = __commonJS({
+  "node_modules/qrcode/lib/core/bit-matrix.js"(exports, module) {
+    function BitMatrix(size) {
+      if (!size || size < 1) {
+        throw new Error("BitMatrix size must be defined and greater than 0");
+      }
+      this.size = size;
+      this.data = new Uint8Array(size * size);
+      this.reservedBit = new Uint8Array(size * size);
+    }
+    BitMatrix.prototype.set = function(row, col, value, reserved) {
+      const index = row * this.size + col;
+      this.data[index] = value;
+      if (reserved) this.reservedBit[index] = true;
+    };
+    BitMatrix.prototype.get = function(row, col) {
+      return this.data[row * this.size + col];
+    };
+    BitMatrix.prototype.xor = function(row, col, value) {
+      this.data[row * this.size + col] ^= value;
+    };
+    BitMatrix.prototype.isReserved = function(row, col) {
+      return this.reservedBit[row * this.size + col];
+    };
+    module.exports = BitMatrix;
+  }
+});
+
+// node_modules/qrcode/lib/core/alignment-pattern.js
+var require_alignment_pattern = __commonJS({
+  "node_modules/qrcode/lib/core/alignment-pattern.js"(exports) {
+    var getSymbolSize = require_utils().getSymbolSize;
+    exports.getRowColCoords = function getRowColCoords(version5) {
+      if (version5 === 1) return [];
+      const posCount = Math.floor(version5 / 7) + 2;
+      const size = getSymbolSize(version5);
+      const intervals = size === 145 ? 26 : Math.ceil((size - 13) / (2 * posCount - 2)) * 2;
+      const positions = [size - 7];
+      for (let i = 1; i < posCount - 1; i++) {
+        positions[i] = positions[i - 1] - intervals;
+      }
+      positions.push(6);
+      return positions.reverse();
+    };
+    exports.getPositions = function getPositions(version5) {
+      const coords = [];
+      const pos = exports.getRowColCoords(version5);
+      const posLength = pos.length;
+      for (let i = 0; i < posLength; i++) {
+        for (let j = 0; j < posLength; j++) {
+          if (i === 0 && j === 0 || // top-left
+          i === 0 && j === posLength - 1 || // bottom-left
+          i === posLength - 1 && j === 0) {
+            continue;
+          }
+          coords.push([pos[i], pos[j]]);
+        }
+      }
+      return coords;
+    };
+  }
+});
+
+// node_modules/qrcode/lib/core/finder-pattern.js
+var require_finder_pattern = __commonJS({
+  "node_modules/qrcode/lib/core/finder-pattern.js"(exports) {
+    var getSymbolSize = require_utils().getSymbolSize;
+    var FINDER_PATTERN_SIZE = 7;
+    exports.getPositions = function getPositions(version5) {
+      const size = getSymbolSize(version5);
+      return [
+        // top-left
+        [0, 0],
+        // top-right
+        [size - FINDER_PATTERN_SIZE, 0],
+        // bottom-left
+        [0, size - FINDER_PATTERN_SIZE]
+      ];
+    };
+  }
+});
+
+// node_modules/qrcode/lib/core/mask-pattern.js
+var require_mask_pattern = __commonJS({
+  "node_modules/qrcode/lib/core/mask-pattern.js"(exports) {
+    exports.Patterns = {
+      PATTERN000: 0,
+      PATTERN001: 1,
+      PATTERN010: 2,
+      PATTERN011: 3,
+      PATTERN100: 4,
+      PATTERN101: 5,
+      PATTERN110: 6,
+      PATTERN111: 7
+    };
+    var PenaltyScores = {
+      N1: 3,
+      N2: 3,
+      N3: 40,
+      N4: 10
+    };
+    exports.isValid = function isValid(mask) {
+      return mask != null && mask !== "" && !isNaN(mask) && mask >= 0 && mask <= 7;
+    };
+    exports.from = function from(value) {
+      return exports.isValid(value) ? parseInt(value, 10) : void 0;
+    };
+    exports.getPenaltyN1 = function getPenaltyN1(data) {
+      const size = data.size;
+      let points = 0;
+      let sameCountCol = 0;
+      let sameCountRow = 0;
+      let lastCol = null;
+      let lastRow = null;
+      for (let row = 0; row < size; row++) {
+        sameCountCol = sameCountRow = 0;
+        lastCol = lastRow = null;
+        for (let col = 0; col < size; col++) {
+          let module2 = data.get(row, col);
+          if (module2 === lastCol) {
+            sameCountCol++;
+          } else {
+            if (sameCountCol >= 5) points += PenaltyScores.N1 + (sameCountCol - 5);
+            lastCol = module2;
+            sameCountCol = 1;
+          }
+          module2 = data.get(col, row);
+          if (module2 === lastRow) {
+            sameCountRow++;
+          } else {
+            if (sameCountRow >= 5) points += PenaltyScores.N1 + (sameCountRow - 5);
+            lastRow = module2;
+            sameCountRow = 1;
+          }
+        }
+        if (sameCountCol >= 5) points += PenaltyScores.N1 + (sameCountCol - 5);
+        if (sameCountRow >= 5) points += PenaltyScores.N1 + (sameCountRow - 5);
+      }
+      return points;
+    };
+    exports.getPenaltyN2 = function getPenaltyN2(data) {
+      const size = data.size;
+      let points = 0;
+      for (let row = 0; row < size - 1; row++) {
+        for (let col = 0; col < size - 1; col++) {
+          const last = data.get(row, col) + data.get(row, col + 1) + data.get(row + 1, col) + data.get(row + 1, col + 1);
+          if (last === 4 || last === 0) points++;
+        }
+      }
+      return points * PenaltyScores.N2;
+    };
+    exports.getPenaltyN3 = function getPenaltyN3(data) {
+      const size = data.size;
+      let points = 0;
+      let bitsCol = 0;
+      let bitsRow = 0;
+      for (let row = 0; row < size; row++) {
+        bitsCol = bitsRow = 0;
+        for (let col = 0; col < size; col++) {
+          bitsCol = bitsCol << 1 & 2047 | data.get(row, col);
+          if (col >= 10 && (bitsCol === 1488 || bitsCol === 93)) points++;
+          bitsRow = bitsRow << 1 & 2047 | data.get(col, row);
+          if (col >= 10 && (bitsRow === 1488 || bitsRow === 93)) points++;
+        }
+      }
+      return points * PenaltyScores.N3;
+    };
+    exports.getPenaltyN4 = function getPenaltyN4(data) {
+      let darkCount = 0;
+      const modulesCount = data.data.length;
+      for (let i = 0; i < modulesCount; i++) darkCount += data.data[i];
+      const k = Math.abs(Math.ceil(darkCount * 100 / modulesCount / 5) - 10);
+      return k * PenaltyScores.N4;
+    };
+    function getMaskAt(maskPattern, i, j) {
+      switch (maskPattern) {
+        case exports.Patterns.PATTERN000:
+          return (i + j) % 2 === 0;
+        case exports.Patterns.PATTERN001:
+          return i % 2 === 0;
+        case exports.Patterns.PATTERN010:
+          return j % 3 === 0;
+        case exports.Patterns.PATTERN011:
+          return (i + j) % 3 === 0;
+        case exports.Patterns.PATTERN100:
+          return (Math.floor(i / 2) + Math.floor(j / 3)) % 2 === 0;
+        case exports.Patterns.PATTERN101:
+          return i * j % 2 + i * j % 3 === 0;
+        case exports.Patterns.PATTERN110:
+          return (i * j % 2 + i * j % 3) % 2 === 0;
+        case exports.Patterns.PATTERN111:
+          return (i * j % 3 + (i + j) % 2) % 2 === 0;
+        default:
+          throw new Error("bad maskPattern:" + maskPattern);
+      }
+    }
+    exports.applyMask = function applyMask(pattern, data) {
+      const size = data.size;
+      for (let col = 0; col < size; col++) {
+        for (let row = 0; row < size; row++) {
+          if (data.isReserved(row, col)) continue;
+          data.xor(row, col, getMaskAt(pattern, row, col));
+        }
+      }
+    };
+    exports.getBestMask = function getBestMask(data, setupFormatFunc) {
+      const numPatterns = Object.keys(exports.Patterns).length;
+      let bestPattern = 0;
+      let lowerPenalty = Infinity;
+      for (let p = 0; p < numPatterns; p++) {
+        setupFormatFunc(p);
+        exports.applyMask(p, data);
+        const penalty = exports.getPenaltyN1(data) + exports.getPenaltyN2(data) + exports.getPenaltyN3(data) + exports.getPenaltyN4(data);
+        exports.applyMask(p, data);
+        if (penalty < lowerPenalty) {
+          lowerPenalty = penalty;
+          bestPattern = p;
+        }
+      }
+      return bestPattern;
+    };
+  }
+});
+
+// node_modules/qrcode/lib/core/error-correction-code.js
+var require_error_correction_code = __commonJS({
+  "node_modules/qrcode/lib/core/error-correction-code.js"(exports) {
+    var ECLevel = require_error_correction_level();
+    var EC_BLOCKS_TABLE = [
+      // L  M  Q  H
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      2,
+      2,
+      1,
+      2,
+      2,
+      4,
+      1,
+      2,
+      4,
+      4,
+      2,
+      4,
+      4,
+      4,
+      2,
+      4,
+      6,
+      5,
+      2,
+      4,
+      6,
+      6,
+      2,
+      5,
+      8,
+      8,
+      4,
+      5,
+      8,
+      8,
+      4,
+      5,
+      8,
+      11,
+      4,
+      8,
+      10,
+      11,
+      4,
+      9,
+      12,
+      16,
+      4,
+      9,
+      16,
+      16,
+      6,
+      10,
+      12,
+      18,
+      6,
+      10,
+      17,
+      16,
+      6,
+      11,
+      16,
+      19,
+      6,
+      13,
+      18,
+      21,
+      7,
+      14,
+      21,
+      25,
+      8,
+      16,
+      20,
+      25,
+      8,
+      17,
+      23,
+      25,
+      9,
+      17,
+      23,
+      34,
+      9,
+      18,
+      25,
+      30,
+      10,
+      20,
+      27,
+      32,
+      12,
+      21,
+      29,
+      35,
+      12,
+      23,
+      34,
+      37,
+      12,
+      25,
+      34,
+      40,
+      13,
+      26,
+      35,
+      42,
+      14,
+      28,
+      38,
+      45,
+      15,
+      29,
+      40,
+      48,
+      16,
+      31,
+      43,
+      51,
+      17,
+      33,
+      45,
+      54,
+      18,
+      35,
+      48,
+      57,
+      19,
+      37,
+      51,
+      60,
+      19,
+      38,
+      53,
+      63,
+      20,
+      40,
+      56,
+      66,
+      21,
+      43,
+      59,
+      70,
+      22,
+      45,
+      62,
+      74,
+      24,
+      47,
+      65,
+      77,
+      25,
+      49,
+      68,
+      81
+    ];
+    var EC_CODEWORDS_TABLE = [
+      // L  M  Q  H
+      7,
+      10,
+      13,
+      17,
+      10,
+      16,
+      22,
+      28,
+      15,
+      26,
+      36,
+      44,
+      20,
+      36,
+      52,
+      64,
+      26,
+      48,
+      72,
+      88,
+      36,
+      64,
+      96,
+      112,
+      40,
+      72,
+      108,
+      130,
+      48,
+      88,
+      132,
+      156,
+      60,
+      110,
+      160,
+      192,
+      72,
+      130,
+      192,
+      224,
+      80,
+      150,
+      224,
+      264,
+      96,
+      176,
+      260,
+      308,
+      104,
+      198,
+      288,
+      352,
+      120,
+      216,
+      320,
+      384,
+      132,
+      240,
+      360,
+      432,
+      144,
+      280,
+      408,
+      480,
+      168,
+      308,
+      448,
+      532,
+      180,
+      338,
+      504,
+      588,
+      196,
+      364,
+      546,
+      650,
+      224,
+      416,
+      600,
+      700,
+      224,
+      442,
+      644,
+      750,
+      252,
+      476,
+      690,
+      816,
+      270,
+      504,
+      750,
+      900,
+      300,
+      560,
+      810,
+      960,
+      312,
+      588,
+      870,
+      1050,
+      336,
+      644,
+      952,
+      1110,
+      360,
+      700,
+      1020,
+      1200,
+      390,
+      728,
+      1050,
+      1260,
+      420,
+      784,
+      1140,
+      1350,
+      450,
+      812,
+      1200,
+      1440,
+      480,
+      868,
+      1290,
+      1530,
+      510,
+      924,
+      1350,
+      1620,
+      540,
+      980,
+      1440,
+      1710,
+      570,
+      1036,
+      1530,
+      1800,
+      570,
+      1064,
+      1590,
+      1890,
+      600,
+      1120,
+      1680,
+      1980,
+      630,
+      1204,
+      1770,
+      2100,
+      660,
+      1260,
+      1860,
+      2220,
+      720,
+      1316,
+      1950,
+      2310,
+      750,
+      1372,
+      2040,
+      2430
+    ];
+    exports.getBlocksCount = function getBlocksCount(version5, errorCorrectionLevel) {
+      switch (errorCorrectionLevel) {
+        case ECLevel.L:
+          return EC_BLOCKS_TABLE[(version5 - 1) * 4 + 0];
+        case ECLevel.M:
+          return EC_BLOCKS_TABLE[(version5 - 1) * 4 + 1];
+        case ECLevel.Q:
+          return EC_BLOCKS_TABLE[(version5 - 1) * 4 + 2];
+        case ECLevel.H:
+          return EC_BLOCKS_TABLE[(version5 - 1) * 4 + 3];
+        default:
+          return void 0;
+      }
+    };
+    exports.getTotalCodewordsCount = function getTotalCodewordsCount(version5, errorCorrectionLevel) {
+      switch (errorCorrectionLevel) {
+        case ECLevel.L:
+          return EC_CODEWORDS_TABLE[(version5 - 1) * 4 + 0];
+        case ECLevel.M:
+          return EC_CODEWORDS_TABLE[(version5 - 1) * 4 + 1];
+        case ECLevel.Q:
+          return EC_CODEWORDS_TABLE[(version5 - 1) * 4 + 2];
+        case ECLevel.H:
+          return EC_CODEWORDS_TABLE[(version5 - 1) * 4 + 3];
+        default:
+          return void 0;
+      }
+    };
+  }
+});
+
+// node_modules/qrcode/lib/core/galois-field.js
+var require_galois_field = __commonJS({
+  "node_modules/qrcode/lib/core/galois-field.js"(exports) {
+    var EXP_TABLE = new Uint8Array(512);
+    var LOG_TABLE = new Uint8Array(256);
+    (function initTables() {
+      let x = 1;
+      for (let i = 0; i < 255; i++) {
+        EXP_TABLE[i] = x;
+        LOG_TABLE[x] = i;
+        x <<= 1;
+        if (x & 256) {
+          x ^= 285;
+        }
+      }
+      for (let i = 255; i < 512; i++) {
+        EXP_TABLE[i] = EXP_TABLE[i - 255];
+      }
+    })();
+    exports.log = function log(n) {
+      if (n < 1) throw new Error("log(" + n + ")");
+      return LOG_TABLE[n];
+    };
+    exports.exp = function exp(n) {
+      return EXP_TABLE[n];
+    };
+    exports.mul = function mul(x, y) {
+      if (x === 0 || y === 0) return 0;
+      return EXP_TABLE[LOG_TABLE[x] + LOG_TABLE[y]];
+    };
+  }
+});
+
+// node_modules/qrcode/lib/core/polynomial.js
+var require_polynomial = __commonJS({
+  "node_modules/qrcode/lib/core/polynomial.js"(exports) {
+    var GF = require_galois_field();
+    exports.mul = function mul(p1, p2) {
+      const coeff = new Uint8Array(p1.length + p2.length - 1);
+      for (let i = 0; i < p1.length; i++) {
+        for (let j = 0; j < p2.length; j++) {
+          coeff[i + j] ^= GF.mul(p1[i], p2[j]);
+        }
+      }
+      return coeff;
+    };
+    exports.mod = function mod(divident, divisor) {
+      let result = new Uint8Array(divident);
+      while (result.length - divisor.length >= 0) {
+        const coeff = result[0];
+        for (let i = 0; i < divisor.length; i++) {
+          result[i] ^= GF.mul(divisor[i], coeff);
+        }
+        let offset = 0;
+        while (offset < result.length && result[offset] === 0) offset++;
+        result = result.slice(offset);
+      }
+      return result;
+    };
+    exports.generateECPolynomial = function generateECPolynomial(degree) {
+      let poly = new Uint8Array([1]);
+      for (let i = 0; i < degree; i++) {
+        poly = exports.mul(poly, new Uint8Array([1, GF.exp(i)]));
+      }
+      return poly;
+    };
+  }
+});
+
+// node_modules/qrcode/lib/core/reed-solomon-encoder.js
+var require_reed_solomon_encoder = __commonJS({
+  "node_modules/qrcode/lib/core/reed-solomon-encoder.js"(exports, module) {
+    var Polynomial = require_polynomial();
+    function ReedSolomonEncoder(degree) {
+      this.genPoly = void 0;
+      this.degree = degree;
+      if (this.degree) this.initialize(this.degree);
+    }
+    ReedSolomonEncoder.prototype.initialize = function initialize(degree) {
+      this.degree = degree;
+      this.genPoly = Polynomial.generateECPolynomial(this.degree);
+    };
+    ReedSolomonEncoder.prototype.encode = function encode(data) {
+      if (!this.genPoly) {
+        throw new Error("Encoder not initialized");
+      }
+      const paddedData = new Uint8Array(data.length + this.degree);
+      paddedData.set(data);
+      const remainder = Polynomial.mod(paddedData, this.genPoly);
+      const start = this.degree - remainder.length;
+      if (start > 0) {
+        const buff = new Uint8Array(this.degree);
+        buff.set(remainder, start);
+        return buff;
+      }
+      return remainder;
+    };
+    module.exports = ReedSolomonEncoder;
+  }
+});
+
+// node_modules/qrcode/lib/core/version-check.js
+var require_version_check = __commonJS({
+  "node_modules/qrcode/lib/core/version-check.js"(exports) {
+    exports.isValid = function isValid(version5) {
+      return !isNaN(version5) && version5 >= 1 && version5 <= 40;
+    };
+  }
+});
+
+// node_modules/qrcode/lib/core/regex.js
+var require_regex = __commonJS({
+  "node_modules/qrcode/lib/core/regex.js"(exports) {
+    var numeric = "[0-9]+";
+    var alphanumeric = "[A-Z $%*+\\-./:]+";
+    var kanji = "(?:[u3000-u303F]|[u3040-u309F]|[u30A0-u30FF]|[uFF00-uFFEF]|[u4E00-u9FAF]|[u2605-u2606]|[u2190-u2195]|u203B|[u2010u2015u2018u2019u2025u2026u201Cu201Du2225u2260]|[u0391-u0451]|[u00A7u00A8u00B1u00B4u00D7u00F7])+";
+    kanji = kanji.replace(/u/g, "\\u");
+    var byte = "(?:(?![A-Z0-9 $%*+\\-./:]|" + kanji + ")(?:.|[\r\n]))+";
+    exports.KANJI = new RegExp(kanji, "g");
+    exports.BYTE_KANJI = new RegExp("[^A-Z0-9 $%*+\\-./:]+", "g");
+    exports.BYTE = new RegExp(byte, "g");
+    exports.NUMERIC = new RegExp(numeric, "g");
+    exports.ALPHANUMERIC = new RegExp(alphanumeric, "g");
+    var TEST_KANJI = new RegExp("^" + kanji + "$");
+    var TEST_NUMERIC = new RegExp("^" + numeric + "$");
+    var TEST_ALPHANUMERIC = new RegExp("^[A-Z0-9 $%*+\\-./:]+$");
+    exports.testKanji = function testKanji(str) {
+      return TEST_KANJI.test(str);
+    };
+    exports.testNumeric = function testNumeric(str) {
+      return TEST_NUMERIC.test(str);
+    };
+    exports.testAlphanumeric = function testAlphanumeric(str) {
+      return TEST_ALPHANUMERIC.test(str);
+    };
+  }
+});
+
+// node_modules/qrcode/lib/core/mode.js
+var require_mode = __commonJS({
+  "node_modules/qrcode/lib/core/mode.js"(exports) {
+    var VersionCheck = require_version_check();
+    var Regex = require_regex();
+    exports.NUMERIC = {
+      id: "Numeric",
+      bit: 1 << 0,
+      ccBits: [10, 12, 14]
+    };
+    exports.ALPHANUMERIC = {
+      id: "Alphanumeric",
+      bit: 1 << 1,
+      ccBits: [9, 11, 13]
+    };
+    exports.BYTE = {
+      id: "Byte",
+      bit: 1 << 2,
+      ccBits: [8, 16, 16]
+    };
+    exports.KANJI = {
+      id: "Kanji",
+      bit: 1 << 3,
+      ccBits: [8, 10, 12]
+    };
+    exports.MIXED = {
+      bit: -1
+    };
+    exports.getCharCountIndicator = function getCharCountIndicator(mode2, version5) {
+      if (!mode2.ccBits) throw new Error("Invalid mode: " + mode2);
+      if (!VersionCheck.isValid(version5)) {
+        throw new Error("Invalid version: " + version5);
+      }
+      if (version5 >= 1 && version5 < 10) return mode2.ccBits[0];
+      else if (version5 < 27) return mode2.ccBits[1];
+      return mode2.ccBits[2];
+    };
+    exports.getBestModeForData = function getBestModeForData(dataStr) {
+      if (Regex.testNumeric(dataStr)) return exports.NUMERIC;
+      else if (Regex.testAlphanumeric(dataStr)) return exports.ALPHANUMERIC;
+      else if (Regex.testKanji(dataStr)) return exports.KANJI;
+      else return exports.BYTE;
+    };
+    exports.toString = function toString(mode2) {
+      if (mode2 && mode2.id) return mode2.id;
+      throw new Error("Invalid mode");
+    };
+    exports.isValid = function isValid(mode2) {
+      return mode2 && mode2.bit && mode2.ccBits;
+    };
+    function fromString(string) {
+      if (typeof string !== "string") {
+        throw new Error("Param is not a string");
+      }
+      const lcStr = string.toLowerCase();
+      switch (lcStr) {
+        case "numeric":
+          return exports.NUMERIC;
+        case "alphanumeric":
+          return exports.ALPHANUMERIC;
+        case "kanji":
+          return exports.KANJI;
+        case "byte":
+          return exports.BYTE;
+        default:
+          throw new Error("Unknown mode: " + string);
+      }
+    }
+    exports.from = function from(value, defaultValue) {
+      if (exports.isValid(value)) {
+        return value;
+      }
+      try {
+        return fromString(value);
+      } catch (e) {
+        return defaultValue;
+      }
+    };
+  }
+});
+
+// node_modules/qrcode/lib/core/version.js
+var require_version = __commonJS({
+  "node_modules/qrcode/lib/core/version.js"(exports) {
+    var Utils = require_utils();
+    var ECCode = require_error_correction_code();
+    var ECLevel = require_error_correction_level();
+    var Mode = require_mode();
+    var VersionCheck = require_version_check();
+    var G18 = 1 << 12 | 1 << 11 | 1 << 10 | 1 << 9 | 1 << 8 | 1 << 5 | 1 << 2 | 1 << 0;
+    var G18_BCH = Utils.getBCHDigit(G18);
+    function getBestVersionForDataLength(mode2, length, errorCorrectionLevel) {
+      for (let currentVersion = 1; currentVersion <= 40; currentVersion++) {
+        if (length <= exports.getCapacity(currentVersion, errorCorrectionLevel, mode2)) {
+          return currentVersion;
+        }
+      }
+      return void 0;
+    }
+    function getReservedBitsCount(mode2, version5) {
+      return Mode.getCharCountIndicator(mode2, version5) + 4;
+    }
+    function getTotalBitsFromDataArray(segments, version5) {
+      let totalBits = 0;
+      segments.forEach(function(data) {
+        const reservedBits = getReservedBitsCount(data.mode, version5);
+        totalBits += reservedBits + data.getBitsLength();
+      });
+      return totalBits;
+    }
+    function getBestVersionForMixedData(segments, errorCorrectionLevel) {
+      for (let currentVersion = 1; currentVersion <= 40; currentVersion++) {
+        const length = getTotalBitsFromDataArray(segments, currentVersion);
+        if (length <= exports.getCapacity(currentVersion, errorCorrectionLevel, Mode.MIXED)) {
+          return currentVersion;
+        }
+      }
+      return void 0;
+    }
+    exports.from = function from(value, defaultValue) {
+      if (VersionCheck.isValid(value)) {
+        return parseInt(value, 10);
+      }
+      return defaultValue;
+    };
+    exports.getCapacity = function getCapacity(version5, errorCorrectionLevel, mode2) {
+      if (!VersionCheck.isValid(version5)) {
+        throw new Error("Invalid QR Code version");
+      }
+      if (typeof mode2 === "undefined") mode2 = Mode.BYTE;
+      const totalCodewords = Utils.getSymbolTotalCodewords(version5);
+      const ecTotalCodewords = ECCode.getTotalCodewordsCount(version5, errorCorrectionLevel);
+      const dataTotalCodewordsBits = (totalCodewords - ecTotalCodewords) * 8;
+      if (mode2 === Mode.MIXED) return dataTotalCodewordsBits;
+      const usableBits = dataTotalCodewordsBits - getReservedBitsCount(mode2, version5);
+      switch (mode2) {
+        case Mode.NUMERIC:
+          return Math.floor(usableBits / 10 * 3);
+        case Mode.ALPHANUMERIC:
+          return Math.floor(usableBits / 11 * 2);
+        case Mode.KANJI:
+          return Math.floor(usableBits / 13);
+        case Mode.BYTE:
+        default:
+          return Math.floor(usableBits / 8);
+      }
+    };
+    exports.getBestVersionForData = function getBestVersionForData(data, errorCorrectionLevel) {
+      let seg;
+      const ecl = ECLevel.from(errorCorrectionLevel, ECLevel.M);
+      if (Array.isArray(data)) {
+        if (data.length > 1) {
+          return getBestVersionForMixedData(data, ecl);
+        }
+        if (data.length === 0) {
+          return 1;
+        }
+        seg = data[0];
+      } else {
+        seg = data;
+      }
+      return getBestVersionForDataLength(seg.mode, seg.getLength(), ecl);
+    };
+    exports.getEncodedBits = function getEncodedBits(version5) {
+      if (!VersionCheck.isValid(version5) || version5 < 7) {
+        throw new Error("Invalid QR Code version");
+      }
+      let d = version5 << 12;
+      while (Utils.getBCHDigit(d) - G18_BCH >= 0) {
+        d ^= G18 << Utils.getBCHDigit(d) - G18_BCH;
+      }
+      return version5 << 12 | d;
+    };
+  }
+});
+
+// node_modules/qrcode/lib/core/format-info.js
+var require_format_info = __commonJS({
+  "node_modules/qrcode/lib/core/format-info.js"(exports) {
+    var Utils = require_utils();
+    var G15 = 1 << 10 | 1 << 8 | 1 << 5 | 1 << 4 | 1 << 2 | 1 << 1 | 1 << 0;
+    var G15_MASK = 1 << 14 | 1 << 12 | 1 << 10 | 1 << 4 | 1 << 1;
+    var G15_BCH = Utils.getBCHDigit(G15);
+    exports.getEncodedBits = function getEncodedBits(errorCorrectionLevel, mask) {
+      const data = errorCorrectionLevel.bit << 3 | mask;
+      let d = data << 10;
+      while (Utils.getBCHDigit(d) - G15_BCH >= 0) {
+        d ^= G15 << Utils.getBCHDigit(d) - G15_BCH;
+      }
+      return (data << 10 | d) ^ G15_MASK;
+    };
+  }
+});
+
+// node_modules/qrcode/lib/core/numeric-data.js
+var require_numeric_data = __commonJS({
+  "node_modules/qrcode/lib/core/numeric-data.js"(exports, module) {
+    var Mode = require_mode();
+    function NumericData(data) {
+      this.mode = Mode.NUMERIC;
+      this.data = data.toString();
+    }
+    NumericData.getBitsLength = function getBitsLength(length) {
+      return 10 * Math.floor(length / 3) + (length % 3 ? length % 3 * 3 + 1 : 0);
+    };
+    NumericData.prototype.getLength = function getLength() {
+      return this.data.length;
+    };
+    NumericData.prototype.getBitsLength = function getBitsLength() {
+      return NumericData.getBitsLength(this.data.length);
+    };
+    NumericData.prototype.write = function write(bitBuffer) {
+      let i, group, value;
+      for (i = 0; i + 3 <= this.data.length; i += 3) {
+        group = this.data.substr(i, 3);
+        value = parseInt(group, 10);
+        bitBuffer.put(value, 10);
+      }
+      const remainingNum = this.data.length - i;
+      if (remainingNum > 0) {
+        group = this.data.substr(i);
+        value = parseInt(group, 10);
+        bitBuffer.put(value, remainingNum * 3 + 1);
+      }
+    };
+    module.exports = NumericData;
+  }
+});
+
+// node_modules/qrcode/lib/core/alphanumeric-data.js
+var require_alphanumeric_data = __commonJS({
+  "node_modules/qrcode/lib/core/alphanumeric-data.js"(exports, module) {
+    var Mode = require_mode();
+    var ALPHA_NUM_CHARS = [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "A",
+      "B",
+      "C",
+      "D",
+      "E",
+      "F",
+      "G",
+      "H",
+      "I",
+      "J",
+      "K",
+      "L",
+      "M",
+      "N",
+      "O",
+      "P",
+      "Q",
+      "R",
+      "S",
+      "T",
+      "U",
+      "V",
+      "W",
+      "X",
+      "Y",
+      "Z",
+      " ",
+      "$",
+      "%",
+      "*",
+      "+",
+      "-",
+      ".",
+      "/",
+      ":"
+    ];
+    function AlphanumericData(data) {
+      this.mode = Mode.ALPHANUMERIC;
+      this.data = data;
+    }
+    AlphanumericData.getBitsLength = function getBitsLength(length) {
+      return 11 * Math.floor(length / 2) + 6 * (length % 2);
+    };
+    AlphanumericData.prototype.getLength = function getLength() {
+      return this.data.length;
+    };
+    AlphanumericData.prototype.getBitsLength = function getBitsLength() {
+      return AlphanumericData.getBitsLength(this.data.length);
+    };
+    AlphanumericData.prototype.write = function write(bitBuffer) {
+      let i;
+      for (i = 0; i + 2 <= this.data.length; i += 2) {
+        let value = ALPHA_NUM_CHARS.indexOf(this.data[i]) * 45;
+        value += ALPHA_NUM_CHARS.indexOf(this.data[i + 1]);
+        bitBuffer.put(value, 11);
+      }
+      if (this.data.length % 2) {
+        bitBuffer.put(ALPHA_NUM_CHARS.indexOf(this.data[i]), 6);
+      }
+    };
+    module.exports = AlphanumericData;
+  }
+});
+
+// node_modules/qrcode/lib/core/byte-data.js
+var require_byte_data = __commonJS({
+  "node_modules/qrcode/lib/core/byte-data.js"(exports, module) {
+    var Mode = require_mode();
+    function ByteData(data) {
+      this.mode = Mode.BYTE;
+      if (typeof data === "string") {
+        this.data = new TextEncoder().encode(data);
+      } else {
+        this.data = new Uint8Array(data);
+      }
+    }
+    ByteData.getBitsLength = function getBitsLength(length) {
+      return length * 8;
+    };
+    ByteData.prototype.getLength = function getLength() {
+      return this.data.length;
+    };
+    ByteData.prototype.getBitsLength = function getBitsLength() {
+      return ByteData.getBitsLength(this.data.length);
+    };
+    ByteData.prototype.write = function(bitBuffer) {
+      for (let i = 0, l = this.data.length; i < l; i++) {
+        bitBuffer.put(this.data[i], 8);
+      }
+    };
+    module.exports = ByteData;
+  }
+});
+
+// node_modules/qrcode/lib/core/kanji-data.js
+var require_kanji_data = __commonJS({
+  "node_modules/qrcode/lib/core/kanji-data.js"(exports, module) {
+    var Mode = require_mode();
+    var Utils = require_utils();
+    function KanjiData(data) {
+      this.mode = Mode.KANJI;
+      this.data = data;
+    }
+    KanjiData.getBitsLength = function getBitsLength(length) {
+      return length * 13;
+    };
+    KanjiData.prototype.getLength = function getLength() {
+      return this.data.length;
+    };
+    KanjiData.prototype.getBitsLength = function getBitsLength() {
+      return KanjiData.getBitsLength(this.data.length);
+    };
+    KanjiData.prototype.write = function(bitBuffer) {
+      let i;
+      for (i = 0; i < this.data.length; i++) {
+        let value = Utils.toSJIS(this.data[i]);
+        if (value >= 33088 && value <= 40956) {
+          value -= 33088;
+        } else if (value >= 57408 && value <= 60351) {
+          value -= 49472;
+        } else {
+          throw new Error(
+            "Invalid SJIS character: " + this.data[i] + "\nMake sure your charset is UTF-8"
+          );
+        }
+        value = (value >>> 8 & 255) * 192 + (value & 255);
+        bitBuffer.put(value, 13);
+      }
+    };
+    module.exports = KanjiData;
+  }
+});
+
+// node_modules/dijkstrajs/dijkstra.js
+var require_dijkstra = __commonJS({
+  "node_modules/dijkstrajs/dijkstra.js"(exports, module) {
+    "use strict";
+    var dijkstra = {
+      single_source_shortest_paths: function(graph, s, d) {
+        var predecessors = {};
+        var costs = {};
+        costs[s] = 0;
+        var open = dijkstra.PriorityQueue.make();
+        open.push(s, 0);
+        var closest, u, v, cost_of_s_to_u, adjacent_nodes, cost_of_e, cost_of_s_to_u_plus_cost_of_e, cost_of_s_to_v, first_visit;
+        while (!open.empty()) {
+          closest = open.pop();
+          u = closest.value;
+          cost_of_s_to_u = closest.cost;
+          adjacent_nodes = graph[u] || {};
+          for (v in adjacent_nodes) {
+            if (adjacent_nodes.hasOwnProperty(v)) {
+              cost_of_e = adjacent_nodes[v];
+              cost_of_s_to_u_plus_cost_of_e = cost_of_s_to_u + cost_of_e;
+              cost_of_s_to_v = costs[v];
+              first_visit = typeof costs[v] === "undefined";
+              if (first_visit || cost_of_s_to_v > cost_of_s_to_u_plus_cost_of_e) {
+                costs[v] = cost_of_s_to_u_plus_cost_of_e;
+                open.push(v, cost_of_s_to_u_plus_cost_of_e);
+                predecessors[v] = u;
+              }
+            }
+          }
+        }
+        if (typeof d !== "undefined" && typeof costs[d] === "undefined") {
+          var msg = ["Could not find a path from ", s, " to ", d, "."].join("");
+          throw new Error(msg);
+        }
+        return predecessors;
+      },
+      extract_shortest_path_from_predecessor_list: function(predecessors, d) {
+        var nodes = [];
+        var u = d;
+        var predecessor;
+        while (u) {
+          nodes.push(u);
+          predecessor = predecessors[u];
+          u = predecessors[u];
+        }
+        nodes.reverse();
+        return nodes;
+      },
+      find_path: function(graph, s, d) {
+        var predecessors = dijkstra.single_source_shortest_paths(graph, s, d);
+        return dijkstra.extract_shortest_path_from_predecessor_list(
+          predecessors,
+          d
+        );
+      },
+      /**
+       * A very naive priority queue implementation.
+       */
+      PriorityQueue: {
+        make: function(opts) {
+          var T = dijkstra.PriorityQueue, t = {}, key;
+          opts = opts || {};
+          for (key in T) {
+            if (T.hasOwnProperty(key)) {
+              t[key] = T[key];
+            }
+          }
+          t.queue = [];
+          t.sorter = opts.sorter || T.default_sorter;
+          return t;
+        },
+        default_sorter: function(a, b) {
+          return a.cost - b.cost;
+        },
+        /**
+         * Add a new item to the queue and ensure the highest priority element
+         * is at the front of the queue.
+         */
+        push: function(value, cost) {
+          var item = { value, cost };
+          this.queue.push(item);
+          this.queue.sort(this.sorter);
+        },
+        /**
+         * Return the highest priority element in the queue.
+         */
+        pop: function() {
+          return this.queue.shift();
+        },
+        empty: function() {
+          return this.queue.length === 0;
+        }
+      }
+    };
+    if (typeof module !== "undefined") {
+      module.exports = dijkstra;
+    }
+  }
+});
+
+// node_modules/qrcode/lib/core/segments.js
+var require_segments = __commonJS({
+  "node_modules/qrcode/lib/core/segments.js"(exports) {
+    var Mode = require_mode();
+    var NumericData = require_numeric_data();
+    var AlphanumericData = require_alphanumeric_data();
+    var ByteData = require_byte_data();
+    var KanjiData = require_kanji_data();
+    var Regex = require_regex();
+    var Utils = require_utils();
+    var dijkstra = require_dijkstra();
+    function getStringByteLength(str) {
+      return unescape(encodeURIComponent(str)).length;
+    }
+    function getSegments(regex, mode2, str) {
+      const segments = [];
+      let result;
+      while ((result = regex.exec(str)) !== null) {
+        segments.push({
+          data: result[0],
+          index: result.index,
+          mode: mode2,
+          length: result[0].length
+        });
+      }
+      return segments;
+    }
+    function getSegmentsFromString(dataStr) {
+      const numSegs = getSegments(Regex.NUMERIC, Mode.NUMERIC, dataStr);
+      const alphaNumSegs = getSegments(Regex.ALPHANUMERIC, Mode.ALPHANUMERIC, dataStr);
+      let byteSegs;
+      let kanjiSegs;
+      if (Utils.isKanjiModeEnabled()) {
+        byteSegs = getSegments(Regex.BYTE, Mode.BYTE, dataStr);
+        kanjiSegs = getSegments(Regex.KANJI, Mode.KANJI, dataStr);
+      } else {
+        byteSegs = getSegments(Regex.BYTE_KANJI, Mode.BYTE, dataStr);
+        kanjiSegs = [];
+      }
+      const segs = numSegs.concat(alphaNumSegs, byteSegs, kanjiSegs);
+      return segs.sort(function(s1, s2) {
+        return s1.index - s2.index;
+      }).map(function(obj) {
+        return {
+          data: obj.data,
+          mode: obj.mode,
+          length: obj.length
+        };
+      });
+    }
+    function getSegmentBitsLength(length, mode2) {
+      switch (mode2) {
+        case Mode.NUMERIC:
+          return NumericData.getBitsLength(length);
+        case Mode.ALPHANUMERIC:
+          return AlphanumericData.getBitsLength(length);
+        case Mode.KANJI:
+          return KanjiData.getBitsLength(length);
+        case Mode.BYTE:
+          return ByteData.getBitsLength(length);
+      }
+    }
+    function mergeSegments(segs) {
+      return segs.reduce(function(acc, curr) {
+        const prevSeg = acc.length - 1 >= 0 ? acc[acc.length - 1] : null;
+        if (prevSeg && prevSeg.mode === curr.mode) {
+          acc[acc.length - 1].data += curr.data;
+          return acc;
+        }
+        acc.push(curr);
+        return acc;
+      }, []);
+    }
+    function buildNodes(segs) {
+      const nodes = [];
+      for (let i = 0; i < segs.length; i++) {
+        const seg = segs[i];
+        switch (seg.mode) {
+          case Mode.NUMERIC:
+            nodes.push([
+              seg,
+              { data: seg.data, mode: Mode.ALPHANUMERIC, length: seg.length },
+              { data: seg.data, mode: Mode.BYTE, length: seg.length }
+            ]);
+            break;
+          case Mode.ALPHANUMERIC:
+            nodes.push([
+              seg,
+              { data: seg.data, mode: Mode.BYTE, length: seg.length }
+            ]);
+            break;
+          case Mode.KANJI:
+            nodes.push([
+              seg,
+              { data: seg.data, mode: Mode.BYTE, length: getStringByteLength(seg.data) }
+            ]);
+            break;
+          case Mode.BYTE:
+            nodes.push([
+              { data: seg.data, mode: Mode.BYTE, length: getStringByteLength(seg.data) }
+            ]);
+        }
+      }
+      return nodes;
+    }
+    function buildGraph(nodes, version5) {
+      const table = {};
+      const graph = { start: {} };
+      let prevNodeIds = ["start"];
+      for (let i = 0; i < nodes.length; i++) {
+        const nodeGroup = nodes[i];
+        const currentNodeIds = [];
+        for (let j = 0; j < nodeGroup.length; j++) {
+          const node = nodeGroup[j];
+          const key = "" + i + j;
+          currentNodeIds.push(key);
+          table[key] = { node, lastCount: 0 };
+          graph[key] = {};
+          for (let n = 0; n < prevNodeIds.length; n++) {
+            const prevNodeId = prevNodeIds[n];
+            if (table[prevNodeId] && table[prevNodeId].node.mode === node.mode) {
+              graph[prevNodeId][key] = getSegmentBitsLength(table[prevNodeId].lastCount + node.length, node.mode) - getSegmentBitsLength(table[prevNodeId].lastCount, node.mode);
+              table[prevNodeId].lastCount += node.length;
+            } else {
+              if (table[prevNodeId]) table[prevNodeId].lastCount = node.length;
+              graph[prevNodeId][key] = getSegmentBitsLength(node.length, node.mode) + 4 + Mode.getCharCountIndicator(node.mode, version5);
+            }
+          }
+        }
+        prevNodeIds = currentNodeIds;
+      }
+      for (let n = 0; n < prevNodeIds.length; n++) {
+        graph[prevNodeIds[n]].end = 0;
+      }
+      return { map: graph, table };
+    }
+    function buildSingleSegment(data, modesHint) {
+      let mode2;
+      const bestMode = Mode.getBestModeForData(data);
+      mode2 = Mode.from(modesHint, bestMode);
+      if (mode2 !== Mode.BYTE && mode2.bit < bestMode.bit) {
+        throw new Error('"' + data + '" cannot be encoded with mode ' + Mode.toString(mode2) + ".\n Suggested mode is: " + Mode.toString(bestMode));
+      }
+      if (mode2 === Mode.KANJI && !Utils.isKanjiModeEnabled()) {
+        mode2 = Mode.BYTE;
+      }
+      switch (mode2) {
+        case Mode.NUMERIC:
+          return new NumericData(data);
+        case Mode.ALPHANUMERIC:
+          return new AlphanumericData(data);
+        case Mode.KANJI:
+          return new KanjiData(data);
+        case Mode.BYTE:
+          return new ByteData(data);
+      }
+    }
+    exports.fromArray = function fromArray(array) {
+      return array.reduce(function(acc, seg) {
+        if (typeof seg === "string") {
+          acc.push(buildSingleSegment(seg, null));
+        } else if (seg.data) {
+          acc.push(buildSingleSegment(seg.data, seg.mode));
+        }
+        return acc;
+      }, []);
+    };
+    exports.fromString = function fromString(data, version5) {
+      const segs = getSegmentsFromString(data, Utils.isKanjiModeEnabled());
+      const nodes = buildNodes(segs);
+      const graph = buildGraph(nodes, version5);
+      const path = dijkstra.find_path(graph.map, "start", "end");
+      const optimizedSegs = [];
+      for (let i = 1; i < path.length - 1; i++) {
+        optimizedSegs.push(graph.table[path[i]].node);
+      }
+      return exports.fromArray(mergeSegments(optimizedSegs));
+    };
+    exports.rawSplit = function rawSplit(data) {
+      return exports.fromArray(
+        getSegmentsFromString(data, Utils.isKanjiModeEnabled())
+      );
+    };
+  }
+});
+
+// node_modules/qrcode/lib/core/qrcode.js
+var require_qrcode = __commonJS({
+  "node_modules/qrcode/lib/core/qrcode.js"(exports) {
+    var Utils = require_utils();
+    var ECLevel = require_error_correction_level();
+    var BitBuffer = require_bit_buffer();
+    var BitMatrix = require_bit_matrix();
+    var AlignmentPattern = require_alignment_pattern();
+    var FinderPattern = require_finder_pattern();
+    var MaskPattern = require_mask_pattern();
+    var ECCode = require_error_correction_code();
+    var ReedSolomonEncoder = require_reed_solomon_encoder();
+    var Version = require_version();
+    var FormatInfo = require_format_info();
+    var Mode = require_mode();
+    var Segments = require_segments();
+    function setupFinderPattern(matrix, version5) {
+      const size = matrix.size;
+      const pos = FinderPattern.getPositions(version5);
+      for (let i = 0; i < pos.length; i++) {
+        const row = pos[i][0];
+        const col = pos[i][1];
+        for (let r = -1; r <= 7; r++) {
+          if (row + r <= -1 || size <= row + r) continue;
+          for (let c = -1; c <= 7; c++) {
+            if (col + c <= -1 || size <= col + c) continue;
+            if (r >= 0 && r <= 6 && (c === 0 || c === 6) || c >= 0 && c <= 6 && (r === 0 || r === 6) || r >= 2 && r <= 4 && c >= 2 && c <= 4) {
+              matrix.set(row + r, col + c, true, true);
+            } else {
+              matrix.set(row + r, col + c, false, true);
+            }
+          }
+        }
+      }
+    }
+    function setupTimingPattern(matrix) {
+      const size = matrix.size;
+      for (let r = 8; r < size - 8; r++) {
+        const value = r % 2 === 0;
+        matrix.set(r, 6, value, true);
+        matrix.set(6, r, value, true);
+      }
+    }
+    function setupAlignmentPattern(matrix, version5) {
+      const pos = AlignmentPattern.getPositions(version5);
+      for (let i = 0; i < pos.length; i++) {
+        const row = pos[i][0];
+        const col = pos[i][1];
+        for (let r = -2; r <= 2; r++) {
+          for (let c = -2; c <= 2; c++) {
+            if (r === -2 || r === 2 || c === -2 || c === 2 || r === 0 && c === 0) {
+              matrix.set(row + r, col + c, true, true);
+            } else {
+              matrix.set(row + r, col + c, false, true);
+            }
+          }
+        }
+      }
+    }
+    function setupVersionInfo(matrix, version5) {
+      const size = matrix.size;
+      const bits = Version.getEncodedBits(version5);
+      let row, col, mod;
+      for (let i = 0; i < 18; i++) {
+        row = Math.floor(i / 3);
+        col = i % 3 + size - 8 - 3;
+        mod = (bits >> i & 1) === 1;
+        matrix.set(row, col, mod, true);
+        matrix.set(col, row, mod, true);
+      }
+    }
+    function setupFormatInfo(matrix, errorCorrectionLevel, maskPattern) {
+      const size = matrix.size;
+      const bits = FormatInfo.getEncodedBits(errorCorrectionLevel, maskPattern);
+      let i, mod;
+      for (i = 0; i < 15; i++) {
+        mod = (bits >> i & 1) === 1;
+        if (i < 6) {
+          matrix.set(i, 8, mod, true);
+        } else if (i < 8) {
+          matrix.set(i + 1, 8, mod, true);
+        } else {
+          matrix.set(size - 15 + i, 8, mod, true);
+        }
+        if (i < 8) {
+          matrix.set(8, size - i - 1, mod, true);
+        } else if (i < 9) {
+          matrix.set(8, 15 - i - 1 + 1, mod, true);
+        } else {
+          matrix.set(8, 15 - i - 1, mod, true);
+        }
+      }
+      matrix.set(size - 8, 8, 1, true);
+    }
+    function setupData(matrix, data) {
+      const size = matrix.size;
+      let inc = -1;
+      let row = size - 1;
+      let bitIndex = 7;
+      let byteIndex = 0;
+      for (let col = size - 1; col > 0; col -= 2) {
+        if (col === 6) col--;
+        while (true) {
+          for (let c = 0; c < 2; c++) {
+            if (!matrix.isReserved(row, col - c)) {
+              let dark = false;
+              if (byteIndex < data.length) {
+                dark = (data[byteIndex] >>> bitIndex & 1) === 1;
+              }
+              matrix.set(row, col - c, dark);
+              bitIndex--;
+              if (bitIndex === -1) {
+                byteIndex++;
+                bitIndex = 7;
+              }
+            }
+          }
+          row += inc;
+          if (row < 0 || size <= row) {
+            row -= inc;
+            inc = -inc;
+            break;
+          }
+        }
+      }
+    }
+    function createData(version5, errorCorrectionLevel, segments) {
+      const buffer = new BitBuffer();
+      segments.forEach(function(data) {
+        buffer.put(data.mode.bit, 4);
+        buffer.put(data.getLength(), Mode.getCharCountIndicator(data.mode, version5));
+        data.write(buffer);
+      });
+      const totalCodewords = Utils.getSymbolTotalCodewords(version5);
+      const ecTotalCodewords = ECCode.getTotalCodewordsCount(version5, errorCorrectionLevel);
+      const dataTotalCodewordsBits = (totalCodewords - ecTotalCodewords) * 8;
+      if (buffer.getLengthInBits() + 4 <= dataTotalCodewordsBits) {
+        buffer.put(0, 4);
+      }
+      while (buffer.getLengthInBits() % 8 !== 0) {
+        buffer.putBit(0);
+      }
+      const remainingByte = (dataTotalCodewordsBits - buffer.getLengthInBits()) / 8;
+      for (let i = 0; i < remainingByte; i++) {
+        buffer.put(i % 2 ? 17 : 236, 8);
+      }
+      return createCodewords(buffer, version5, errorCorrectionLevel);
+    }
+    function createCodewords(bitBuffer, version5, errorCorrectionLevel) {
+      const totalCodewords = Utils.getSymbolTotalCodewords(version5);
+      const ecTotalCodewords = ECCode.getTotalCodewordsCount(version5, errorCorrectionLevel);
+      const dataTotalCodewords = totalCodewords - ecTotalCodewords;
+      const ecTotalBlocks = ECCode.getBlocksCount(version5, errorCorrectionLevel);
+      const blocksInGroup2 = totalCodewords % ecTotalBlocks;
+      const blocksInGroup1 = ecTotalBlocks - blocksInGroup2;
+      const totalCodewordsInGroup1 = Math.floor(totalCodewords / ecTotalBlocks);
+      const dataCodewordsInGroup1 = Math.floor(dataTotalCodewords / ecTotalBlocks);
+      const dataCodewordsInGroup2 = dataCodewordsInGroup1 + 1;
+      const ecCount = totalCodewordsInGroup1 - dataCodewordsInGroup1;
+      const rs = new ReedSolomonEncoder(ecCount);
+      let offset = 0;
+      const dcData = new Array(ecTotalBlocks);
+      const ecData = new Array(ecTotalBlocks);
+      let maxDataSize = 0;
+      const buffer = new Uint8Array(bitBuffer.buffer);
+      for (let b = 0; b < ecTotalBlocks; b++) {
+        const dataSize = b < blocksInGroup1 ? dataCodewordsInGroup1 : dataCodewordsInGroup2;
+        dcData[b] = buffer.slice(offset, offset + dataSize);
+        ecData[b] = rs.encode(dcData[b]);
+        offset += dataSize;
+        maxDataSize = Math.max(maxDataSize, dataSize);
+      }
+      const data = new Uint8Array(totalCodewords);
+      let index = 0;
+      let i, r;
+      for (i = 0; i < maxDataSize; i++) {
+        for (r = 0; r < ecTotalBlocks; r++) {
+          if (i < dcData[r].length) {
+            data[index++] = dcData[r][i];
+          }
+        }
+      }
+      for (i = 0; i < ecCount; i++) {
+        for (r = 0; r < ecTotalBlocks; r++) {
+          data[index++] = ecData[r][i];
+        }
+      }
+      return data;
+    }
+    function createSymbol(data, version5, errorCorrectionLevel, maskPattern) {
+      let segments;
+      if (Array.isArray(data)) {
+        segments = Segments.fromArray(data);
+      } else if (typeof data === "string") {
+        let estimatedVersion = version5;
+        if (!estimatedVersion) {
+          const rawSegments = Segments.rawSplit(data);
+          estimatedVersion = Version.getBestVersionForData(rawSegments, errorCorrectionLevel);
+        }
+        segments = Segments.fromString(data, estimatedVersion || 40);
+      } else {
+        throw new Error("Invalid data");
+      }
+      const bestVersion = Version.getBestVersionForData(segments, errorCorrectionLevel);
+      if (!bestVersion) {
+        throw new Error("The amount of data is too big to be stored in a QR Code");
+      }
+      if (!version5) {
+        version5 = bestVersion;
+      } else if (version5 < bestVersion) {
+        throw new Error(
+          "\nThe chosen QR Code version cannot contain this amount of data.\nMinimum version required to store current data is: " + bestVersion + ".\n"
+        );
+      }
+      const dataBits = createData(version5, errorCorrectionLevel, segments);
+      const moduleCount = Utils.getSymbolSize(version5);
+      const modules = new BitMatrix(moduleCount);
+      setupFinderPattern(modules, version5);
+      setupTimingPattern(modules);
+      setupAlignmentPattern(modules, version5);
+      setupFormatInfo(modules, errorCorrectionLevel, 0);
+      if (version5 >= 7) {
+        setupVersionInfo(modules, version5);
+      }
+      setupData(modules, dataBits);
+      if (isNaN(maskPattern)) {
+        maskPattern = MaskPattern.getBestMask(
+          modules,
+          setupFormatInfo.bind(null, modules, errorCorrectionLevel)
+        );
+      }
+      MaskPattern.applyMask(maskPattern, modules);
+      setupFormatInfo(modules, errorCorrectionLevel, maskPattern);
+      return {
+        modules,
+        version: version5,
+        errorCorrectionLevel,
+        maskPattern,
+        segments
+      };
+    }
+    exports.create = function create(data, options) {
+      if (typeof data === "undefined" || data === "") {
+        throw new Error("No input text");
+      }
+      let errorCorrectionLevel = ECLevel.M;
+      let version5;
+      let mask;
+      if (typeof options !== "undefined") {
+        errorCorrectionLevel = ECLevel.from(options.errorCorrectionLevel, ECLevel.M);
+        version5 = Version.from(options.version);
+        mask = MaskPattern.from(options.maskPattern);
+        if (options.toSJISFunc) {
+          Utils.setToSJISFunction(options.toSJISFunc);
+        }
+      }
+      return createSymbol(data, version5, errorCorrectionLevel, mask);
+    };
+  }
+});
+
+// node_modules/qrcode/lib/renderer/utils.js
+var require_utils2 = __commonJS({
+  "node_modules/qrcode/lib/renderer/utils.js"(exports) {
+    function hex2rgba(hex) {
+      if (typeof hex === "number") {
+        hex = hex.toString();
+      }
+      if (typeof hex !== "string") {
+        throw new Error("Color should be defined as hex string");
+      }
+      let hexCode = hex.slice().replace("#", "").split("");
+      if (hexCode.length < 3 || hexCode.length === 5 || hexCode.length > 8) {
+        throw new Error("Invalid hex color: " + hex);
+      }
+      if (hexCode.length === 3 || hexCode.length === 4) {
+        hexCode = Array.prototype.concat.apply([], hexCode.map(function(c) {
+          return [c, c];
+        }));
+      }
+      if (hexCode.length === 6) hexCode.push("F", "F");
+      const hexValue = parseInt(hexCode.join(""), 16);
+      return {
+        r: hexValue >> 24 & 255,
+        g: hexValue >> 16 & 255,
+        b: hexValue >> 8 & 255,
+        a: hexValue & 255,
+        hex: "#" + hexCode.slice(0, 6).join("")
+      };
+    }
+    exports.getOptions = function getOptions(options) {
+      if (!options) options = {};
+      if (!options.color) options.color = {};
+      const margin = typeof options.margin === "undefined" || options.margin === null || options.margin < 0 ? 4 : options.margin;
+      const width = options.width && options.width >= 21 ? options.width : void 0;
+      const scale = options.scale || 4;
+      return {
+        width,
+        scale: width ? 4 : scale,
+        margin,
+        color: {
+          dark: hex2rgba(options.color.dark || "#000000ff"),
+          light: hex2rgba(options.color.light || "#ffffffff")
+        },
+        type: options.type,
+        rendererOpts: options.rendererOpts || {}
+      };
+    };
+    exports.getScale = function getScale(qrSize, opts) {
+      return opts.width && opts.width >= qrSize + opts.margin * 2 ? opts.width / (qrSize + opts.margin * 2) : opts.scale;
+    };
+    exports.getImageWidth = function getImageWidth(qrSize, opts) {
+      const scale = exports.getScale(qrSize, opts);
+      return Math.floor((qrSize + opts.margin * 2) * scale);
+    };
+    exports.qrToImageData = function qrToImageData(imgData, qr, opts) {
+      const size = qr.modules.size;
+      const data = qr.modules.data;
+      const scale = exports.getScale(size, opts);
+      const symbolSize = Math.floor((size + opts.margin * 2) * scale);
+      const scaledMargin = opts.margin * scale;
+      const palette = [opts.color.light, opts.color.dark];
+      for (let i = 0; i < symbolSize; i++) {
+        for (let j = 0; j < symbolSize; j++) {
+          let posDst = (i * symbolSize + j) * 4;
+          let pxColor = opts.color.light;
+          if (i >= scaledMargin && j >= scaledMargin && i < symbolSize - scaledMargin && j < symbolSize - scaledMargin) {
+            const iSrc = Math.floor((i - scaledMargin) / scale);
+            const jSrc = Math.floor((j - scaledMargin) / scale);
+            pxColor = palette[data[iSrc * size + jSrc] ? 1 : 0];
+          }
+          imgData[posDst++] = pxColor.r;
+          imgData[posDst++] = pxColor.g;
+          imgData[posDst++] = pxColor.b;
+          imgData[posDst] = pxColor.a;
+        }
+      }
+    };
+  }
+});
+
+// node_modules/qrcode/lib/renderer/canvas.js
+var require_canvas = __commonJS({
+  "node_modules/qrcode/lib/renderer/canvas.js"(exports) {
+    var Utils = require_utils2();
+    function clearCanvas(ctx, canvas, size) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!canvas.style) canvas.style = {};
+      canvas.height = size;
+      canvas.width = size;
+      canvas.style.height = size + "px";
+      canvas.style.width = size + "px";
+    }
+    function getCanvasElement() {
+      try {
+        return document.createElement("canvas");
+      } catch (e) {
+        throw new Error("You need to specify a canvas element");
+      }
+    }
+    exports.render = function render(qrData, canvas, options) {
+      let opts = options;
+      let canvasEl = canvas;
+      if (typeof opts === "undefined" && (!canvas || !canvas.getContext)) {
+        opts = canvas;
+        canvas = void 0;
+      }
+      if (!canvas) {
+        canvasEl = getCanvasElement();
+      }
+      opts = Utils.getOptions(opts);
+      const size = Utils.getImageWidth(qrData.modules.size, opts);
+      const ctx = canvasEl.getContext("2d");
+      const image = ctx.createImageData(size, size);
+      Utils.qrToImageData(image.data, qrData, opts);
+      clearCanvas(ctx, canvasEl, size);
+      ctx.putImageData(image, 0, 0);
+      return canvasEl;
+    };
+    exports.renderToDataURL = function renderToDataURL(qrData, canvas, options) {
+      let opts = options;
+      if (typeof opts === "undefined" && (!canvas || !canvas.getContext)) {
+        opts = canvas;
+        canvas = void 0;
+      }
+      if (!opts) opts = {};
+      const canvasEl = exports.render(qrData, canvas, opts);
+      const type = opts.type || "image/png";
+      const rendererOpts = opts.rendererOpts || {};
+      return canvasEl.toDataURL(type, rendererOpts.quality);
+    };
+  }
+});
+
+// node_modules/qrcode/lib/renderer/svg-tag.js
+var require_svg_tag = __commonJS({
+  "node_modules/qrcode/lib/renderer/svg-tag.js"(exports) {
+    var Utils = require_utils2();
+    function getColorAttrib(color, attrib) {
+      const alpha = color.a / 255;
+      const str = attrib + '="' + color.hex + '"';
+      return alpha < 1 ? str + " " + attrib + '-opacity="' + alpha.toFixed(2).slice(1) + '"' : str;
+    }
+    function svgCmd(cmd, x, y) {
+      let str = cmd + x;
+      if (typeof y !== "undefined") str += " " + y;
+      return str;
+    }
+    function qrToPath(data, size, margin) {
+      let path = "";
+      let moveBy = 0;
+      let newRow = false;
+      let lineLength = 0;
+      for (let i = 0; i < data.length; i++) {
+        const col = Math.floor(i % size);
+        const row = Math.floor(i / size);
+        if (!col && !newRow) newRow = true;
+        if (data[i]) {
+          lineLength++;
+          if (!(i > 0 && col > 0 && data[i - 1])) {
+            path += newRow ? svgCmd("M", col + margin, 0.5 + row + margin) : svgCmd("m", moveBy, 0);
+            moveBy = 0;
+            newRow = false;
+          }
+          if (!(col + 1 < size && data[i + 1])) {
+            path += svgCmd("h", lineLength);
+            lineLength = 0;
+          }
+        } else {
+          moveBy++;
+        }
+      }
+      return path;
+    }
+    exports.render = function render(qrData, options, cb) {
+      const opts = Utils.getOptions(options);
+      const size = qrData.modules.size;
+      const data = qrData.modules.data;
+      const qrcodesize = size + opts.margin * 2;
+      const bg = !opts.color.light.a ? "" : "<path " + getColorAttrib(opts.color.light, "fill") + ' d="M0 0h' + qrcodesize + "v" + qrcodesize + 'H0z"/>';
+      const path = "<path " + getColorAttrib(opts.color.dark, "stroke") + ' d="' + qrToPath(data, size, opts.margin) + '"/>';
+      const viewBox = 'viewBox="0 0 ' + qrcodesize + " " + qrcodesize + '"';
+      const width = !opts.width ? "" : 'width="' + opts.width + '" height="' + opts.width + '" ';
+      const svgTag = '<svg xmlns="http://www.w3.org/2000/svg" ' + width + viewBox + ' shape-rendering="crispEdges">' + bg + path + "</svg>\n";
+      if (typeof cb === "function") {
+        cb(null, svgTag);
+      }
+      return svgTag;
+    };
+  }
+});
+
+// node_modules/qrcode/lib/browser.js
+var require_browser = __commonJS({
+  "node_modules/qrcode/lib/browser.js"(exports) {
+    var canPromise = require_can_promise();
+    var QRCode2 = require_qrcode();
+    var CanvasRenderer = require_canvas();
+    var SvgRenderer = require_svg_tag();
+    function renderCanvas(renderFunc, canvas, text, opts, cb) {
+      const args = [].slice.call(arguments, 1);
+      const argsNum = args.length;
+      const isLastArgCb = typeof args[argsNum - 1] === "function";
+      if (!isLastArgCb && !canPromise()) {
+        throw new Error("Callback required as last argument");
+      }
+      if (isLastArgCb) {
+        if (argsNum < 2) {
+          throw new Error("Too few arguments provided");
+        }
+        if (argsNum === 2) {
+          cb = text;
+          text = canvas;
+          canvas = opts = void 0;
+        } else if (argsNum === 3) {
+          if (canvas.getContext && typeof cb === "undefined") {
+            cb = opts;
+            opts = void 0;
+          } else {
+            cb = opts;
+            opts = text;
+            text = canvas;
+            canvas = void 0;
+          }
+        }
+      } else {
+        if (argsNum < 1) {
+          throw new Error("Too few arguments provided");
+        }
+        if (argsNum === 1) {
+          text = canvas;
+          canvas = opts = void 0;
+        } else if (argsNum === 2 && !canvas.getContext) {
+          opts = text;
+          text = canvas;
+          canvas = void 0;
+        }
+        return new Promise(function(resolve, reject) {
+          try {
+            const data = QRCode2.create(text, opts);
+            resolve(renderFunc(data, canvas, opts));
+          } catch (e) {
+            reject(e);
+          }
+        });
+      }
+      try {
+        const data = QRCode2.create(text, opts);
+        cb(null, renderFunc(data, canvas, opts));
+      } catch (e) {
+        cb(e);
+      }
+    }
+    exports.create = QRCode2.create;
+    exports.toCanvas = renderCanvas.bind(null, CanvasRenderer.render);
+    exports.toDataURL = renderCanvas.bind(null, CanvasRenderer.renderToDataURL);
+    exports.toString = renderCanvas.bind(null, function(data, _, opts) {
+      return SvgRenderer.render(data, opts);
+    });
+  }
+});
 
 // node_modules/tslib/tslib.es6.mjs
 function __rest(s, e) {
@@ -20002,13 +22108,8 @@ function shouldShowDeprecationWarning() {
 }
 if (shouldShowDeprecationWarning()) console.warn("\u26A0\uFE0F  Node.js 18 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 20 or later. For more information, visit: https://github.com/orgs/supabase/discussions/37217");
 
-// src/logic/constants.js
-var BID_THRESHOLD_MINUTES = 30;
-var WINDOW_SCHOOL_DAYS = 15;
-var MONTHLY_BID_POSTING_MONTHS = [10, 11, 12, 1, 2, 3, 4];
-var BUMP_DECISION_SCHOOL_DAYS = 2;
-var BID_RESPONSE_SCHOOL_DAYS = 2;
-var SEGMENTS = ["AM", "MIDDAY", "PM"];
+// office-tracker/web/auditGenie.js
+var import_qrcode = __toESM(require_browser(), 1);
 
 // src/logic/timeUtils.js
 function parseClockTime(time) {
@@ -20053,6 +22154,13 @@ function computeExactRouteDailyTotalMinutes(segments) {
     total += parseTimeRange(range).durationMinutes;
   }
   return total;
+}
+function roundClockToQuarterHour(clock) {
+  const text = String(clock ?? "").trim();
+  if (!text) return "";
+  const minutes = parseClockTime(text);
+  const snapped = Math.round(minutes / 15) * 15;
+  return formatClockMinutesFromDay(snapped % (24 * 60));
 }
 function formatClockMinutesFromDay(minutesSinceMidnight) {
   const hours = Math.floor(minutesSinceMidnight / 60);
@@ -20217,6 +22325,485 @@ function toDateString(value) {
   return parsed.toISOString().slice(0, 10);
 }
 
+// src/logic/schoolCalendarGenerate.js
+var DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+var WEEKDAY_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday"
+];
+function assertDate(day, label = "date") {
+  if (typeof day !== "string" || !DATE_RE.test(day.trim())) {
+    throw new Error(`Invalid ${label}: ${day}`);
+  }
+  const normalized = day.trim();
+  const parsed = /* @__PURE__ */ new Date(`${normalized}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== normalized) {
+    throw new Error(`Invalid ${label}: ${day}`);
+  }
+  return normalized;
+}
+function utcDate(iso) {
+  return /* @__PURE__ */ new Date(`${iso}T00:00:00.000Z`);
+}
+function isoFromUtc(d) {
+  return d.toISOString().slice(0, 10);
+}
+function dayOfWeekName(iso) {
+  return WEEKDAY_NAMES[utcDate(iso).getUTCDay()];
+}
+function defaultCoverageWindow(firstDay, lastDay) {
+  const first = utcDate(firstDay);
+  const last = utcDate(lastDay);
+  const firstYear = first.getUTCFullYear();
+  const lastYear = last.getUTCFullYear();
+  const coverage_start = first.getUTCMonth() >= 6 ? `${firstYear}-07-01` : `${firstYear - 1}-07-01`;
+  const coverage_end = last.getUTCMonth() <= 5 ? `${lastYear}-06-30` : `${lastYear + 1}-06-30`;
+  if (coverage_end < coverage_start) {
+    throw new Error("Computed coverage window is inverted \u2014 check first/last day.");
+  }
+  return {
+    coverage_start,
+    coverage_end,
+    boundary_rule: "July 1 on or before first day of school through June 30 on or after last day of school (matches district year files). Outside that window is not generated."
+  };
+}
+function validateGenerateSchoolYearInput(input) {
+  if (!input || typeof input !== "object") {
+    throw new Error("Generation input is required.");
+  }
+  const first_day = assertDate(input.first_day, "first day of school");
+  const last_day = assertDate(input.last_day, "last day of school");
+  if (last_day < first_day) {
+    throw new Error("Last day of school must be on or after the first day.");
+  }
+  const breaks = [];
+  for (const raw of input.breaks ?? []) {
+    if (!raw || typeof raw !== "object") {
+      throw new Error("Each break must be an object with start and end.");
+    }
+    const start = assertDate(raw.start, "break start");
+    const end = assertDate(raw.end, "break end");
+    if (end < start) {
+      throw new Error(`Break end ${end} is before start ${start}.`);
+    }
+    breaks.push({
+      start,
+      end,
+      label: typeof raw.label === "string" ? raw.label.trim() : ""
+    });
+  }
+  const holidays = [];
+  const holidaySeen = /* @__PURE__ */ new Set();
+  for (const raw of input.holidays ?? []) {
+    if (!raw || typeof raw !== "object") {
+      throw new Error("Each holiday must be an object with date.");
+    }
+    const date = assertDate(raw.date, "holiday date");
+    if (holidaySeen.has(date)) {
+      throw new Error(`Duplicate holiday date: ${date}`);
+    }
+    holidaySeen.add(date);
+    holidays.push({
+      date,
+      label: typeof raw.label === "string" ? raw.label.trim() : ""
+    });
+  }
+  let school_year = null;
+  if (input.school_year != null && String(input.school_year).trim()) {
+    school_year = String(input.school_year).trim();
+  } else {
+    const startY = utcDate(first_day).getUTCFullYear();
+    const endY = utcDate(last_day).getUTCFullYear();
+    school_year = startY === endY ? String(startY) : `${startY}-${String(endY).slice(-2)}`;
+  }
+  return { first_day, last_day, breaks, holidays, school_year };
+}
+function generateSchoolYearCalendar(rawInput) {
+  const input = validateGenerateSchoolYearInput(rawInput);
+  const coverage = defaultCoverageWindow(input.first_day, input.last_day);
+  const holidayByDate = new Map(
+    input.holidays.map((h) => [h.date, { label: h.label || "Holiday" }])
+  );
+  const days = [];
+  let cursor = utcDate(coverage.coverage_start);
+  const end = utcDate(coverage.coverage_end);
+  let school_day_count = 0;
+  let weekend_count = 0;
+  let break_day_count = 0;
+  let holiday_day_count = 0;
+  let summer_day_count = 0;
+  while (cursor <= end) {
+    const date = isoFromUtc(cursor);
+    const dow = cursor.getUTCDay();
+    const day_of_week = dayOfWeekName(date);
+    const inSchoolYear = date >= input.first_day && date <= input.last_day;
+    let entry;
+    if (!inSchoolYear) {
+      entry = {
+        date,
+        day_of_week,
+        is_school_day: false,
+        reason: "Outside school year (summer)"
+      };
+      summer_day_count += 1;
+    } else if (dow === 0 || dow === 6) {
+      entry = {
+        date,
+        day_of_week,
+        is_school_day: false,
+        reason: "Weekend"
+      };
+      weekend_count += 1;
+    } else {
+      const holiday = holidayByDate.get(date);
+      const breakHit = input.breaks.find((b) => date >= b.start && date <= b.end);
+      if (holiday) {
+        entry = {
+          date,
+          day_of_week,
+          is_school_day: false,
+          reason: holiday.label
+        };
+        holiday_day_count += 1;
+      } else if (breakHit) {
+        entry = {
+          date,
+          day_of_week,
+          is_school_day: false,
+          reason: breakHit.label || "Break"
+        };
+        break_day_count += 1;
+      } else {
+        entry = {
+          date,
+          day_of_week,
+          is_school_day: true,
+          reason: ""
+        };
+        school_day_count += 1;
+      }
+    }
+    days.push(entry);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  const school_days = days.filter((d) => d.is_school_day).map((d) => d.date);
+  return {
+    calendar: {
+      school_year: input.school_year,
+      coverage_start: coverage.coverage_start,
+      coverage_end: coverage.coverage_end,
+      days,
+      school_days
+    },
+    summary: {
+      first_day: input.first_day,
+      last_day: input.last_day,
+      school_day_count,
+      weekend_count,
+      break_day_count,
+      holiday_day_count,
+      summer_day_count,
+      civil_day_count: days.length,
+      breaks_applied: input.breaks.map((b) => ({
+        start: b.start,
+        end: b.end,
+        label: b.label || "Break"
+      })),
+      holidays_applied: input.holidays.map((h) => ({
+        date: h.date,
+        label: h.label || "Holiday"
+      }))
+    },
+    coverage_boundary: coverage
+  };
+}
+
+// employee-tracker/src/bellinghamCalendar2026.js
+var BELLINGHAM_2026_2027_SOURCE = {
+  name: "Bellingham Public Schools",
+  school_year: "2026-2027",
+  document: "2026-27 District Calendar",
+  url: "https://www.bellinghamschools.org/calendar"
+};
+var BELLINGHAM_2026_2027_INPUT = {
+  school_year: "2026-2027",
+  first_day: "2026-08-31",
+  last_day: "2027-06-11",
+  breaks: [
+    { start: "2026-09-18", end: "2026-09-18", label: "Teacher workday" },
+    { start: "2026-12-21", end: "2027-01-01", label: "Winter break" },
+    { start: "2027-01-22", end: "2027-01-22", label: "Treaty Day" },
+    { start: "2027-01-25", end: "2027-01-25", label: "Semester break" },
+    { start: "2027-04-05", end: "2027-04-09", label: "Spring break" },
+    { start: "2027-05-21", end: "2027-05-21", label: "No school or weather makeup day" }
+  ],
+  holidays: [
+    { date: "2026-09-07", label: "Labor Day" },
+    { date: "2026-11-11", label: "Veterans Day" },
+    { date: "2026-11-26", label: "Thanksgiving" },
+    { date: "2026-11-27", label: "Thanksgiving" },
+    { date: "2027-01-18", label: "Martin Luther King Jr. Day" },
+    { date: "2027-02-15", label: "Presidents Day" },
+    { date: "2027-05-31", label: "Memorial Day" },
+    { date: "2027-06-18", label: "Juneteenth" }
+  ]
+};
+function buildBellingham2026_2027Calendar() {
+  const { calendar, summary } = generateSchoolYearCalendar(BELLINGHAM_2026_2027_INPUT);
+  return {
+    calendar: {
+      ...calendar,
+      district: BELLINGHAM_2026_2027_SOURCE.name,
+      source_document: BELLINGHAM_2026_2027_SOURCE.document
+    },
+    summary,
+    source: BELLINGHAM_2026_2027_SOURCE
+  };
+}
+
+// src/logic/earlyRelease.js
+var EARLY_RELEASE_EXTRA_DATES = ["2027-06-11"];
+
+// src/logic/schoolYear.js
+var LABEL_MAX = 80;
+var YEAR_LABEL_MAX = 40;
+var MONTHS = {
+  jan: 1,
+  january: 1,
+  feb: 2,
+  february: 2,
+  mar: 3,
+  march: 3,
+  apr: 4,
+  april: 4,
+  may: 5,
+  jun: 6,
+  june: 6,
+  jul: 7,
+  july: 7,
+  aug: 8,
+  august: 8,
+  sep: 9,
+  sept: 9,
+  september: 9,
+  oct: 10,
+  october: 10,
+  nov: 11,
+  november: 11,
+  dec: 12,
+  december: 12
+};
+function isoFromParts(year, month, day) {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return "";
+  let fullYear = year;
+  if (fullYear < 100) fullYear += 2e3;
+  if (fullYear < 2e3 || fullYear > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return "";
+  const iso = `${fullYear}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const parsed = /* @__PURE__ */ new Date(`${iso}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== iso) return "";
+  return iso;
+}
+function takeDate(text) {
+  const source = String(text ?? "").trim();
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})\b/.exec(source);
+  if (isoMatch) {
+    const iso = isoFromParts(Number(isoMatch[1]), Number(isoMatch[2]), Number(isoMatch[3]));
+    if (!iso) return null;
+    return { iso, rest: source.slice(isoMatch[0].length).trim() };
+  }
+  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/.exec(source);
+  if (slash) {
+    const iso = isoFromParts(Number(slash[3]), Number(slash[1]), Number(slash[2]));
+    if (!iso) return null;
+    return { iso, rest: source.slice(slash[0].length).trim() };
+  }
+  const named = /^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})\b/.exec(source);
+  if (named) {
+    const month = MONTHS[named[1].toLowerCase()];
+    if (!month) return null;
+    const iso = isoFromParts(Number(named[3]), month, Number(named[2]));
+    if (!iso) return null;
+    return { iso, rest: source.slice(named[0].length).trim() };
+  }
+  return null;
+}
+function eachDate(start, end) {
+  const dates = [];
+  const cursor = /* @__PURE__ */ new Date(`${start}T00:00:00.000Z`);
+  const last = /* @__PURE__ */ new Date(`${end}T00:00:00.000Z`);
+  while (cursor <= last) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+function yearLabel(startYear, endYear) {
+  return startYear === endYear ? String(startYear) : `${startYear}-${endYear}`;
+}
+function builtinSchoolYear() {
+  const year = normalizeSchoolYear({
+    school_year: BELLINGHAM_2026_2027_INPUT.school_year,
+    first_day: BELLINGHAM_2026_2027_INPUT.first_day,
+    last_day: BELLINGHAM_2026_2027_INPUT.last_day,
+    holidays: BELLINGHAM_2026_2027_INPUT.holidays,
+    breaks: BELLINGHAM_2026_2027_INPUT.breaks,
+    no_school: [],
+    early_release: EARLY_RELEASE_EXTRA_DATES.map((date) => ({ date, label: "" })),
+    early_release_thursdays: true
+  });
+  if (!year) throw new Error("The built-in school year is unreadable.");
+  return year;
+}
+function cleanLabel(raw) {
+  return String(raw ?? "").trim().replace(/\s+/g, " ").slice(0, LABEL_MAX);
+}
+function normalizeSchoolYear(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const source = raw;
+  const first = takeDate(String(source.first_day ?? ""));
+  const last = takeDate(String(source.last_day ?? ""));
+  if (!first || first.rest || !last || last.rest || last.iso < first.iso) return null;
+  const bounds = defaultCoverageWindow(first.iso, last.iso);
+  const holidays = [];
+  const breaks = [];
+  const noSchool = [];
+  const early = [];
+  const seen = /* @__PURE__ */ new Set();
+  const addDay = (date, label, bucket) => {
+    const parsed = takeDate(String(date ?? ""));
+    if (!parsed || parsed.rest || parsed.iso < bounds.coverage_start || parsed.iso > bounds.coverage_end || seen.has(parsed.iso)) {
+      return;
+    }
+    seen.add(parsed.iso);
+    bucket.push({ date: parsed.iso, label: cleanLabel(label) });
+  };
+  for (const item of Array.isArray(source.holidays) ? source.holidays : []) {
+    if (!item || typeof item !== "object") continue;
+    addDay(item.date, item.label, holidays);
+  }
+  for (const item of Array.isArray(source.breaks) ? source.breaks : []) {
+    if (!item || typeof item !== "object") continue;
+    const start = takeDate(String(item.start ?? ""));
+    const end = takeDate(String(item.end ?? ""));
+    if (!start || start.rest || !end || end.rest || end.iso < start.iso) continue;
+    if (start.iso < bounds.coverage_start || end.iso > bounds.coverage_end) continue;
+    const covered = eachDate(start.iso, end.iso);
+    if (covered.some((date) => seen.has(date))) continue;
+    for (const date of covered) seen.add(date);
+    breaks.push({ start: start.iso, end: end.iso, label: cleanLabel(item.label) });
+  }
+  for (const item of Array.isArray(source.no_school) ? source.no_school : []) {
+    if (!item || typeof item !== "object") continue;
+    addDay(item.date, item.label, noSchool);
+  }
+  for (const item of Array.isArray(source.early_release) ? source.early_release : []) {
+    if (typeof item === "string") addDay(item, "", early);
+    else if (item && typeof item === "object") addDay(item.date, item.label, early);
+  }
+  const startYear = Number(first.iso.slice(0, 4));
+  const endYear = Number(last.iso.slice(0, 4));
+  const written = String(source.school_year ?? "").trim().replace(/\s+/g, " ");
+  return {
+    school_year: written && written.length <= YEAR_LABEL_MAX ? written : yearLabel(startYear, endYear),
+    first_day: first.iso,
+    last_day: last.iso,
+    holidays: holidays.sort((a, b) => a.date.localeCompare(b.date)),
+    breaks: breaks.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end)),
+    no_school: noSchool.sort((a, b) => a.date.localeCompare(b.date)),
+    early_release: early.sort((a, b) => a.date.localeCompare(b.date)),
+    early_release_thursdays: source.early_release_thursdays === true
+  };
+}
+function savedSchoolYear(state) {
+  if (!state || typeof state !== "object") return null;
+  return normalizeSchoolYear(state.schoolYear);
+}
+function holidayListForState(state) {
+  const year = savedSchoolYear(state) || builtinSchoolYear();
+  return (year?.holidays || []).map((item) => ({ date: item.date, label: item.label }));
+}
+function schoolYearGeneration(year) {
+  const current = normalizeSchoolYear(year);
+  if (!current) throw new Error("Enter a school year first.");
+  return generateSchoolYearCalendar({
+    school_year: current.school_year,
+    first_day: current.first_day,
+    last_day: current.last_day,
+    holidays: current.holidays,
+    breaks: [
+      ...current.breaks,
+      ...current.no_school.map((day) => ({
+        start: day.date,
+        end: day.date,
+        label: day.label || "No school"
+      }))
+    ]
+  });
+}
+
+// office-tracker/src/driverPay.js
+var DEFAULT_PAY_LINES = [
+  {
+    id: "reg-driver",
+    label: "REG DRIVER",
+    otFactor: 0,
+    fillsFromClock: true
+  },
+  {
+    id: "ot-trainer",
+    label: "OT DR TRAINER",
+    otFactor: 1.5,
+    fillsFromClock: false
+  },
+  {
+    id: "ex-trainer",
+    label: "EX DR TRAINER",
+    otFactor: 1.5,
+    fillsFromClock: false
+  },
+  {
+    id: "ex-driver",
+    label: "EX DRIVER",
+    otFactor: 0,
+    fillsFromClock: false
+  }
+];
+var BUILTIN_LINE_IDS = new Set(DEFAULT_PAY_LINES.map((line) => line.id));
+
+// office-tracker/src/auditPayPeriods.js
+function parseCardPeriodEnd(value) {
+  const text = String(value ?? "").trim().replace(/[\u2044\u2215\uFF0F]/g, "/").replace(/[\u2013\u2014\u2212]/g, "-");
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    const year2 = Number(iso[1]);
+    const month2 = Number(iso[2]);
+    const day2 = Number(iso[3]);
+    const date2 = new Date(year2, month2 - 1, day2);
+    if (date2.getFullYear() !== year2 || date2.getMonth() !== month2 - 1 || date2.getDate() !== day2) return null;
+    return isoFromDate(date2);
+  }
+  const match = text.match(/\b(\d{1,2})\s*[\/-]\s*(\d{1,2})\s*[\/-]\s*(\d{2}|\d{4})\b/);
+  if (!match) return null;
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  let year = Number(match[3]);
+  if (year < 100) year = year >= 70 ? 1900 + year : 2e3 + year;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  return isoFromDate(date);
+}
+function isoFromDate(date) {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
 // src/logic/calendar.js
 function getSchoolDays(calendarOrDays) {
   if (Array.isArray(calendarOrDays)) {
@@ -20307,6 +22894,239 @@ function previousCalendarDate(date) {
 function nextCalendarDate(date) {
   return shiftCalendarDate(date, 1);
 }
+
+// src/logic/timesheets.js
+function localDateKey(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+// office-tracker/src/timesheetPrompt.js
+var FRONT_SLOT_COUNT = 13;
+var BACK_SLOT_COUNT = 15;
+var EXTRACTION_SYSTEM = `You read one side of a blue paper timecard.
+
+Read only the far-right "Clock Record" column.
+A slot is one Clock Record block between bold horizontal lines. Each slot has two stamp rows (top then bottom).
+Count the slots: front has ${FRONT_SLOT_COUNT}, back has ${BACK_SLOT_COUNT}.
+
+For each slot return:
+- null \u2014 empty
+- "HANDWRITING" \u2014 handwritten clock times (not a machine stamp)
+- "illegible" \u2014 struck through, blurry, cut off, or not clearly legible
+- ["MAR 9 PM 2:00", "MAR 9 PM 5:15"] \u2014 stamps top to bottom, exactly as written
+A stamp string may also be "HANDWRITING" or "illegible" when only that row is handwritten or unreadable.
+
+Never guess or invent a stamp. If any clock time is not clearly legible, return "illegible" for that stamp or slot.
+Do not read the header sticker, Description of Work, Hours, Tot. Hrs., or Out/In labels.
+Do not write notes, caveats, commentary, or explanations.
+Return only the slots array for this one photo.`;
+
+// office-tracker/src/timesheetNormalize.js
+var ILLEGIBLE = "illegible";
+var HANDWRITING = "HANDWRITING";
+var MONTHS2 = {
+  jan: 0,
+  feb: 1,
+  mar: 2,
+  apr: 3,
+  may: 4,
+  jun: 5,
+  jul: 6,
+  aug: 7,
+  sep: 8,
+  oct: 9,
+  nov: 10,
+  dec: 11
+};
+function isHandwritingToken(value) {
+  return String(value ?? "").trim().toUpperCase() === HANDWRITING;
+}
+function inferDefaultYear(dateOnCard) {
+  if (dateOnCard) {
+    const text = String(dateOnCard);
+    const full = text.match(/\b(19|20)\d{2}\b/);
+    if (full) return parseInt(full[0], 10);
+    const slash = text.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{2})\b/);
+    if (slash) {
+      const year = parseInt(slash[3], 10);
+      return year >= 70 ? 1900 + year : 2e3 + year;
+    }
+  }
+  return (/* @__PURE__ */ new Date()).getFullYear();
+}
+function parseStampParts(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) {
+    return { month: "", day: "", period: "", time: "", illegible: false, handwriting: false };
+  }
+  if (isHandwritingToken(text)) {
+    return { month: "", day: "", period: "", time: "", illegible: false, handwriting: true };
+  }
+  if (/^illegible$/i.test(text) || /^redacted$/i.test(text)) {
+    return { month: "", day: "", period: "", time: "", illegible: true, handwriting: false };
+  }
+  let match = text.match(
+    /^([A-Za-z]{3})\s+(\d{1,2})\s+(AM|PM)\s+(\d{1,2}:\d{2}(?::\d{2})?)\s*$/i
+  );
+  if (match) {
+    return {
+      month: match[1].toLowerCase(),
+      day: String(parseInt(match[2], 10)),
+      period: match[3].toUpperCase(),
+      time: stripSeconds(match[4]),
+      illegible: false,
+      handwriting: false
+    };
+  }
+  match = text.match(
+    /^([A-Za-z]{3})\s+(\d{1,2})\s+(\d{1,2}:\d{2}(?::\d{2})?)\s*(AM|PM)\s*$/i
+  );
+  if (match) {
+    return {
+      month: match[1].toLowerCase(),
+      day: String(parseInt(match[2], 10)),
+      period: match[4].toUpperCase(),
+      time: stripSeconds(match[3]),
+      illegible: false,
+      handwriting: false
+    };
+  }
+  return { month: text.toLowerCase(), day: "", period: "", time: "", illegible: false, handwriting: false };
+}
+function formatStampParts(parts) {
+  if (parts?.handwriting) return HANDWRITING;
+  if (parts?.illegible) return ILLEGIBLE;
+  const month = String(parts?.month ?? "").trim();
+  const day = String(parts?.day ?? "").trim();
+  const period = String(parts?.period ?? "").trim().toUpperCase();
+  const time = String(parts?.time ?? "").trim();
+  if (!month && !day && !period && !time) return null;
+  if (month && day && period && time) {
+    return `${month.toUpperCase()} ${day} ${period} ${time}`;
+  }
+  return [month.toUpperCase(), day, period, time].filter(Boolean).join(" ");
+}
+function stripSeconds(time) {
+  const text = String(time ?? "").trim();
+  const match = text.match(/^(\d{1,2}:\d{2})(?::\d{2})?$/);
+  return match ? match[1] : text;
+}
+function parseLegacyStampToDate(raw, defaultYear) {
+  const text = String(raw ?? "").trim();
+  if (!text) return null;
+  const wall = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (wall) {
+    return new Date(
+      Number(wall[1]),
+      Number(wall[2]) - 1,
+      Number(wall[3]),
+      Number(wall[4]),
+      Number(wall[5]),
+      0,
+      0
+    );
+  }
+  let match = text.match(
+    /^([A-Za-z]{3})\s+(\d{1,2})\s+(AM|PM)\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*$/i
+  );
+  if (match) return dateFromCardParts(match[1], match[2], match[4], match[5], match[3], defaultYear);
+  match = text.match(
+    /^([A-Za-z]{3})\s+(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)\s*$/i
+  );
+  if (match) return dateFromCardParts(match[1], match[2], match[3], match[4], match[6], defaultYear);
+  match = text.match(/^([A-Za-z]{3})\s+(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*$/i);
+  if (match) {
+    const month = MONTHS2[match[1].toLowerCase()];
+    if (month === void 0) return null;
+    const hour = parseInt(match[3], 10);
+    const minute = parseInt(match[4], 10);
+    if (hour > 23 || minute > 59) return null;
+    return new Date(defaultYear, month, parseInt(match[2], 10), hour, minute, 0, 0);
+  }
+  return null;
+}
+function dateFromCardParts(monthName, dayText, hourText, minuteText, ampm, defaultYear) {
+  const month = MONTHS2[String(monthName).toLowerCase()];
+  if (month === void 0) return null;
+  let hour = parseInt(hourText, 10);
+  const minute = parseInt(minuteText, 10);
+  if (hour < 1 || hour > 12 || minute > 59) return null;
+  const isPm = String(ampm).toUpperCase() === "PM";
+  if (isPm && hour !== 12) hour += 12;
+  if (!isPm && hour === 12) hour = 0;
+  return new Date(defaultYear, month, parseInt(dayText, 10), hour, minute, 0, 0);
+}
+
+// employee-tracker/src/clockTimes.js
+function normalizeClockTime(time) {
+  const minutes = parseClockTime(String(time ?? "").trim());
+  return formatClockMinutes(minutes);
+}
+function formatClockMinutes(minutesSinceMidnight) {
+  if (typeof minutesSinceMidnight !== "number" || Number.isNaN(minutesSinceMidnight) || minutesSinceMidnight < 0 || minutesSinceMidnight >= 24 * 60) {
+    throw new Error(`Invalid minutes value: ${minutesSinceMidnight}`);
+  }
+  const hours = Math.floor(minutesSinceMidnight / 60);
+  const minutes = minutesSinceMidnight % 60;
+  return `${hours}:${String(minutes).padStart(2, "0")}`;
+}
+function splitSegmentRange(range) {
+  if (!range || !String(range).trim()) {
+    return null;
+  }
+  try {
+    const parsed = parseTimeRange(range);
+    return {
+      clock_in: formatClockMinutes(parsed.startMinutes),
+      clock_out: formatClockMinutes(parsed.endMinutes),
+      range: `${formatClockMinutes(parsed.startMinutes)}-${formatClockMinutes(parsed.endMinutes)}`,
+      duration_minutes: parsed.durationMinutes
+    };
+  } catch {
+    return null;
+  }
+}
+function formatDurationLabel(minutes) {
+  if (typeof minutes !== "number" || Number.isNaN(minutes)) {
+    return "\u2014";
+  }
+  const sign = minutes < 0 ? "\u2212" : "";
+  const abs = Math.abs(minutes);
+  const hours = Math.floor(abs / 60);
+  const mins = abs % 60;
+  if (hours === 0) {
+    return `${sign}${mins} min`;
+  }
+  if (mins === 0) {
+    return `${sign}${hours} hr`;
+  }
+  return `${sign}${hours} hr ${mins} min`;
+}
+function dayAfter(iso) {
+  const parsed = /* @__PURE__ */ new Date(`${iso}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`Invalid date: ${iso}`);
+  }
+  parsed.setUTCDate(parsed.getUTCDate() + 1);
+  return parsed.toISOString().slice(0, 10);
+}
+function localDateString(date = /* @__PURE__ */ new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+// src/logic/constants.js
+var BID_THRESHOLD_MINUTES = 30;
+var WINDOW_SCHOOL_DAYS = 15;
+var MONTHLY_BID_POSTING_MONTHS = [10, 11, 12, 1, 2, 3, 4];
+var BUMP_DECISION_SCHOOL_DAYS = 2;
+var BID_RESPONSE_SCHOOL_DAYS = 2;
+var SEGMENTS = ["AM", "MIDDAY", "PM"];
 
 // src/logic/createId.js
 function createId() {
@@ -20771,14 +23591,14 @@ function applyWindowExpiration(routeState, asOfDate, options = {}) {
   const closedOn = nextCalendarDate(state.window_expires_date);
   if (options.changeLog && options.routeId) {
     const effectiveDeltas = options.effectiveDeltas ?? resolveEffectiveDeltas(options.changeLog);
-    const byId = /* @__PURE__ */ new Map();
+    const byId2 = /* @__PURE__ */ new Map();
     for (const entry of options.changeLog) {
       if (isChangeEvent(entry)) {
-        byId.set(entry.id, entry);
+        byId2.set(entry.id, entry);
       }
     }
     const contributing_changes = state.contributing_change_ids.map((id) => {
-      const change = byId.get(id);
+      const change = byId2.get(id);
       if (!change) return null;
       return {
         ...change,
@@ -20899,12 +23719,12 @@ function forcesAnyContract(changeEvent) {
 function windowHasForcedContract(state, options = {}) {
   const ids = state?.contributing_change_ids || [];
   if (!ids.length) return false;
-  const byId = /* @__PURE__ */ new Map();
+  const byId2 = /* @__PURE__ */ new Map();
   for (const entry of options.changeLog || []) {
-    if (entry?.id) byId.set(entry.id, entry);
+    if (entry?.id) byId2.set(entry.id, entry);
   }
   for (const id of ids) {
-    if (forcesAnyContract(byId.get(id))) return true;
+    if (forcesAnyContract(byId2.get(id))) return true;
   }
   return false;
 }
@@ -21485,8 +24305,8 @@ function scheduleChangeKindLines(row) {
   if (cumulative) lines.push(`Cumulative change \xB7 ${cumulative}`);
   return lines;
 }
-function scheduleChangeKindHtml(row, escapeHtml2) {
-  const escape = typeof escapeHtml2 === "function" ? escapeHtml2 : (value) => String(value ?? "");
+function scheduleChangeKindHtml(row, escapeHtml3) {
+  const escape = typeof escapeHtml3 === "function" ? escapeHtml3 : (value) => String(value ?? "");
   return scheduleChangeKindLines(row).map((line) => `<span class="row-kind">${escape(line)}</span>`).join("");
 }
 function clockHistoryLabel(row) {
@@ -21636,10 +24456,10 @@ function changeHoverFlags(row) {
     cumulativeLabel: applies ? row.cumulative_drift_label : null
   };
 }
-function historyMark(toneIndex, tone, label, flags = {}) {
+function historyMark(toneIndex, tone2, label, flags = {}) {
   return {
     toneIndex,
-    tone,
+    tone: tone2,
     label,
     isChange: flags.isChange ?? false,
     cumulativeLabel: flags.cumulativeLabel ?? null,
@@ -21684,12 +24504,12 @@ function copyMarkFlags(mark, overrides = {}) {
     ...overrides
   };
 }
-function paintResultDay(marks, day, result, toneIndex, tone, label, hover) {
+function paintResultDay(marks, day, result, toneIndex, tone2, label, hover) {
   if (!day || !result) return;
   const existing = marks.get(day);
   const entry = {
     result,
-    tone,
+    tone: tone2,
     toneIndex,
     label,
     sourceIndex: hover.sourceIndex
@@ -21698,7 +24518,7 @@ function paintResultDay(marks, day, result, toneIndex, tone, label, hover) {
     const extras = [...existing.extraResults || []].filter(
       (item) => item.sourceIndex !== entry.sourceIndex
     );
-    if (existing.result !== result || existing.resultTone !== tone) {
+    if (existing.result !== result || existing.resultTone !== tone2) {
       extras.push(entry);
       marks.set(
         day,
@@ -21711,22 +24531,22 @@ function paintResultDay(marks, day, result, toneIndex, tone, label, hover) {
   }
   marks.set(
     day,
-    historyMark(toneIndex, tone, label, {
+    historyMark(toneIndex, tone2, label, {
       ...existing ? copyMarkFlags(existing, {
         result,
-        resultTone: tone,
+        resultTone: tone2,
         extraResults: existing.extraResults ?? null
       }) : {
         ...hover,
         established: false,
         result,
-        resultTone: tone,
+        resultTone: tone2,
         extraResults: null
       }
     })
   );
 }
-function paintWindowDays(marks, fifteen, nextDate, toneIndex, tone, label, hover, { asExtra = false } = {}) {
+function paintWindowDays(marks, fifteen, nextDate, toneIndex, tone2, label, hover, { asExtra = false } = {}) {
   let windowDay = 0;
   for (const day of fifteen) {
     if (nextDate && day >= nextDate) break;
@@ -21734,7 +24554,7 @@ function paintWindowDays(marks, fifteen, nextDate, toneIndex, tone, label, hover
     const existing = marks.get(day);
     const entry = {
       toneIndex,
-      tone,
+      tone: tone2,
       label,
       windowDay,
       sourceIndex: hover.sourceIndex
@@ -21758,7 +24578,7 @@ function paintWindowDays(marks, fifteen, nextDate, toneIndex, tone, label, hover
         historyMark(existing.toneIndex, existing.tone, existing.label, copyMarkFlags(existing, {
           window: true,
           windowDay,
-          windowTone: tone,
+          windowTone: tone2,
           extraWindows: existing.extraWindows ?? null
         }))
       );
@@ -21766,12 +24586,12 @@ function paintWindowDays(marks, fifteen, nextDate, toneIndex, tone, label, hover
     }
     marks.set(
       day,
-      historyMark(toneIndex, tone, label, {
+      historyMark(toneIndex, tone2, label, {
         ...hover,
         established: existing?.established ?? false,
         window: true,
         windowDay,
-        windowTone: tone,
+        windowTone: tone2,
         extraWindows: null
       })
     );
@@ -21785,7 +24605,7 @@ function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY_TONES 
   list.forEach((row, index) => {
     if (!row?.date) return;
     const toneIndex = index % palette.length;
-    const tone = palette[toneIndex];
+    const tone2 = palette[toneIndex];
     const label = clockHistoryLabel(row);
     const hover = { ...changeHoverFlags(row), sourceIndex: index };
     const nextDate = nextReplacingDate(list, index);
@@ -21794,7 +24614,7 @@ function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY_TONES 
     const existingStart = marks.get(row.date);
     marks.set(
       row.date,
-      historyMark(toneIndex, tone, label, {
+      historyMark(toneIndex, tone2, label, {
         ...hover,
         established: true,
         // Keep the standing countdown's square when this day already carries it.
@@ -21816,13 +24636,13 @@ function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY_TONES 
     );
     if (sideCountdown) {
       if (fifteen.length) {
-        paintWindowDays(marks, fifteen, null, toneIndex, tone, label, hover, { asExtra: true });
+        paintWindowDays(marks, fifteen, null, toneIndex, tone2, label, hover, { asExtra: true });
       }
       return;
     }
     const usesWindow = usesFifteenDayWindow(row, fifteen);
     if (usesWindow) {
-      paintWindowDays(marks, fifteen, nextDate, toneIndex, tone, label, hover);
+      paintWindowDays(marks, fifteen, nextDate, toneIndex, tone2, label, hover);
     }
     const arrow = resolutionArrow(row, fifteen, nextDate);
     if (arrow) {
@@ -21832,7 +24652,7 @@ function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY_TONES 
       if (origin) {
         marks.set(
           originDay,
-          historyMark(toneIndex, tone, origin.label, copyMarkFlags(origin, {
+          historyMark(toneIndex, tone2, origin.label, copyMarkFlags(origin, {
             arrowOrigin: true,
             arrowFromWindow: fromWindow
           }))
@@ -21844,7 +24664,7 @@ function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY_TONES 
         const existing = marks.get(cursor);
         marks.set(
           cursor,
-          historyMark(toneIndex, tone, label, {
+          historyMark(toneIndex, tone2, label, {
             ...hover,
             established: existing?.established ?? false,
             window: existing?.window ?? false,
@@ -21869,7 +24689,7 @@ function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY_TONES 
       const existing = marks.get(day);
       marks.set(
         day,
-        historyMark(toneIndex, tone, label, {
+        historyMark(toneIndex, tone2, label, {
           ...hover,
           established: existing?.established ?? false,
           window: existing?.window ?? false,
@@ -21890,67 +24710,11 @@ function buildClockHistoryMarks(rows, { schoolDays, tones = CLOCK_HISTORY_TONES 
       const result = resolutionResult(row);
       const day = String(row.contracted?.becomes_on || "").slice(0, 10);
       if (result && /^\d{4}-\d{2}-\d{2}$/.test(day) && (!nextDate || day < nextDate)) {
-        paintResultDay(marks, day, result, toneIndex, tone, label, hover);
+        paintResultDay(marks, day, result, toneIndex, tone2, label, hover);
       }
     }
   });
   return marks;
-}
-
-// employee-tracker/src/clockTimes.js
-function normalizeClockTime(time) {
-  const minutes = parseClockTime(String(time ?? "").trim());
-  return formatClockMinutes(minutes);
-}
-function formatClockMinutes(minutesSinceMidnight) {
-  if (typeof minutesSinceMidnight !== "number" || Number.isNaN(minutesSinceMidnight) || minutesSinceMidnight < 0 || minutesSinceMidnight >= 24 * 60) {
-    throw new Error(`Invalid minutes value: ${minutesSinceMidnight}`);
-  }
-  const hours = Math.floor(minutesSinceMidnight / 60);
-  const minutes = minutesSinceMidnight % 60;
-  return `${hours}:${String(minutes).padStart(2, "0")}`;
-}
-function splitSegmentRange(range) {
-  if (!range || !String(range).trim()) {
-    return null;
-  }
-  const parsed = parseTimeRange(range);
-  return {
-    clock_in: formatClockMinutes(parsed.startMinutes),
-    clock_out: formatClockMinutes(parsed.endMinutes),
-    range: `${formatClockMinutes(parsed.startMinutes)}-${formatClockMinutes(parsed.endMinutes)}`,
-    duration_minutes: parsed.durationMinutes
-  };
-}
-function formatDurationLabel(minutes) {
-  if (typeof minutes !== "number" || Number.isNaN(minutes)) {
-    return "\u2014";
-  }
-  const sign = minutes < 0 ? "\u2212" : "";
-  const abs = Math.abs(minutes);
-  const hours = Math.floor(abs / 60);
-  const mins = abs % 60;
-  if (hours === 0) {
-    return `${sign}${mins} min`;
-  }
-  if (mins === 0) {
-    return `${sign}${hours} hr`;
-  }
-  return `${sign}${hours} hr ${mins} min`;
-}
-function dayAfter(iso) {
-  const parsed = /* @__PURE__ */ new Date(`${iso}T00:00:00.000Z`);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new Error(`Invalid date: ${iso}`);
-  }
-  parsed.setUTCDate(parsed.getUTCDate() + 1);
-  return parsed.toISOString().slice(0, 10);
-}
-function localDateString(date = /* @__PURE__ */ new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 
 // employee-tracker/src/snapshot.js
@@ -22072,13 +24836,13 @@ function snappedUndoDelta(segmentsAfter, changes, rounding) {
   return payrollRoundedTotal(segmentsAfter, rounding) - payrollRoundedTotal(before, rounding);
 }
 function changeByIdMap(changeLog) {
-  const byId = /* @__PURE__ */ new Map();
+  const byId2 = /* @__PURE__ */ new Map();
   for (const entry of changeLog || []) {
     if (entry?.id && (!entry.type || entry.type === "CHANGE")) {
-      byId.set(entry.id, entry);
+      byId2.set(entry.id, entry);
     }
   }
-  return byId;
+  return byId2;
 }
 function isSeedChange(change) {
   return change && change.delta_minutes === 0 && change.previous_time === change.new_time;
@@ -22204,37 +24968,37 @@ function historyGroupKey(change) {
   return `undated:${change.schedule_id || change.id}`;
 }
 function annotateCumulativeDrift(rows, entry) {
-  const byId = /* @__PURE__ */ new Map();
+  const byId2 = /* @__PURE__ */ new Map();
   for (const row of rows) {
     if (row.kind !== "change") continue;
     const ids = row.change_ids?.length ? row.change_ids : row.change_id ? [row.change_id] : [];
     for (const id of ids) {
-      if (id) byId.set(id, row);
+      if (id) byId2.set(id, row);
     }
   }
-  if (!byId.size) return;
+  if (!byId2.size) return;
   const groups = [];
   const covered = /* @__PURE__ */ new Set();
   for (const report of entry?.change_reports ?? []) {
-    const ids = (report.contributing_changes ?? []).map((item) => item.id).filter((id) => byId.has(id) && !covered.has(id));
+    const ids = (report.contributing_changes ?? []).map((item) => item.id).filter((id) => byId2.has(id) && !covered.has(id));
     if (!ids.length) continue;
     groups.push(ids);
     for (const id of ids) covered.add(id);
   }
   const openIds = (entry?.contributing_change_ids ?? []).filter(
-    (id) => byId.has(id) && !covered.has(id)
+    (id) => byId2.has(id) && !covered.has(id)
   );
   const sideGroups = [];
   for (const side of entry?.side_windows ?? []) {
     const ids = (side.contributing_change_ids ?? []).filter(
-      (id) => byId.has(id) && !covered.has(id)
+      (id) => byId2.has(id) && !covered.has(id)
     );
     if (ids.length) sideGroups.push(ids);
   }
   const writeSum = (ids, start) => {
     let sum = start;
     for (const id of ids) {
-      const row = byId.get(id);
+      const row = byId2.get(id);
       const piece = row.delta_by_id?.[id];
       sum += typeof piece === "number" ? piece : row.delta_minutes ?? 0;
       row.cumulative_drift_minutes = sum;
@@ -22265,7 +25029,7 @@ function earliestChangeDate(ids, datesById) {
 function countdownsFromState(state, datesById, changeLog, calendar, rounding = {}) {
   if (!state) return [];
   const snap = rounding.snapContractClocks === true;
-  const byId = snap ? changeByIdMap(changeLog) : null;
+  const byId2 = snap ? changeByIdMap(changeLog) : null;
   const countdowns = [];
   const windowOpen = state.status === "ACCUMULATING" && (state.contributing_change_ids?.length || state.window_opened_date);
   if (windowOpen) {
@@ -22273,7 +25037,7 @@ function countdownsFromState(state, datesById, changeLog, calendar, rounding = {
     if (started) {
       let minutes = state.cumulative_drift_minutes ?? 0;
       if (snap) {
-        const changes = (state.contributing_change_ids || []).map((id) => byId.get(id)).filter(Boolean).sort(chronologicalChangeCompare);
+        const changes = (state.contributing_change_ids || []).map((id) => byId2.get(id)).filter(Boolean).sort(chronologicalChangeCompare);
         const after = { ...state.baseline_segments || {} };
         for (const change of changes) {
           if (change.segment && SEGMENTS.includes(change.segment)) {
@@ -22303,7 +25067,7 @@ function countdownsFromState(state, datesById, changeLog, calendar, rounding = {
         {},
         rounding
       );
-      const changes = (side.contributing_change_ids || []).map((id) => byId.get(id)).filter(Boolean);
+      const changes = (side.contributing_change_ids || []).map((id) => byId2.get(id)).filter(Boolean);
       minutes = snappedUndoDelta(sideState?.segments, changes, rounding);
     }
     countdowns.push({
@@ -22861,14 +25625,6 @@ function monthDayYear(iso) {
   if (!match) return "\u2014";
   return `${match[2]}/${match[3]}/${match[1]}`;
 }
-function shortMonthDay(iso) {
-  const match = String(iso ?? "").slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).toLocaleDateString(
-    "en-US",
-    { month: "short", day: "numeric" }
-  );
-}
 function scheduleRoundedMinutes(schedule, options = {}) {
   const segments = {};
   for (const run of RUNS) {
@@ -22881,15 +25637,16 @@ function scheduleRoundedMinutes(schedule, options = {}) {
 function hoursText(minutes) {
   return minutes == null ? "\u2014" : formatDurationLabel(minutes);
 }
-function contractTimeChangeText(rows, index, options = {}) {
-  if (index <= 0) return "\u2014";
-  const current = scheduleRoundedMinutes(rows[index]?.schedule, options);
-  const previous = scheduleRoundedMinutes(rows[index - 1]?.schedule, options);
-  if (current == null || previous == null || current === previous) return "\u2014";
-  return shortMonthDay(rows[index]?.contracted?.hours_change_on) || "\u2014";
-}
 function isBidContract(contracted) {
   return contracted?.projected_outcome === "BID_PENDING" || contracted?.status === "bid_pending";
+}
+function isBumpContract(contracted) {
+  return contracted?.projected_outcome === "BUMP_ELIGIBLE" || contracted?.status === "bump_eligible";
+}
+function monthDay2(iso) {
+  const match = String(iso ?? "").slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  return `${match[2]}/${match[3]}`;
 }
 function bidSpanForContract(contracted, schoolDays) {
   if (!isBidContract(contracted)) return null;
@@ -22905,25 +25662,109 @@ function bidSpanForContract(contracted, schoolDays) {
   }
   return null;
 }
-function contractedDateText(row, role = "predicted", schoolDays) {
+function bidBumpSecondary(contracted, schoolDays) {
+  const status = contracted?.status;
+  const predicted = status === "predicted";
+  const on = contracted?.becomes_on;
+  if (!on) return null;
+  if (isBidContract(contracted)) {
+    const span = bidSpanForContract(contracted, schoolDays);
+    const dates = span ? bidPostingSpanText(span) : monthDay2(on);
+    if (!dates) return null;
+    if (predicted) {
+      return {
+        text: `Predicted Up for Bid: ${dates}`,
+        title: "Under the contract rules, a large enough increase would go up for bid on this date (or during this end-of-month window). Not confirmation that posting already happened."
+      };
+    }
+    return {
+      text: `Up for Bid: ${dates}`,
+      title: "Bid posting date the contract rules assign for this change. The app does not know when an admin actually posts the bid."
+    };
+  }
+  if (isBumpContract(contracted)) {
+    const dates = monthDay2(on);
+    if (!dates) return null;
+    if (predicted) {
+      return {
+        text: `Predicted Up for Bump: ${dates}`,
+        title: "Under the contract rules, a large enough decrease would make this route bump-eligible on this date. Not confirmation that a bump already happened."
+      };
+    }
+    return {
+      text: `Up for Bump: ${dates}`,
+      title: "Bump date the contract rules assign for this change. The app does not know when an admin handles the bump."
+    };
+  }
+  return null;
+}
+function contractedDateEntry(row, role = "predicted", schoolDays) {
   const status = row.contracted?.status;
   const on = row.contracted?.becomes_on;
-  if (status === "side_countdown") return "\u2014";
-  const span = bidSpanForContract(row.contracted, schoolDays);
+  const secondary = status === "side_countdown" ? null : bidBumpSecondary(row.contracted, schoolDays);
+  const withSecondary = (entry) => ({
+    ...entry,
+    secondary: secondary?.text || null,
+    secondaryTitle: secondary?.title || null
+  });
+  if (status === "side_countdown") {
+    return withSecondary({
+      text: "\u2014",
+      title: "No calculated contract date for this row."
+    });
+  }
   if (status === "predicted") {
-    if (!on) return "predicted";
-    if (span) return bidPostingPhrase(span, role === "new" || role === "old" ? role : "predicted");
+    if (!on) {
+      return withSecondary({
+        text: "predicted",
+        title: "The contract rules say these hours should become contracted, but the exact date is not set yet. Not a confirmed admin or payroll entry."
+      });
+    }
     const date = monthDayYear(on);
-    if (role === "new") return `new predicted: ${date}`;
-    if (role === "old") return `old predicted: ${date}`;
-    return `predicted: ${date}`;
+    if (role === "new") {
+      return withSecondary({
+        text: `new predicted: ${date}`,
+        title: "A later change moved the forecast. This is the newer date the contract rules would use. Not a confirmed admin or payroll entry."
+      });
+    }
+    if (role === "old") {
+      return withSecondary({
+        text: `old predicted: ${date}`,
+        title: "Earlier forecast that a later change replaced. The app does not know when an admin or payroll actually creates a contract."
+      });
+    }
+    return withSecondary({
+      text: `predicted: ${date}`,
+      title: "If nothing else changes, the contract rules say these hours should become contracted on this date. Not a confirmed admin or payroll entry."
+    });
   }
   if (on && status !== "superseded") {
-    if (span) return bidPostingPhrase(span, "posted");
-    return monthDayYear(on);
+    return withSecondary({
+      text: monthDayYear(on),
+      title: "Calculated date under the contract rules for when these hours should count as contracted. The app does not know when an admin or payroll actually created a new contract."
+    });
   }
-  if (row.kind === "initial" && row.date) return monthDayYear(row.date);
-  return "\u2014";
+  if (row.kind === "initial" && row.date) {
+    return withSecondary({
+      text: monthDayYear(row.date),
+      title: "Starting schedule date. These hours are treated as contracted from the start. The app does not track when an admin entered that starting contract."
+    });
+  }
+  return withSecondary({
+    text: "\u2014",
+    title: "No calculated contract date for this row."
+  });
+}
+function contractedDateStackHtml(column) {
+  const secondary = column?.contractedDateSecondary ? `<span class="contracted-date-secondary" title="${escapeHtml(
+    column.contractedDateSecondaryTitle || ""
+  )}">${escapeHtml(column.contractedDateSecondary)}</span>` : "";
+  return `<span class="contracted-stack">
+    <span class="contracted-date" title="${escapeHtml(column?.contractedDateTitle || "")}">${escapeHtml(
+    column?.contractedDate || "\u2014"
+  )}</span>
+    ${secondary}
+  </span>`;
 }
 function predictedDateRoles(rows) {
   const predicted = [];
@@ -22956,11 +25797,13 @@ function contractColumnsForHistory(rows, schoolDays, options = {}) {
   const roles = predictedDateRoles(list);
   return list.map((row, index) => {
     const standing = row?.contracted?.status === "side_countdown" ? standingPredictedRow(list, index) : null;
-    const contractedDate = standing ? contractedDateText(standing.row, roles.get(standing.index) || "predicted", schoolDays) : contractedDateText(row, roles.get(index), schoolDays);
+    const entry = standing ? contractedDateEntry(standing.row, roles.get(standing.index) || "predicted", schoolDays) : contractedDateEntry(row, roles.get(index), schoolDays);
     return {
       hours: hoursText(scheduleRoundedMinutes(row.schedule, options)),
-      contractTimeChange: contractTimeChangeText(list, index, options),
-      contractedDate
+      contractedDate: entry.text,
+      contractedDateTitle: entry.title,
+      contractedDateSecondary: entry.secondary,
+      contractedDateSecondaryTitle: entry.secondaryTitle
     };
   });
 }
@@ -22981,8 +25824,8 @@ function scheduleClockDiffers(current, previous) {
 }
 function historyLegendHtml(rows, tones = OFFICE_HISTORY_TONES) {
   return (rows || []).map((row, index) => {
-    const tone = toneForRow(index, tones);
-    return `<li style="--tone:${tone}">
+    const tone2 = toneForRow(index, tones);
+    return `<li style="--tone:${tone2}">
         <span class="history-swatch" aria-hidden="true"></span>
         <span class="history-legend-text">
           ${escapeHtml(prettyDate2(row.date))}
@@ -23028,9 +25871,8 @@ function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES) {
     }).join("")}
         <td class="change-figure">${kind}</td>
         <td class="hours-figure">${escapeHtml(column.hours)}</td>
-        <td class="hours-figure">${escapeHtml(column.contractTimeChange)}</td>
         <td>
-          <span class="contracted-date">${escapeHtml(column.contractedDate)}</span>
+          ${contractedDateStackHtml(column)}
           ${contractedDetail}
           ${note}
         </td>
@@ -23048,8 +25890,7 @@ function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES) {
         <th scope="col">PM end</th>
         <th scope="col">Change</th>
         <th scope="col">Scheduled Hours</th>
-        <th scope="col">Contract Time Change</th>
-        <th scope="col">Date, if Contracted</th>
+        <th scope="col">Calculated Contract Date</th>
       </tr>
     </thead>
     <tbody>${body}</tbody>
@@ -23246,407 +26087,2712 @@ function bidRectMarkup(ranges, monthDays, pad) {
   return html.join("");
 }
 
-// src/logic/schoolCalendarGenerate.js
-var DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-var WEEKDAY_NAMES = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday"
+// office-tracker/src/contractReminder.js
+var DEFAULT_REMINDER_BODY = [
+  "Route {{route}} for {{driver}} is predicted to become contracted on {{contract_date}}.",
+  "",
+  "{{change}}",
+  "{{outcome}}",
+  "",
+  "Open Contract time-changes and Record this Contract Change when ready.",
+  "{{accept_link}}"
+].join("\n");
+
+// office-tracker/src/contractTimeChanges.js
+var TRIANGLE_SVG = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>';
+var KEY_TRI = `<span class="contract-time-change-tri" aria-hidden="true">${TRIANGLE_SVG}</span>`;
+
+// src/logic/clockKiosk.js
+var TIMECARD_REASON_CODES = [
+  { id: "reason-new-student", label: "New Student" },
+  { id: "reason-traffic", label: "Traffic/Construction/Accident" },
+  { id: "reason-returned-student-to-school", label: "Returned Student to School" },
+  { id: "reason-extra-route", label: "Extra Route(s) / Student(s)" },
+  { id: "reason-delay-at-stop-or-school", label: "Delay at Stop / School" },
+  { id: "reason-bus-wash", label: "Bus Wash" },
+  { id: "reason-early-release", label: "Early Release" },
+  { id: "reason-meeting", label: "Meetings / Trainings" },
+  {
+    id: "reason-paperwork",
+    label: "Paperwork - a. Bus Conduct, b. Stop Paddle Violation, c. Accident Form, d. etc."
+  },
+  { id: "reason-fueling-bus", label: "Fueling Bus" }
 ];
-function assertDate(day, label = "date") {
-  if (typeof day !== "string" || !DATE_RE.test(day.trim())) {
-    throw new Error(`Invalid ${label}: ${day}`);
-  }
-  const normalized = day.trim();
-  const parsed = /* @__PURE__ */ new Date(`${normalized}T00:00:00.000Z`);
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== normalized) {
-    throw new Error(`Invalid ${label}: ${day}`);
-  }
-  return normalized;
+var OTHER_PAID_TIME_CODES = [
+  { id: "reason-bus-cleaning", label: "Bus cleaning" },
+  { id: "reason-in-service", label: "In-service" },
+  { id: "reason-contract-meeting", label: "Meeting" },
+  { id: "reason-inclement-weather", label: "Inclement weather" },
+  { id: "reason-snow-detour-accident", label: "Snow, detour, or accident" },
+  { id: "reason-short-student", label: "Student riding 3 days or fewer" },
+  { id: "reason-counseling", label: "Counseling" },
+  { id: "reason-fifth-day", label: "Fifth day of a 4-day run" },
+  { id: "reason-training", label: "Training" },
+  { id: "reason-food-service", label: "Food service delivery" }
+];
+var PREVIOUS_COMBINED_REASON_CODES = [...TIMECARD_REASON_CODES, ...OTHER_PAID_TIME_CODES];
+var TRIP_TICKET_REASON_ID = "reason-trip-ticket";
+var DEFAULT_REASON_CODES = [
+  { id: TRIP_TICKET_REASON_ID, label: "Trip Ticket Number" },
+  ...PREVIOUS_COMBINED_REASON_CODES
+];
+
+// src/logic/lateClockFlash.js
+var DAY_MINUTES = 24 * 60;
+
+// src/logic/workTypes.js
+var LOOKBACK_MS = 45 * 24 * 60 * 60 * 1e3;
+var TRIP_WORK_TYPES = [
+  { id: "field-trip", label: "Field trip", group: "Trips" },
+  { id: "flatland-roster", label: "Flatland roster trip", group: "Trips" },
+  { id: "mountain-roster", label: "Mountain roster trip", group: "Trips" },
+  { id: "summer-trip", label: "Summer trip", group: "Trips" },
+  { id: "emergency-roster", label: "Emergency roster trip", group: "Trips" },
+  { id: "overnight", label: "Overnight trip", group: "Trips" },
+  { id: "supplemental", label: "Supplemental assignment", group: "Trips" },
+  { id: "extended-day", label: "Extended day", group: "Trips" },
+  { id: "middle-school-sports", label: "Middle school sports", group: "Trips" }
+];
+var IRREGULAR_WORK_TYPES = [
+  ...TRIP_WORK_TYPES,
+  ...DEFAULT_REASON_CODES.map((code) => ({
+    id: code.id,
+    label: code.label,
+    group: "Other paid time"
+  }))
+];
+var WORK_TYPE_IDS = new Set(IRREGULAR_WORK_TYPES.map((type) => type.id));
+
+// office-tracker/src/leaveRequests.js
+var LEAVE_MINUTES_CAP = 12 * 60;
+
+// office-tracker/src/contractNotice.js
+var QUARTER_HOUR_LINE = "Contracted hours are rounded to the nearest quarter hour (each run, then the daily total). A change that is not itself a quarter hour\u2014such as 20 minutes\u2014still counts in exact minutes toward the 15- and 30-minute contract rules until those hours lock in.";
+var BID_BODY = `Written determination of a route increase
+
+TO: {{driver_name}}
+ROUTE: {{route_name}}
+DATE: {{date}}
+
+This is a written determination that route {{route_name}} has increased, and notice that the route will go up for bid.
+
+Your contracted hours has changed from {{previous_hours}} to {{contract_hours}} ({{change_amount}}).
+
+${QUARTER_HOUR_LINE}
+
+This is an increase of 30 minutes or more. You are receiving a written determination of the increase and notice that the route will go up for bid.
+
+{{timing}}
+
+Please "REPLY ALL" to this notice and write "Received" in the subject line.
+
+{{citation_label}}
+{{citation_text}}
+`;
+var BUMP_BODY = `Written determination of a route decrease
+
+TO: {{driver_name}}
+ROUTE: {{route_name}}
+DATE: {{date}}
+
+This is a written determination that route {{route_name}} has decreased.
+
+Your contracted hours has changed from {{previous_hours}} to {{contract_hours}} ({{change_amount}}).
+
+${QUARTER_HOUR_LINE}
+
+This is a decrease of 30 minutes or more. You are receiving a written determination of the decrease and notice that you may bump a less-senior driver or retain this route.
+
+You have two school days from this notification to use your seniority to bump a driver with less seniority, or to retain this route.
+
+Please "REPLY ALL" to this notice with "Retain" or "Bump" in the subject line.
+
+{{timing}}
+
+{{citation_label}}
+{{citation_text}}
+`;
+var DECREASE_BODY = `Written determination of a route decrease
+
+TO: {{driver_name}}
+ROUTE: {{route_name}}
+DATE: {{date}}
+
+This is a written determination that route {{route_name}} has decreased. The decrease is under 30 minutes, so you do not have the option to bump.
+
+Your contracted hours has changed from {{previous_hours}} to {{contract_hours}} ({{change_amount}}).
+
+${QUARTER_HOUR_LINE}
+
+This is a decrease under 30 minutes. You are receiving a written determination of the decrease and do not have the option to bump. The new hours take effect the workday after this notice.
+
+{{timing}}
+
+Please "REPLY ALL" to this notice and write "Received" in the subject line.
+
+{{citation_label}}
+{{citation_text}}
+`;
+var INCREASE_BODY = `Notice of a route hours increase
+
+TO: {{driver_name}}
+ROUTE: {{route_name}}
+DATE: {{date}}
+
+This is notice that route {{route_name}} has increased. The increase is under 30 minutes, so the route does not go up for bid.
+
+Your contracted hours has changed from {{previous_hours}} to {{contract_hours}} ({{change_amount}}).
+
+${QUARTER_HOUR_LINE}
+
+This is an increase under 30 minutes. The new hours take effect under Art. 3.08(b)(3).
+
+{{timing}}
+
+Please "REPLY ALL" to this notice and write "Received" in the subject line.
+
+{{citation_label}}
+{{citation_text}}
+`;
+
+// office-tracker/src/overtimeRules.js
+var DEFAULT_OVERTIME_RULES = {
+  dailyHours: 8,
+  weeklyHours: 40,
+  eveningStart: "17:30",
+  morningEnd: "05:30",
+  weekendOvertime: true,
+  holidayOvertime: true,
+  multiplier: 1.5
+};
+function optionalHours(value, max) {
+  if (value == null || String(value).trim() === "") return null;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0 || number > max) return null;
+  return Math.round(number * 100) / 100;
 }
-function utcDate(iso) {
-  return /* @__PURE__ */ new Date(`${iso}T00:00:00.000Z`);
+function optionalClock(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const match = /^(\d{1,2}):(\d{2})$/.exec(text);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return null;
+  return `${hours}:${String(minutes).padStart(2, "0")}`;
 }
-function isoFromUtc(d) {
-  return d.toISOString().slice(0, 10);
+function multiplierOf(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 1 || number > 3) return DEFAULT_OVERTIME_RULES.multiplier;
+  return Math.round(number * 100) / 100;
 }
-function dayOfWeekName(iso) {
-  return WEEKDAY_NAMES[utcDate(iso).getUTCDay()];
-}
-function defaultCoverageWindow(firstDay, lastDay) {
-  const first = utcDate(firstDay);
-  const last = utcDate(lastDay);
-  const firstYear = first.getUTCFullYear();
-  const lastYear = last.getUTCFullYear();
-  const coverage_start = first.getUTCMonth() >= 6 ? `${firstYear}-07-01` : `${firstYear - 1}-07-01`;
-  const coverage_end = last.getUTCMonth() <= 5 ? `${lastYear}-06-30` : `${lastYear + 1}-06-30`;
-  if (coverage_end < coverage_start) {
-    throw new Error("Computed coverage window is inverted \u2014 check first/last day.");
-  }
+function normalizeOvertimeRules(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  if (!source) return { ...DEFAULT_OVERTIME_RULES };
+  const has = (key) => Object.prototype.hasOwnProperty.call(source, key);
   return {
-    coverage_start,
-    coverage_end,
-    boundary_rule: "July 1 on or before first day of school through June 30 on or after last day of school (matches district year files). Outside that window is not generated."
+    dailyHours: has("dailyHours") ? optionalHours(source.dailyHours, 24) : DEFAULT_OVERTIME_RULES.dailyHours,
+    weeklyHours: has("weeklyHours") ? optionalHours(source.weeklyHours, 80) : DEFAULT_OVERTIME_RULES.weeklyHours,
+    eveningStart: has("eveningStart") ? optionalClock(source.eveningStart) : DEFAULT_OVERTIME_RULES.eveningStart,
+    morningEnd: has("morningEnd") ? optionalClock(source.morningEnd) : DEFAULT_OVERTIME_RULES.morningEnd,
+    weekendOvertime: has("weekendOvertime") ? source.weekendOvertime !== false : true,
+    holidayOvertime: has("holidayOvertime") ? source.holidayOvertime !== false : true,
+    multiplier: has("multiplier") ? multiplierOf(source.multiplier) : DEFAULT_OVERTIME_RULES.multiplier
   };
 }
-function validateGenerateSchoolYearInput(input) {
-  if (!input || typeof input !== "object") {
-    throw new Error("Generation input is required.");
-  }
-  const first_day = assertDate(input.first_day, "first day of school");
-  const last_day = assertDate(input.last_day, "last day of school");
-  if (last_day < first_day) {
-    throw new Error("Last day of school must be on or after the first day.");
-  }
-  const breaks = [];
-  for (const raw of input.breaks ?? []) {
-    if (!raw || typeof raw !== "object") {
-      throw new Error("Each break must be an object with start and end.");
-    }
-    const start = assertDate(raw.start, "break start");
-    const end = assertDate(raw.end, "break end");
-    if (end < start) {
-      throw new Error(`Break end ${end} is before start ${start}.`);
-    }
-    breaks.push({
-      start,
-      end,
-      label: typeof raw.label === "string" ? raw.label.trim() : ""
-    });
-  }
-  const holidays = [];
-  const holidaySeen = /* @__PURE__ */ new Set();
-  for (const raw of input.holidays ?? []) {
-    if (!raw || typeof raw !== "object") {
-      throw new Error("Each holiday must be an object with date.");
-    }
-    const date = assertDate(raw.date, "holiday date");
-    if (holidaySeen.has(date)) {
-      throw new Error(`Duplicate holiday date: ${date}`);
-    }
-    holidaySeen.add(date);
-    holidays.push({
-      date,
-      label: typeof raw.label === "string" ? raw.label.trim() : ""
-    });
-  }
-  let school_year = null;
-  if (input.school_year != null && String(input.school_year).trim()) {
-    school_year = String(input.school_year).trim();
-  } else {
-    const startY = utcDate(first_day).getUTCFullYear();
-    const endY = utcDate(last_day).getUTCFullYear();
-    school_year = startY === endY ? String(startY) : `${startY}-${String(endY).slice(-2)}`;
-  }
-  return { first_day, last_day, breaks, holidays, school_year };
+function overtimeHolidayDates(holidays) {
+  const list = Array.isArray(holidays) ? holidays : BELLINGHAM_2026_2027_INPUT.holidays || [];
+  return new Set(list.map((holiday) => holiday.date));
 }
-function generateSchoolYearCalendar(rawInput) {
-  const input = validateGenerateSchoolYearInput(rawInput);
-  const coverage = defaultCoverageWindow(input.first_day, input.last_day);
-  const holidayByDate = new Map(
-    input.holidays.map((h) => [h.date, { label: h.label || "Holiday" }])
+function dateKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+function weekKey(date) {
+  const copy = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = copy.getDay();
+  const back2 = day === 0 ? 6 : day - 1;
+  copy.setDate(copy.getDate() - back2);
+  return dateKey(copy);
+}
+function clockLabel(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const hour = hours % 12 || 12;
+  return `${hour}:${String(mins).padStart(2, "0")} ${suffix}`;
+}
+function clockText(date) {
+  return `${date.getHours()}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+function dateFromClock(base, clock) {
+  const date = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0);
+  date.setMinutes(parseClockTime(clock));
+  return date;
+}
+function spanFromClocks(anchor, clockIn, clockOut) {
+  if (!clockIn || !clockOut) return null;
+  const start = dateFromClock(anchor, clockIn);
+  const end = dateFromClock(anchor, clockOut);
+  if (parseClockTime(clockOut) < parseClockTime(clockIn)) end.setDate(end.getDate() + 1);
+  if (end <= start) return null;
+  return { start, end };
+}
+function prepared(rules) {
+  return {
+    ...rules,
+    dailyMinutes: rules.dailyHours == null ? null : Math.round(rules.dailyHours * 60),
+    weeklyMinutes: rules.weeklyHours == null ? null : Math.round(rules.weeklyHours * 60),
+    eveningStartMin: rules.eveningStart ? parseClockTime(rules.eveningStart) : null,
+    morningEndMin: rules.morningEnd ? parseClockTime(rules.morningEnd) : null
+  };
+}
+function countSpan(start, end, ledger, rules, holidays) {
+  let minutes = 0;
+  const reasons = /* @__PURE__ */ new Set();
+  const cursor = new Date(start);
+  while (cursor < end) {
+    const key = dateKey(cursor);
+    const week = weekKey(cursor);
+    const clock = cursor.getHours() * 60 + cursor.getMinutes();
+    const daySoFar = ledger.day.get(key) || 0;
+    const weekSoFar = ledger.week.get(week) || 0;
+    const weekend = rules.weekendOvertime && (cursor.getDay() === 0 || cursor.getDay() === 6);
+    const holiday = rules.holidayOvertime && holidays.has(key);
+    const evening = rules.eveningStartMin != null && clock >= rules.eveningStartMin;
+    const morning = rules.morningEndMin != null && clock < rules.morningEndMin;
+    const overDay = rules.dailyMinutes != null && daySoFar >= rules.dailyMinutes;
+    const overWeek = rules.weeklyMinutes != null && weekSoFar >= rules.weeklyMinutes;
+    if (weekend || holiday || evening || morning || overDay || overWeek) {
+      minutes += 1;
+      if (weekend) reasons.add(cursor.getDay() === 0 ? "Sunday" : "Saturday");
+      if (holiday) reasons.add("holiday");
+      if (evening) reasons.add(`at or after ${clockLabel(rules.eveningStartMin)}`);
+      if (morning) reasons.add(`before ${clockLabel(rules.morningEndMin)}`);
+      if (overDay) reasons.add(`over ${rules.dailyHours} hours in the day`);
+      if (overWeek) reasons.add(`over ${rules.weeklyHours} hours in the week`);
+    }
+    ledger.day.set(key, daySoFar + 1);
+    ledger.week.set(week, weekSoFar + 1);
+    cursor.setMinutes(cursor.getMinutes() + 1);
+  }
+  return { minutes, reasons: [...reasons] };
+}
+function pairOvertimeKey(pair) {
+  return `${pair.clockIn?.id || ""}|${pair.clockOut?.id || ""}|${pair.start?.toISOString?.() || ""}`;
+}
+function overtimeForPairs(pairs, rules, holidays) {
+  const normalized = prepared(normalizeOvertimeRules(rules));
+  const holidayDates = normalized.holidayOvertime ? overtimeHolidayDates(holidays) : /* @__PURE__ */ new Set();
+  const ordered = [...pairs || []].filter((pair) => pair?.start instanceof Date && pair?.end instanceof Date && pair.end > pair.start);
+  ordered.sort((a, b) => a.start.getTime() - b.start.getTime() || pairOvertimeKey(a).localeCompare(pairOvertimeKey(b)));
+  const out = /* @__PURE__ */ new Map();
+  const actualLedger = { day: /* @__PURE__ */ new Map(), week: /* @__PURE__ */ new Map() };
+  for (const pair of ordered) {
+    const span = spanFromClocks(pair.start, clockText(pair.start), clockText(pair.end));
+    const counted = span ? countSpan(span.start, span.end, actualLedger, normalized, holidayDates) : { minutes: 0, reasons: [] };
+    out.set(pairOvertimeKey(pair), {
+      actual: counted.minutes,
+      snap: 0,
+      rounded: Math.round(counted.minutes / 15) * 15,
+      reasons: counted.reasons,
+      snapReasons: []
+    });
+  }
+  const snapLedger = { day: /* @__PURE__ */ new Map(), week: /* @__PURE__ */ new Map() };
+  const snapped = ordered.map((pair) => {
+    const span = spanFromClocks(pair.start, roundClockToQuarterHour(clockText(pair.start)), roundClockToQuarterHour(clockText(pair.end)));
+    return span ? { pair, span } : null;
+  }).filter(Boolean);
+  snapped.sort((a, b) => a.span.start.getTime() - b.span.start.getTime() || pairOvertimeKey(a.pair).localeCompare(pairOvertimeKey(b.pair)));
+  for (const item of snapped) {
+    const counted = countSpan(item.span.start, item.span.end, snapLedger, normalized, holidayDates);
+    const row = out.get(pairOvertimeKey(item.pair));
+    if (!row) continue;
+    row.snap = counted.minutes;
+    row.snapReasons = counted.reasons;
+  }
+  return out;
+}
+
+// office-tracker/src/paperClockBackup.js
+var MAX_BACKUP_HOURS = 24 * 31;
+var PAPER_COLUMN_ROWS = 70;
+var PAPER_COLUMN_COUNT = 3;
+var PAPER_PAGE_SIZE = PAPER_COLUMN_ROWS * PAPER_COLUMN_COUNT;
+
+// office-tracker/src/routeDataBackup.js
+var DAY_MS = 24 * 60 * 60 * 1e3;
+
+// office-tracker/web/punchSounds.js
+var noise = (at, dur, gain, freq, q = 0.8) => ({ at, noise: true, dur, gain, freq, q });
+var tone = (at, freq, dur, gain, type = "triangle", slide) => ({ at, freq, dur, gain, type, slide });
+var PUNCH_SOUNDS = [
+  {
+    id: "time-clock-stamp",
+    label: "Time clock stamp",
+    group: "Time clock",
+    events: [
+      noise(0, 0.04, 0.5, 980, 0.7),
+      tone(6e-3, 170, 0.09, 0.42, "triangle", 72),
+      tone(0.01, 2400, 0.018, 0.14, "square")
+    ]
+  },
+  {
+    id: "time-clock-release",
+    label: "Time clock release",
+    group: "Time clock",
+    events: [
+      tone(0, 2900, 0.014, 0.12, "square"),
+      noise(0.016, 0.028, 0.26, 2200, 1.5),
+      tone(0.022, 480, 0.06, 0.2, "triangle", 190)
+    ]
+  },
+  {
+    id: "heavy-stamp",
+    label: "Heavy stamp press",
+    group: "Stamp press",
+    events: [
+      noise(0, 0.06, 0.62, 420, 0.5),
+      tone(4e-3, 90, 0.14, 0.5, "sine", 48),
+      tone(0.02, 620, 0.03, 0.1, "square")
+    ]
+  },
+  {
+    id: "light-stamp",
+    label: "Light stamp",
+    group: "Stamp press",
+    events: [
+      noise(0, 0.025, 0.28, 1600, 1.2),
+      tone(4e-3, 340, 0.05, 0.22, "triangle", 180)
+    ]
+  },
+  {
+    id: "cash-drawer-open",
+    label: "Cash drawer open",
+    group: "Cash drawer",
+    events: [
+      tone(0, 880, 0.22, 0.2, "sine"),
+      tone(0, 1760, 0.12, 0.08, "triangle"),
+      noise(0.01, 0.12, 0.22, 700, 0.4)
+    ]
+  },
+  {
+    id: "cash-drawer-shut",
+    label: "Cash drawer shut",
+    group: "Cash drawer",
+    events: [
+      noise(0, 0.05, 0.4, 500, 0.6),
+      tone(0.03, 140, 0.08, 0.35, "triangle", 70),
+      tone(0.04, 1320, 0.04, 0.08, "square")
+    ]
+  },
+  {
+    id: "typewriter-key",
+    label: "Typewriter key",
+    group: "Typewriter",
+    events: [
+      noise(0, 0.012, 0.45, 3200, 2),
+      tone(8e-3, 180, 0.03, 0.18, "triangle", 90)
+    ]
+  },
+  {
+    id: "carriage-return",
+    label: "Typewriter carriage",
+    group: "Typewriter",
+    events: [
+      noise(0, 0.16, 0.22, 900, 0.4),
+      tone(0.14, 220, 0.05, 0.3, "triangle", 80),
+      noise(0.15, 0.02, 0.35, 2400, 1.4)
+    ]
+  },
+  {
+    id: "relay-click",
+    label: "Relay click",
+    group: "Relay and solenoid",
+    events: [
+      tone(0, 1800, 8e-3, 0.2, "square"),
+      tone(0.012, 900, 0.01, 0.16, "square"),
+      noise(0.01, 0.012, 0.2, 2500, 2)
+    ]
+  },
+  {
+    id: "relay-release",
+    label: "Relay release",
+    group: "Relay and solenoid",
+    events: [
+      tone(0, 700, 0.012, 0.16, "square"),
+      noise(0.016, 0.02, 0.18, 1400, 1),
+      tone(0.02, 240, 0.04, 0.14, "triangle", 120)
+    ]
+  },
+  {
+    id: "solenoid",
+    label: "Solenoid clack",
+    group: "Relay and solenoid",
+    events: [
+      tone(0, 110, 0.07, 0.48, "square", 60),
+      noise(4e-3, 0.03, 0.35, 800, 0.6)
+    ]
+  },
+  {
+    id: "solenoid-return",
+    label: "Solenoid return",
+    group: "Relay and solenoid",
+    events: [
+      tone(0, 260, 0.04, 0.22, "triangle", 140),
+      noise(0.02, 0.02, 0.2, 1800, 1.2)
+    ]
+  },
+  {
+    id: "turnstile",
+    label: "Turnstile clunk",
+    group: "Turnstile and gate",
+    events: [
+      tone(0, 130, 0.1, 0.4, "triangle", 70),
+      noise(0.02, 0.05, 0.3, 600, 0.5),
+      tone(0.06, 420, 0.03, 0.12, "square")
+    ]
+  },
+  {
+    id: "turnstile-return",
+    label: "Turnstile return",
+    group: "Turnstile and gate",
+    events: [
+      noise(0, 0.04, 0.22, 1100, 0.8),
+      tone(0.03, 300, 0.06, 0.2, "triangle", 160)
+    ]
+  },
+  {
+    id: "gate-latch",
+    label: "Gate latch",
+    group: "Turnstile and gate",
+    events: [
+      noise(0, 0.02, 0.4, 2e3, 1.6),
+      tone(0.012, 740, 0.08, 0.16, "sine"),
+      tone(0.012, 1480, 0.05, 0.06, "triangle")
+    ]
+  },
+  {
+    id: "gate-unlatch",
+    label: "Gate unlatch",
+    group: "Turnstile and gate",
+    events: [
+      tone(0, 520, 0.04, 0.16, "triangle", 260),
+      noise(0.03, 0.03, 0.24, 1500, 1)
+    ]
+  },
+  {
+    id: "camera-shutter",
+    label: "Camera shutter",
+    group: "Camera",
+    events: [
+      noise(0, 0.012, 0.4, 2800, 1.8),
+      noise(0.03, 0.016, 0.32, 1600, 1.2),
+      tone(0.028, 200, 0.03, 0.12, "triangle")
+    ]
+  },
+  {
+    id: "film-advance",
+    label: "Film advance",
+    group: "Camera",
+    events: [
+      noise(0, 0.01, 0.22, 2400, 2),
+      noise(0.03, 0.01, 0.22, 2e3, 2),
+      noise(0.06, 0.01, 0.22, 1700, 2),
+      tone(0.09, 180, 0.04, 0.2, "triangle", 90)
+    ]
+  },
+  {
+    id: "dot-matrix",
+    label: "Dot-matrix tick",
+    group: "Office machines",
+    events: [
+      noise(0, 6e-3, 0.3, 3600, 3),
+      noise(0.016, 6e-3, 0.3, 3400, 3),
+      noise(0.032, 6e-3, 0.3, 3200, 3),
+      noise(0.048, 6e-3, 0.3, 3e3, 3)
+    ]
+  },
+  {
+    id: "adding-machine",
+    label: "Adding machine",
+    group: "Office machines",
+    events: [
+      noise(0, 0.02, 0.35, 1800, 1),
+      tone(0.02, 110, 0.06, 0.3, "triangle", 70),
+      tone(0.04, 990, 0.16, 0.12, "sine")
+    ]
+  },
+  {
+    id: "stapler",
+    label: "Stapler",
+    group: "Office tools",
+    events: [
+      noise(0, 0.018, 0.55, 1400, 1.1),
+      tone(6e-3, 150, 0.05, 0.32, "triangle", 80)
+    ]
+  },
+  {
+    id: "hole-punch",
+    label: "Hole punch",
+    group: "Office tools",
+    events: [
+      noise(0, 0.05, 0.5, 700, 0.5),
+      tone(0.01, 100, 0.08, 0.36, "sine", 55),
+      noise(0.04, 0.02, 0.2, 2200, 1.4)
+    ]
+  },
+  {
+    id: "card-punch",
+    label: "Card punch",
+    group: "Office machines",
+    events: [
+      noise(0, 0.015, 0.3, 2e3, 1.5),
+      noise(0.04, 0.015, 0.3, 1700, 1.5),
+      tone(0.07, 160, 0.05, 0.24, "triangle", 90)
+    ]
+  },
+  {
+    id: "numbering-machine",
+    label: "Numbering machine",
+    group: "Office machines",
+    events: [
+      tone(0, 140, 0.07, 0.34, "triangle", 75),
+      noise(0.01, 0.03, 0.28, 1200, 0.8),
+      tone(0.05, 2100, 0.02, 0.08, "square")
+    ]
+  },
+  {
+    id: "paper-cutter",
+    label: "Paper cutter",
+    group: "Office tools",
+    events: [
+      noise(0, 0.14, 0.2, 2500, 0.6),
+      tone(0.12, 180, 0.04, 0.22, "triangle", 90)
+    ]
+  },
+  {
+    id: "binder-clip",
+    label: "Binder clip",
+    group: "Office tools",
+    events: [
+      tone(0, 1600, 0.01, 0.18, "square"),
+      noise(8e-3, 0.02, 0.3, 2600, 2),
+      tone(0.016, 420, 0.04, 0.12, "triangle")
+    ]
+  },
+  {
+    id: "vault-bolt",
+    label: "Vault bolt",
+    group: "Locks",
+    events: [
+      noise(0, 0.1, 0.18, 400, 0.4),
+      tone(0.08, 95, 0.1, 0.4, "triangle", 50),
+      tone(0.1, 680, 0.04, 0.1, "square")
+    ]
+  },
+  {
+    id: "deadbolt",
+    label: "Deadbolt",
+    group: "Locks",
+    events: [
+      noise(0, 0.06, 0.24, 600, 0.5),
+      tone(0.04, 120, 0.08, 0.34, "triangle", 70)
+    ]
+  },
+  {
+    id: "key-turn",
+    label: "Key in a lock",
+    group: "Locks",
+    events: [
+      noise(0, 0.012, 0.2, 2200, 2),
+      noise(0.04, 0.012, 0.2, 1900, 2),
+      noise(0.08, 0.012, 0.22, 1600, 2),
+      tone(0.11, 240, 0.04, 0.16, "triangle")
+    ]
+  },
+  {
+    id: "sliding-bolt",
+    label: "Sliding bolt",
+    group: "Locks",
+    events: [
+      noise(0, 0.12, 0.16, 900, 0.35),
+      tone(0.1, 200, 0.05, 0.28, "triangle", 100)
+    ]
+  },
+  {
+    id: "ratchet",
+    label: "Ratchet",
+    group: "Clockwork",
+    events: [
+      noise(0, 0.01, 0.28, 1800, 1.6),
+      noise(0.028, 0.01, 0.28, 2e3, 1.6),
+      noise(0.056, 0.01, 0.3, 2300, 1.6),
+      tone(0.07, 260, 0.04, 0.14, "triangle")
+    ]
+  },
+  {
+    id: "telegraph",
+    label: "Telegraph key",
+    group: "Clockwork",
+    events: [
+      tone(0, 1400, 0.012, 0.2, "square"),
+      tone(0.05, 1100, 0.012, 0.18, "square"),
+      noise(0, 8e-3, 0.15, 3e3, 2),
+      noise(0.05, 8e-3, 0.15, 2800, 2)
+    ]
+  },
+  {
+    id: "desk-bell",
+    label: "Desk bell",
+    group: "Bells",
+    events: [
+      tone(0, 1568, 0.28, 0.18, "sine"),
+      tone(0, 2350, 0.16, 0.06, "triangle"),
+      noise(0, 0.01, 0.2, 3e3, 1)
+    ]
+  },
+  {
+    id: "service-bell",
+    label: "Service bell tap",
+    group: "Bells",
+    events: [
+      tone(0, 2093, 0.18, 0.14, "sine"),
+      noise(0, 8e-3, 0.16, 3400, 2),
+      tone(0.02, 1040, 0.08, 0.05, "triangle")
+    ]
+  },
+  {
+    id: "clockwork-tick",
+    label: "Clockwork tick",
+    group: "Clockwork",
+    events: [
+      noise(0, 8e-3, 0.32, 2600, 2.4),
+      tone(4e-3, 880, 0.02, 0.08, "square")
+    ]
+  },
+  {
+    id: "clockwork-tock",
+    label: "Clockwork tock",
+    group: "Clockwork",
+    events: [
+      noise(0, 0.012, 0.28, 900, 1.2),
+      tone(4e-3, 220, 0.04, 0.2, "triangle", 140)
+    ]
+  },
+  {
+    id: "gear-tooth",
+    label: "Gear tooth",
+    group: "Clockwork",
+    events: [
+      tone(0, 640, 0.016, 0.16, "square"),
+      noise(6e-3, 0.014, 0.18, 1800, 1.5)
+    ]
+  },
+  {
+    id: "coin-drop",
+    label: "Coin drop",
+    group: "Coins and tickets",
+    events: [
+      tone(0, 3100, 0.04, 0.1, "sine"),
+      tone(0.03, 1800, 0.05, 0.12, "sine"),
+      tone(0.07, 2400, 0.08, 0.1, "triangle"),
+      noise(0.06, 0.02, 0.12, 2e3, 1)
+    ]
+  },
+  {
+    id: "parking-meter",
+    label: "Parking meter",
+    group: "Coins and tickets",
+    events: [
+      tone(0, 2200, 0.03, 0.1, "sine"),
+      noise(0.04, 0.03, 0.24, 1200, 0.8),
+      tone(0.06, 180, 0.05, 0.22, "triangle", 100)
+    ]
+  },
+  {
+    id: "ticket-punch",
+    label: "Ticket punch",
+    group: "Coins and tickets",
+    events: [
+      noise(0, 0.03, 0.42, 1100, 0.7),
+      tone(8e-3, 160, 0.05, 0.28, "triangle", 90),
+      tone(0.02, 1900, 0.015, 0.08, "square")
+    ]
+  },
+  {
+    id: "date-stamp",
+    label: "Date stamp",
+    group: "Stamp press",
+    events: [
+      noise(0, 0.035, 0.32, 800, 0.6),
+      tone(8e-3, 200, 0.07, 0.28, "sine", 110)
+    ]
+  },
+  {
+    id: "lever-throw",
+    label: "Lever throw",
+    group: "Levers and switches",
+    events: [
+      noise(0, 0.05, 0.2, 700, 0.5),
+      tone(0.04, 150, 0.08, 0.36, "triangle", 80),
+      noise(0.08, 0.015, 0.25, 2e3, 1.4)
+    ]
+  },
+  {
+    id: "lever-return",
+    label: "Lever return",
+    group: "Levers and switches",
+    events: [
+      tone(0, 360, 0.04, 0.16, "triangle", 200),
+      noise(0.03, 0.03, 0.18, 1400, 0.9)
+    ]
+  },
+  {
+    id: "switch-on",
+    label: "Switch on",
+    group: "Levers and switches",
+    events: [
+      noise(0, 0.01, 0.4, 2400, 2),
+      tone(8e-3, 500, 0.03, 0.16, "square", 200)
+    ]
+  },
+  {
+    id: "switch-off",
+    label: "Switch off",
+    group: "Levers and switches",
+    events: [
+      tone(0, 240, 0.03, 0.2, "triangle", 120),
+      noise(0.02, 0.016, 0.22, 1600, 1.2)
+    ]
+  },
+  {
+    id: "chain-clank",
+    label: "Chain clank",
+    group: "Levers and switches",
+    events: [
+      tone(0, 180, 0.06, 0.3, "triangle"),
+      tone(0.04, 260, 0.05, 0.18, "square"),
+      noise(0.02, 0.04, 0.22, 900, 0.7)
+    ]
+  },
+  {
+    id: "brake-lever",
+    label: "Brake lever",
+    group: "Levers and switches",
+    events: [
+      noise(0, 0.08, 0.16, 1600, 0.5),
+      tone(0.06, 130, 0.08, 0.32, "triangle", 70)
+    ]
+  },
+  {
+    id: "metal-snap",
+    label: "Metal snap",
+    group: "Snaps",
+    events: [
+      tone(0, 2100, 0.012, 0.16, "square"),
+      noise(4e-3, 0.016, 0.28, 3e3, 2),
+      tone(0.01, 700, 0.04, 0.1, "sine")
+    ]
+  },
+  {
+    id: "plastic-click",
+    label: "Plastic click",
+    group: "Snaps",
+    events: [
+      noise(0, 0.01, 0.34, 1900, 1.4),
+      tone(6e-3, 480, 0.025, 0.14, "triangle")
+    ]
+  },
+  {
+    id: "wooden-thud",
+    label: "Wooden thud",
+    group: "Snaps",
+    events: [
+      noise(0, 0.04, 0.3, 280, 0.4),
+      tone(4e-3, 95, 0.1, 0.4, "sine", 55)
+    ]
+  }
+];
+var byId = new Map(PUNCH_SOUNDS.map((sound) => [sound.id, sound]));
+
+// office-tracker/web/store.js
+function contractSnapBreaksFromState(state) {
+  if (!state || typeof state !== "object" || Array.isArray(state)) {
+    return { ...DEFAULT_CONTRACT_SNAP_BREAKS };
+  }
+  return normalizeContractSnapBreaks(state.contractSnapBreaks);
+}
+
+// office-tracker/src/payrollTimes.js
+function quarterHoursFromMinutes(minutes) {
+  if (minutes == null || minutes === "") return null;
+  const number = Number(minutes);
+  if (!Number.isFinite(number)) return null;
+  return Math.round(number / 15) / 4;
+}
+
+// office-tracker/src/timesheetSnap.js
+var TIMESHEET_HOURS_MODE_SNAP = "snap";
+var TIMESHEET_HOURS_MODE_QUARTER = "quarter";
+function normalizeTimesheetHoursMode(value) {
+  return String(value || "").trim().toLowerCase() === TIMESHEET_HOURS_MODE_QUARTER ? TIMESHEET_HOURS_MODE_QUARTER : TIMESHEET_HOURS_MODE_SNAP;
+}
+function snapContractDate(date, breaks) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+  const band = normalizeContractSnapBreaks(breaks);
+  const hour = date.getHours();
+  const minute = date.getMinutes();
+  const clock = `${hour}:${String(minute).padStart(2, "0")}`;
+  const snappedClock = snapContractClockToBreaks(clock, band);
+  const [snappedHour, snappedMinute] = snappedClock.split(":").map(Number);
+  const out = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    snappedHour,
+    snappedMinute,
+    0,
+    0
   );
-  const days = [];
-  let cursor = utcDate(coverage.coverage_start);
-  const end = utcDate(coverage.coverage_end);
-  let school_day_count = 0;
-  let weekend_count = 0;
-  let break_day_count = 0;
-  let holiday_day_count = 0;
-  let summer_day_count = 0;
-  while (cursor <= end) {
-    const date = isoFromUtc(cursor);
-    const dow = cursor.getUTCDay();
-    const day_of_week = dayOfWeekName(date);
-    const inSchoolYear = date >= input.first_day && date <= input.last_day;
-    let entry;
-    if (!inSchoolYear) {
-      entry = {
-        date,
-        day_of_week,
-        is_school_day: false,
-        reason: "Outside school year (summer)"
-      };
-      summer_day_count += 1;
-    } else if (dow === 0 || dow === 6) {
-      entry = {
-        date,
-        day_of_week,
-        is_school_day: false,
-        reason: "Weekend"
-      };
-      weekend_count += 1;
-    } else {
-      const holiday = holidayByDate.get(date);
-      const breakHit = input.breaks.find((b) => date >= b.start && date <= b.end);
-      if (holiday) {
-        entry = {
-          date,
-          day_of_week,
-          is_school_day: false,
-          reason: holiday.label
-        };
-        holiday_day_count += 1;
-      } else if (breakHit) {
-        entry = {
-          date,
-          day_of_week,
-          is_school_day: false,
-          reason: breakHit.label || "Break"
-        };
-        break_day_count += 1;
-      } else {
-        entry = {
-          date,
-          day_of_week,
-          is_school_day: true,
-          reason: ""
-        };
-        school_day_count += 1;
-      }
-    }
-    days.push(entry);
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  if (minute >= band.toNextHour && hour === 23 && snappedHour === 0) {
+    out.setDate(out.getDate() + 1);
   }
-  const school_days = days.filter((d) => d.is_school_day).map((d) => d.date);
-  return {
-    calendar: {
-      school_year: input.school_year,
-      coverage_start: coverage.coverage_start,
-      coverage_end: coverage.coverage_end,
-      days,
-      school_days
-    },
-    summary: {
-      first_day: input.first_day,
-      last_day: input.last_day,
-      school_day_count,
-      weekend_count,
-      break_day_count,
-      holiday_day_count,
-      summer_day_count,
-      civil_day_count: days.length,
-      breaks_applied: input.breaks.map((b) => ({
-        start: b.start,
-        end: b.end,
-        label: b.label || "Break"
-      })),
-      holidays_applied: input.holidays.map((h) => ({
-        date: h.date,
-        label: h.label || "Holiday"
-      }))
-    },
-    coverage_boundary: coverage
-  };
+  return out;
 }
-
-// employee-tracker/src/bellinghamCalendar2026.js
-var BELLINGHAM_2026_2027_SOURCE = {
-  name: "Bellingham Public Schools",
-  school_year: "2026-2027",
-  document: "2026-27 District Calendar",
-  url: "https://www.bellinghamschools.org/calendar"
-};
-var BELLINGHAM_2026_2027_INPUT = {
-  school_year: "2026-2027",
-  first_day: "2026-08-31",
-  last_day: "2027-06-11",
-  breaks: [
-    { start: "2026-09-18", end: "2026-09-18", label: "Teacher workday" },
-    { start: "2026-12-21", end: "2027-01-01", label: "Winter break" },
-    { start: "2027-01-22", end: "2027-01-22", label: "Treaty Day" },
-    { start: "2027-01-25", end: "2027-01-25", label: "Semester break" },
-    { start: "2027-04-05", end: "2027-04-09", label: "Spring break" },
-    { start: "2027-05-21", end: "2027-05-21", label: "No school or weather makeup day" }
-  ],
-  holidays: [
-    { date: "2026-09-07", label: "Labor Day" },
-    { date: "2026-11-11", label: "Veterans Day" },
-    { date: "2026-11-26", label: "Thanksgiving" },
-    { date: "2026-11-27", label: "Thanksgiving" },
-    { date: "2027-01-18", label: "Martin Luther King Jr. Day" },
-    { date: "2027-02-15", label: "Presidents Day" },
-    { date: "2027-05-31", label: "Memorial Day" },
-    { date: "2027-06-18", label: "Juneteenth" }
-  ]
-};
-function buildBellingham2026_2027Calendar() {
-  const { calendar, summary } = generateSchoolYearCalendar(BELLINGHAM_2026_2027_INPUT);
-  return {
-    calendar: {
-      ...calendar,
-      district: BELLINGHAM_2026_2027_SOURCE.name,
-      source_document: BELLINGHAM_2026_2027_SOURCE.document
-    },
-    summary,
-    source: BELLINGHAM_2026_2027_SOURCE
-  };
+function formatSnappedClock(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  let hour = date.getHours();
+  const minute = date.getMinutes();
+  const period = hour >= 12 ? "PM" : "AM";
+  hour = hour % 12;
+  if (hour === 0) hour = 12;
+  return `${hour}:${String(minute).padStart(2, "0")} ${period}`;
 }
-
-// src/logic/schoolYear.js
-var LABEL_MAX = 80;
-var YEAR_LABEL_MAX = 40;
-var MONTHS = {
-  jan: 1,
-  january: 1,
-  feb: 2,
-  february: 2,
-  mar: 3,
-  march: 3,
-  apr: 4,
-  april: 4,
-  may: 5,
-  jun: 6,
-  june: 6,
-  jul: 7,
-  july: 7,
-  aug: 8,
-  august: 8,
-  sep: 9,
-  sept: 9,
-  september: 9,
-  oct: 10,
-  october: 10,
-  nov: 11,
-  november: 11,
-  dec: 12,
-  december: 12
-};
-function isoFromParts(year, month, day) {
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return "";
-  let fullYear = year;
-  if (fullYear < 100) fullYear += 2e3;
-  if (fullYear < 2e3 || fullYear > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return "";
-  const iso = `${fullYear}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-  const parsed = /* @__PURE__ */ new Date(`${iso}T00:00:00.000Z`);
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== iso) return "";
-  return iso;
+function localDayKey(date) {
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
-function takeDate(text) {
-  const source = String(text ?? "").trim();
-  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})\b/.exec(source);
-  if (isoMatch) {
-    const iso = isoFromParts(Number(isoMatch[1]), Number(isoMatch[2]), Number(isoMatch[3]));
-    if (!iso) return null;
-    return { iso, rest: source.slice(isoMatch[0].length).trim() };
+function cardStampSpan(outDate, inDate) {
+  if (!(outDate instanceof Date) || !(inDate instanceof Date)) return null;
+  if (Number.isNaN(outDate.getTime()) || Number.isNaN(inDate.getTime())) return null;
+  if (inDate.getTime() >= outDate.getTime()) {
+    return { start: new Date(outDate.getTime()), end: new Date(inDate.getTime()) };
   }
-  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/.exec(source);
-  if (slash) {
-    const iso = isoFromParts(Number(slash[3]), Number(slash[1]), Number(slash[2]));
-    if (!iso) return null;
-    return { iso, rest: source.slice(slash[0].length).trim() };
+  if (localDayKey(outDate) === localDayKey(inDate)) {
+    return { start: new Date(inDate.getTime()), end: new Date(outDate.getTime()) };
   }
-  const named = /^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})\b/.exec(source);
-  if (named) {
-    const month = MONTHS[named[1].toLowerCase()];
-    if (!month) return null;
-    const iso = isoFromParts(Number(named[3]), month, Number(named[2]));
-    if (!iso) return null;
-    return { iso, rest: source.slice(named[0].length).trim() };
-  }
+  return { start: new Date(inDate.getTime()), end: new Date(outDate.getTime()) };
+}
+function hoursBetweenCardStamps(outDate, inDate) {
+  const span = cardStampSpan(outDate, inDate);
+  if (!span) return null;
+  const ms = span.end.getTime() - span.start.getTime();
+  if (ms < 0) return null;
+  return Math.round(ms / 36e5 * 100) / 100;
+}
+function quarterHoursBetweenCardStamps(outDate, inDate) {
+  const span = cardStampSpan(outDate, inDate);
+  if (!span) return null;
+  const minutes = (span.end.getTime() - span.start.getTime()) / 6e4;
+  if (!Number.isFinite(minutes) || minutes < 0) return null;
+  return quarterHoursFromMinutes(minutes);
+}
+function blockedStampLabel(parts) {
+  if (parts.handwriting) return "HANDWRITING";
+  if (parts.illegible) return "illegible";
   return null;
 }
-function eachDate(start, end) {
-  const dates = [];
-  const cursor = /* @__PURE__ */ new Date(`${start}T00:00:00.000Z`);
-  const last = /* @__PURE__ */ new Date(`${end}T00:00:00.000Z`);
-  while (cursor <= last) {
-    dates.push(cursor.toISOString().slice(0, 10));
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
+function snapRoundedForRow(row, breaks, defaultYear, mode2) {
+  const hoursMode = normalizeTimesheetHoursMode(mode2);
+  const year = defaultYear ?? inferDefaultYear(null);
+  const outRaw = String(row?.clock_out_raw ?? "").trim();
+  const inRaw = String(row?.clock_in_raw ?? "").trim();
+  const outParts = parseStampParts(outRaw);
+  const inParts = parseStampParts(inRaw);
+  const outBlocked = blockedStampLabel(outParts);
+  const inBlocked = blockedStampLabel(inParts);
+  const outIllegible = Boolean(outParts.illegible || outParts.handwriting);
+  const inIllegible = Boolean(inParts.illegible || inParts.handwriting);
+  const outDate = outRaw && !outBlocked ? parseLegacyStampToDate(outRaw, year) : null;
+  const inDate = inRaw && !inBlocked ? parseLegacyStampToDate(inRaw, year) : null;
+  const useExact = hoursMode === TIMESHEET_HOURS_MODE_QUARTER;
+  const displayOut = useExact ? outDate : outDate ? snapContractDate(outDate, breaks) : null;
+  const displayIn = useExact ? inDate : inDate ? snapContractDate(inDate, breaks) : null;
+  const span = displayOut && displayIn ? cardStampSpan(displayOut, displayIn) : null;
+  const totalHours = outBlocked || inBlocked || !displayOut || !displayIn ? null : useExact ? quarterHoursBetweenCardStamps(displayOut, displayIn) : hoursBetweenCardStamps(displayOut, displayIn);
+  return {
+    mode: hoursMode,
+    outLabel: outBlocked ? outBlocked : displayOut ? formatSnappedClock(displayOut) : outRaw ? "\u2014" : "",
+    inLabel: inBlocked ? inBlocked : displayIn ? formatSnappedClock(displayIn) : inRaw ? "\u2014" : "",
+    outIllegible,
+    inIllegible,
+    outHandwriting: Boolean(outParts.handwriting),
+    inHandwriting: Boolean(inParts.handwriting),
+    snappedIn: displayIn,
+    snappedOut: displayOut,
+    spanStart: span?.start || null,
+    spanEnd: span?.end || null,
+    // Handwriting or illegible on either stamp leaves Tot. Hrs. blank.
+    totalHours
+  };
+}
+
+// office-tracker/src/summaryMath.js
+function regOtGapHours(contractText, clocked) {
+  if (clocked == null || !Number.isFinite(Number(clocked))) return null;
+  const text = String(contractText ?? "").trim();
+  if (!text) return null;
+  const contract = Number(text);
+  if (!Number.isFinite(contract) || contract <= 0) return null;
+  return Math.round((contract - Number(clocked)) * 4) / 4;
+}
+function quarterShares(total, weights) {
+  const units = Math.round(Number(total) * 4);
+  const safe = (Array.isArray(weights) ? weights : []).map((weight) => Math.max(0, Number(weight) || 0));
+  const weightSum = safe.reduce((sum, weight) => sum + weight, 0);
+  if (!safe.length || !(weightSum > 0) || !Number.isFinite(units)) return safe.map(() => 0);
+  const exact = safe.map((weight) => units * weight / weightSum);
+  const bases = exact.map((value) => Math.trunc(value));
+  let left = units - bases.reduce((sum, value) => sum + value, 0);
+  const order = exact.map((value, index) => ({ index, frac: Math.abs(value - bases[index]) })).sort((a, b) => b.frac - a.frac || a.index - b.index);
+  const shares = bases.slice();
+  const step = left >= 0 ? 1 : -1;
+  let cursor = 0;
+  while (left !== 0 && order.length) {
+    shares[order[cursor % order.length].index] += step;
+    left -= step;
+    cursor += 1;
   }
-  return dates;
+  return shares.map((unitsShare) => unitsShare / 4);
 }
-function yearLabel(startYear, endYear) {
-  return startYear === endYear ? String(startYear) : `${startYear}-${endYear}`;
+
+// office-tracker/src/timesheetRegOt.js
+function roundHours(value) {
+  return Math.round(value * 100) / 100;
 }
-function cleanLabel(raw) {
-  return String(raw ?? "").trim().replace(/\s+/g, " ").slice(0, LABEL_MAX);
+function splitTotHoursIntoRegOt(rowLists, options = {}) {
+  const breaks = options.breaks;
+  const year = options.defaultYear ?? inferDefaultYear(null);
+  const mode2 = options.mode;
+  const lists = (Array.isArray(rowLists) ? rowLists : []).filter(Array.isArray);
+  const ready = [];
+  for (const rows of lists) {
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index];
+      if (!row || typeof row !== "object") continue;
+      if (row.crossed_out) {
+        row.hours_regular = null;
+        row.hours_overtime = null;
+        continue;
+      }
+      const snapped = snapRoundedForRow(row, breaks, year, mode2);
+      const totHours = snapped.totalHours;
+      const start = snapped.spanStart;
+      const end = snapped.spanEnd;
+      if (totHours == null || !start || !end || end.getTime() <= start.getTime()) {
+        row.hours_regular = null;
+        row.hours_overtime = null;
+        continue;
+      }
+      const key = `genie|${lists.indexOf(rows)}|${index}|${start.toISOString()}|${end.toISOString()}`;
+      ready.push({ row, start, end, totHours, key });
+    }
+  }
+  const pairs = ready.map((item) => ({
+    start: item.start,
+    end: item.end,
+    clockIn: { id: `${item.key}|in` },
+    clockOut: { id: `${item.key}|out` },
+    _key: item.key
+  }));
+  const overtimeByPair = overtimeForPairs(pairs, options.rules, options.holidays);
+  const byKey = new Map(ready.map((item) => [item.key, item]));
+  for (const pair of pairs) {
+    const item = byKey.get(pair._key);
+    if (!item) continue;
+    const counted = overtimeByPair.get(pairOvertimeKey(pair));
+    const otMinutes = counted?.actual ?? 0;
+    let otHours = roundHours(otMinutes / 60);
+    if (otHours > item.totHours) otHours = item.totHours;
+    if (otHours < 0) otHours = 0;
+    const regHours = roundHours(item.totHours - otHours);
+    item.row.hours_regular = regHours;
+    item.row.hours_overtime = otHours;
+  }
+  scaleRegOtToContractGap(ready, options.contractedByDay);
 }
-function normalizeSchoolYear(raw) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const source = raw;
-  const first = takeDate(String(source.first_day ?? ""));
-  const last = takeDate(String(source.last_day ?? ""));
-  if (!first || first.rest || !last || last.rest || last.iso < first.iso) return null;
-  const bounds = defaultCoverageWindow(first.iso, last.iso);
-  const holidays = [];
-  const breaks = [];
-  const noSchool = [];
-  const early = [];
-  const seen = /* @__PURE__ */ new Set();
-  const addDay = (date, label, bucket) => {
-    const parsed = takeDate(String(date ?? ""));
-    if (!parsed || parsed.rest || parsed.iso < bounds.coverage_start || parsed.iso > bounds.coverage_end || seen.has(parsed.iso)) {
+function contractedHoursOn(contractedByDay, key) {
+  if (!contractedByDay) return "";
+  if (typeof contractedByDay.get === "function") return contractedByDay.get(key) || "";
+  return contractedByDay[key] || "";
+}
+function scaleRegOtToContractGap(ready, contractedByDay) {
+  if (!contractedByDay) return;
+  const byDay = /* @__PURE__ */ new Map();
+  for (const item of ready) {
+    const key = localDateKey(item.start);
+    const list = byDay.get(key) || [];
+    list.push(item);
+    byDay.set(key, list);
+  }
+  for (const [key, items] of byDay) {
+    const tot = roundHours(items.reduce((sum, item) => sum + item.totHours, 0));
+    const gap = regOtGapHours(contractedHoursOn(contractedByDay, key), tot);
+    if (gap == null) continue;
+    const weights = items.map((item) => item.totHours);
+    const shares = quarterShares(gap, weights);
+    items.forEach((item, index) => {
+      const share = Number(shares[index]);
+      if (!Number.isFinite(share) || share === 0) {
+        item.row.hours_regular = null;
+        item.row.hours_overtime = null;
+        return;
+      }
+      const priorReg = Number(item.row.hours_regular);
+      const regRatio = item.totHours > 0 && Number.isFinite(priorReg) ? priorReg / item.totHours : 1;
+      const reg = roundHours(Math.round(share * regRatio * 4) / 4);
+      const ot = roundHours(Math.round((share - reg) * 4) / 4);
+      item.row.hours_regular = Number.isFinite(reg) && reg !== 0 ? reg : null;
+      item.row.hours_overtime = Number.isFinite(ot) && ot !== 0 ? ot : null;
+    });
+  }
+}
+
+// office-tracker/src/timesheetAudit.js
+var AUDIT_SYSTEM = `You read one side of a blue paper timecard that already has hours written on it.
+
+A slot is one block between bold horizontal lines. Each slot lines up a Clock Record (far right) with the Reg, OT, and Tot. Hrs. cells in that same block.
+Count the slots: front has ${FRONT_SLOT_COUNT}, back has ${BACK_SLOT_COUNT}.
+
+For each slot return null when the Clock Record and the hour cells are all empty.
+Otherwise return:
+- stamps \u2014 null when blank, "HANDWRITING" when the clocks are handwritten, "illegible" when struck through or unreadable, or the stamp strings top to bottom exactly as printed, e.g. ["MAR 9 PM 2:00", "MAR 9 PM 5:15"]
+- reg \u2014 the number written in Reg, or null when blank, or "illegible"
+- ot \u2014 the number written in OT, or null when blank, or "illegible"
+- tot \u2014 the number written in Tot. Hrs., or null when blank, or "illegible"
+
+A bullet, dot, or 0 in an hour cell is 0. A blank hour cell is null.
+Read only what is written. Never calculate Reg, OT, or Tot. Hrs. from the stamps.
+Never guess a digit. If a number or stamp is not clearly legible, use "illegible".
+Do not read Description of Work.
+On the FRONT photo, also read the printed sticker at the top of the card.
+Where the sticker is: a rectangle at the top of the front side. It is about half the width of the card, and about half as tall as it is wide.
+Sticker layout:
+1. Upper left of the rectangle: the driver name in "Last, First" format.
+2. To the RIGHT of that "Last, First" name: a date in MM/DD/YY or M/DD/YY format (for example "10/15/26" or "3/15/26"). THAT date is the pay period ending (last day of the pay period). It is always on the sticker. You MUST return it as period_end, copied exactly as shown. Use null only when the sticker is cropped out of this photo. Do not invent the date from the clock stamps, and do not use any other date on the card.
+3. Just below the last name: the exact printed text "Route #", then the route number.
+4. Contract hours may appear on the line under the route line. When printed, return it as contract_hours exactly as shown (one number, or AM / midday / PM figures). When the sticker has no contract-hours line, leave contract_hours null. Do not invent contract hours from the clock stamps or from Reg and OT.
+On the BACK photo, do not return sticker fields. The sticker is only on the front.
+Do not write notes. Return only the tool fields for this one photo.`;
+function parseAuditHours(value) {
+  if (value == null) return { status: "blank", hours: null };
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return { status: "illegible", hours: null };
+    return { status: "number", hours: value };
+  }
+  const text = String(value).trim();
+  if (!text || text.toLowerCase() === "null" || text === "-" || text === "\u2014" || text === "\u2013") {
+    return { status: "blank", hours: null };
+  }
+  if (/^illegible$/i.test(text)) return { status: "illegible", hours: null };
+  if (text === "\u2022" || text === "\u2022" || text === "\xB7" || text === ".") {
+    return { status: "number", hours: 0 };
+  }
+  const mixed = /^(\d+)\s+(\d+)\s*\/\s*(\d+)$/.exec(text);
+  if (mixed) {
+    const den = Number(mixed[3]);
+    if (den) return { status: "number", hours: Number(mixed[1]) + Number(mixed[2]) / den };
+  }
+  const fraction = /^(\d+)\s*\/\s*(\d+)$/.exec(text);
+  if (fraction) {
+    const den = Number(fraction[2]);
+    if (den) return { status: "number", hours: Number(fraction[1]) / den };
+  }
+  const number = Number(text.replace(",", "."));
+  if (Number.isFinite(number)) return { status: "number", hours: number };
+  return { status: "illegible", hours: null };
+}
+function roundHours2(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Math.round(number * 100) / 100;
+}
+function closeHours(left, right) {
+  const a = roundHours2(left);
+  const b = roundHours2(right);
+  if (a == null || b == null) return false;
+  return Math.abs(a - b) <= 0.01;
+}
+function formatAuditHours(value) {
+  const number = roundHours2(value);
+  if (number == null || Math.abs(number) <= 1e-3) return "0";
+  if (Number.isInteger(number)) return String(number);
+  return number.toFixed(2);
+}
+function writtenOf(row, field) {
+  const statusKey = field === "reg" ? "written_regular_status" : field === "ot" ? "written_overtime_status" : "written_total_status";
+  const hoursKey = field === "reg" ? "written_regular" : field === "ot" ? "written_overtime" : "written_total";
+  const status = row?.[statusKey];
+  if (status === "blank" || status === "number" || status === "illegible") {
+    return { status, hours: status === "number" ? roundHours2(row[hoursKey]) : null };
+  }
+  return parseAuditHours(row?.[hoursKey]);
+}
+function writtenPresent(row) {
+  return ["reg", "ot", "tot"].some((field) => {
+    const written = writtenOf(row, field);
+    return written.status === "number" || written.status === "illegible";
+  });
+}
+function clockProblem(row, totHours) {
+  if (totHours != null) return "";
+  const out = String(row?.clock_out_raw ?? "").trim();
+  const inn = String(row?.clock_in_raw ?? "").trim();
+  const blob = `${out} ${inn}`.toLowerCase();
+  if (/\billegible\b/.test(blob)) return "illegible";
+  if (blob.includes("handwriting")) return "handwriting";
+  if (!out && !inn) return "missing";
+  return "unreadable";
+}
+function uncheckedMessage(problem) {
+  if (problem === "illegible") {
+    return "Clock stamps are illegible, so the written hours cannot be checked.";
+  }
+  if (problem === "handwriting") {
+    return "Clock stamps are handwritten, so the written hours cannot be checked.";
+  }
+  if (problem === "missing") {
+    return "Clock stamps are missing, so the written hours cannot be checked.";
+  }
+  return "Those clock stamps could not be turned into hours, so the written hours cannot be checked.";
+}
+function fieldLabel(field) {
+  if (field === "reg") return "Reg";
+  if (field === "ot") return "OT";
+  return "Tot. Hrs.";
+}
+function differsFromHandwriting(written, expected) {
+  if (expected == null) return false;
+  if (written.status === "illegible") return true;
+  const handwritten = written.status === "number" ? written.hours : 0;
+  return !closeHours(handwritten, expected);
+}
+function issueSeverity(issues) {
+  if (issues.some((issue) => issue.severity === "mistake")) return "mistake";
+  if (issues.length) return "unchecked";
+  return "ok";
+}
+function pushHoursIssue(issues, field, written, expected) {
+  if (written.status === "illegible") return;
+  if (!differsFromHandwriting(written, expected)) return;
+  const handwritten = written.status === "blank" ? "blank" : formatAuditHours(written.hours);
+  issues.push({
+    severity: "mistake",
+    field,
+    message: `${fieldLabel(field)} is ${handwritten}; calculated ${formatAuditHours(expected)}.`
+  });
+}
+function dayWrittenField(rows, statusKey, hoursKey) {
+  let illegible = false;
+  let hours = 0;
+  let numbered = false;
+  for (const row of rows) {
+    const status = row?.[statusKey];
+    if (status === "illegible") {
+      illegible = true;
+      continue;
+    }
+    if (status === "number") {
+      numbered = true;
+      hours += Number(row?.[hoursKey]) || 0;
+    }
+  }
+  if (illegible) return { status: "illegible", hours: null };
+  if (!numbered) return { status: "blank", hours: null };
+  return { status: "number", hours: roundHours2(hours) ?? 0 };
+}
+function finiteHours(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+function foldDayRegOt(judged, contractHours) {
+  const byDay = /* @__PURE__ */ new Map();
+  for (const row of judged) {
+    if (!row.dateKey) continue;
+    const list = byDay.get(row.dateKey) || [];
+    list.push(row);
+    byDay.set(row.dateKey, list);
+  }
+  for (const rows of byDay.values()) {
+    const withExpected = rows.filter((row) => row.expectedReg != null || row.expectedOt != null);
+    if (!withExpected.length) continue;
+    const regSum = roundHours2(withExpected.reduce((sum, row) => sum + finiteHours(row.expectedReg), 0)) ?? 0;
+    const otSum = roundHours2(withExpected.reduce((sum, row) => sum + finiteHours(row.expectedOt), 0)) ?? 0;
+    const dayTot = roundHours2(rows.reduce((sum, row) => sum + finiteHours(row.totHours), 0)) ?? 0;
+    const gap = regOtGapHours(contractHours, dayTot);
+    let dayExpectedReg = regSum;
+    let dayExpectedOt = otSum;
+    if (gap != null) {
+      if (gap >= 0) {
+        dayExpectedReg = 0;
+        dayExpectedOt = 0;
+      } else {
+        const residual = roundHours2(-gap) ?? 0;
+        const parts = Math.abs(regSum) + Math.abs(otSum);
+        if (parts < 1e-3) {
+          dayExpectedReg = residual;
+          dayExpectedOt = 0;
+        } else {
+          const regRatio = Math.abs(regSum) / parts;
+          dayExpectedReg = roundHours2(residual * regRatio) ?? 0;
+          dayExpectedOt = roundHours2(residual - dayExpectedReg) ?? 0;
+        }
+      }
+    }
+    const dayWrittenReg = dayWrittenField(rows, "writtenRegStatus", "writtenReg");
+    const dayWrittenOt = dayWrittenField(rows, "writtenOtStatus", "writtenOt");
+    const anchor = rows.find(
+      (row) => row.writtenRegStatus === "number" || row.writtenRegStatus === "illegible" || row.writtenOtStatus === "number" || row.writtenOtStatus === "illegible"
+    ) || withExpected[0];
+    for (const row of rows) {
+      row.issues = row.issues.filter((issue) => issue.field !== "reg" && issue.field !== "ot");
+      if (row === anchor) {
+        row.expectedReg = dayExpectedReg;
+        row.expectedOt = dayExpectedOt;
+        pushHoursIssue(row.issues, "reg", dayWrittenReg, dayExpectedReg);
+        pushHoursIssue(row.issues, "ot", dayWrittenOt, dayExpectedOt);
+      } else {
+        row.expectedReg = null;
+        row.expectedOt = null;
+      }
+      row.severity = issueSeverity(row.issues);
+    }
+  }
+}
+function judgeRow(row, calc, side, options) {
+  const snapped = snapRoundedForRow(row, options.breaks, options.defaultYear, options.mode);
+  const totHours = snapped.totalHours;
+  const writtenReg = writtenOf(row, "reg");
+  const writtenOt = writtenOf(row, "ot");
+  const writtenTot = writtenOf(row, "tot");
+  const problem = clockProblem(row, totHours);
+  const expectedTot = problem ? null : totHours;
+  const expectedReg = !problem && options.useContract ? roundHours2(calc?.hours_regular) ?? 0 : null;
+  const expectedOt = !problem && options.useContract ? roundHours2(calc?.hours_overtime) ?? 0 : null;
+  const issues = [];
+  if (!problem) {
+    pushHoursIssue(issues, "tot", writtenTot, expectedTot);
+  } else if (writtenPresent(row)) {
+    issues.push({ severity: "unchecked", field: "clocks", message: uncheckedMessage(problem) });
+  }
+  const show = totHours != null || writtenPresent(row);
+  return {
+    show,
+    side,
+    rowIndex: Number(row?.row_index) || 0,
+    dateKey: snapped.spanStart ? localDateKey(snapped.spanStart) : "",
+    clockOut: String(row?.clock_out_raw ?? "").trim(),
+    clockIn: String(row?.clock_in_raw ?? "").trim(),
+    totHours: expectedTot,
+    writtenReg: writtenReg.hours,
+    writtenRegStatus: writtenReg.status,
+    writtenOt: writtenOt.hours,
+    writtenOtStatus: writtenOt.status,
+    writtenTot: writtenTot.hours,
+    writtenTotStatus: writtenTot.status,
+    expectedReg,
+    expectedOt,
+    issues,
+    severity: issueSeverity(issues)
+  };
+}
+function contractDays(rows, contractHours, options, year) {
+  const contract = Number(contractHours);
+  if (!Number.isFinite(contract) || contract <= 0) return null;
+  const days = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    const snapped = snapRoundedForRow(row, options.breaks, year, options.mode);
+    if (snapped.totalHours == null || !snapped.spanStart) continue;
+    days.set(localDateKey(snapped.spanStart), String(contract));
+  }
+  return days.size ? days : null;
+}
+function auditWrittenHours(extraction, options = {}) {
+  const year = options.defaultYear ?? inferDefaultYear(null);
+  const front = Array.isArray(extraction?.front_rows) ? extraction.front_rows : [];
+  const back2 = Array.isArray(extraction?.back_rows) ? extraction.back_rows : [];
+  const frontCalc = front.map((row) => ({ ...row, hours_regular: null, hours_overtime: null }));
+  const backCalc = back2.map((row) => ({ ...row, hours_regular: null, hours_overtime: null }));
+  const contractedByDay = contractDays([...front, ...back2], extraction?.header?.contract_hours, options, year);
+  splitTotHoursIntoRegOt([frontCalc, backCalc], {
+    breaks: options.breaks,
+    rules: options.rules,
+    holidays: options.holidays,
+    defaultYear: year,
+    mode: options.mode,
+    contractedByDay: null
+  });
+  const judgeOptions = { ...options, defaultYear: year, useContract: contractedByDay != null };
+  const judged = [
+    ...front.map((row, index) => judgeRow(row, frontCalc[index], "front", judgeOptions)),
+    ...back2.map((row, index) => judgeRow(row, backCalc[index], "back", judgeOptions))
+  ].filter((row) => row.show);
+  foldDayRegOt(judged, extraction?.header?.contract_hours);
+  return {
+    front: judged.filter((row) => row.side === "front"),
+    back: judged.filter((row) => row.side === "back"),
+    mistakeCount: judged.filter((row) => row.severity === "mistake").length,
+    uncheckedCount: judged.filter((row) => row.severity === "unchecked").length
+  };
+}
+
+// office-tracker/src/timesheetGenieCard.js
+var GENIE_CARD_SYSTEM = `You read one side of a blue paper timecard and copy what is printed on it.
+
+A slot is one block between bold horizontal lines. Each slot lines up a Clock Record (far right) with the Reg, OT, and Tot. Hrs. cells in that same block.
+Count the slots: front has ${FRONT_SLOT_COUNT}, back has ${BACK_SLOT_COUNT}.
+
+For each slot return null when the Clock Record and the hour cells are all empty.
+Otherwise return:
+- stamps \u2014 null when blank, "HANDWRITING" when the clocks are handwritten, "illegible" when struck through or unreadable, or the stamp strings top to bottom exactly as printed, e.g. ["MAR 9 PM 2:00", "MAR 9 PM 5:15"]
+- reg \u2014 the number written in Reg, or null when blank, or "illegible"
+- ot \u2014 the number written in OT, or null when blank, or "illegible"
+- tot \u2014 the number written in Tot. Hrs., or null when blank, or "illegible"
+
+A bullet, dot, or 0 in an hour cell is 0. A blank hour cell is null.
+Read only what is written. Never calculate Reg, OT, or Tot. Hrs. from the stamps.
+Never guess a digit. If a number or stamp is not clearly legible, use "illegible".
+Do not read Description of Work.
+
+On the FRONT photo, also read the sticker at the top of the card.
+The driver's name is on that sticker. The route number is the line directly under the driver's name.
+The contract hours are the line directly under the route number. Return that line as contract_hours, exactly as printed.
+Use null for contract_hours, employee_name, or route_number when that sticker line is not on this photo.
+Do not invent the contract hours from the clock stamps or from Reg and OT.
+On the BACK photo, contract_hours, employee_name, and route_number are null.
+Do not write notes. Return only the tool fields for this one photo.`;
+function roundHours3(value) {
+  return Math.round(Number(value) * 100) / 100;
+}
+function parseStickerContractHours(value) {
+  if (value == null) return null;
+  const text = typeof value === "number" ? String(value) : String(value).trim();
+  if (!text || /^null$/i.test(text) || /^illegible$/i.test(text)) return null;
+  const numbers = [...text.matchAll(/\d+(?:\.\d+)?/g)].map((match) => Number(match[0])).filter((number) => Number.isFinite(number) && number > 0 && number <= 24);
+  if (!numbers.length || numbers.length > 3) return null;
+  const total = roundHours3(numbers.reduce((sum, number) => sum + number, 0));
+  if (!(total > 0)) return null;
+  if (numbers.length === 1) return { total, am: null, midday: null, pm: null };
+  if (numbers.length === 2) return { total, am: numbers[0], midday: null, pm: numbers[1] };
+  return { total, am: numbers[0], midday: numbers[1], pm: numbers[2] };
+}
+
+// office-tracker/web/auditPeriodStore.js
+var STORAGE_KEY2 = "teamster-audit-pay-periods";
+function readAuditPeriodRecord(storage = globalThis.localStorage) {
+  try {
+    const parsed = JSON.parse(storage?.getItem(STORAGE_KEY2) || "");
+    const byEnd = parsed?.byEnd;
+    if (!byEnd || typeof byEnd !== "object") return {};
+    return byEnd;
+  } catch {
+    return {};
+  }
+}
+function saveAuditPeriodResult(entry, storage = globalThis.localStorage) {
+  const iso = String(entry?.iso || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return readAuditPeriodRecord(storage);
+  const byEnd = readAuditPeriodRecord(storage);
+  byEnd[iso] = {
+    iso,
+    auditedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    mistakeCount: Number(entry.mistakeCount) || 0,
+    uncheckedCount: Number(entry.uncheckedCount) || 0,
+    result: String(entry.result || "")
+  };
+  try {
+    storage?.setItem(STORAGE_KEY2, JSON.stringify({ version: 1, byEnd }));
+  } catch {
+  }
+  return byEnd;
+}
+function auditPeriodResultText() {
+  return "Checked";
+}
+
+// office-tracker/src/timesheetCaptureShare.js
+var TTL_MS = 15 * 60 * 1e3;
+var MAX_BYTES = 12 * 1024 * 1024;
+function timesheetCaptureUrl(origin, token, desk) {
+  const base = String(origin || "").replace(/\/$/, "");
+  const link = String(token || "").trim();
+  if (!base || !link) return "";
+  const params = new URLSearchParams();
+  params.set("t", link);
+  if (String(desk || "").trim().toLowerCase() === "audit") params.set("desk", "audit");
+  return `${base}/timesheet-capture.html?${params.toString()}`;
+}
+
+// office-tracker/src/clockShare.js
+function pageShareOrigin(origin) {
+  const base = String(origin || "").trim().replace(/\/$/, "");
+  let url;
+  try {
+    url = new URL(base);
+  } catch {
+    return "";
+  }
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  if (!host || host === "localhost" || host === "127.0.0.1" || host === "::1") return "";
+  if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+  return base;
+}
+
+// office-tracker/web/timesheetCaptureClient.js
+async function readJson(response) {
+  const type = response.headers.get("content-type") || "";
+  if (!type.includes("json")) return null;
+  return response.json().catch(() => null);
+}
+async function loadCaptureShareOrigin() {
+  try {
+    const response = await fetch("/api/clock-share-origin", { cache: "no-store" });
+    const body = await readJson(response);
+    const fromApi = pageShareOrigin(body?.origin);
+    if (fromApi) return fromApi;
+  } catch {
+  }
+  return pageShareOrigin(window.location.origin);
+}
+function captureShareUrl(origin, token, desk) {
+  return timesheetCaptureUrl(origin, token, desk);
+}
+async function openCaptureSession() {
+  const response = await fetch("/api/timesheet-capture", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}"
+  });
+  const body = await readJson(response);
+  if (!response.ok) {
+    throw new Error(body?.error || "Could not start a phone photo link.");
+  }
+  if (!body?.token) throw new Error("Could not start a phone photo link.");
+  return body;
+}
+async function readCaptureSession(token) {
+  const response = await fetch(`/api/timesheet-capture/${encodeURIComponent(token)}`, {
+    cache: "no-store"
+  });
+  const body = await readJson(response);
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(body?.error || "Could not check the phone photo link.");
+  }
+  return body;
+}
+async function fetchCapturePhoto(token, side) {
+  const response = await fetch(
+    `/api/timesheet-capture/${encodeURIComponent(token)}/${encodeURIComponent(side)}`,
+    { cache: "no-store" }
+  );
+  if (!response.ok) {
+    const body = await readJson(response);
+    throw new Error(body?.error || `The ${side} photo is not ready yet.`);
+  }
+  const blob = await response.blob();
+  const type = blob.type || "image/jpeg";
+  return new File([blob], `${side}-timecard.jpg`, { type });
+}
+async function closeCaptureSession(token) {
+  const link = String(token || "").trim();
+  if (!link) return;
+  try {
+    await fetch(`/api/timesheet-capture/${encodeURIComponent(link)}`, { method: "DELETE" });
+  } catch {
+  }
+}
+
+// office-tracker/web/auditGenie.js
+var MAX_BYTES2 = 12 * 1024 * 1024;
+var ALLOWED = /* @__PURE__ */ new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+var CAMERA_KEY = "teamster-timesheet-camera";
+var HOURS_MODE_KEY = "teamster-audit-hours-mode";
+var CARD_ASPECT_WIDTH = 5;
+var CARD_ASPECT_HEIGHT = 8;
+function mountAuditGenie(options = {}) {
+  const view = document.querySelector("#audit-genie-view");
+  const form = document.querySelector("#audit-form");
+  const status = document.querySelector("#audit-status");
+  const statusText = status?.querySelector(".timesheet-progress-text") || status;
+  const result = document.querySelector("#audit-result");
+  if (!view || !form || !status || !result) return { refresh() {
+  } };
+  let extraction = null;
+  let markedFor = "";
+  let periodNote = "";
+  let progressTimer = null;
+  let hoursMode = readStoredHoursMode();
+  const deviceOnly = options.deviceOnly === true;
+  const camera = mountAuditCamera({
+    onCapture(side, file) {
+      setSideFile(side, file);
+      setStatus2("");
+      if (side === "front") {
+        camera.open("back").catch((error) => setStatus2(error?.message || "Could not open the camera.", "error"));
+        return;
+      }
+      readCard().catch((error) => setStatus2(error?.message || "Could not audit that card.", "error"));
+    }
+  });
+  const phoneCapture = deviceOnly ? { pause() {
+  }, resume() {
+  }, reset() {
+  } } : mountAuditPhone({
+    setSideFile,
+    setStatus: setStatus2
+  });
+  if (deviceOnly) {
+    document.querySelector("#audit-capture-source")?.setAttribute("hidden", "");
+    const computer = document.querySelector("#audit-computer-capture");
+    const phone = document.querySelector("#audit-phone-capture");
+    if (computer instanceof HTMLElement) computer.hidden = false;
+    if (phone instanceof HTMLElement) phone.hidden = true;
+  }
+  new MutationObserver(() => {
+    if (view.hidden) {
+      camera.close();
+      phoneCapture.pause();
       return;
     }
-    seen.add(parsed.iso);
-    bucket.push({ date: parsed.iso, label: cleanLabel(label) });
-  };
-  for (const item of Array.isArray(source.holidays) ? source.holidays : []) {
-    if (!item || typeof item !== "object") continue;
-    addDay(item.date, item.label, holidays);
+    phoneCapture.resume();
+  }).observe(view, { attributes: true, attributeFilter: ["hidden"] });
+  paintHoursMode();
+  paintPeriods();
+  document.querySelector("#audit-hours-mode")?.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest("[data-hours-mode]") : null;
+    if (!(button instanceof HTMLButtonElement)) return;
+    hoursMode = normalizeTimesheetHoursMode(button.dataset.hoursMode);
+    try {
+      localStorage.setItem(HOURS_MODE_KEY, hoursMode);
+    } catch {
+    }
+    paintHoursMode();
+    if (extraction) renderResult();
+  });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    readCard().catch((error) => setStatus2(error?.message || "Could not audit that card.", "error"));
+  });
+  document.querySelector("#audit-clear")?.addEventListener("click", () => clearCard());
+  document.querySelector("#audit-mark-checked")?.addEventListener("click", () => markChecked());
+  document.querySelector("#audit-recalculate")?.addEventListener("click", () => recalculate());
+  document.querySelector("#audit-sticker-date")?.addEventListener("input", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || !extraction) return;
+    if (!extraction.header || typeof extraction.header !== "object") extraction.header = {};
+    extraction.header.period_end = parseCardPeriodEnd(input.value);
+    paintStickerDate(true);
+    paintMarkButton(true);
+    paintPeriods(periodNote);
+  });
+  document.querySelector("#audit-contract-hours")?.addEventListener("input", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement)) return;
+    const parsed = parseStickerContractHours(input.value);
+    paintContractLabel(parsed?.total ?? null);
+    if (!extraction) return;
+    if (!extraction.header || typeof extraction.header !== "object") extraction.header = {};
+    extraction.header.contract_hours = parsed?.total ?? null;
+    renderResult();
+  });
+  document.querySelector("#audit-front-file")?.addEventListener("click", () => {
+    document.querySelector("#audit-front")?.click();
+  });
+  document.querySelector("#audit-back-file")?.addEventListener("click", () => {
+    document.querySelector("#audit-back")?.click();
+  });
+  document.querySelector("#audit-front")?.addEventListener("change", (event) => {
+    const file = event.target instanceof HTMLInputElement ? event.target.files?.[0] : null;
+    if (file) setSideFile("front", file);
+  });
+  document.querySelector("#audit-back")?.addEventListener("change", (event) => {
+    const file = event.target instanceof HTMLInputElement ? event.target.files?.[0] : null;
+    if (file) setSideFile("back", file);
+  });
+  document.querySelector("#audit-front-camera")?.addEventListener("click", () => {
+    camera.open("front").catch((error) => setStatus2(error?.message || "Could not open the camera.", "error"));
+  });
+  document.querySelector("#audit-back-camera")?.addEventListener("click", () => {
+    camera.open("back").catch((error) => setStatus2(error?.message || "Could not open the camera.", "error"));
+  });
+  document.querySelector("#audit-result")?.addEventListener("input", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || !extraction) return;
+    const tr = input.closest("tr[data-row-index]");
+    if (!tr) return;
+    const side = tr.dataset.side === "back" ? "back" : "front";
+    const index = Number(tr.dataset.rowIndex) || 0;
+    const rows = side === "back" ? extraction.back_rows : extraction.front_rows;
+    const row = Array.isArray(rows) ? rows[index - 1] : null;
+    if (!row) return;
+    if (input.dataset.part) {
+      const stamp = input.closest("[data-stamp]");
+      const which = stamp?.dataset.stamp === "in" ? "in" : "out";
+      row[`clock_${which}_raw`] = stamp instanceof HTMLElement ? readStamp(stamp) : null;
+      renderResult();
+      return;
+    }
+    const field = input.dataset.written;
+    if (field !== "reg" && field !== "ot" && field !== "tot") return;
+    applyWrittenInput(row, field, input.value);
+    renderResult();
+  });
+  const descDialog = document.querySelector("#audit-desc-dialog");
+  const descTitle = document.querySelector("#audit-desc-title");
+  const descText = document.querySelector("#audit-desc-text");
+  const descSave = document.querySelector("#audit-desc-save");
+  let descTarget = null;
+  document.querySelector("#audit-result")?.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest(".timesheet-desc-open") : null;
+    if (!(button instanceof HTMLButtonElement) || !extraction || !(descDialog instanceof HTMLDialogElement)) return;
+    if (!(descText instanceof HTMLTextAreaElement)) return;
+    const tr = button.closest("tr[data-row-index]");
+    if (!tr) return;
+    const side = tr.dataset.side === "back" ? "back" : "front";
+    const index = Number(tr.dataset.rowIndex) || 0;
+    const rows = side === "back" ? extraction.back_rows : extraction.front_rows;
+    const row = Array.isArray(rows) ? rows[index - 1] : null;
+    if (!row) return;
+    descTarget = { row, button };
+    if (descTitle) descTitle.textContent = `${side === "back" ? "Back" : "Front"} row ${index}`;
+    descText.value = row.description_of_work || "";
+    if (!descDialog.open) descDialog.showModal();
+    descText.focus();
+  });
+  descSave?.addEventListener("click", () => {
+    if (!descTarget || !(descText instanceof HTMLTextAreaElement) || !(descDialog instanceof HTMLDialogElement)) return;
+    const text = descText.value.trim();
+    descTarget.row.description_of_work = text || null;
+    descTarget.button.classList.toggle("is-empty", !text);
+    descTarget.button.textContent = text ? "\u270E" : "+";
+    descTarget.button.title = text || "Description of Work";
+    descDialog.close();
+  });
+  document.querySelector("#audit-desc-cancel")?.addEventListener("click", () => {
+    if (descDialog instanceof HTMLDialogElement) descDialog.close();
+  });
+  function officeState() {
+    try {
+      return typeof options.readState === "function" ? options.readState() : null;
+    } catch {
+      return null;
+    }
   }
-  for (const item of Array.isArray(source.breaks) ? source.breaks : []) {
-    if (!item || typeof item !== "object") continue;
-    const start = takeDate(String(item.start ?? ""));
-    const end = takeDate(String(item.end ?? ""));
-    if (!start || start.rest || !end || end.rest || end.iso < start.iso) continue;
-    if (start.iso < bounds.coverage_start || end.iso > bounds.coverage_end) continue;
-    const covered = eachDate(start.iso, end.iso);
-    if (covered.some((date) => seen.has(date))) continue;
-    for (const date of covered) seen.add(date);
-    breaks.push({ start: start.iso, end: end.iso, label: cleanLabel(item.label) });
+  function snapBreaks() {
+    try {
+      return contractSnapBreaksFromState(officeState() || {});
+    } catch {
+      return { ...DEFAULT_CONTRACT_SNAP_BREAKS };
+    }
   }
-  for (const item of Array.isArray(source.no_school) ? source.no_school : []) {
-    if (!item || typeof item !== "object") continue;
-    addDay(item.date, item.label, noSchool);
+  function currentReport() {
+    const state = officeState() || {};
+    return auditWrittenHours(extraction, {
+      breaks: snapBreaks(),
+      rules: state.overtimeRules,
+      holidays: holidayListForState(state),
+      defaultYear: inferDefaultYear(null),
+      mode: hoursMode
+    });
   }
-  for (const item of Array.isArray(source.early_release) ? source.early_release : []) {
-    if (typeof item === "string") addDay(item, "", early);
-    else if (item && typeof item === "object") addDay(item.date, item.label, early);
+  function paintHoursMode() {
+    for (const button of document.querySelectorAll("#audit-hours-mode [data-hours-mode]")) {
+      if (!(button instanceof HTMLButtonElement)) continue;
+      button.setAttribute("aria-pressed", button.dataset.hoursMode === hoursMode ? "true" : "false");
+    }
   }
-  const startYear = Number(first.iso.slice(0, 4));
-  const endYear = Number(last.iso.slice(0, 4));
-  const written = String(source.school_year ?? "").trim().replace(/\s+/g, " ");
+  function rememberPeriod(report) {
+    const iso = resolvedPeriodEndIso();
+    if (!iso) {
+      return {
+        note: "Type the pay period ending date from the sticker. It is the MM/DD/YY to the right of the driver's name.",
+        record: null
+      };
+    }
+    if (!extraction.header || typeof extraction.header !== "object") extraction.header = {};
+    extraction.header.period_end = iso;
+    const record = saveAuditPeriodResult({
+      iso,
+      mistakeCount: report.mistakeCount,
+      uncheckedCount: report.uncheckedCount,
+      result: auditPeriodResultText(report)
+    });
+    if (!record?.[iso]) {
+      return {
+        note: "Could not save that checked pay period in this browser.",
+        record: null
+      };
+    }
+    return { note: "", record };
+  }
+  function resolvedPeriodEndIso() {
+    const fromHeader = String(extraction?.header?.period_end || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fromHeader)) return fromHeader;
+    const parsedHeader = parseCardPeriodEnd(fromHeader);
+    if (parsedHeader) return parsedHeader;
+    const input = document.querySelector("#audit-sticker-date");
+    if (input instanceof HTMLInputElement) return parseCardPeriodEnd(input.value) || "";
+    return "";
+  }
+  function paintMarkButton(hasCard) {
+    const actions = document.querySelector("#audit-result-actions");
+    if (actions instanceof HTMLElement) actions.hidden = !hasCard;
+    const markActions = document.querySelector("#audit-mark-actions");
+    if (markActions instanceof HTMLElement) markActions.hidden = !hasCard;
+    const button = document.querySelector("#audit-mark-checked");
+    if (!(button instanceof HTMLButtonElement)) return;
+    const iso = resolvedPeriodEndIso();
+    if (extraction?.header && iso && extraction.header.period_end !== iso) {
+      extraction.header.period_end = iso;
+    }
+    const dateLabel = formatStickerDate(iso);
+    const marked = Boolean(hasCard && iso && markedFor === iso);
+    button.disabled = marked;
+    button.classList.toggle("is-marked", marked);
+    if (!dateLabel) {
+      button.textContent = marked ? "Marked as checked" : "Mark as Checked?";
+      return;
+    }
+    button.textContent = marked ? `Marked ${dateLabel} as checked` : `Mark ${dateLabel} as Checked?`;
+  }
+  function syncCardFromEditors() {
+    if (!extraction) return;
+    if (!extraction.header || typeof extraction.header !== "object") extraction.header = {};
+    const periodInput = document.querySelector("#audit-sticker-date");
+    if (periodInput instanceof HTMLInputElement) {
+      const typed = parseCardPeriodEnd(periodInput.value);
+      if (typed) extraction.header.period_end = typed;
+      else if (!String(periodInput.value || "").trim()) extraction.header.period_end = null;
+    }
+    const contractInput = document.querySelector("#audit-contract-hours");
+    if (contractInput instanceof HTMLInputElement) {
+      const parsed = parseStickerContractHours(contractInput.value);
+      extraction.header.contract_hours = parsed?.total ?? null;
+    }
+    const showRegOt = hasContractHours();
+    for (const side of ["front", "back"]) {
+      const rows = side === "back" ? extraction.back_rows : extraction.front_rows;
+      if (!Array.isArray(rows)) continue;
+      const body = document.querySelector(side === "front" ? "#audit-front-body" : "#audit-back-body");
+      if (!(body instanceof HTMLElement)) continue;
+      for (const tr of body.querySelectorAll("tr[data-row-index]")) {
+        if (!(tr instanceof HTMLTableRowElement)) continue;
+        const index = Number(tr.dataset.rowIndex) || 0;
+        const row = rows[index - 1];
+        if (!row) continue;
+        const outStamp = tr.querySelector('[data-stamp="out"]');
+        const inStamp = tr.querySelector('[data-stamp="in"]');
+        if (outStamp instanceof HTMLElement) row.clock_out_raw = readStamp(outStamp);
+        if (inStamp instanceof HTMLElement) row.clock_in_raw = readStamp(inStamp);
+        const fields = showRegOt ? ["reg", "ot", "tot"] : ["tot"];
+        for (const field of fields) {
+          const input = tr.querySelector(`input[data-written="${field}"]`);
+          if (!(input instanceof HTMLInputElement)) continue;
+          applyWrittenInput(row, field, input.value);
+        }
+      }
+    }
+  }
+  function recalculate() {
+    if (!extraction) {
+      setStatus2("Check a card first.", "error");
+      return;
+    }
+    syncCardFromEditors();
+    renderResult();
+    setStatus2("Recalculated from the contract hours and Clock Record.", "ok");
+  }
+  function markChecked() {
+    if (!extraction) return;
+    const remembered = rememberPeriod(currentReport());
+    periodNote = remembered.note;
+    const iso = extraction.header?.period_end || "";
+    if (!periodNote && iso) {
+      markedFor = iso;
+      setStatus2(`${stickerDayLabel(iso)} marked as checked.`, "ok");
+    } else if (periodNote) {
+      setStatus2(periodNote, "error");
+    }
+    paintPeriods(periodNote, {
+      record: remembered.record || void 0,
+      open: !periodNote && Boolean(iso)
+    });
+    paintStickerDate(true);
+    paintMarkButton(true);
+  }
+  function paintStickerDate(visible) {
+    const wrap = document.querySelector("#audit-sticker");
+    const label = document.querySelector("#audit-sticker-label");
+    const input = document.querySelector("#audit-sticker-date");
+    if (!(wrap instanceof HTMLElement) || !(input instanceof HTMLInputElement)) return;
+    wrap.hidden = !visible;
+    if (!visible) {
+      input.value = "";
+      if (label) label.textContent = "Pay period ending";
+      return;
+    }
+    const iso = resolvedPeriodEndIso();
+    if (extraction?.header && iso) extraction.header.period_end = iso;
+    const dateLabel = formatStickerDate(iso);
+    if (label) {
+      label.textContent = dateLabel ? `Pay period ending ${dateLabel}` : "Pay period ending";
+    }
+    if (document.activeElement !== input) input.value = dateLabel;
+    paintContract();
+  }
+  function paintContractLabel(hours) {
+    const contractLabel = document.querySelector("#audit-contract-label");
+    if (!(contractLabel instanceof HTMLElement)) return;
+    contractLabel.textContent = hours == null || !(Number(hours) > 0) ? "Daily contract hours" : `Daily contract hours ${formatAuditHours(hours)}`;
+  }
+  function paintContract() {
+    const field = document.querySelector("#audit-contract-hours");
+    if (!(field instanceof HTMLInputElement)) return;
+    const hours = extraction?.header?.contract_hours;
+    paintContractLabel(hours);
+    if (hours != null && Number(hours) > 0 && document.activeElement !== field) {
+      field.value = formatAuditHours(hours);
+    }
+  }
+  function readTypedContractHours() {
+    const field = document.querySelector("#audit-contract-hours");
+    if (!(field instanceof HTMLInputElement)) return null;
+    return parseStickerContractHours(field.value);
+  }
+  function hasContractHours() {
+    const typed = readTypedContractHours()?.total;
+    if (typed != null && Number(typed) > 0) return true;
+    const hours = Number(extraction?.header?.contract_hours);
+    return Number.isFinite(hours) && hours > 0;
+  }
+  function paintPeriods(note = "", options2 = {}) {
+    let box = document.querySelector("#audit-periods");
+    if (!box) {
+      box = document.createElement("section");
+      box.id = "audit-periods";
+      box.className = "audit-periods";
+      box.setAttribute("aria-label", "Checked pay periods");
+    }
+    const markActions = document.querySelector("#audit-mark-actions");
+    if (markActions?.parentNode) {
+      markActions.parentNode.insertBefore(box, markActions);
+    } else if (!box.isConnected) {
+      view.append(box);
+    }
+    const record = options2.record && typeof options2.record === "object" ? options2.record : readAuditPeriodRecord();
+    const current = extraction?.header?.period_end || resolvedPeriodEndIso() || "";
+    const saved = Object.values(record).filter((entry) => /^\d{4}-\d{2}-\d{2}$/.test(entry?.iso || "")).sort((a, b) => String(b.iso).localeCompare(String(a.iso)));
+    const wasOpen = box.querySelector("details")?.open === true;
+    box.replaceChildren();
+    const details = document.createElement("details");
+    if (options2.open || wasOpen) details.open = true;
+    const summary = document.createElement("summary");
+    const heading = document.createElement("h2");
+    heading.textContent = "Checked pay periods";
+    const count = document.createElement("p");
+    count.className = "audit-periods-count";
+    count.textContent = saved.length ? `${saved.length} checked` : "No cards checked yet.";
+    summary.append(heading, count);
+    if (note) {
+      const noteEl = document.createElement("p");
+      noteEl.className = "audit-periods-note";
+      noteEl.textContent = note;
+      summary.append(noteEl);
+    }
+    const list = document.createElement("ul");
+    list.className = "audit-period-list";
+    for (const entry of saved) {
+      const item = document.createElement("li");
+      item.className = "audit-period is-clear";
+      if (entry.iso === current) item.classList.add("is-current");
+      const when = document.createElement("span");
+      when.textContent = stickerDayLabel(entry.iso);
+      const result2 = document.createElement("span");
+      result2.textContent = "Checked";
+      item.append(when, result2);
+      list.append(item);
+    }
+    details.append(summary, list);
+    box.append(details);
+  }
+  function renderResult() {
+    if (!extraction) return;
+    if (!extraction.header || typeof extraction.header !== "object") extraction.header = {};
+    const report = currentReport();
+    const showRegOt = hasContractHours();
+    paintSide("front", extraction.front_rows, report.front, showRegOt);
+    paintSide("back", extraction.back_rows, report.back, showRegOt);
+    result.hidden = false;
+    const hasCard = report.front.length + report.back.length > 0;
+    paintStickerDate(true);
+    paintMarkButton(true);
+    const iso = resolvedPeriodEndIso();
+    paintPeriods(periodNote);
+    paintResultHint(showRegOt);
+    if (!hasCard) {
+      setStatus2("No clock stamps or written hours were found on those photos.", "error");
+    } else if (!iso) {
+      setStatus2("Could not read the pay period ending date from the sticker. Type the MM/DD/YY to the right of the driver's name.", "error");
+    } else if (!showRegOt) {
+      setStatus2("Daily contract hours are required to check Reg and OT.", "error");
+    } else if (markedFor && markedFor === iso) {
+      setStatus2(`${stickerDayLabel(iso)} marked as checked.`, "ok");
+    } else {
+      setStatus2("The front and back cards are ready to edit.", "ok");
+    }
+  }
+  function paintResultHint(showRegOt) {
+    const hint = document.querySelector("#audit-result .hint") || document.querySelector("#audit-result .field-hint");
+    if (!(hint instanceof HTMLElement)) return;
+    hint.textContent = showRegOt ? "Blue handwriting is what was written on the card. A red number is the calculated hours when they differ." : "Daily contract hours are required to show and check Reg and OT. Tot. Hrs. still compares each Clock Record combo.";
+  }
+  function refresh() {
+    if (extraction) renderResult();
+  }
+  async function readCard() {
+    const front = document.querySelector("#audit-front");
+    const back2 = document.querySelector("#audit-back");
+    const frontFile = front instanceof HTMLInputElement ? front.files?.[0] ?? null : null;
+    const backFile = back2 instanceof HTMLInputElement ? back2.files?.[0] ?? null : null;
+    if (!frontFile && !backFile) {
+      setStatus2("Take a photo of the front, the back, or both.", "error");
+      return;
+    }
+    const contract = readTypedContractHours();
+    if (!contract?.total) {
+      setStatus2("Enter the daily contract hours before submitting the photos.", "error");
+      document.querySelector("#audit-contract-hours")?.focus();
+      return;
+    }
+    validateFile(frontFile, "Front");
+    validateFile(backFile, "Back");
+    const button = document.querySelector("#audit-read");
+    const clearButton = document.querySelector("#audit-clear");
+    if (button instanceof HTMLButtonElement) button.disabled = true;
+    if (clearButton instanceof HTMLButtonElement) clearButton.disabled = true;
+    const sides = [frontFile && "front", backFile && "back"].filter(Boolean);
+    try {
+      setBusyStatus(sides.length === 2 ? "Preparing the front and back photos\u2026" : "Preparing the photo\u2026");
+      const frontPayload = frontFile ? await filePayload(frontFile) : null;
+      const backPayload = backFile ? await filePayload(backFile) : null;
+      startProgressMessages([
+        "Reading the written Reg and OT\u2026",
+        "Reading the pay period ending date on the sticker\u2026",
+        "Reading the Clock Record stamps\u2026",
+        "Comparing the hours with the clocks\u2026"
+      ]);
+      const response = await fetch("/api/timesheet-audit", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ front: frontPayload, back: backPayload })
+      });
+      stopProgressMessages();
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Could not audit that card.");
+      extraction = payload.extraction;
+      if (!extraction.header || typeof extraction.header !== "object") extraction.header = {};
+      extraction.header.contract_hours = contract.total;
+      markedFor = "";
+      periodNote = "";
+      renderResult();
+    } catch (error) {
+      stopProgressMessages();
+      setStatus2(error?.message || "Could not audit that card.", "error");
+    } finally {
+      stopProgressMessages();
+      if (button instanceof HTMLButtonElement) button.disabled = false;
+      if (clearButton instanceof HTMLButtonElement) clearButton.disabled = false;
+    }
+  }
+  function clearCard() {
+    stopProgressMessages();
+    extraction = null;
+    markedFor = "";
+    periodNote = "";
+    paintMarkButton(false);
+    paintStickerDate(false);
+    paintContractLabel(null);
+    const actions = document.querySelector("#audit-result-actions");
+    if (actions instanceof HTMLElement) actions.hidden = true;
+    const markActions = document.querySelector("#audit-mark-actions");
+    if (markActions instanceof HTMLElement) markActions.hidden = true;
+    camera.close();
+    phoneCapture.reset();
+    form.reset();
+    clearSidePreview("front");
+    clearSidePreview("back");
+    for (const id of ["#audit-front-body", "#audit-back-body"]) {
+      const body = document.querySelector(id);
+      if (!(body instanceof HTMLElement)) continue;
+      body.replaceChildren();
+      delete body.dataset.signature;
+    }
+    result.hidden = true;
+    setStatus2("");
+    paintPeriods();
+  }
+  function setSideFile(side, file) {
+    const input = document.querySelector(side === "front" ? "#audit-front" : "#audit-back");
+    if (input instanceof HTMLInputElement && input.files?.[0] !== file) {
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      input.files = transfer.files;
+    }
+    showSidePreview(side, file);
+  }
+  function setStatus2(message, kind = "") {
+    status.hidden = !message;
+    status.className = `status timesheet-progress${kind ? ` is-${kind}` : ""}`;
+    if (statusText) statusText.textContent = message || "";
+    else status.textContent = message || "";
+  }
+  function setBusyStatus(message) {
+    status.hidden = !message;
+    status.className = "status timesheet-progress is-busy";
+    if (statusText) statusText.textContent = message || "";
+    else status.textContent = message || "";
+  }
+  function startProgressMessages(messages) {
+    stopProgressMessages();
+    if (!messages.length) return;
+    let index = 0;
+    setBusyStatus(messages[0]);
+    progressTimer = setInterval(() => {
+      index = (index + 1) % messages.length;
+      setBusyStatus(messages[index]);
+    }, 4e3);
+  }
+  function stopProgressMessages() {
+    if (progressTimer != null) {
+      clearInterval(progressTimer);
+      progressTimer = null;
+    }
+  }
+  return { refresh };
+}
+function readStoredHoursMode() {
+  try {
+    return normalizeTimesheetHoursMode(localStorage.getItem(HOURS_MODE_KEY));
+  } catch {
+    return TIMESHEET_HOURS_MODE_SNAP;
+  }
+}
+function paintSide(side, sourceRows, judgedRows, showRegOt = false) {
+  const body = document.querySelector(side === "front" ? "#audit-front-body" : "#audit-back-body");
+  if (!(body instanceof HTMLElement)) return;
+  const slotCount = side === "front" ? FRONT_SLOT_COUNT : BACK_SLOT_COUNT;
+  const signature = `${side}:${slotCount}`;
+  if (body.dataset.signature !== signature) {
+    body.dataset.signature = signature;
+    body.replaceChildren();
+    const rows = Array.isArray(sourceRows) ? sourceRows : [];
+    for (let index = 1; index <= slotCount; index += 1) {
+      body.append(buildCardRow(side, index, rows[index - 1], showRegOt));
+    }
+  }
+  const judged = Array.isArray(judgedRows) ? judgedRows : [];
+  const source = Array.isArray(sourceRows) ? sourceRows : [];
+  for (let index = 1; index <= slotCount; index += 1) {
+    const tr = body.querySelector(`tr[data-row-index="${index}"]`);
+    if (!(tr instanceof HTMLTableRowElement)) continue;
+    const judgedRow = judged.find((row) => row.rowIndex === index) || null;
+    const sourceRow = source[index - 1] || null;
+    syncRow(tr, judgedRow, sourceRow, showRegOt);
+  }
+}
+function buildCardRow(side, index, source, showRegOt = false) {
+  const row = source && typeof source === "object" ? source : {};
+  const sideLabel = side === "back" ? "Back" : "Front";
+  const description = String(row.description_of_work ?? "").trim();
+  const tr = document.createElement("tr");
+  tr.id = `audit-${side}-${index}`;
+  tr.dataset.side = side;
+  tr.dataset.rowIndex = String(index);
+  if (cardRowIsQuiet(row)) tr.classList.add("is-quiet");
+  const regValue = showRegOt ? writtenInputValue(row.written_regular_status, row.written_regular) : "";
+  const otValue = showRegOt ? writtenInputValue(row.written_overtime_status, row.written_overtime) : "";
+  tr.innerHTML = `
+    <td class="timesheet-card-blank timesheet-card-desc">
+      <button type="button" class="timesheet-desc-open${description ? "" : " is-empty"}"
+        aria-label="${description ? "Edit" : "Add"} Description of Work, ${sideLabel} row ${index}"
+        title="${escapeAttr(description || "Description of Work")}">${description ? "\u270E" : "+"}</button>
+    </td>
+    <td class="timesheet-card-blank timesheet-card-reg" data-audit-field="reg">
+      <input class="timesheet-edit audit-handwriting" data-written="reg" type="text" inputmode="decimal"
+        aria-label="Reg handwriting, ${sideLabel} row ${index}"
+        value="${escapeAttr(regValue)}"${showRegOt ? "" : " disabled"}>
+      <span class="audit-calculated" data-audit-calculated="reg" hidden></span>
+    </td>
+    <td class="timesheet-card-blank timesheet-card-ot" data-audit-field="ot">
+      <input class="timesheet-edit audit-handwriting" data-written="ot" type="text" inputmode="decimal"
+        aria-label="OT handwriting, ${sideLabel} row ${index}"
+        value="${escapeAttr(otValue)}"${showRegOt ? "" : " disabled"}>
+      <span class="audit-calculated" data-audit-calculated="ot" hidden></span>
+    </td>
+    <td class="timesheet-card-blank timesheet-card-tot" data-audit-field="tot">
+      <input class="timesheet-edit audit-handwriting" data-written="tot" type="text" inputmode="decimal"
+        aria-label="Tot. Hrs. handwriting, ${sideLabel} row ${index}"
+        value="${escapeAttr(writtenInputValue(row.written_total_status, row.written_total))}">
+      <span class="audit-calculated" data-audit-calculated="tot" hidden></span>
+    </td>
+    <td class="timesheet-card-clock" data-audit-field="clocks">
+      ${stampEditorHtml("out", row.clock_out_raw, sideLabel, index)}
+      ${stampEditorHtml("in", row.clock_in_raw, sideLabel, index)}
+    </td>`;
+  return tr;
+}
+function cardRowIsQuiet(row) {
+  const written = ["written_regular_status", "written_overtime_status", "written_total_status"].some(
+    (key) => row?.[key] === "number" || row?.[key] === "illegible"
+  );
+  return !String(row?.description_of_work || "").trim() && !String(row?.clock_out_raw || "").trim() && !String(row?.clock_in_raw || "").trim() && !written;
+}
+function stampEditorHtml(which, raw, sideLabel, rowIndex) {
+  const label = which === "out" ? "Out" : "In";
+  const parts = parseStampParts(raw);
+  const blocked = parts.handwriting || parts.illegible;
+  const note = parts.handwriting ? "HANDWRITING" : parts.illegible ? "illegible" : "";
+  return `<div class="timesheet-stamp timesheet-stamp-${which}" data-stamp="${which}">
+    <span class="timesheet-card-label">${label}</span>
+    <span class="timesheet-stamp-parts">
+      <input class="timesheet-edit" data-part="month" type="text" maxlength="3"
+        value="${escapeAttr(blocked ? "" : parts.month)}" placeholder="oct"
+        aria-label="${label} month, ${sideLabel} row ${rowIndex}">
+      <input class="timesheet-edit" data-part="day" type="text" maxlength="2"
+        value="${escapeAttr(blocked ? "" : parts.day)}" placeholder="7"
+        aria-label="${label} day, ${sideLabel} row ${rowIndex}">
+      <input class="timesheet-edit" data-part="period" type="text" maxlength="2"
+        value="${escapeAttr(blocked ? "" : parts.period)}" placeholder="AM"
+        aria-label="${label} AM or PM, ${sideLabel} row ${rowIndex}">
+      <input class="timesheet-edit" data-part="time" type="text" maxlength="5"
+        value="${escapeAttr(blocked ? "" : parts.time)}" placeholder="8:50"
+        aria-label="${label} time, ${sideLabel} row ${rowIndex}">
+    </span>
+    <span class="timesheet-stamp-note"${note ? "" : " hidden"}>${escapeHtml2(note)}</span>
+  </div>`;
+}
+function readStamp(stamp) {
+  return formatStampParts({
+    month: stamp.querySelector('[data-part="month"]')?.value ?? "",
+    day: stamp.querySelector('[data-part="day"]')?.value ?? "",
+    period: stamp.querySelector('[data-part="period"]')?.value ?? "",
+    time: stamp.querySelector('[data-part="time"]')?.value ?? ""
+  });
+}
+function syncRow(tr, judgedRow, sourceRow, showRegOt) {
+  const regInput = tr.querySelector('input[data-written="reg"]');
+  const otInput = tr.querySelector('input[data-written="ot"]');
+  const writtenRegStatus = judgedRow?.writtenRegStatus ?? sourceRow?.written_regular_status;
+  const writtenReg = judgedRow?.writtenReg ?? sourceRow?.written_regular;
+  const writtenOtStatus = judgedRow?.writtenOtStatus ?? sourceRow?.written_overtime_status;
+  const writtenOt = judgedRow?.writtenOt ?? sourceRow?.written_overtime;
+  if (regInput instanceof HTMLInputElement) {
+    regInput.disabled = !showRegOt;
+    if (document.activeElement !== regInput) {
+      regInput.value = showRegOt ? writtenInputValue(writtenRegStatus, writtenReg) : "";
+    }
+  }
+  if (otInput instanceof HTMLInputElement) {
+    otInput.disabled = !showRegOt;
+    if (document.activeElement !== otInput) {
+      otInput.value = showRegOt ? writtenInputValue(writtenOtStatus, writtenOt) : "";
+    }
+  }
+  paintCalculated(
+    tr,
+    "reg",
+    writtenRegStatus,
+    writtenReg,
+    showRegOt ? judgedRow?.expectedReg : null
+  );
+  paintCalculated(
+    tr,
+    "ot",
+    writtenOtStatus,
+    writtenOt,
+    showRegOt ? judgedRow?.expectedOt : null
+  );
+  paintCalculated(
+    tr,
+    "tot",
+    judgedRow?.writtenTotStatus ?? sourceRow?.written_total_status,
+    judgedRow?.writtenTot ?? sourceRow?.written_total,
+    judgedRow?.totHours
+  );
+}
+function paintCalculated(tr, field, status, handwritten, expected) {
+  const span = tr.querySelector(`[data-audit-calculated="${field}"]`);
+  if (!(span instanceof HTMLElement)) return;
+  const show = expected != null && differsFromHandwriting2(status, handwritten, expected);
+  span.hidden = !show;
+  span.textContent = show ? formatAuditHours(expected) : "";
+}
+function differsFromHandwriting2(status, handwritten, expected) {
+  if (expected == null) return false;
+  if (status === "illegible") return true;
+  const written = status === "number" ? Number(handwritten) : 0;
+  return Math.abs(written - Number(expected)) > 0.01;
+}
+function formatStickerDate(iso) {
+  const match = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  return `${Number(match[2])}/${Number(match[3])}/${match[1].slice(2)}`;
+}
+function stickerDayLabel(iso) {
+  const match = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "this pay period";
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+function writtenInputValue(status, hours) {
+  if (status === "illegible") return "";
+  if (status !== "number" || hours == null) return "";
+  return formatAuditHours(hours);
+}
+function applyWrittenInput(row, field, rawValue) {
+  const text = String(rawValue ?? "").trim();
+  const statusKey = field === "reg" ? "written_regular_status" : field === "ot" ? "written_overtime_status" : "written_total_status";
+  const hoursKey = field === "reg" ? "written_regular" : field === "ot" ? "written_overtime" : "written_total";
+  if (!text && row[statusKey] === "illegible") {
+    row[hoursKey] = null;
+    return;
+  }
+  const parsed = parseAuditHours(text);
+  row[hoursKey] = parsed.hours;
+  row[statusKey] = parsed.status;
+}
+var previewUrls = { front: "", back: "" };
+function showSidePreview(side, file) {
+  const preview = document.querySelector(side === "front" ? "#audit-front-preview" : "#audit-back-preview");
+  const phonePreview = document.querySelector(
+    side === "front" ? "#audit-phone-front-preview" : "#audit-phone-back-preview"
+  );
+  const phoneState = document.querySelector(side === "front" ? "#audit-phone-front-state" : "#audit-phone-back-state");
+  const button = document.querySelector(side === "front" ? "#audit-front-camera" : "#audit-back-camera");
+  if (previewUrls[side]) URL.revokeObjectURL(previewUrls[side]);
+  previewUrls[side] = URL.createObjectURL(file);
+  for (const image of [preview, phonePreview]) {
+    if (!(image instanceof HTMLImageElement)) continue;
+    image.src = previewUrls[side];
+    image.alt = side === "front" ? "Front of the time card" : "Back of the time card";
+    image.hidden = false;
+  }
+  if (button) button.textContent = side === "front" ? "Retake front photo" : "Retake back photo";
+  if (phoneState) {
+    phoneState.textContent = "Received";
+    phoneState.classList.add("is-ready");
+  }
+}
+function clearSidePreview(side) {
+  const button = document.querySelector(side === "front" ? "#audit-front-camera" : "#audit-back-camera");
+  const phoneState = document.querySelector(side === "front" ? "#audit-phone-front-state" : "#audit-phone-back-state");
+  if (previewUrls[side]) URL.revokeObjectURL(previewUrls[side]);
+  previewUrls[side] = "";
+  for (const id of side === "front" ? ["#audit-front-preview", "#audit-phone-front-preview"] : ["#audit-back-preview", "#audit-phone-back-preview"]) {
+    const image = document.querySelector(id);
+    if (!(image instanceof HTMLImageElement)) continue;
+    image.removeAttribute("src");
+    image.alt = "";
+    image.hidden = true;
+  }
+  if (button) button.textContent = side === "front" ? "Take front photo" : "Take back photo";
+  if (phoneState) {
+    phoneState.textContent = "Waiting\u2026";
+    phoneState.classList.remove("is-ready");
+  }
+}
+function mountAuditPhone({ setSideFile, setStatus: setStatus2 }) {
+  const computerPanel = document.querySelector("#audit-computer-capture");
+  const phonePanel = document.querySelector("#audit-phone-capture");
+  const canvas = document.querySelector("#audit-phone-qr");
+  const phoneStatus = document.querySelector("#audit-phone-status");
+  const refreshBtn = document.querySelector("#audit-phone-refresh");
+  const sourceRoot = document.querySelector("#audit-capture-source");
+  const sourceButtons = sourceRoot ? [...sourceRoot.querySelectorAll("[data-capture-source]")] : [];
+  if (!computerPanel || !phonePanel || !(canvas instanceof HTMLCanvasElement)) {
+    return { pause() {
+    }, resume() {
+    }, reset() {
+    } };
+  }
+  let source = "phone";
+  let token = "";
+  let pollTimer = null;
+  let starting = false;
+  const seen = { front: false, back: false };
+  function setPhoneStatus(message, kind = "") {
+    if (!(phoneStatus instanceof HTMLElement)) return;
+    phoneStatus.hidden = !message;
+    phoneStatus.textContent = message || "";
+    phoneStatus.className = kind ? `status is-${kind}` : "status";
+  }
+  function stopPolling() {
+    if (pollTimer != null) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+  async function endSession() {
+    stopPolling();
+    const prior = token;
+    token = "";
+    seen.front = false;
+    seen.back = false;
+    if (prior) await closeCaptureSession(prior);
+  }
+  function paintSource() {
+    for (const button of sourceButtons) {
+      if (!(button instanceof HTMLButtonElement)) continue;
+      button.setAttribute("aria-pressed", button.dataset.captureSource === source ? "true" : "false");
+    }
+    computerPanel.hidden = source !== "computer";
+    phonePanel.hidden = source !== "phone";
+  }
+  function auditVisible() {
+    const desk = document.querySelector("#audit-genie-view");
+    return desk instanceof HTMLElement && !desk.hidden;
+  }
+  async function pollOnce() {
+    if (!token || source !== "phone") return;
+    const session = await readCaptureSession(token);
+    if (!session) {
+      setPhoneStatus("That photo link expired. Make a new QR code.", "error");
+      stopPolling();
+      return;
+    }
+    if (session.front && !seen.front) {
+      setSideFile("front", await fetchCapturePhoto(token, "front"));
+      seen.front = true;
+    }
+    if (session.back && !seen.back) {
+      setSideFile("back", await fetchCapturePhoto(token, "back"));
+      seen.back = true;
+    }
+    if (session.ready || seen.front && seen.back) {
+      setPhoneStatus("Front and back arrived from your phone.", "ok");
+      setStatus2("Front and back arrived from your phone. Ready to check.", "ok");
+      stopPolling();
+      return;
+    }
+    if (seen.front) setPhoneStatus("Front is in. Waiting for the back\u2026", "");
+    else if (seen.back) setPhoneStatus("Back is in. Waiting for the front\u2026", "");
+    else setPhoneStatus("Waiting for photos from your phone\u2026", "");
+  }
+  async function startSession() {
+    if (starting) return;
+    starting = true;
+    stopPolling();
+    setPhoneStatus("Making a photo link\u2026", "");
+    try {
+      await endSession();
+      const [origin, opened] = await Promise.all([loadCaptureShareOrigin(), openCaptureSession()]);
+      const url = captureShareUrl(origin, opened.token, "audit");
+      if (!url) {
+        throw new Error(
+          "This computer\u2019s address is not reachable from a phone. Use the office app on this network, or take photos on this computer."
+        );
+      }
+      token = opened.token;
+      await import_qrcode.default.toCanvas(canvas, url, {
+        width: 288,
+        margin: 1,
+        color: { dark: "#6b370c", light: "#ffffff" }
+      });
+      setPhoneStatus("Scan the QR code with your phone.", "");
+      pollTimer = setInterval(() => {
+        pollOnce().catch(() => {
+        });
+      }, 1500);
+      await pollOnce();
+    } catch (error) {
+      setPhoneStatus(error?.message || "Could not start phone capture.", "error");
+      canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+    } finally {
+      starting = false;
+    }
+  }
+  async function setSource(next) {
+    source = next === "phone" ? "phone" : "computer";
+    paintSource();
+    if (source === "phone") {
+      if (!token) await startSession();
+      return;
+    }
+    await endSession();
+    setPhoneStatus("");
+  }
+  for (const button of sourceButtons) {
+    if (!(button instanceof HTMLButtonElement)) continue;
+    button.addEventListener("click", () => {
+      setSource(button.dataset.captureSource || "computer").catch((error) => {
+        setStatus2(error?.message || "Could not switch photo source.", "error");
+      });
+    });
+  }
+  refreshBtn?.addEventListener("click", () => {
+    startSession().catch((error) => setPhoneStatus(error?.message || "Could not make a new QR code.", "error"));
+  });
+  paintSource();
+  if (auditVisible()) {
+    setSource("phone").catch((error) => setPhoneStatus(error?.message || "Could not start phone capture.", "error"));
+  }
   return {
-    school_year: written && written.length <= YEAR_LABEL_MAX ? written : yearLabel(startYear, endYear),
-    first_day: first.iso,
-    last_day: last.iso,
-    holidays: holidays.sort((a, b) => a.date.localeCompare(b.date)),
-    breaks: breaks.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end)),
-    no_school: noSchool.sort((a, b) => a.date.localeCompare(b.date)),
-    early_release: early.sort((a, b) => a.date.localeCompare(b.date)),
-    early_release_thursdays: source.early_release_thursdays === true
+    pause() {
+      stopPolling();
+    },
+    resume() {
+      if (source !== "phone" || !auditVisible()) return;
+      if (!token) {
+        startSession().catch((error) => setPhoneStatus(error?.message || "Could not start phone capture.", "error"));
+        return;
+      }
+      if (pollTimer != null) return;
+      pollTimer = setInterval(() => {
+        pollOnce().catch(() => {
+        });
+      }, 1500);
+      pollOnce().catch(() => {
+      });
+    },
+    reset() {
+      source = "phone";
+      paintSource();
+      canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+      endSession().then(() => auditVisible() ? startSession() : null).catch((error) => setPhoneStatus(error?.message || "Could not start phone capture.", "error"));
+    }
   };
 }
-function schoolYearGeneration(year) {
-  const current = normalizeSchoolYear(year);
-  if (!current) throw new Error("Enter a school year first.");
-  return generateSchoolYearCalendar({
-    school_year: current.school_year,
-    first_day: current.first_day,
-    last_day: current.last_day,
-    holidays: current.holidays,
-    breaks: [
-      ...current.breaks,
-      ...current.no_school.map((day) => ({
-        start: day.date,
-        end: day.date,
-        label: day.label || "No school"
-      }))
-    ]
+function mountAuditCamera({ onCapture }) {
+  const dialog = document.querySelector("#audit-camera");
+  const video = document.querySelector("#audit-camera-video");
+  const picker = document.querySelector("#audit-camera-picker");
+  const deviceSelect = document.querySelector("#audit-camera-device");
+  const cameraStatus = document.querySelector("#audit-camera-status");
+  const shutter = document.querySelector("#audit-camera-shutter");
+  if (!(dialog instanceof HTMLDialogElement) || !(video instanceof HTMLVideoElement) || !(picker instanceof HTMLElement) || !(deviceSelect instanceof HTMLSelectElement) || !(cameraStatus instanceof HTMLElement) || !(shutter instanceof HTMLButtonElement)) {
+    return {
+      open() {
+        return Promise.reject(new Error("The camera dialog is missing."));
+      },
+      close() {
+      }
+    };
+  }
+  let stream = null;
+  let side = "front";
+  let starting = false;
+  let shotToken = 0;
+  deviceSelect.addEventListener("change", () => {
+    if (!deviceSelect.value) return;
+    rememberCamera(deviceSelect.value);
+    startStream(deviceSelect.value).catch((error) => setCameraStatus(error.message, "error"));
   });
+  shutter.addEventListener("click", takePhoto);
+  document.querySelector("#audit-camera-cancel")?.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("close", () => {
+    shotToken += 1;
+    stopStream();
+  });
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key !== " " && event.code !== "Space") return;
+    if (!dialog.open || shutter.disabled) return;
+    const tag = event.target instanceof Element ? event.target.tagName : "";
+    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    event.preventDefault();
+    if (event.repeat) return;
+    takePhoto();
+  });
+  async function open(nextSide) {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("This browser cannot use a camera. Choose a file instead.");
+    }
+    side = nextSide;
+    const title = document.querySelector("#audit-camera-title");
+    if (title) title.textContent = nextSide === "front" ? "Front of the time card" : "Back of the time card";
+    setCameraStatus("");
+    shutter.disabled = true;
+    if (!dialog.open) dialog.showModal();
+    await startStream(savedCameraId());
+    shutter.disabled = !stream;
+    if (dialog.open && !shutter.disabled) shutter.focus();
+  }
+  function close() {
+    if (dialog.open) dialog.close();
+    else stopStream();
+  }
+  async function startStream(deviceId) {
+    if (starting) return;
+    starting = true;
+    stopStream();
+    setCameraStatus("Starting the camera\u2026");
+    try {
+      stream = await openStream(deviceId);
+      video.srcObject = stream;
+      await video.play().catch(() => {
+      });
+      const currentId = stream.getVideoTracks()[0]?.getSettings?.().deviceId || deviceId || "";
+      await refreshDeviceList(currentId);
+      if (currentId) rememberCamera(currentId);
+      setCameraStatus("");
+    } catch (error) {
+      const denied = error?.name === "NotAllowedError" || error?.name === "PermissionDeniedError";
+      setCameraStatus(
+        denied ? "Allow the camera in the browser prompt, then try again." : "No camera was found. Connect a camera, or choose a file.",
+        "error"
+      );
+      shutter.disabled = true;
+    } finally {
+      starting = false;
+    }
+  }
+  async function refreshDeviceList(selectedId) {
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter(
+      (device) => device.kind === "videoinput" && device.deviceId
+    );
+    deviceSelect.replaceChildren();
+    devices.forEach((device, index) => {
+      const option = document.createElement("option");
+      option.value = device.deviceId;
+      option.textContent = device.label || `Camera ${index + 1}`;
+      deviceSelect.append(option);
+    });
+    picker.hidden = devices.length < 2;
+    if (devices.some((device) => device.deviceId === selectedId)) deviceSelect.value = selectedId;
+  }
+  function takePhoto() {
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+    if (width < 2 || height < 2) {
+      setCameraStatus("The camera is not ready yet. Wait a moment and try again.", "error");
+      return;
+    }
+    const crop = coverCropRect(width, height, CARD_ASPECT_WIDTH, CARD_ASPECT_HEIGHT);
+    const shot = document.createElement("canvas");
+    shot.width = Math.max(1, Math.round(crop.sw));
+    shot.height = Math.max(1, Math.round(crop.sh));
+    const context = shot.getContext("2d");
+    if (!context) return;
+    context.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, shot.width, shot.height);
+    shutter.disabled = true;
+    const shotId = ++shotToken;
+    const capturedSide = side;
+    shot.toBlob(
+      (blob) => {
+        shutter.disabled = false;
+        if (shotId !== shotToken) return;
+        if (!blob) {
+          setCameraStatus("Could not save that photo. Try again.", "error");
+          return;
+        }
+        if (dialog.open) dialog.close();
+        onCapture(capturedSide, new File([blob], `${capturedSide}-timecard.jpg`, { type: "image/jpeg" }));
+      },
+      "image/jpeg",
+      0.92
+    );
+  }
+  function setCameraStatus(message, kind) {
+    cameraStatus.hidden = !message;
+    cameraStatus.textContent = message || "";
+    cameraStatus.className = kind ? `status is-${kind}` : "status";
+  }
+  function stopStream() {
+    stream?.getTracks().forEach((track) => track.stop());
+    stream = null;
+    video.srcObject = null;
+  }
+  return { open, close };
+}
+async function openStream(deviceId) {
+  const facing = {
+    width: { ideal: 1200 },
+    height: { ideal: 1920 },
+    aspectRatio: { ideal: CARD_ASPECT_WIDTH / CARD_ASPECT_HEIGHT }
+  };
+  const exact = deviceId ? { video: { deviceId: { exact: deviceId }, ...facing }, audio: false } : { video: facing, audio: false };
+  try {
+    return await navigator.mediaDevices.getUserMedia(exact);
+  } catch {
+    if (!deviceId) return navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    try {
+      localStorage.removeItem(CAMERA_KEY);
+    } catch {
+    }
+    return navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+  }
+}
+function coverCropRect(sourceWidth, sourceHeight, aspectWidth, aspectHeight) {
+  const target = aspectWidth / aspectHeight;
+  const source = sourceWidth / sourceHeight;
+  if (source > target) {
+    const sw = sourceHeight * target;
+    return { sx: (sourceWidth - sw) / 2, sy: 0, sw, sh: sourceHeight };
+  }
+  const sh = sourceWidth / target;
+  return { sx: 0, sy: (sourceHeight - sh) / 2, sw: sourceWidth, sh };
+}
+function savedCameraId() {
+  try {
+    return localStorage.getItem(CAMERA_KEY)?.trim() || "";
+  } catch {
+    return "";
+  }
+}
+function rememberCamera(deviceId) {
+  if (!deviceId) return;
+  try {
+    localStorage.setItem(CAMERA_KEY, deviceId);
+  } catch {
+  }
+}
+function validateFile(file, label) {
+  if (!file) return;
+  const name = file.name.toLowerCase();
+  if (file.type === "image/heic" || file.type === "image/heif" || /\.(heic|heif)$/.test(name)) {
+    throw new Error(`${label}: HEIC is not supported. Export the photo as a JPEG.`);
+  }
+  if (file.type && !ALLOWED.has(file.type)) {
+    throw new Error(`${label}: use a JPEG, PNG, GIF, or WebP photo.`);
+  }
+  if (file.size > MAX_BYTES2) throw new Error(`${label} photo exceeds 12MB.`);
+}
+function filePayload(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result ?? "");
+      resolve({ mediaType: file.type || "image/jpeg", base64: dataUrl.split(",")[1] || "" });
+    };
+    reader.onerror = () => reject(new Error("Could not read that photo."));
+    reader.readAsDataURL(file);
+  });
+}
+function escapeHtml2(value) {
+  return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function escapeAttr(value) {
+  return escapeHtml2(value).replace(/'/g, "&#39;");
 }
 
 // employee-tracker/web/store.js
 var store_exports = {};
 __export(store_exports, {
   DISMISSED_NOTIFICATIONS_KEY: () => DISMISSED_NOTIFICATIONS_KEY,
-  STORAGE_KEY: () => STORAGE_KEY2,
+  STORAGE_KEY: () => STORAGE_KEY3,
   deleteProfile: () => deleteProfile,
   dismissNotificationId: () => dismissNotificationId,
   emptyState: () => emptyState,
@@ -23660,7 +28806,7 @@ __export(store_exports, {
   saveState: () => saveState,
   setCurrentProfile: () => setCurrentProfile
 });
-var STORAGE_KEY2 = "my-hours-tracker.v1";
+var STORAGE_KEY3 = "my-hours-tracker.v1";
 var DISMISSED_NOTIFICATIONS_KEY = "my-hours-tracker.notify-dismissed.v1";
 function emptyState() {
   return {
@@ -23671,7 +28817,7 @@ function emptyState() {
 }
 function loadState(storage = globalThis.localStorage) {
   try {
-    const raw = storage?.getItem(STORAGE_KEY2);
+    const raw = storage?.getItem(STORAGE_KEY3);
     if (!raw) {
       return emptyState();
     }
@@ -23689,7 +28835,7 @@ function loadState(storage = globalThis.localStorage) {
   }
 }
 function saveState(state, storage = globalThis.localStorage) {
-  storage.setItem(STORAGE_KEY2, JSON.stringify(state));
+  storage.setItem(STORAGE_KEY3, JSON.stringify(state));
   return state;
 }
 function listProfiles(storage = globalThis.localStorage) {
@@ -23907,25 +29053,25 @@ function buildSnapshot(profile, asOfDate = getAsOfDate()) {
 }
 
 // employee-tracker/web/publicHistory.js
-var PAGE_PASSWORD = "07041776";
+var PAGE_PASSWORD = "6111";
 var PUBLISHED_SHARE_URL = "https://mern-ing-the-midnight-oil.github.io/hoursupdater/";
 function sharePayload() {
   return {
-    title: "Route change history",
-    text: `Route change history
+    title: "Teamster Tools",
+    text: `Teamster Tools
 ${PUBLISHED_SHARE_URL}
 Password: ${PAGE_PASSWORD}`
   };
 }
 function shareMailHref() {
   const body = sharePayload().text;
-  return `mailto:?subject=${encodeURIComponent("Route change history")}&body=${encodeURIComponent(body)}`;
+  return `mailto:?subject=${encodeURIComponent("Teamster Tools")}&body=${encodeURIComponent(body)}`;
 }
 function shareTextHref(userAgent = "") {
   const body = encodeURIComponent(sharePayload().text);
   return /Android/i.test(userAgent) ? `sms:?body=${body}` : `sms:&body=${body}`;
 }
-function compareRouteNumbers(a, b) {
+function compareRouteNumbers2(a, b) {
   return String(a || "").localeCompare(String(b || ""), void 0, {
     numeric: true,
     sensitivity: "base"
@@ -23953,17 +29099,15 @@ function driverNames(profiles2) {
   }
   return [...names.values()].sort((a, b) => a.localeCompare(b, void 0, { sensitivity: "base" }));
 }
-function searchHistory(profiles2, { by, query } = {}) {
-  const q = String(query || "").trim().toLowerCase();
-  if (!q) return [];
+function historyOptions(profiles2, { by } = {}) {
   if (by === "route") {
-    return (profiles2 || []).filter((profile) => routeLabel(profile).toLowerCase().includes(q)).sort((a, b) => compareRouteNumbers(a.name, b.name)).map((profile) => ({
+    return (profiles2 || []).map((profile) => ({
       kind: "route",
       key: routeLabel(profile),
       label: routeLabel(profile)
-    }));
+    })).sort((a, b) => compareRouteNumbers2(a.label, b.label));
   }
-  return driverNames(profiles2).filter((name) => name.toLowerCase().includes(q)).map((name) => ({ kind: "driver", key: name, label: name }));
+  return driverNames(profiles2).map((name) => ({ kind: "driver", key: name, label: name }));
 }
 function viewCalendar() {
   const pack = getCalendarPack();
@@ -24000,7 +29144,7 @@ function sectionsForDriver(profiles2, driverName) {
     pieces.push(...slicesForDriver(profile, name));
   }
   pieces.sort(
-    (a, b) => a.assignment.from.localeCompare(b.assignment.from) || compareRouteNumbers(a.profile.name, b.profile.name)
+    (a, b) => a.assignment.from.localeCompare(b.assignment.from) || compareRouteNumbers2(a.profile.name, b.profile.name)
   );
   if (!pieces.length) return null;
   const asOf = getAsOfDate(pieces[0].profile);
@@ -24055,19 +29199,23 @@ function routeHistoryHtml(profiles2, routeName) {
 
 // employee-tracker/web/historyPage.js
 var SESSION_KEY = "route-history-unlocked";
-var SUGGEST_LIMIT = 12;
+var PAGE_TITLE = "Teamster Tools";
 var gate = document.querySelector("#gate");
+var landingShare = document.querySelector("#landing-share");
+var back = document.querySelector("#back");
 var gateForm = document.querySelector("#gate-form");
 var passwordInput = document.querySelector("#password");
 var gateStatus = document.querySelector("#gate-status");
 var app = document.querySelector("#app");
 var searchForm = document.querySelector("#search-form");
 var modeInputs = [...document.querySelectorAll('input[name="by"]')];
-var queryInput = document.querySelector("#query");
-var suggest = document.querySelector("#suggest");
-var suggestMore = document.querySelector("#suggest-more");
+var lookup = document.querySelector("#lookup");
+var lookupLabel = document.querySelector("#lookup-label");
 var history = document.querySelector("#history");
 var pageStatus = document.querySelector("#page-status");
+var historyTool = document.querySelector("#history-tool");
+var auditTool = document.querySelector("#audit-tool");
+var toolHome = document.querySelector("#tool-home");
 var shareDialog = document.querySelector("#share-dialog");
 var guideDialog = document.querySelector("#guide-dialog");
 var guideFrame = document.querySelector("#guide-frame");
@@ -24081,9 +29229,6 @@ function setStatus(node, message) {
 }
 function mode() {
   return modeInputs.find((input) => input.checked)?.value === "route" ? "route" : "driver";
-}
-function placeholder() {
-  return mode() === "route" ? "Type a route number" : "Type a driver name";
 }
 async function loadConfig() {
   const response = await fetch("./supabase-config.json", { cache: "no-store" });
@@ -24110,46 +29255,95 @@ async function loadOffice(pass) {
   prepareCalendar(data.schoolYear);
   profiles = profilesFromPayload(data);
 }
-function showApp() {
-  gate.hidden = true;
-  app.hidden = false;
-  queryInput.placeholder = placeholder();
-  queryInput.focus();
+function showHome() {
+  if (toolHome) toolHome.hidden = false;
+  if (historyTool) historyTool.hidden = true;
+  if (auditTool) auditTool.hidden = true;
+  document.querySelector("#audit-camera")?.close();
+  document.title = PAGE_TITLE;
 }
-function showSuggestions() {
-  const matches = searchHistory(profiles, { by: mode(), query: queryInput.value });
-  suggest.replaceChildren();
-  const shown = matches.slice(0, SUGGEST_LIMIT);
-  for (const match of shown) {
-    const item = document.createElement("li");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = match.label;
-    button.addEventListener("click", () => choose(match));
-    item.append(button);
-    suggest.append(item);
+function showTool(tool) {
+  const audit = tool === "audit";
+  if (toolHome) toolHome.hidden = true;
+  if (historyTool) historyTool.hidden = audit;
+  if (auditTool) auditTool.hidden = !audit;
+  if (!audit) document.querySelector("#audit-camera")?.close();
+  document.title = PAGE_TITLE;
+  if (!audit) {
+    fillLookup();
+    lookup?.focus();
   }
-  const extra = matches.length - shown.length;
-  suggest.hidden = shown.length === 0;
-  suggestMore.hidden = extra <= 0;
-  suggestMore.textContent = extra > 0 ? "Keep typing to narrow the list." : "";
-  if (!queryInput.value.trim()) {
-    suggest.hidden = true;
-    suggestMore.hidden = true;
-    setStatus(pageStatus, profiles.length ? "" : "No routes are recorded yet.");
-  } else if (!shown.length) {
-    setStatus(pageStatus, mode() === "route" ? "No route matches that." : "No driver matches that.");
+}
+function showLanding() {
+  sessionStorage.removeItem(SESSION_KEY);
+  document.querySelector("#audit-camera")?.close();
+  guideDialog?.close();
+  document.body.classList.remove("is-open");
+  if (app) app.hidden = true;
+  if (gate) gate.hidden = false;
+  if (landingShare) landingShare.hidden = false;
+  if (back) back.hidden = true;
+  showHome();
+  document.title = PAGE_TITLE;
+  passwordInput?.focus();
+}
+function showApp() {
+  if (gate) gate.hidden = true;
+  if (landingShare) landingShare.hidden = true;
+  if (back) back.hidden = false;
+  document.body.classList.add("is-open");
+  app.hidden = false;
+  fillLookup();
+  showHome();
+}
+function goBack() {
+  const inTool = app && !app.hidden && toolHome?.hidden;
+  if (inTool) {
+    showHome();
+    return;
+  }
+  showLanding();
+}
+function fillLookup() {
+  if (!lookup) return;
+  const by = mode();
+  const options = historyOptions(profiles, { by });
+  const blankLabel = by === "route" ? "Choose a route" : "Choose a driver";
+  if (lookupLabel) lookupLabel.textContent = by === "route" ? "Route" : "Driver";
+  lookup.replaceChildren();
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = blankLabel;
+  lookup.append(blank);
+  for (const match of options) {
+    const option = document.createElement("option");
+    option.value = match.key;
+    option.textContent = match.label;
+    lookup.append(option);
+  }
+  lookup.disabled = options.length === 0;
+  if (!options.length) {
+    setStatus(pageStatus, by === "route" ? "No routes are recorded yet." : "No drivers are recorded yet.");
   } else {
     setStatus(pageStatus, "");
   }
 }
 function choose(match) {
-  queryInput.value = match.label;
-  suggest.hidden = true;
-  suggestMore.hidden = true;
+  if (!match) return;
+  if (lookup) lookup.value = match.key;
   setStatus(pageStatus, "");
   history.innerHTML = match.kind === "route" ? routeHistoryHtml(profiles, match.key) : driverHistoryHtml(profiles, match.key);
-  document.title = match.kind === "route" ? `Route ${match.label} \xB7 Route change history` : `${match.label} \xB7 Route change history`;
+  document.title = match.kind === "route" ? `Route ${match.label} \xB7 ${PAGE_TITLE}` : `${match.label} \xB7 ${PAGE_TITLE}`;
+}
+function chooseFromLookup() {
+  const key = lookup?.value || "";
+  if (!key) {
+    if (history) history.innerHTML = "";
+    document.title = PAGE_TITLE;
+    return;
+  }
+  const match = historyOptions(profiles, { by: mode() }).find((item) => item.key === key);
+  choose(match);
 }
 async function unlock(pass) {
   setStatus(gateStatus, "Opening the office record\u2026");
@@ -24176,23 +29370,17 @@ gateForm?.addEventListener("submit", (event) => {
 });
 searchForm?.addEventListener("submit", (event) => {
   event.preventDefault();
-  const matches = searchHistory(profiles, { by: mode(), query: queryInput.value });
-  const exact = matches.find((match) => match.label.toLowerCase() === queryInput.value.trim().toLowerCase());
-  if (exact) choose(exact);
-  else if (matches.length === 1) choose(matches[0]);
-  else showSuggestions();
+  chooseFromLookup();
 });
-queryInput?.addEventListener("input", showSuggestions);
+lookup?.addEventListener("change", () => {
+  chooseFromLookup();
+});
 for (const input of modeInputs) {
   input.addEventListener("change", () => {
-    queryInput.value = "";
-    queryInput.placeholder = placeholder();
-    history.innerHTML = "";
-    document.title = "Route change history";
-    suggest.hidden = true;
-    suggestMore.hidden = true;
-    setStatus(pageStatus, "");
-    queryInput.focus();
+    if (history) history.innerHTML = "";
+    document.title = PAGE_TITLE;
+    fillLookup();
+    lookup?.focus();
   });
 }
 history?.addEventListener("click", (event) => {
@@ -24216,6 +29404,52 @@ function openShareFallback() {
   if (text) text.href = shareTextHref(navigator.userAgent);
   shareDialog?.showModal();
 }
+back?.addEventListener("click", goBack);
+function installKind() {
+  const ua = navigator.userAgent || "";
+  const apple = /iPad|iPhone|iPod/i.test(ua) || navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+  if (apple) return "apple";
+  if (/Android/i.test(ua)) return "android";
+  return "other";
+}
+function showInstallSteps() {
+  const help = document.querySelector("#add-to-desktop");
+  if (!help) return;
+  const kind = installKind();
+  const ua = navigator.userAgent || "";
+  const either = document.querySelector("#install-either");
+  if (either) either.hidden = kind !== "other";
+  for (const section of help.querySelectorAll("[data-install]")) {
+    section.hidden = kind !== "other" && section.dataset.install !== kind;
+  }
+  if (kind === "apple") {
+    const note = help.querySelector('[data-install="apple"] .install-note');
+    if (note && /CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua)) {
+      note.textContent = "Open this page in Safari. Other iPhone browsers cannot add it to the home screen.";
+    }
+  }
+  if (kind === "android") {
+    const note = help.querySelector('[data-install="android"] .install-note');
+    const chrome = /Chrome/i.test(ua) && !/EdgA|OPR|SamsungBrowser|Firefox/i.test(ua);
+    if (note && !chrome) note.textContent = "Open this page in Chrome, then follow these steps.";
+  }
+}
+var installDialog = document.querySelector("#install-dialog");
+var disclaimerDialog = document.querySelector("#disclaimer-dialog");
+showInstallSteps();
+document.querySelector("#disclaimer-open")?.addEventListener("click", () => {
+  disclaimerDialog?.showModal();
+});
+document.querySelector("#disclaimer-dialog-close")?.addEventListener("click", () => {
+  disclaimerDialog?.close();
+});
+document.querySelector("#install-open")?.addEventListener("click", () => {
+  showInstallSteps();
+  installDialog?.showModal();
+});
+document.querySelector("#install-dialog-close")?.addEventListener("click", () => {
+  installDialog?.close();
+});
 document.querySelector("#share-open")?.addEventListener("click", async () => {
   if (navigator.share) {
     try {
@@ -24230,19 +29464,27 @@ document.querySelector("#share-open")?.addEventListener("click", async () => {
 document.querySelector("#share-dialog-close")?.addEventListener("click", () => {
   shareDialog?.close();
 });
-document.querySelector("#guide-open")?.addEventListener("click", () => {
+function openGuide() {
   if (guideFrame && guideFrame.dataset.loaded !== "1") {
     guideFrame.src = "./clock-hours-guide.html";
     guideFrame.dataset.loaded = "1";
   }
   guideDialog?.showModal();
-});
+}
 document.querySelector("#guide-dialog-close")?.addEventListener("click", () => {
   guideDialog?.close();
 });
 document.querySelector("#day-dialog-close")?.addEventListener("click", () => {
   dayDialog?.close();
 });
+for (const button of document.querySelectorAll("[data-home]")) {
+  button.addEventListener("click", () => {
+    const tool = button.dataset.home || "history";
+    if (tool === "guide") openGuide();
+    else showTool(tool);
+  });
+}
+mountAuditGenie({ deviceOnly: true });
 if (sessionStorage.getItem(SESSION_KEY) === "1") {
   unlock(PAGE_PASSWORD);
 }

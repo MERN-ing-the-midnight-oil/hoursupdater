@@ -11,9 +11,12 @@ Count the slots: front has ${FRONT_SLOT_COUNT}, back has ${BACK_SLOT_COUNT}.
 
 For each slot return:
 - null — empty
-- "illegible" — handwritten strikethrough or unreadable
-- ["MAR 9 PM 4:26", "MAR 9 AM 7:05"] — stamps top to bottom, exactly as written
+- "HANDWRITING" — handwritten clock times (not a machine stamp)
+- "illegible" — struck through, blurry, cut off, or not clearly legible
+- ["MAR 9 PM 2:00", "MAR 9 PM 5:15"] — stamps top to bottom, exactly as written
+A stamp string may also be "HANDWRITING" or "illegible" when only that row is handwritten or unreadable.
 
+Never guess or invent a stamp. If any clock time is not clearly legible, return "illegible" for that stamp or slot.
 Do not read the header sticker, Description of Work, Hours, Tot. Hrs., or Out/In labels.
 Do not write notes, caveats, commentary, or explanations.
 Return only the slots array for this one photo.`;
@@ -28,9 +31,12 @@ Fill report_clock_records with exactly ${slotCount} Clock Record slots (bold-lin
 
 Each slots item:
 - null — empty
-- "illegible" — struck through or unreadable
-- stamp strings top to bottom, e.g. ["MAR 9 PM 4:26", "MAR 9 AM 7:05"]
+- "HANDWRITING" — handwritten (not machine-stamped)
+- "illegible" — struck through, blurry, cut off, or not clearly legible
+- stamp strings top to bottom, e.g. ["MAR 9 PM 2:00", "MAR 9 PM 5:15"]
+A stamp may be "HANDWRITING" or "illegible" on its own.
 
+Never guess. Prefer "illegible" over a guessed time.
 Ignore every other column and the header sticker.`;
 }
 
@@ -53,10 +59,10 @@ export function clockRecordTool(slotCount) {
           maxItems: slotCount,
           description: `${slotCount} Clock Record slots between bold lines.`,
           items: {
-            description: 'null, "illegible", or stamp strings top to bottom.',
+            description: 'null, "HANDWRITING", "illegible", or stamp strings top to bottom.',
             anyOf: [
               { type: 'null' },
-              { type: 'string', enum: ['illegible'] },
+              { type: 'string', enum: ['HANDWRITING', 'illegible'] },
               { type: 'array', items: { type: 'string' } },
             ],
           },

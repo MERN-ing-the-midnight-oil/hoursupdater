@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#1f4b66" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Timecard photos</title>
+    <link rel="icon" href="./favicon.ico" sizes="48x48" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./office.css" />
+  </head>
+  <body class="timesheet-capture-page">
+    <header class="timesheet-capture-head">
+      <p class="app-name">Card photos</p>
+      <h1 id="timesheet-capture-title">Card photos</h1>
+      <p id="timesheet-capture-lead" class="timesheet-capture-lead">
+        Take the front, then the back. Photos go straight to the computer.
+      </p>
+    </header>
+    <p id="timesheet-capture-status" class="status" role="status">Opening this photo link…</p>
+    <section id="timesheet-capture-main" class="timesheet-capture-main" hidden>
+      <div class="timesheet-capture-steps" role="status" aria-live="polite">
+        <span id="timesheet-capture-front-pill" class="timesheet-capture-pill">Front</span>
+        <span id="timesheet-capture-back-pill" class="timesheet-capture-pill">Back</span>
+      </div>
+      <div id="timesheet-capture-stage" class="timesheet-capture-stage is-native">
+        <p id="timesheet-capture-stage-note" class="timesheet-capture-stage-note">
+          Tap a button below. Your phone Camera or Photos app will open, then this page comes back
+          with the photo.
+        </p>
+      </div>
+      <!--
+        Real form POSTs survive iPhone tearing down the page while Camera is open.
+        onchange submit is intentional and more reliable than JS fetch on iOS.
+      -->
+      <form
+        id="timesheet-capture-form-camera"
+        class="timesheet-capture-form"
+        method="post"
+        enctype="multipart/form-data"
+        action="#"
+      >
+        <label id="timesheet-capture-native" class="timesheet-capture-native-btn">
+          <span id="timesheet-capture-native-text">Take front photo</span>
+          <input
+            id="timesheet-capture-file"
+            class="visually-hidden"
+            name="photo"
+            type="file"
+            accept="image/*"
+            capture="environment"
+          />
+        </label>
+      </form>
+      <form
+        id="timesheet-capture-form-library"
+        class="timesheet-capture-form"
+        method="post"
+        enctype="multipart/form-data"
+        action="#"
+      >
+        <label id="timesheet-capture-library" class="timesheet-capture-file secondary">
+          Choose from Photos
+          <input
+            id="timesheet-capture-library-file"
+            class="visually-hidden"
+            name="photo"
+            type="file"
+            accept="image/*"
+          />
+        </label>
+      </form>
+      <p id="timesheet-capture-hint" class="timesheet-capture-hint">
+        After you take or choose a photo, wait for this page to return — that means it reached the
+        computer.
+      </p>
+    </section>
+    <script type="module" src="./timesheet-capture.js"></script>
+  </body>
+</html>

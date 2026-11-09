@@ -1,31 +1,36 @@
 import { createClient } from '@supabase/supabase-js';
+import { mountAuditGenie } from '../../office-tracker/web/auditGenie.js';
 import {
   PAGE_PASSWORD,
   driverHistoryHtml,
+  historyOptions,
   prepareCalendar,
   profilesFromPayload,
   routeHistoryHtml,
-  searchHistory,
   shareMailHref,
   sharePayload,
   shareTextHref,
 } from './publicHistory.js';
 
 const SESSION_KEY = 'route-history-unlocked';
-const SUGGEST_LIMIT = 12;
+const PAGE_TITLE = 'Teamster Tools';
 
 const gate = document.querySelector('#gate');
+const landingShare = document.querySelector('#landing-share');
+const back = document.querySelector('#back');
 const gateForm = document.querySelector('#gate-form');
 const passwordInput = document.querySelector('#password');
 const gateStatus = document.querySelector('#gate-status');
 const app = document.querySelector('#app');
 const searchForm = document.querySelector('#search-form');
 const modeInputs = [...document.querySelectorAll('input[name="by"]')];
-const queryInput = document.querySelector('#query');
-const suggest = document.querySelector('#suggest');
-const suggestMore = document.querySelector('#suggest-more');
+const lookup = document.querySelector('#lookup');
+const lookupLabel = document.querySelector('#lookup-label');
 const history = document.querySelector('#history');
 const pageStatus = document.querySelector('#page-status');
+const historyTool = document.querySelector('#history-tool');
+const auditTool = document.querySelector('#audit-tool');
+const toolHome = document.querySelector('#tool-home');
 const shareDialog = document.querySelector('#share-dialog');
 const guideDialog = document.querySelector('#guide-dialog');
 const guideFrame = document.querySelector('#guide-frame');
@@ -42,10 +47,6 @@ function setStatus(node, message) {
 
 function mode() {
   return modeInputs.find((input) => input.checked)?.value === 'route' ? 'route' : 'driver';
-}
-
-function placeholder() {
-  return mode() === 'route' ? 'Type a route number' : 'Type a driver name';
 }
 
 async function loadConfig() {
@@ -75,52 +76,108 @@ async function loadOffice(pass) {
   profiles = profilesFromPayload(data);
 }
 
-function showApp() {
-  gate.hidden = true;
-  app.hidden = false;
-  queryInput.placeholder = placeholder();
-  queryInput.focus();
+function showHome() {
+  if (toolHome) toolHome.hidden = false;
+  if (historyTool) historyTool.hidden = true;
+  if (auditTool) auditTool.hidden = true;
+  document.querySelector('#audit-camera')?.close();
+  document.title = PAGE_TITLE;
 }
 
-function showSuggestions() {
-  const matches = searchHistory(profiles, { by: mode(), query: queryInput.value });
-  suggest.replaceChildren();
-  const shown = matches.slice(0, SUGGEST_LIMIT);
-  for (const match of shown) {
-    const item = document.createElement('li');
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = match.label;
-    button.addEventListener('click', () => choose(match));
-    item.append(button);
-    suggest.append(item);
+function showTool(tool) {
+  const audit = tool === 'audit';
+  if (toolHome) toolHome.hidden = true;
+  if (historyTool) historyTool.hidden = audit;
+  if (auditTool) auditTool.hidden = !audit;
+  if (!audit) document.querySelector('#audit-camera')?.close();
+  document.title = PAGE_TITLE;
+  if (!audit) {
+    fillLookup();
+    lookup?.focus();
   }
-  const extra = matches.length - shown.length;
-  suggest.hidden = shown.length === 0;
-  suggestMore.hidden = extra <= 0;
-  suggestMore.textContent = extra > 0 ? 'Keep typing to narrow the list.' : '';
-  if (!queryInput.value.trim()) {
-    suggest.hidden = true;
-    suggestMore.hidden = true;
-    setStatus(pageStatus, profiles.length ? '' : 'No routes are recorded yet.');
-  } else if (!shown.length) {
-    setStatus(pageStatus, mode() === 'route' ? 'No route matches that.' : 'No driver matches that.');
+}
+
+function showLanding() {
+  sessionStorage.removeItem(SESSION_KEY);
+  document.querySelector('#audit-camera')?.close();
+  guideDialog?.close();
+  document.body.classList.remove('is-open');
+  if (app) app.hidden = true;
+  if (gate) gate.hidden = false;
+  if (landingShare) landingShare.hidden = false;
+  if (back) back.hidden = true;
+  showHome();
+  document.title = PAGE_TITLE;
+  passwordInput?.focus();
+}
+
+function showApp() {
+  if (gate) gate.hidden = true;
+  if (landingShare) landingShare.hidden = true;
+  if (back) back.hidden = false;
+  document.body.classList.add('is-open');
+  app.hidden = false;
+  fillLookup();
+  showHome();
+}
+
+function goBack() {
+  const inTool = app && !app.hidden && toolHome?.hidden;
+  if (inTool) {
+    showHome();
+    return;
+  }
+  showLanding();
+}
+
+function fillLookup() {
+  if (!lookup) return;
+  const by = mode();
+  const options = historyOptions(profiles, { by });
+  const blankLabel = by === 'route' ? 'Choose a route' : 'Choose a driver';
+  if (lookupLabel) lookupLabel.textContent = by === 'route' ? 'Route' : 'Driver';
+  lookup.replaceChildren();
+  const blank = document.createElement('option');
+  blank.value = '';
+  blank.textContent = blankLabel;
+  lookup.append(blank);
+  for (const match of options) {
+    const option = document.createElement('option');
+    option.value = match.key;
+    option.textContent = match.label;
+    lookup.append(option);
+  }
+  lookup.disabled = options.length === 0;
+  if (!options.length) {
+    setStatus(pageStatus, by === 'route' ? 'No routes are recorded yet.' : 'No drivers are recorded yet.');
   } else {
     setStatus(pageStatus, '');
   }
 }
 
 function choose(match) {
-  queryInput.value = match.label;
-  suggest.hidden = true;
-  suggestMore.hidden = true;
+  if (!match) return;
+  if (lookup) lookup.value = match.key;
   setStatus(pageStatus, '');
   history.innerHTML =
     match.kind === 'route'
       ? routeHistoryHtml(profiles, match.key)
       : driverHistoryHtml(profiles, match.key);
   document.title =
-    match.kind === 'route' ? `Route ${match.label} · Route change history` : `${match.label} · Route change history`;
+    match.kind === 'route'
+      ? `Route ${match.label} · ${PAGE_TITLE}`
+      : `${match.label} · ${PAGE_TITLE}`;
+}
+
+function chooseFromLookup() {
+  const key = lookup?.value || '';
+  if (!key) {
+    if (history) history.innerHTML = '';
+    document.title = PAGE_TITLE;
+    return;
+  }
+  const match = historyOptions(profiles, { by: mode() }).find((item) => item.key === key);
+  choose(match);
 }
 
 async function unlock(pass) {
@@ -150,25 +207,19 @@ gateForm?.addEventListener('submit', (event) => {
 
 searchForm?.addEventListener('submit', (event) => {
   event.preventDefault();
-  const matches = searchHistory(profiles, { by: mode(), query: queryInput.value });
-  const exact = matches.find((match) => match.label.toLowerCase() === queryInput.value.trim().toLowerCase());
-  if (exact) choose(exact);
-  else if (matches.length === 1) choose(matches[0]);
-  else showSuggestions();
+  chooseFromLookup();
 });
 
-queryInput?.addEventListener('input', showSuggestions);
+lookup?.addEventListener('change', () => {
+  chooseFromLookup();
+});
 
 for (const input of modeInputs) {
   input.addEventListener('change', () => {
-    queryInput.value = '';
-    queryInput.placeholder = placeholder();
-    history.innerHTML = '';
-    document.title = 'Route change history';
-    suggest.hidden = true;
-    suggestMore.hidden = true;
-    setStatus(pageStatus, '');
-    queryInput.focus();
+    if (history) history.innerHTML = '';
+    document.title = PAGE_TITLE;
+    fillLookup();
+    lookup?.focus();
   });
 }
 
@@ -195,6 +246,64 @@ function openShareFallback() {
   shareDialog?.showModal();
 }
 
+back?.addEventListener('click', goBack);
+
+function installKind() {
+  const ua = navigator.userAgent || '';
+  const apple =
+    /iPad|iPhone|iPod/i.test(ua) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (apple) return 'apple';
+  if (/Android/i.test(ua)) return 'android';
+  return 'other';
+}
+
+function showInstallSteps() {
+  const help = document.querySelector('#add-to-desktop');
+  if (!help) return;
+  const kind = installKind();
+  const ua = navigator.userAgent || '';
+  const either = document.querySelector('#install-either');
+  if (either) either.hidden = kind !== 'other';
+  for (const section of help.querySelectorAll('[data-install]')) {
+    section.hidden = kind !== 'other' && section.dataset.install !== kind;
+  }
+  if (kind === 'apple') {
+    const note = help.querySelector('[data-install="apple"] .install-note');
+    if (note && /CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua)) {
+      note.textContent =
+        'Open this page in Safari. Other iPhone browsers cannot add it to the home screen.';
+    }
+  }
+  if (kind === 'android') {
+    const note = help.querySelector('[data-install="android"] .install-note');
+    const chrome = /Chrome/i.test(ua) && !/EdgA|OPR|SamsungBrowser|Firefox/i.test(ua);
+    if (note && !chrome) note.textContent = 'Open this page in Chrome, then follow these steps.';
+  }
+}
+
+const installDialog = document.querySelector('#install-dialog');
+const disclaimerDialog = document.querySelector('#disclaimer-dialog');
+
+showInstallSteps();
+
+document.querySelector('#disclaimer-open')?.addEventListener('click', () => {
+  disclaimerDialog?.showModal();
+});
+
+document.querySelector('#disclaimer-dialog-close')?.addEventListener('click', () => {
+  disclaimerDialog?.close();
+});
+
+document.querySelector('#install-open')?.addEventListener('click', () => {
+  showInstallSteps();
+  installDialog?.showModal();
+});
+
+document.querySelector('#install-dialog-close')?.addEventListener('click', () => {
+  installDialog?.close();
+});
+
 document.querySelector('#share-open')?.addEventListener('click', async () => {
   if (navigator.share) {
     try {
@@ -211,13 +320,13 @@ document.querySelector('#share-dialog-close')?.addEventListener('click', () => {
   shareDialog?.close();
 });
 
-document.querySelector('#guide-open')?.addEventListener('click', () => {
+function openGuide() {
   if (guideFrame && guideFrame.dataset.loaded !== '1') {
     guideFrame.src = './clock-hours-guide.html';
     guideFrame.dataset.loaded = '1';
   }
   guideDialog?.showModal();
-});
+}
 
 document.querySelector('#guide-dialog-close')?.addEventListener('click', () => {
   guideDialog?.close();
@@ -226,6 +335,16 @@ document.querySelector('#guide-dialog-close')?.addEventListener('click', () => {
 document.querySelector('#day-dialog-close')?.addEventListener('click', () => {
   dayDialog?.close();
 });
+
+for (const button of document.querySelectorAll('[data-home]')) {
+  button.addEventListener('click', () => {
+    const tool = button.dataset.home || 'history';
+    if (tool === 'guide') openGuide();
+    else showTool(tool);
+  });
+}
+
+mountAuditGenie({ deviceOnly: true });
 
 if (sessionStorage.getItem(SESSION_KEY) === '1') {
   unlock(PAGE_PASSWORD);
