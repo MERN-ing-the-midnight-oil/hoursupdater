@@ -16,26 +16,16 @@
   <body class="timesheet-capture-page">
     <header class="timesheet-capture-head">
       <p class="app-name">Card photos</p>
-      <h1 id="timesheet-capture-title">Card photos</h1>
-      <p id="timesheet-capture-lead" class="timesheet-capture-lead">
-        Take the front, then the back. Photos go straight to the computer.
-      </p>
     </header>
-    <p id="timesheet-capture-status" class="status" role="status">Opening this photo link…</p>
+    <p id="timesheet-capture-status" class="status" role="status" hidden></p>
     <section id="timesheet-capture-main" class="timesheet-capture-main" hidden>
-      <div class="timesheet-capture-steps" role="status" aria-live="polite">
-        <span id="timesheet-capture-front-pill" class="timesheet-capture-pill">Front</span>
-        <span id="timesheet-capture-back-pill" class="timesheet-capture-pill">Back</span>
-      </div>
-      <div id="timesheet-capture-stage" class="timesheet-capture-stage is-native">
-        <p id="timesheet-capture-stage-note" class="timesheet-capture-stage-note">
-          Tap a button below. Your phone Camera or Photos app will open, then this page comes back
-          with the photo.
-        </p>
+      <div id="timesheet-capture-busy" class="timesheet-capture-busy" hidden>
+        <span class="timesheet-spinner" aria-hidden="true"></span>
+        <p id="timesheet-capture-busy-text">Sending photo…</p>
       </div>
       <!--
-        Real form POSTs survive iPhone tearing down the page while Camera is open.
-        onchange submit is intentional and more reliable than JS fetch on iOS.
+        Camera file input stays in the DOM. Uploads use fetch so we can show a
+        spinner and open the next camera without a full page reload.
       -->
       <form
         id="timesheet-capture-form-camera"
@@ -56,28 +46,6 @@
           />
         </label>
       </form>
-      <form
-        id="timesheet-capture-form-library"
-        class="timesheet-capture-form"
-        method="post"
-        enctype="multipart/form-data"
-        action="#"
-      >
-        <label id="timesheet-capture-library" class="timesheet-capture-file secondary">
-          Choose from Photos
-          <input
-            id="timesheet-capture-library-file"
-            class="visually-hidden"
-            name="photo"
-            type="file"
-            accept="image/*"
-          />
-        </label>
-      </form>
-      <p id="timesheet-capture-hint" class="timesheet-capture-hint">
-        After you take or choose a photo, wait for this page to return — that means it reached the
-        computer.
-      </p>
     </section>
     <script type="module" src="./timesheet-capture.js"></script>
   </body>

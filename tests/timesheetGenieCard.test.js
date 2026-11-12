@@ -50,6 +50,15 @@ describe('sticker contract hours', () => {
     });
   });
 
+  it('keeps total outside parentheses and splits the AM/PM breakdown', () => {
+    assert.deepEqual(parseStickerContractHours('5.25 (2, 3.25)'), {
+      total: 5.25,
+      am: 2,
+      midday: null,
+      pm: 3.25,
+    });
+  });
+
   it('does not invent hours from an empty or illegible line', () => {
     assert.equal(parseStickerContractHours(null), null);
     assert.equal(parseStickerContractHours('illegible'), null);
@@ -58,26 +67,33 @@ describe('sticker contract hours', () => {
 });
 
 describe('genie card copy', () => {
-  it('asks for the contract hours under the route number', () => {
-    assert.match(GENIE_CARD_SYSTEM, /line directly under the route number/i);
-    assert.match(genieCardUserPrefix('front', 13), /under the route number/i);
-    assert.match(genieCardUserPrefix('back', 15), /contract_hours to null/i);
+  it('asks for flat Clock Record lines and the white sticker', () => {
+    assert.match(GENIE_CARD_SYSTEM, /sky-blue/i);
+    assert.match(GENIE_CARD_SYSTEM, /exactly 26 lines/i);
+    assert.match(GENIE_CARD_SYSTEM, /white sticker/i);
+    assert.match(GENIE_CARD_SYSTEM, /5\.25 \(2, 3\.25\)/);
+    assert.match(genieCardUserPrefix('front', 26), /exactly 26 Clock Record lines/i);
+    assert.match(genieCardUserPrefix('front', 26), /date_on_card/i);
+    assert.match(genieCardUserPrefix('back', 30), /contract_hours, and date_on_card to null/i);
   });
 
-  it('keeps written hours and the sticker contract on the copy', () => {
+  it('pairs flat stamp lines and keeps the sticker contract on the copy', () => {
     const extraction = normalizeGenieCardExtraction({
       employee_name: 'Ada Driver',
       route_number: '79',
-      contract_hours: '6.50',
-      front: [{ stamps: ['NOV 4 AM 6:00', 'NOV 4 AM 8:00'], reg: 'illegible', ot: 0, tot: 2 }],
+      contract_hours: '5.25 (2, 3.25)',
+      date_on_card: '11/15/26',
+      front: ['NOV 4 AM 6:00', 'NOV 4 AM 8:00', null, null],
     });
     assert.equal(extraction.front_rows.length, FRONT_SLOT_COUNT);
     assert.equal(extraction.header.employee_name, 'Ada Driver');
     assert.equal(extraction.header.route_number, '79');
-    assert.equal(extraction.header.contract_hours, 6.5);
-    assert.equal(extraction.front_rows[0].written_regular_status, 'illegible');
-    assert.equal(extraction.front_rows[0].written_overtime, 0);
+    assert.equal(extraction.header.contract_hours, 5.25);
+    assert.equal(extraction.header.contract_am_hours, 2);
+    assert.equal(extraction.header.contract_pm_hours, 3.25);
+    assert.equal(extraction.header.date_on_card, '11/15/26');
     assert.equal(extraction.front_rows[0].clock_out_raw, 'NOV 4 AM 6:00');
+    assert.equal(extraction.front_rows[0].clock_in_raw, 'NOV 4 AM 8:00');
   });
 });
 

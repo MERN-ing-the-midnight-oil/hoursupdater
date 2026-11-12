@@ -1,122 +1,112 @@
 import { parseAuditHours } from './timesheetAudit.js';
-import { FRONT_SLOT_COUNT, BACK_SLOT_COUNT } from './timesheetPrompt.js';
-import { inferDefaultYear, rowFromClockStamps } from './timesheetNormalize.js';
+import {
+  FRONT_SLOT_COUNT,
+  BACK_SLOT_COUNT,
+  FRONT_LINE_COUNT,
+  BACK_LINE_COUNT,
+} from './timesheetPrompt.js';
+import { inferDefaultYear, pairStampLines, rowFromClockStamps } from './timesheetNormalize.js';
 import { splitTotHoursIntoRegOt } from './timesheetRegOt.js';
 import { snapRoundedForRow } from './timesheetSnap.js';
 import { localDateKey } from '../../src/logic/timesheets.js';
 
-const HOUR_FIELD = {
-  description:
-    'null when the cell is blank, "illegible" when it cannot be read, or the number written. A bullet or 0 is 0. Do not calculate this.',
-  anyOf: [{ type: 'null' }, { type: 'number' }, { type: 'string' }],
-};
+export const GENIE_CARD_SYSTEM = `You read one side of a sky-blue paper timecard.
 
-export const GENIE_CARD_SYSTEM = `You read one side of a blue paper timecard and copy what is printed on it.
+Look only at the far-right "Clock Record" column. Ignore every other column.
+Read every Clock Record line from the top of the column to the bottom.
+Front has exactly ${FRONT_LINE_COUNT} lines. Back has exactly ${BACK_LINE_COUNT} lines.
 
-A slot is one block between bold horizontal lines. Each slot lines up a Clock Record (far right) with the Reg, OT, and Tot. Hrs. cells in that same block.
-Count the slots: front has ${FRONT_SLOT_COUNT}, back has ${BACK_SLOT_COUNT}.
+For each line return one of:
+- null — blank
+- "HANDWRITING" — handwritten (not a machine stamp)
+- "illegible" — struck through, blurry, cut off, or not clearly readable
+- one stamp string when month, day, AM or PM, and time are all clear — prefer "MON D AM|PM H:MM", e.g. "MAR 9 PM 2:00"
 
-For each slot return null when the Clock Record and the hour cells are all empty.
-Otherwise return:
-- stamps — null when blank, "HANDWRITING" when the clocks are handwritten, "illegible" when struck through or unreadable, or the stamp strings top to bottom exactly as printed, e.g. ["MAR 9 PM 2:00", "MAR 9 PM 5:15"]
-- reg — the number written in Reg, or null when blank, or "illegible"
-- ot — the number written in OT, or null when blank, or "illegible"
-- tot — the number written in Tot. Hrs., or null when blank, or "illegible"
+Never guess a month, day, AM/PM, or time. Prefer "illegible" over a guessed time.
 
-A bullet, dot, or 0 in an hour cell is 0. A blank hour cell is null.
-Read only what is written. Never calculate Reg, OT, or Tot. Hrs. from the stamps.
-Never guess a digit. If a number or stamp is not clearly legible, use "illegible".
-Do not read Description of Work.
+On the FRONT photo, also read the white sticker at the top. It is always there.
+Left column, top to bottom: driver name (Last, First), route number after "Route #", contract hours line copied exactly as printed (total plus AM/PM breakdown in parentheses when present, e.g. "5.25 (2, 3.25)").
+Right column: the date as MM/DD/YY or M/DD/YY.
+Return employee_name, route_number, contract_hours, and date_on_card. Use null when not clearly visible. Do not invent sticker fields from the Clock Record.
+On the BACK photo, set those sticker fields to null.
 
-On the FRONT photo, also read the sticker at the top of the card.
-The driver's name is on that sticker. The route number is the line directly under the driver's name.
-The contract hours are the line directly under the route number. Return that line as contract_hours, exactly as printed.
-Use null for contract_hours, employee_name, or route_number when that sticker line is not on this photo.
-Do not invent the contract hours from the clock stamps or from Reg and OT.
-On the BACK photo, contract_hours, employee_name, and route_number are null.
 Do not write notes. Return only the tool fields for this one photo.`;
 
 /**
  * @param {'front' | 'back'} side
- * @param {number} slotCount
+ * @param {number} lineCount
  */
-export function genieCardUserPrefix(side, slotCount) {
+export function genieCardUserPrefix(side, lineCount) {
   const sticker =
     side === 'front'
-      ? `Also set employee_name, route_number, and contract_hours from the sticker at the top.
-The route number is the line under the driver's name. The contract hours are the line directly under the route number.
-Copy that contract-hours line as printed. Use null if it is not visible. Do not invent it.`
-      : 'Set employee_name, route_number, and contract_hours to null. This is the back. The sticker is only on the front.';
-  return `This photo is the ${side.toUpperCase()} of the card.
-Fill report_genie_card with exactly ${slotCount} slots (bold-line blocks), top to bottom.
+      ? `Also read the white sticker at the top.
+Left column: employee_name (Last, First), route_number (after "Route #"), contract_hours exactly as printed (e.g. "5.25 (2, 3.25)").
+Right column: date_on_card as MM/DD/YY or M/DD/YY.
+Use null when a part is not clearly visible. Do not invent sticker fields from the stamps.`
+      : 'Set employee_name, route_number, contract_hours, and date_on_card to null. This is the back. The sticker is only on the front.';
+  return `This photo is the ${side.toUpperCase()} of a sky-blue paper timecard.
+Fill report_genie_card with exactly ${lineCount} Clock Record lines, top to bottom.
 
-Reg is the first hours column, OT the next, Tot. Hrs. the one just left of Clock Record.
-Copy those handwritten numbers. Do not invent them from the clock stamps.
-A blank cell is null. A bullet or 0 is 0. Use "illegible" instead of a guess.
+For each line:
+- null — blank
+- "HANDWRITING" — handwritten (not machine-stamped)
+- "illegible" — struck through, blurry, cut off, or not clearly legible
+- one stamp string when clear — prefer "MON D AM|PM H:MM", e.g. "MAR 9 PM 2:00"
+
+Never guess. Prefer "illegible" over a guessed time.
+Ignore every other column.
 ${sticker}`;
 }
 
 /**
- * @param {number} slotCount
+ * @param {number} lineCount
  * @param {{ sticker?: boolean }} [options]
  */
-export function genieCardTool(slotCount, options = {}) {
+export function genieCardTool(lineCount, options = {}) {
   const sticker = options.sticker === true;
+  const stampLine = {
+    description: 'null, "HANDWRITING", "illegible", or one stamp string such as "MAR 9 PM 2:00".',
+    anyOf: [
+      { type: 'null' },
+      { type: 'string', enum: ['HANDWRITING', 'illegible'] },
+      { type: 'string' },
+    ],
+  };
   return {
     name: 'report_genie_card',
     description: sticker
-      ? `Report exactly ${slotCount} card slots, plus the contract hours on the front sticker.`
-      : `Report exactly ${slotCount} card slots, including written Reg, OT, and Tot. Hrs.`,
+      ? `Report exactly ${lineCount} Clock Record lines plus the front sticker fields.`
+      : `Report exactly ${lineCount} Clock Record lines. Sticker fields are null on the back.`,
     input_schema: {
       type: 'object',
       additionalProperties: false,
-      required: sticker
-        ? ['slots', 'employee_name', 'route_number', 'contract_hours']
-        : ['slots', 'employee_name', 'route_number', 'contract_hours'],
+      required: ['slots', 'employee_name', 'route_number', 'contract_hours', 'date_on_card'],
       properties: {
         employee_name: {
-          description: 'The driver name on the front sticker. null on the back, or when it is not visible.',
+          description: 'The driver name on the front white sticker (Last, First). null on the back, or when it is not visible.',
           anyOf: [{ type: 'null' }, { type: 'string' }],
         },
         route_number: {
           description:
-            'The route number on the front sticker, the line directly under the driver name. null on the back, or when it is not visible.',
+            'The route number after "Route #" on the front sticker. null on the back, or when it is not visible.',
           anyOf: [{ type: 'null' }, { type: 'string' }],
         },
         contract_hours: {
           description:
-            'The contract hours printed on the front sticker, the line directly under the route number. Copy the line as printed. null on the back, or when that line is not visible.',
+            'Contract hours line under the route, copied as printed (e.g. "5.25 (2, 3.25)"). null on the back, or when missing.',
           anyOf: [{ type: 'null' }, { type: 'string' }, { type: 'number' }],
+        },
+        date_on_card: {
+          description:
+            'Date on the front sticker right column as MM/DD/YY or M/DD/YY. null on the back, or when not visible.',
+          anyOf: [{ type: 'null' }, { type: 'string' }],
         },
         slots: {
           type: 'array',
-          minItems: slotCount,
-          maxItems: slotCount,
-          description: `${slotCount} slots between bold lines, top to bottom.`,
-          items: {
-            description: 'null when the whole slot is empty. Otherwise stamps plus the hours written in that slot.',
-            anyOf: [
-              { type: 'null' },
-              {
-                type: 'object',
-                additionalProperties: false,
-                required: ['stamps', 'reg', 'ot', 'tot'],
-                properties: {
-                  stamps: {
-                    description: 'null, "HANDWRITING", "illegible", or stamp strings top to bottom.',
-                    anyOf: [
-                      { type: 'null' },
-                      { type: 'string', enum: ['HANDWRITING', 'illegible'] },
-                      { type: 'array', items: { type: 'string' } },
-                    ],
-                  },
-                  reg: HOUR_FIELD,
-                  ot: HOUR_FIELD,
-                  tot: HOUR_FIELD,
-                },
-              },
-            ],
-          },
+          minItems: lineCount,
+          maxItems: lineCount,
+          description: `${lineCount} Clock Record lines from top to bottom.`,
+          items: stampLine,
         },
       },
     },
@@ -129,7 +119,8 @@ function roundHours(value) {
 
 /**
  * The contract-hours line under the route number.
- * One number is the day's contract. Two or three numbers are the run hours, added together.
+ * One number is the day's contract. "5.25 (2, 3.25)" is total with AM/PM in parentheses.
+ * Two or three plain numbers are the run hours, added together.
  * @param {unknown} value
  * @returns {{ total: number, am: number | null, midday: number | null, pm: number | null } | null}
  */
@@ -137,6 +128,22 @@ export function parseStickerContractHours(value) {
   if (value == null) return null;
   const text = typeof value === 'number' ? String(value) : String(value).trim();
   if (!text || /^null$/i.test(text) || /^illegible$/i.test(text)) return null;
+
+  const withParen = text.match(/^(\d+(?:\.\d+)?)\s*\(([^)]+)\)\s*$/);
+  if (withParen) {
+    const total = Number(withParen[1]);
+    if (!(Number.isFinite(total) && total > 0 && total <= 24)) return null;
+    const parts = [...withParen[2].matchAll(/\d+(?:\.\d+)?/g)]
+      .map((match) => Number(match[0]))
+      .filter((number) => Number.isFinite(number) && number > 0 && number <= 24);
+    if (!parts.length || parts.length > 3) return null;
+    if (parts.length === 1) return { total: roundHours(total), am: parts[0], midday: null, pm: null };
+    if (parts.length === 2) {
+      return { total: roundHours(total), am: parts[0], midday: null, pm: parts[1] };
+    }
+    return { total: roundHours(total), am: parts[0], midday: parts[1], pm: parts[2] };
+  }
+
   const numbers = [...text.matchAll(/\d+(?:\.\d+)?/g)]
     .map((match) => Number(match[0]))
     .filter((number) => Number.isFinite(number) && number > 0 && number <= 24);
@@ -202,7 +209,7 @@ export function normalizeGenieCardExtraction(parsed) {
   const header = {
     employee_name: textOrNull(source.employee_name ?? source.header?.employee_name),
     route_number: textOrNull(source.route_number ?? source.header?.route_number),
-    date_on_card: textOrNull(source.header?.date_on_card),
+    date_on_card: textOrNull(source.date_on_card ?? source.header?.date_on_card),
     contract_hours: contract?.total ?? null,
     contract_am_hours: contract?.am ?? null,
     contract_midday_hours: contract?.midday ?? null,
@@ -210,8 +217,8 @@ export function normalizeGenieCardExtraction(parsed) {
     default_pay_status: null,
   };
   const year = inferDefaultYear(header.date_on_card);
-  const frontRaw = source.front ?? source.front_rows;
-  const backRaw = source.back ?? source.back_rows;
+  const frontRaw = pairStampLines(source.front ?? source.front_rows);
+  const backRaw = pairStampLines(source.back ?? source.back_rows);
   return {
     header,
     front_rows: padSide(frontRaw, FRONT_SLOT_COUNT, year),

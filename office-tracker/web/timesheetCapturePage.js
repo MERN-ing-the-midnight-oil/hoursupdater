@@ -7,29 +7,22 @@ const appName = document.querySelector('.app-name');
 if (appName) appName.textContent = deskName;
 document.title = `${deskName} photos`;
 
-const title = document.querySelector('#timesheet-capture-title');
-const lead = document.querySelector('#timesheet-capture-lead');
-if (lead && !lead.textContent.includes(deskName)) {
-  lead.textContent = `Take the front, then the back. Photos go straight to the ${deskName} desk on the computer.`;
-}
 const status = document.querySelector('#timesheet-capture-status');
 const main = document.querySelector('#timesheet-capture-main');
-const frontPill = document.querySelector('#timesheet-capture-front-pill');
-const backPill = document.querySelector('#timesheet-capture-back-pill');
-const hint = document.querySelector('#timesheet-capture-hint');
+const busy = document.querySelector('#timesheet-capture-busy');
+const busyText = document.querySelector('#timesheet-capture-busy-text');
 const nativeText = document.querySelector('#timesheet-capture-native-text');
 const nativeBtn = document.querySelector('#timesheet-capture-native');
-const libraryWrap = document.querySelector('#timesheet-capture-library');
 const cameraForm = document.querySelector('#timesheet-capture-form-camera');
-const libraryForm = document.querySelector('#timesheet-capture-form-library');
 const cameraInput = document.querySelector('#timesheet-capture-file');
-const libraryInput = document.querySelector('#timesheet-capture-library-file');
 
 /** @type {{ front: boolean, back: boolean, ready: boolean } | null} */
 let session = null;
 /** @type {'front' | 'back'} */
 let side = 'front';
 let submitting = false;
+/** @type {ReturnType<typeof setTimeout> | null} */
+let backButtonTimer = null;
 
 function setStatus(message, kind = '') {
   if (!status) return;
@@ -38,52 +31,77 @@ function setStatus(message, kind = '') {
   status.className = `status${kind ? ` is-${kind}` : ''}`;
 }
 
+function showBusy(message) {
+  if (busyText) busyText.textContent = message || 'Sending photo…';
+  if (busy instanceof HTMLElement) busy.hidden = false;
+  if (cameraForm instanceof HTMLElement) cameraForm.hidden = true;
+  if (nativeBtn instanceof HTMLElement) nativeBtn.hidden = true;
+}
+
+function hideBusy() {
+  if (busy instanceof HTMLElement) busy.hidden = true;
+}
+
+function hideCameraButton() {
+  if (cameraForm instanceof HTMLElement) cameraForm.hidden = true;
+  if (nativeBtn instanceof HTMLElement) nativeBtn.hidden = true;
+}
+
+function clearBackButtonTimer() {
+  if (backButtonTimer != null) {
+    clearTimeout(backButtonTimer);
+    backButtonTimer = null;
+  }
+}
+
 function uploadAction(forSide) {
   return `/api/timesheet-capture-upload/${encodeURIComponent(token)}/${forSide}`;
 }
 
-function wireForms() {
-  if (!(cameraForm instanceof HTMLFormElement) || !(libraryForm instanceof HTMLFormElement)) return;
-  cameraForm.action = uploadAction(side);
-  libraryForm.action = uploadAction(side);
+function paintFront() {
+  clearBackButtonTimer();
+  hideBusy();
+  side = 'front';
+  if (nativeText) nativeText.textContent = 'Take front photo';
+  if (cameraForm instanceof HTMLElement) cameraForm.hidden = false;
+  if (nativeBtn instanceof HTMLElement) nativeBtn.hidden = false;
 }
 
-function paint() {
-  frontPill?.classList.toggle('is-done', Boolean(session?.front));
-  frontPill?.classList.toggle('is-active', side === 'front' && !session?.front);
-  backPill?.classList.toggle('is-done', Boolean(session?.back));
-  backPill?.classList.toggle('is-active', side === 'back' && !session?.back);
+function paintBackButton() {
+  clearBackButtonTimer();
+  hideBusy();
+  side = 'back';
+  if (nativeText) nativeText.textContent = 'Take back photo';
+  if (cameraForm instanceof HTMLElement) cameraForm.hidden = false;
+  if (nativeBtn instanceof HTMLElement) nativeBtn.hidden = false;
+}
 
-  const takeLabel = side === 'front' ? 'Take front photo' : 'Take back photo';
-  if (nativeText) nativeText.textContent = takeLabel;
-  wireForms();
-
-  const done = Boolean(session?.ready);
-  if (nativeBtn instanceof HTMLElement) nativeBtn.hidden = done;
-  if (libraryWrap instanceof HTMLElement) libraryWrap.hidden = done;
-  if (cameraForm instanceof HTMLElement) cameraForm.hidden = done;
-  if (libraryForm instanceof HTMLElement) libraryForm.hidden = done;
-
-  if (done) {
-    if (title) title.textContent = 'Photos sent';
-    if (lead) {
-      lead.textContent =
-        `Front and back are on the ${deskName} desk. You can close this page and finish on the computer.`;
+function openCamera() {
+  if (!(cameraInput instanceof HTMLInputElement) || submitting) return;
+  cameraInput.value = '';
+  requestAnimationFrame(() => {
+    try {
+      cameraInput.click();
+    } catch {
+      /* iOS may block programmatic camera open; the back button stays available. */
     }
-    if (hint) hint.textContent = 'Both sides arrived on the computer.';
-    return;
-  }
+  });
+}
 
-  if (side === 'back') {
-    if (title) title.textContent = 'Back of the card';
-    if (lead) lead.textContent = 'Flip the card, then take or choose the back photo.';
-  } else {
-    if (title) title.textContent = 'Front of the card';
-    if (lead) {
-      lead.textContent =
-        'Take or choose the front photo. This page will reload when the computer has it.';
+function offerBackCamera() {
+  side = 'back';
+  setStatus('');
+  // Front button stays gone. Keep the spinner while we try to open the camera.
+  showBusy('Opening back camera…');
+  hideCameraButton();
+  openCamera();
+  clearBackButtonTimer();
+  // If the OS blocked auto-open, show Take back photo only — never Take front photo.
+  backButtonTimer = setTimeout(() => {
+    if (side === 'back' && !submitting && session && !session.back) {
+      paintBackButton();
     }
-  }
+  }, 900);
 }
 
 async function refreshSession() {
@@ -102,7 +120,6 @@ async function refreshSession() {
   };
   if (!session.front) side = 'front';
   else if (!session.back) side = 'back';
-  paint();
   return session;
 }
 
@@ -114,14 +131,103 @@ function clearQueryNoise() {
   window.history.replaceState({}, '', url);
 }
 
-function submitOnPick(input, form) {
-  if (!(input instanceof HTMLInputElement) || !(form instanceof HTMLFormElement)) return;
+function errorFromUploadResponse(response) {
+  const location = response.headers.get('Location') || '';
+  if (!location) return '';
+  try {
+    return new URL(location, window.location.origin).searchParams.get('err') || '';
+  } catch {
+    return '';
+  }
+}
+
+async function uploadPhoto(file) {
+  const formData = new FormData();
+  formData.append('photo', file, file.name || `${side}-timecard.jpg`);
+  const response = await fetch(uploadAction(side), {
+    method: 'POST',
+    body: formData,
+    redirect: 'manual',
+  });
+  if (response.status === 303 || response.type === 'opaqueredirect') {
+    const err = errorFromUploadResponse(response);
+    if (err) throw new Error(err);
+    return;
+  }
+  if (response.ok) return;
+  const type = response.headers.get('content-type') || '';
+  const body = type.includes('json') ? await response.json().catch(() => null) : null;
+  throw new Error(
+    body?.error || errorFromUploadResponse(response) || 'That photo could not be saved.'
+  );
+}
+
+async function restartCapture() {
+  if (!token) return;
+  const response = await fetch(`/api/timesheet-capture/${encodeURIComponent(token)}/restart`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+  const type = response.headers.get('content-type') || '';
+  const body = type.includes('json') ? await response.json().catch(() => null) : null;
+  if (!response.ok) {
+    throw new Error(body?.error || 'Could not start the next card. Scan a new QR code.');
+  }
+  session = {
+    front: Boolean(body?.front),
+    back: Boolean(body?.back),
+    ready: Boolean(body?.ready),
+  };
+  side = 'front';
+  if (cameraInput instanceof HTMLInputElement) cameraInput.value = '';
+}
+
+async function afterPhotoSaved(which) {
+  if (which === 'front') {
+    session = { front: true, back: false, ready: false };
+    submitting = false;
+    offerBackCamera();
+    return;
+  }
+
+  session = { front: true, back: true, ready: true };
+  clearBackButtonTimer();
+  showBusy('Starting next card…');
+  hideCameraButton();
+  try {
+    await restartCapture();
+    submitting = false;
+    setStatus('');
+    paintFront();
+    openCamera();
+  } catch (error) {
+    submitting = false;
+    paintFront();
+    setStatus(error?.message || 'Could not start the next card. Scan a new QR code.', 'error');
+  }
+}
+
+function submitOnPick(input) {
+  if (!(input instanceof HTMLInputElement)) return;
   input.addEventListener('change', () => {
-    if (!input.files?.length || submitting) return;
+    const file = input.files?.[0];
+    if (!file || submitting) return;
     submitting = true;
-    setStatus(`Sending the ${side} photo…`, '');
-    wireForms();
-    form.submit();
+    const which = side;
+    clearBackButtonTimer();
+    showBusy(which === 'front' ? 'Sending front photo…' : 'Sending back photo…');
+    hideCameraButton();
+    setStatus('');
+    uploadPhoto(file)
+      .then(() => afterPhotoSaved(which))
+      .catch((error) => {
+        submitting = false;
+        if (which === 'front') paintFront();
+        else paintBackButton();
+        setStatus(error?.message || 'That photo could not be saved.', 'error');
+        if (cameraInput instanceof HTMLInputElement) cameraInput.value = '';
+      });
   });
 }
 
@@ -139,28 +245,38 @@ async function boot() {
   }
 
   if (main) main.hidden = false;
+  clearQueryNoise();
+  submitOnPick(cameraInput);
 
   if (errParam) {
     setStatus(errParam, 'error');
-  } else if (savedSide === 'front' || savedSide === 'back') {
-    setStatus(
-      session?.ready
-        ? 'Front and back are on the computer.'
-        : `${savedSide === 'front' ? 'Front' : 'Back'} received. ${
-            side === 'back' ? 'Take the back next.' : 'Take the front next.'
-          }`,
-      'ok'
-    );
-  } else if (session?.ready) {
-    setStatus('Front and back are already on the computer.', 'ok');
-  } else {
-    setStatus('Tap Take photo (Camera) or Choose from Photos.', '');
+    if (session?.front && !session?.back) paintBackButton();
+    else paintFront();
+    return;
   }
 
-  clearQueryNoise();
-  paint();
-  submitOnPick(cameraInput, cameraForm);
-  submitOnPick(libraryInput, libraryForm);
+  if (savedSide === 'back' || session?.ready) {
+    showBusy('Starting next card…');
+    hideCameraButton();
+    try {
+      await restartCapture();
+      setStatus('');
+      paintFront();
+      openCamera();
+    } catch (error) {
+      paintFront();
+      setStatus(error?.message || 'Could not start the next card. Scan a new QR code.', 'error');
+    }
+    return;
+  }
+
+  if (savedSide === 'front' || (session?.front && !session?.back)) {
+    offerBackCamera();
+    return;
+  }
+
+  setStatus('');
+  paintFront();
 }
 
 boot();

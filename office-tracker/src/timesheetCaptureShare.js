@@ -163,5 +163,13 @@ export function createTimesheetCaptureShare(options = {}) {
       if (!key) return false;
       return sessions.delete(key);
     },
+
+    restart(token) {
+      const session = getLive(token);
+      if (!session) return null;
+      session.front = null;
+      session.back = null;
+      return summary(session);
+    },
   };
 }

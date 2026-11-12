@@ -179,6 +179,14 @@ app.delete('/api/timesheet-capture/:token', (req, res) => {
   timesheetCapture.close(req.params.token);
   res.status(204).end();
 });
+app.post('/api/timesheet-capture/:token/restart', (req, res) => {
+  const restarted = timesheetCapture.restart(req.params.token);
+  if (!restarted) {
+    res.status(404).json({ error: 'This photo link is not valid or has expired.' });
+    return;
+  }
+  res.json(restarted);
+});
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(distDir));

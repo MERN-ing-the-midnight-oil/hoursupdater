@@ -11,17 +11,25 @@ import {
   normalizeGenieCardExtraction,
 } from './timesheetGenieCard.js';
 import {
-  BACK_SLOT_COUNT,
-  FRONT_SLOT_COUNT,
+  BACK_LINE_COUNT,
+  FRONT_LINE_COUNT,
   clockRecordTool,
   EXTRACTION_SYSTEM,
   extractionUserPrefix,
   parseJsonFromAssistantText,
+  pairStampLines,
   sideFromSlotCount,
 } from './timesheetNormalize.js';
 
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 const MAX_BYTES = 12 * 1024 * 1024;
+
+function base64ByteLength(base64) {
+  const clean = String(base64 || '').replace(/\s/g, '');
+  if (!clean) return 0;
+  const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((clean.length * 3) / 4) - padding);
+}
 
 /**
  * @param {unknown} field
@@ -44,7 +52,7 @@ function imageBlock(field, label) {
     error.status = 400;
     throw error;
   }
-  const bytes = Buffer.from(base64, 'base64').length;
+  const bytes = base64ByteLength(base64);
   if (!bytes) {
     const error = new Error(`${label} photo was empty.`);
     error.status = 400;
@@ -66,49 +74,32 @@ function imageBlock(field, label) {
 }
 
 /**
- * Read one time card. The photos exist only for this request.
- * @param {import('express').Request} req
- * @param {import('express').Response} res
+ * Shared card read for the Node office server and Cloudflare Pages.
+ * @param {any} body
+ * @param {{ apiKey?: string, model?: string, mode?: 'genie' | 'audit' }} [options]
+ * @returns {Promise<{ status: number, json: Record<string, unknown> }>}
  */
-export async function handleTimesheetExtract(req, res) {
-  return runTimesheetRead(req, res, 'genie');
-}
-
-/**
- * Read a blue card that already has Reg and OT written on it.
- * Returns the stamps plus those written hours. The desk compares them.
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- */
-export async function handleTimesheetAudit(req, res) {
-  return runTimesheetRead(req, res, 'audit');
-}
-
-/**
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- * @param {'genie' | 'audit'} mode
- */
-async function runTimesheetRead(req, res, mode) {
-  const apiKey = String(process.env.ANTHROPIC_API_KEY ?? '').trim();
+export async function runTimesheetReadBody(body, options = {}) {
+  const apiKey = String(options.apiKey ?? '').trim();
   if (!apiKey) {
-    res.status(500).json({ error: 'Server missing ANTHROPIC_API_KEY.' });
-    return;
+    return { status: 500, json: { error: 'Server missing ANTHROPIC_API_KEY.' } };
   }
-  const model = String(process.env.ANTHROPIC_MODEL ?? '').trim() || 'claude-sonnet-4-6';
+  const model = String(options.model ?? '').trim() || 'claude-sonnet-4-6';
+  const mode = options.mode === 'audit' ? 'audit' : 'genie';
 
   let front;
   let back;
   try {
-    front = imageBlock(req.body?.front, 'Front');
-    back = imageBlock(req.body?.back, 'Back');
+    front = imageBlock(body?.front, 'Front');
+    back = imageBlock(body?.back, 'Back');
   } catch (error) {
-    res.status(error.status || 400).json({ error: error.message || 'Invalid photo.' });
-    return;
+    return {
+      status: error.status || 400,
+      json: { error: error.message || 'Invalid photo.' },
+    };
   }
   if (!front && !back) {
-    res.status(400).json({ error: 'Attach at least one photo (front or back).' });
-    return;
+    return { status: 400, json: { error: 'Attach at least one photo (front or back).' } };
   }
 
   const audit = mode === 'audit';
@@ -120,8 +111,9 @@ async function runTimesheetRead(req, res, mode) {
             model,
             image: front,
             side: 'front',
-            slotCount: FRONT_SLOT_COUNT,
-            ...(audit ? auditReadOptions('front', FRONT_SLOT_COUNT) : genieReadOptions('front', FRONT_SLOT_COUNT)),
+            ...(audit
+              ? auditReadOptions('front')
+              : genieReadOptions('front')),
           })
         : null,
       back
@@ -130,8 +122,9 @@ async function runTimesheetRead(req, res, mode) {
             model,
             image: back,
             side: 'back',
-            slotCount: BACK_SLOT_COUNT,
-            ...(audit ? auditReadOptions('back', BACK_SLOT_COUNT) : genieReadOptions('back', BACK_SLOT_COUNT)),
+            ...(audit
+              ? auditReadOptions('back')
+              : genieReadOptions('back')),
           })
         : null,
     ]);
@@ -150,28 +143,66 @@ async function runTimesheetRead(req, res, mode) {
           employee_name: sideField(frontRead, 'employeeName'),
           route_number: sideField(frontRead, 'routeNumber'),
           contract_hours: sideField(frontRead, 'contractHours'),
+          date_on_card: sideField(frontRead, 'dateOnCard'),
         });
-    res.json({ extraction, model });
+    return { status: 200, json: { extraction, model } };
   } catch (error) {
-    const status = error.status || 502;
-    res.status(status).json({
-      error: error.message || 'Could not read that time card.',
-      raw_text: error.raw_text,
-    });
+    return {
+      status: error.status || 502,
+      json: {
+        error: error.message || 'Could not read that time card.',
+        raw_text: error.raw_text,
+      },
+    };
   }
 }
 
 /**
- * @param {'front' | 'back'} side
- * @param {number} slotCount
+ * Read one time card. The photos exist only for this request.
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
  */
-function auditReadOptions(side, slotCount) {
+export async function handleTimesheetExtract(req, res) {
+  return sendTimesheetRead(req, res, 'genie');
+}
+
+/**
+ * Read a blue card that already has Reg and OT written on it.
+ * Returns the stamps plus those written hours. The desk compares them.
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+export async function handleTimesheetAudit(req, res) {
+  return sendTimesheetRead(req, res, 'audit');
+}
+
+/**
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {'genie' | 'audit'} mode
+ */
+async function sendTimesheetRead(req, res, mode) {
+  const result = await runTimesheetReadBody(req.body, {
+    apiKey: process.env.ANTHROPIC_API_KEY,
+    model: process.env.ANTHROPIC_MODEL,
+    mode,
+  });
+  res.status(result.status).json(result.json);
+}
+
+/**
+ * Audit still uses Out/In slot blocks (13 / 15).
+ * @param {'front' | 'back'} side
+ */
+function auditReadOptions(side) {
   const front = side === 'front';
+  const slotCount = front ? 13 : 15;
   return {
     system: AUDIT_SYSTEM,
     userPrefix: auditUserPrefix(side, slotCount),
     // Sticker fields are only on the front tool. Back reports slots alone.
     tool: auditSlotTool(slotCount, { periodEnd: front }),
+    expectedCount: slotCount,
     maxTokens: 2048,
     capturePeriodEnd: front,
     captureContract: front,
@@ -179,26 +210,29 @@ function auditReadOptions(side, slotCount) {
 }
 
 /**
+ * Genie reads flat Clock Record lines (26 front / 30 back); the app pairs Out/In.
  * @param {'front' | 'back'} side
- * @param {number} slotCount
  */
-function genieReadOptions(side, slotCount) {
+function genieReadOptions(side) {
+  const lineCount = side === 'front' ? FRONT_LINE_COUNT : BACK_LINE_COUNT;
   return {
     system: GENIE_CARD_SYSTEM,
-    userPrefix: genieCardUserPrefix(side, slotCount),
-    tool: genieCardTool(slotCount, { sticker: side === 'front' }),
+    userPrefix: genieCardUserPrefix(side, lineCount),
+    tool: genieCardTool(lineCount, { sticker: side === 'front' }),
+    expectedCount: lineCount,
     maxTokens: 2048,
     captureContract: true,
+    captureDateOnCard: true,
   };
 }
 
 /**
- * One photo → one slots array. Length must match the labeled side (13 front / 15 back).
- * @param {{ apiKey: string, model: string, image: object, side: 'front' | 'back', slotCount: number }} options
+ * One photo → stamp lines or slot blocks from the tool.
  */
 function sideSlots(result) {
   if (!result) return null;
-  return Array.isArray(result) ? result : result.slots;
+  const raw = Array.isArray(result) ? result : result.slots;
+  return pairStampLines(raw);
 }
 
 function sidePeriodEnd(result) {
@@ -216,16 +250,19 @@ async function readOneSide({
   model,
   image,
   side,
-  slotCount,
   system = EXTRACTION_SYSTEM,
   userPrefix,
   tool,
+  expectedCount,
   maxTokens = 1024,
   capturePeriodEnd = false,
   captureContract = false,
+  captureDateOnCard = false,
 }) {
-  const chosenTool = tool || clockRecordTool(slotCount);
-  const prefix = userPrefix || extractionUserPrefix(side, slotCount);
+  const lineCount = side === 'front' ? FRONT_LINE_COUNT : BACK_LINE_COUNT;
+  const count = expectedCount ?? lineCount;
+  const chosenTool = tool || clockRecordTool(lineCount, { sticker: side === 'front' });
+  const prefix = userPrefix || extractionUserPrefix(side, lineCount);
   let response;
   try {
     response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -283,22 +320,23 @@ async function readOneSide({
   }
 
   const detected = sideFromSlotCount(slots.length);
-  if (slots.length !== slotCount) {
+  if (slots.length !== count) {
     const err = new Error(
       detected
-        ? `${side} photo returned ${slots.length} slots (looks like the ${detected}), expected ${slotCount}.`
-        : `${side} photo returned ${slots.length} slots, expected ${slotCount}.`
+        ? `${side} photo returned ${slots.length} values (looks like the ${detected}), expected ${count}.`
+        : `${side} photo returned ${slots.length} values, expected ${count}.`
     );
     err.status = 502;
     throw err;
   }
-  if (capturePeriodEnd || captureContract) {
+  if (capturePeriodEnd || captureContract || captureDateOnCard) {
     return {
       slots,
       periodEnd: input?.period_end ?? null,
       contractHours: input?.contract_hours ?? null,
       employeeName: input?.employee_name ?? null,
       routeNumber: input?.route_number ?? null,
+      dateOnCard: input?.date_on_card ?? null,
     };
   }
   return slots;

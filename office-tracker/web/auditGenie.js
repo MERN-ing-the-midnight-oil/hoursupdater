@@ -971,6 +971,13 @@ function mountAuditPhone({ setSideFile, setStatus }) {
       stopPolling();
       return;
     }
+    // Phone resets the same link for the next card after both sides land.
+    if (!session.front && !session.back && (seen.front || seen.back)) {
+      seen.front = false;
+      seen.back = false;
+      setPhoneStatus('Ready for the next card…', '');
+      return;
+    }
     if (session.front && !seen.front) {
       setSideFile('front', await fetchCapturePhoto(token, 'front'));
       seen.front = true;
@@ -980,9 +987,8 @@ function mountAuditPhone({ setSideFile, setStatus }) {
       seen.back = true;
     }
     if (session.ready || (seen.front && seen.back)) {
-      setPhoneStatus('Front and back arrived from your phone.', 'ok');
+      setPhoneStatus('Front and back arrived. Ready for the next card.', 'ok');
       setStatus('Front and back arrived from your phone. Ready to check.', 'ok');
-      stopPolling();
       return;
     }
     if (seen.front) setPhoneStatus('Front is in. Waiting for the back…', '');

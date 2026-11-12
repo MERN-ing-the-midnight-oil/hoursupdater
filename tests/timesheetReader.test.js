@@ -152,20 +152,21 @@ describe('timecard camera card crop', () => {
 });
 
 describe('timecard clock-record extraction', () => {
-  it('keeps the prompt short and asks for bold-line slots', () => {
+  it('keeps the prompt short and asks for flat Clock Record lines', () => {
+    assert.match(EXTRACTION_SYSTEM, /sky-blue/i);
     assert.match(EXTRACTION_SYSTEM, /far-right "Clock Record" column/i);
-    assert.match(EXTRACTION_SYSTEM, /between bold horizontal lines/i);
-    assert.match(EXTRACTION_SYSTEM, new RegExp(`front has ${FRONT_SLOT_COUNT}`));
-    assert.match(EXTRACTION_SYSTEM, new RegExp(`back has ${BACK_SLOT_COUNT}`));
+    assert.match(EXTRACTION_SYSTEM, /Front has exactly 26 lines/i);
+    assert.match(EXTRACTION_SYSTEM, /Back has exactly 30 lines/i);
+    assert.doesNotMatch(EXTRACTION_SYSTEM, /bold horizontal lines/i);
     assert.match(EXTRACTION_SYSTEM, /Do not write notes, caveats, commentary/i);
-    assert.match(EXTRACTION_SYSTEM, /Never guess or invent a stamp/i);
-    assert.match(EXTRACTION_SYSTEM, /not clearly legible/i);
+    assert.match(EXTRACTION_SYSTEM, /Never guess a month, day, AM\/PM, or time/i);
     assert.match(EXTRACTION_SYSTEM, /"HANDWRITING"/);
     assert.match(EXTRACTION_SYSTEM, /"illegible"/);
-    assert.match(extractionUserPrefix('front', FRONT_SLOT_COUNT), /exactly 13/);
-    assert.match(extractionUserPrefix('back', BACK_SLOT_COUNT), /exactly 15/);
-    assert.match(extractionUserPrefix('front', FRONT_SLOT_COUNT), /Never guess/i);
-    assert.ok(EXTRACTION_SYSTEM.length < 1200);
+    assert.match(EXTRACTION_SYSTEM, /white sticker/i);
+    assert.match(extractionUserPrefix('front', 26), /exactly 26/);
+    assert.match(extractionUserPrefix('back', 30), /exactly 30/);
+    assert.match(extractionUserPrefix('front', 26), /Never guess/i);
+    assert.ok(EXTRACTION_SYSTEM.length < 1600);
   });
 
   it('flags extractions that include illegible clock stamps', () => {
@@ -181,9 +182,11 @@ describe('timecard clock-record extraction', () => {
     assert.equal(hasIllegibleClockStamps(dirty), true);
   });
 
-  it('uses slot count to tell front from back', () => {
+  it('uses line or slot count to tell front from back', () => {
     assert.equal(sideFromSlotCount(13), 'front');
+    assert.equal(sideFromSlotCount(26), 'front');
     assert.equal(sideFromSlotCount(15), 'back');
+    assert.equal(sideFromSlotCount(30), 'back');
     assert.equal(sideFromSlotCount(14), null);
   });
 

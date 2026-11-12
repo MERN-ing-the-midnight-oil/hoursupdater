@@ -507,6 +507,7 @@ export function mountTimesheetReader(options = {}) {
   let extraction = null;
   /** @type {ReturnType<typeof setInterval> | null} */
   let progressTimer = null;
+  let reading = false;
 
   const camera = mountTimesheetCamera({
     onCapture: (side, file) => {
@@ -841,6 +842,7 @@ export function mountTimesheetReader(options = {}) {
   }
 
   async function readCard() {
+    if (reading) return;
     const front = document.querySelector('#timesheet-front').files?.[0] ?? null;
     const back = document.querySelector('#timesheet-back').files?.[0] ?? null;
     if (!front && !back) {
@@ -851,6 +853,7 @@ export function mountTimesheetReader(options = {}) {
     validateFile(back, 'Back');
     const button = document.querySelector('#timesheet-read');
     const clearButton = document.querySelector('#timesheet-clear');
+    reading = true;
     button.disabled = true;
     if (clearButton) clearButton.disabled = true;
     const sides = [front && 'front', back && 'back'].filter(Boolean);
@@ -906,9 +909,19 @@ export function mountTimesheetReader(options = {}) {
       setStatus(error?.message || 'Could not read that card.', 'error');
     } finally {
       stopProgressMessages();
+      reading = false;
       button.disabled = false;
       if (clearButton) clearButton.disabled = false;
     }
+  }
+
+  function maybeAutoRead() {
+    const front = document.querySelector('#timesheet-front');
+    const back = document.querySelector('#timesheet-back');
+    const hasFront = front instanceof HTMLInputElement && Boolean(front.files?.[0]);
+    const hasBack = back instanceof HTMLInputElement && Boolean(back.files?.[0]);
+    if (!hasFront || !hasBack || reading) return;
+    readCard().catch((error) => setStatus(error.message || 'Could not read that card.', 'error'));
   }
 
   function setSideFile(side, file) {
@@ -919,6 +932,7 @@ export function mountTimesheetReader(options = {}) {
       input.files = transfer.files;
     }
     showSidePreview(side, file);
+    maybeAutoRead();
   }
 
   function clearCard() {
@@ -2448,12 +2462,18 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
         stopPolling();
         return;
       }
+      // Phone resets the same link for the next card after both sides land.
+      if (!session.front && !session.back && (seen.front || seen.back)) {
+        seen.front = false;
+        seen.back = false;
+        setPhoneStatus('Ready for the next card…', '');
+        return;
+      }
       if (session.front && !seen.front) await pullSide('front');
       if (session.back && !seen.back) await pullSide('back');
       if (session.ready || (seen.front && seen.back)) {
-        setPhoneStatus('Front and back arrived from your phone.', 'ok');
+        setPhoneStatus('Front and back arrived. Ready for the next card.', 'ok');
         setStatus('Front and back arrived from your phone. Ready to read.', 'ok');
-        stopPolling();
         return;
       }
       if (seen.front) setPhoneStatus('Front is in. Waiting for the back…', '');

@@ -1,0 +1,11 @@
+# Cloudflare Pages: Teamster Time Changes Dashboard
+# Deploy: npm run build:office-pages && npx wrangler pages deploy office-tracker/dist --project-name teamster-time-changes --commit-dirty=true
+
+name = "teamster-time-changes"
+compatibility_date = "2025-11-01"
+pages_build_output_dir = "office-tracker/dist"
+
+[[kv_namespaces]]
+binding = "TIMECARD_CAPTURE"
+id = "3c27d6ad913d49e4af96e96f2d3d25cd"
+preview_id = "8be69ac8e5044884a22dbd1dd6237082"

@@ -1,9 +1,12 @@
 import {
+  BACK_LINE_COUNT,
   BACK_SLOT_COUNT,
+  FRONT_LINE_COUNT,
   FRONT_SLOT_COUNT,
   clockRecordTool,
   EXTRACTION_SYSTEM,
   extractionUserPrefix,
+  lineCountForSide,
 } from './timesheetPrompt.js';
 
 const FRONT_ENTRY_COUNT = FRONT_SLOT_COUNT;
@@ -27,22 +30,84 @@ const MONTHS = {
 };
 
 export {
+  BACK_LINE_COUNT,
   BACK_SLOT_COUNT,
+  FRONT_LINE_COUNT,
   FRONT_SLOT_COUNT,
   clockRecordTool,
   EXTRACTION_SYSTEM,
   extractionUserPrefix,
+  lineCountForSide,
 };
 
 /**
- * Slot count is how the app tells front from back.
+ * Line or slot count is how the app tells front from back.
  * @param {number} count
  * @returns {'front' | 'back' | null}
  */
 export function sideFromSlotCount(count) {
-  if (count === FRONT_SLOT_COUNT) return 'front';
-  if (count === BACK_SLOT_COUNT) return 'back';
+  if (count === FRONT_LINE_COUNT || count === FRONT_SLOT_COUNT) return 'front';
+  if (count === BACK_LINE_COUNT || count === BACK_SLOT_COUNT) return 'back';
   return null;
+}
+
+function coerceStampLine(value) {
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text || /^null$/i.test(text)) return null;
+    if (isHandwritingToken(text)) return HANDWRITING;
+    if (isIllegibleToken(text)) return ILLEGIBLE;
+    return text;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return null;
+}
+
+/**
+ * Pair flat Clock Record lines into Out/In slots for the app.
+ * Accepts already-paired slots (objects / 2-stamp arrays) unchanged.
+ * @param {unknown} raw
+ * @returns {unknown[]}
+ */
+export function pairStampLines(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return Array.isArray(raw) ? raw : [];
+  const looksFlat = raw.every(
+    (item) =>
+      item == null ||
+      typeof item === 'string' ||
+      typeof item === 'number'
+  );
+  if (!looksFlat) return raw;
+
+  const lines = raw.map(coerceStampLine);
+  const pairs = [];
+  for (let index = 0; index < lines.length; index += 2) {
+    const top = lines[index] ?? null;
+    const bottom = index + 1 < lines.length ? lines[index + 1] : null;
+    if (top == null && bottom == null) {
+      pairs.push(null);
+      continue;
+    }
+    if (top != null && bottom != null && isHandwritingToken(top) && isHandwritingToken(bottom)) {
+      pairs.push(HANDWRITING);
+      continue;
+    }
+    if (top != null && bottom != null && isIllegibleToken(top) && isIllegibleToken(bottom)) {
+      pairs.push(ILLEGIBLE);
+      continue;
+    }
+    if (top != null && bottom == null && isHandwritingToken(top)) {
+      pairs.push(HANDWRITING);
+      continue;
+    }
+    if (top != null && bottom == null && isIllegibleToken(top)) {
+      pairs.push(ILLEGIBLE);
+      continue;
+    }
+    pairs.push([top, bottom]);
+  }
+  return pairs;
 }
 
 function isIllegibleToken(value) {
@@ -476,16 +541,21 @@ function normalizeHeader(raw) {
  * @param {number} defaultYear
  */
 export function rowFromClockStamps(stamps, rowIndex, defaultYear) {
-  const list = Array.isArray(stamps)
-    ? stamps
-        .map((item) => coerceStringOrNull(item))
-        .filter((item) => Boolean(item))
-    : [];
-  if (list.length === 0) return blankRow(rowIndex);
-  if (list.every((item) => isHandwritingToken(item))) return handwritingRow(rowIndex);
-  if (list.every((item) => isIllegibleToken(item))) return illegibleRow(rowIndex);
+  const list = Array.isArray(stamps) ? stamps.map((item) => coerceStringOrNull(item)) : [];
+  while (list.length < 2) list.push(null);
   const outRaw = list[0] || null;
   const inRaw = list[1] || null;
+  if (!outRaw && !inRaw) return blankRow(rowIndex);
+  if (outRaw && inRaw && isHandwritingToken(outRaw) && isHandwritingToken(inRaw)) {
+    return handwritingRow(rowIndex);
+  }
+  if (outRaw && !inRaw && isHandwritingToken(outRaw)) return handwritingRow(rowIndex);
+  if (!outRaw && inRaw && isHandwritingToken(inRaw)) return handwritingRow(rowIndex);
+  if (outRaw && inRaw && isIllegibleToken(outRaw) && isIllegibleToken(inRaw)) {
+    return illegibleRow(rowIndex);
+  }
+  if (outRaw && !inRaw && isIllegibleToken(outRaw)) return illegibleRow(rowIndex);
+  if (!outRaw && inRaw && isIllegibleToken(inRaw)) return illegibleRow(rowIndex);
   const outBlocked = normalizeBlockedStamp(outRaw);
   const inBlocked = normalizeBlockedStamp(inRaw);
   const outIso =
@@ -559,10 +629,15 @@ export function normalizeExtractionFromUnknown(parsed) {
     });
   }
   // New Genie JSON is stamps only. Keep `header` for older fixtures / legacy payloads.
-  const header = normalizeHeader(parsed.header);
+  const header = normalizeHeader({
+    ...(parsed.header && typeof parsed.header === 'object' ? parsed.header : {}),
+    employee_name: parsed.employee_name ?? parsed.header?.employee_name,
+    route_number: parsed.route_number ?? parsed.header?.route_number,
+    date_on_card: parsed.date_on_card ?? parsed.header?.date_on_card,
+  });
   const year = inferDefaultYear(header?.date_on_card ?? null);
-  const frontRaw = parsed.front ?? parsed.front_rows ?? parsed.front_entries;
-  const backRaw = parsed.back ?? parsed.back_rows ?? parsed.back_entries;
+  const frontRaw = pairStampLines(parsed.front ?? parsed.front_rows ?? parsed.front_entries);
+  const backRaw = pairStampLines(parsed.back ?? parsed.back_rows ?? parsed.back_entries);
   return normalizeTimeCardExtraction({
     header,
     front_rows: Array.isArray(frontRaw)
