@@ -32,10 +32,12 @@ import {
   loadContractAcceptances,
   loadContractNotice,
   loadContractReminder,
+  forgetCreatedContractEvents,
+  isContractEventCreated,
   loadCreatedContractEvents,
   loadDriverNotice,
-  loadReminderSignatures,
   loadState,
+  rememberCreatedContractEvents,
   rememberPublishedReminders,
   saveContractAcceptance,
   saveContractNotice,
@@ -93,7 +95,7 @@ import {
   whenSharedOfficeSaved,
 } from './accounts.js';
 import { attributionForChange } from './attribution.js';
-import { recentRouteChanges } from '../src/recentChanges.js';
+import { recentRouteChanges, recordedBy } from '../src/recentChanges.js';
 import { shouldDeferSharedUiRefresh } from '../src/sharedUiRefresh.js';
 import { ensureExampleRoutes, isSampleOffice } from './exampleRoutes.js';
 import { mountClockDesk } from './clockDesk.js';
@@ -144,7 +146,6 @@ import {
   buildContractReminderCalendar,
   combineRemindersByDay,
   isPredictedContract,
-  planReminderPublish,
   prepareContractReminder,
   reminderCancelFilename,
   reminderDayFilename,
@@ -1101,6 +1102,7 @@ function showContractNotice(options = {}) {
   activeSheet = 'contract-notice';
   loadAll();
   fillContractNoticeSettings();
+  fillContractReminderHeaderSettings();
   renderContractAcceptQueue();
   fillContractSetRouteOptions();
   const acceptId = String(options.acceptId || '').trim();
@@ -1257,7 +1259,8 @@ function setChoice(name, yes) {
 function reminderSampleDraft() {
   const settings = loadContractReminder();
   const draft = {
-    schoolDaysBefore: document.querySelector('#reminder-days')?.value ?? settings.schoolDaysBefore,
+    schoolDaysBefore:
+      document.querySelector('#contract-reminder-days')?.value ?? settings.schoolDaysBefore,
     subject: document.querySelector('#reminder-subject')?.value,
     body: document.querySelector('#reminder-body')?.value,
   };
@@ -1277,10 +1280,10 @@ function reminderSampleValues(schoolDaysBefore) {
     contract_date: 'Thu, Oct 1, 2026',
     reminder_date: 'Wed, Sep 30, 2026',
     school_days_before: String(schoolDaysBefore),
-    change: 'PM changed from 2:00 PM-4:00 PM to 2:20 PM-4:20 PM.',
-    outcome: 'Automatically contracted',
-    note: 'Stop added',
-    accept_link: 'https://teamster-time-changes.pages.dev/?accept=sample-change',
+    change: 'New contracted hours: AM 7:00 AM-9:00 AM; PM 2:00 PM-4:20 PM.',
+    outcome: 'Office recorded contracted hours',
+    note: 'Recorded for Payroll',
+    accept_link: 'https://teamster-time-changes.pages.dev/?sheet=contract-time-changes&accept=sample-change',
   };
 }
 
@@ -1487,15 +1490,44 @@ function fillDriverNoticeSettings() {
   if (status) setStatus(status, '');
 }
 
+function fillContractReminderHeaderSettings() {
+  const settings = loadContractReminder();
+  const days = document.querySelector('#contract-reminder-days');
+  setChoice('contract_reminder_queue', settings.queueAfterRecord);
+  if (days) days.value = String(settings.schoolDaysBefore);
+}
+
+function saveContractReminderHeaderSettings({ announce = true } = {}) {
+  const status = document.querySelector('#contract-reminder-header-status');
+  const current = loadContractReminder();
+  const saved = saveContractReminder({
+    ...current,
+    queueAfterRecord: checkedChoice('contract_reminder_queue'),
+    schoolDaysBefore: document.querySelector('#contract-reminder-days')?.value,
+  });
+  fillContractReminderHeaderSettings();
+  paintReminderPreview();
+  renderPayrollReminderQueue();
+  if (!announce) return saved;
+  if (status) {
+    setStatus(
+      status,
+      saved.queueAfterRecord
+        ? 'After Record, changes are added to the Payroll reminder queue.'
+        : 'After Record, changes stay off the queue. You can still queue from the row.',
+      'ok'
+    );
+  }
+  return saved;
+}
+
 async function fillReminderSettings() {
   const settings = loadContractReminder();
   reminderInvitees = settings.invitees.map((item) => ({ ...item }));
-  const days = document.querySelector('#reminder-days');
   const subject = document.querySelector('#reminder-subject');
   const body = document.querySelector('#reminder-body');
   const status = document.querySelector('#reminder-status');
-  setChoice('reminder_auto', settings.autoCreate);
-  if (days) days.value = String(settings.schoolDaysBefore);
+  fillContractReminderHeaderSettings();
   if (subject) subject.value = settings.subject;
   if (body) body.value = settings.body;
   wireReminderTemplateFields();
@@ -1614,6 +1646,58 @@ document.querySelector('#contract-accept-queue')?.addEventListener('click', (eve
   if (edit) {
     const changeId = edit.closest('[data-change-id]')?.dataset.changeId || edit.dataset.changeId;
     if (changeId) openContractEditForm(changeId);
+    return;
+  }
+  const reminder = event.target.closest('.js-toggle-payroll-reminder');
+  if (reminder) {
+    const changeId =
+      reminder.closest('[data-change-id]')?.dataset.changeId || reminder.dataset.changeId;
+    const status = document.querySelector('#contract-accept-queue-status');
+    try {
+      const note = togglePayrollReminder(changeId);
+      renderContractAcceptQueue();
+      if (status && note) {
+        setStatus(status, note.message, note.kind === 'ok' ? 'ok' : 'error');
+      }
+    } catch (error) {
+      if (status) setStatus(status, error.message, 'error');
+    }
+  }
+});
+
+document.querySelector('#payroll-reminder-queue')?.addEventListener('click', (event) => {
+  const remove = event.target.closest('.js-remove-payroll-reminder');
+  if (remove) {
+    const changeId = remove.dataset.changeId || '';
+    const status = document.querySelector('#payroll-reminder-queue-status');
+    try {
+      const note = removePayrollReminders([changeId]);
+      renderContractAcceptQueue();
+      if (status && note) {
+        setStatus(status, note.message, note.kind === 'ok' ? 'ok' : 'error');
+      }
+    } catch (error) {
+      if (status) setStatus(status, error.message, 'error');
+    }
+    return;
+  }
+  if (event.target.closest('#payroll-reminder-update')) {
+    const status = document.querySelector('#payroll-reminder-queue-status');
+    const button = document.querySelector('#payroll-reminder-update');
+    if (button) button.disabled = true;
+    void (async () => {
+      try {
+        const note = await updateOutlookPayrollReminders();
+        renderPayrollReminderQueue();
+        if (status && note) {
+          setStatus(status, note.message, note.kind === 'ok' ? 'ok' : 'error');
+        }
+      } catch (error) {
+        if (status) setStatus(status, error.message, 'error');
+      } finally {
+        renderPayrollReminderQueue();
+      }
+    })();
   }
 });
 
@@ -1634,10 +1718,13 @@ document.querySelector('#contract-accept-confirm')?.addEventListener('click', ()
     renderContractAcceptQueue();
     fillContractSetRouteOptions();
     paintNoticeTabFlags();
+    const queued = queuePayrollRemindersAfterRecord([changeId]);
     if (status) {
       setStatus(
         status,
-        'Recorded. Those hours are contracted and added to the Payroll Reminder.',
+        queued
+          ? 'Recorded and added to the Payroll reminder queue.'
+          : 'Recorded. Those hours are now the legal contracted schedule.',
         'ok'
       );
     }
@@ -1658,17 +1745,20 @@ document.querySelector('#contract-set-form')?.addEventListener('submit', (event)
   const form = event.target;
   const editChangeId = String(form?.dataset?.editChangeId || '').trim();
   try {
-    if (editChangeId) commitEditedContractSuggestion(editChangeId);
-    else commitArbitraryContractSet();
+    const recordedIds = editChangeId
+      ? [commitEditedContractSuggestion(editChangeId)?.changeId || editChangeId]
+      : commitArbitraryContractSet();
     clearContractSetEdit();
     loadAll();
     renderContractAcceptQueue();
     fillContractSetRouteOptions();
     paintNoticeTabFlags();
+    const ids = Array.isArray(recordedIds) ? recordedIds : [recordedIds].filter(Boolean);
+    const queued = queuePayrollRemindersAfterRecord(ids);
     if (status) {
       setStatus(
         status,
-        'Contract change recorded and added to the Payroll Reminder.',
+        queued ? 'Contract change recorded and queued for Payroll.' : 'Contract change recorded.',
         'ok'
       );
     }
@@ -1756,9 +1846,9 @@ document.querySelector('#reminder-form')?.addEventListener('submit', (event) => 
   event.preventDefault();
   const status = document.querySelector('#reminder-status');
   try {
+    const current = loadContractReminder();
     const saved = saveContractReminder({
-      autoCreate: checkedChoice('reminder_auto'),
-      schoolDaysBefore: document.querySelector('#reminder-days')?.value,
+      ...current,
       invitees: reminderInvitees,
       subject: document.querySelector('#reminder-subject')?.value,
       body: document.querySelector('#reminder-body')?.value,
@@ -1766,13 +1856,29 @@ document.querySelector('#reminder-form')?.addEventListener('submit', (event) => 
     reminderInvitees = saved.invitees.map((item) => ({ ...item }));
     fillReminderSettings();
     if (status) setStatus(status, 'Admin contract reminder saved.', 'ok');
-    if (saved.autoCreate) {
-      const note = downloadDueContractReminders();
-      if (note && status) setStatus(status, `${status.textContent} ${note.message}`, note.kind);
-    }
   } catch (error) {
     if (status) setStatus(status, error.message, 'error');
   }
+});
+
+document.querySelector('#contract-reminder-days')?.addEventListener('change', () => {
+  try {
+    saveContractReminderHeaderSettings();
+  } catch (error) {
+    const status = document.querySelector('#contract-reminder-header-status');
+    if (status) setStatus(status, error.message, 'error');
+  }
+});
+
+document.querySelectorAll('input[name="contract_reminder_queue"]').forEach((input) => {
+  input.addEventListener('change', () => {
+    try {
+      saveContractReminderHeaderSettings();
+    } catch (error) {
+      const status = document.querySelector('#contract-reminder-header-status');
+      if (status) setStatus(status, error.message, 'error');
+    }
+  });
 });
 
 function beginAddRoute() {
@@ -2274,10 +2380,9 @@ function contractedInfoControl(row) {
   }
 
   if (row.kind === 'change') {
-    const entry = getCurrentProfile()?.changeLog?.find((item) => item.id === row.change_id);
-    const routeName = String(getCurrentProfile()?.name || '').trim();
-    const written = String(entry?.entered_by || '').trim();
-    const name = written && written !== routeName ? written : '';
+    const profile = getCurrentProfile();
+    const entry = profile?.changeLog?.find((item) => item.id === row.change_id);
+    const name = recordedBy(entry, profile);
     const comment = String(entry?.note || row.note || '').trim();
     const when = formatRecordedAt(entry?.submitted_at);
     if (when) lines.push(`<p class="change-stamp-when">Recorded ${escapeHtml(when)}</p>`);
@@ -2610,7 +2715,6 @@ function contractNoticeItems() {
       });
       if (!described || described.skip || !described.changeId) return;
       const entry = (profile.changeLog || []).find((item) => item.id === described.changeId);
-      const written = String(entry?.entered_by || '').trim();
       const routeName = String(profile.name || '').trim();
       const noticeSent = described.changeIds.some((id) => sent.has(id)) || isContractNoticeSent(described.changeId);
       items.push({
@@ -2619,7 +2723,7 @@ function contractNoticeItems() {
         routeName,
         driverName: driverForDate(profile, row.date),
         submittedAt: String(entry?.submitted_at || ''),
-        enteredBy: written && written !== routeName ? written : '',
+        enteredBy: recordedBy(entry, profile),
         sent: noticeSent,
         sentLabel: sentColumnText(noticeSent, described.changeIds, records),
       });
@@ -3196,6 +3300,7 @@ function renderContractAcceptQueue() {
   const summary = document.querySelector('#contract-accept-queue-summary');
   const items = officeContractSuggestions();
   renderContractTimeChangeCalendar(items);
+  renderPayrollReminderQueue();
   const overdueCount = items.filter((item) => item.overdue).length;
   const badge = document.querySelector('#contract-accept-queue .notice-queue-unsent');
   if (badge) {
@@ -3229,8 +3334,16 @@ function renderContractAcceptQueue() {
         : item.overdue
           ? 'Past due'
           : 'Pending';
+      const reminderQueued = item.accepted && isContractEventCreated(item.changeId);
       const action = item.accepted
-        ? '<span class="field-hint">Added to Payroll Reminder</span>'
+        ? `<div class="contract-change-actions">
+            <button
+              type="button"
+              class="js-toggle-payroll-reminder${reminderQueued ? ' is-added' : ' secondary'}"
+              data-change-id="${escapeHtml(item.changeId)}"
+              aria-pressed="${reminderQueued ? 'true' : 'false'}"
+            >${reminderQueued ? 'Queued' : 'Queue Payroll reminder'}</button>
+          </div>`
         : `<div class="contract-change-actions">
             <button type="button" class="js-record-contract" data-change-id="${escapeHtml(
               item.changeId
@@ -3383,7 +3496,7 @@ function commitContractAccept(changeId, options = {}) {
   const account = currentAccount();
   const acceptedBy = String(account?.name || account?.email || 'Office').trim() || 'Office';
   applyForceContractOnToChange(item.routeId, item.changeId, item.becomesOn);
-  const record = saveContractAcceptance({
+  return saveContractAcceptance({
     changeId: item.changeId,
     routeId: item.routeId,
     routeName: item.routeName,
@@ -3396,8 +3509,6 @@ function commitContractAccept(changeId, options = {}) {
     note: options.note || '',
     source: options.source || 'suggestion',
   });
-  downloadDueContractReminders();
-  return record;
 }
 
 function fillContractSetRouteOptions() {
@@ -3509,8 +3620,7 @@ function commitArbitraryContractSet() {
       source: 'arbitrary_set',
     });
   }
-  downloadDueContractReminders();
-  return added[0].id;
+  return added.map((change) => change.id);
 }
 
 function renderContractNoticeQueue() {
@@ -4330,66 +4440,222 @@ function downloadTextFile(text, filename) {
   URL.revokeObjectURL(url);
 }
 
-// Predicted contract reminders for every route, one item per change.
-function officeContractReminders() {
+function reminderInviteStamp(settings = loadContractReminder()) {
+  return settings.invitees
+    .map((person) => person.email.toLowerCase())
+    .sort()
+    .join(',');
+}
+
+// Payroll reminders for Recorded changes that have been Added.
+function officeContractReminders(extraChangeIds = []) {
   const settings = loadContractReminder();
   const calendar = calendarPayload();
+  const added = new Set([
+    ...Object.keys(loadCreatedContractEvents()),
+    ...(extraChangeIds || []).map((id) => String(id || '').trim()).filter(Boolean),
+  ]);
   const items = [];
   const acceptOrigin = location.origin;
-  for (const profile of listProfiles()) {
-    const routeName = String(profile?.name || '').trim();
-    const snap = buildSnapshot(profile, getAsOfDate());
-    for (const row of snap?.schedule_history || []) {
-      try {
-        const changeId = String(row?.change_id || '').trim();
-        const item = prepareContractReminder({
-          routeName,
-          driverName: driverForDate(profile, row.date),
-          row,
-          settings,
-          calendar,
-          acceptUrl: changeId
-            ? contractAcceptUrl({ origin: acceptOrigin, changeId, pathname: location.pathname })
-            : '',
-        });
-        if (item?.changeId) items.push(item);
-      } catch {
-        // The school calendar does not reach this contract date yet.
-      }
+  for (const suggestion of officeContractSuggestions()) {
+    if (!suggestion?.accepted) continue;
+    const changeId = String(suggestion.changeId || '').trim();
+    if (!changeId || !added.has(changeId)) continue;
+    try {
+      const item = prepareContractReminder({
+        routeName: suggestion.routeName,
+        driverName: suggestion.driverName,
+        item: suggestion,
+        settings,
+        calendar,
+        acceptUrl: changeId
+          ? contractAcceptUrl({ origin: acceptOrigin, changeId, pathname: location.pathname })
+          : '',
+      });
+      if (item?.changeId) items.push(item);
+    } catch {
+      // The school calendar does not reach this contract date yet.
     }
   }
   return items;
 }
 
-function publishedReminderMessage(events) {
+function reminderDraftForChange(changeId) {
+  const id = String(changeId || '').trim();
+  const suggestion = officeContractSuggestions().find((row) => row.changeId === id);
+  if (!suggestion?.accepted) {
+    throw new Error('Record this Contract Change before adding a Payroll reminder.');
+  }
+  const settings = loadContractReminder();
+  const item = prepareContractReminder({
+    routeName: suggestion.routeName,
+    driverName: suggestion.driverName,
+    item: suggestion,
+    settings,
+    calendar: calendarPayload(),
+    acceptUrl: contractAcceptUrl({
+      origin: location.origin,
+      changeId: id,
+      pathname: location.pathname,
+    }),
+  });
+  if (!item?.changeId) {
+    throw new Error('That recorded contract change could not be scheduled on the school calendar.');
+  }
+  return item;
+}
+
+// Queue recorded changes for Payroll. No .ics download until Update.
+function addPayrollReminders(changeIds) {
+  const ids = [...new Set((changeIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!ids.length) return null;
+  const drafts = [];
+  for (const id of ids) {
+    drafts.push(reminderDraftForChange(id));
+  }
+  rememberCreatedContractEvents(
+    drafts.map((item) => ({ changeId: item.changeId, reminderDate: item.reminderDate }))
+  );
+  const days = [...new Set(drafts.map((item) => prettyDate(item.reminderDate)))];
+  return {
+    kind: 'ok',
+    message:
+      drafts.length === 1
+        ? `Queued route ${drafts[0].route} for ${days[0]}.`
+        : `Queued ${drafts.length} changes for ${days.join(', ')}.`,
+  };
+}
+
+function removePayrollReminders(changeIds) {
+  const ids = [...new Set((changeIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!ids.length) return null;
+  forgetCreatedContractEvents(ids);
+  return {
+    kind: 'ok',
+    message: ids.length === 1 ? 'Removed from the Payroll reminder queue.' : 'Removed from the Payroll reminder queue.',
+  };
+}
+
+function togglePayrollReminder(changeId) {
+  const id = String(changeId || '').trim();
+  if (!id) throw new Error('Choose a recorded contract change.');
+  if (isContractEventCreated(id)) return removePayrollReminders([id]);
+  return addPayrollReminders([id]);
+}
+
+function queuePayrollRemindersAfterRecord(changeIds) {
+  const settings = loadContractReminder();
+  if (!settings.queueAfterRecord) return false;
+  const ids = [...new Set((changeIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!ids.length) return false;
+  try {
+    addPayrollReminders(ids);
+    renderPayrollReminderQueue();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function renderPayrollReminderQueue() {
+  const root = document.querySelector('#payroll-reminder-queue-days');
+  const summary = document.querySelector('#payroll-reminder-queue-summary');
+  const update = document.querySelector('#payroll-reminder-update');
+  if (!root) return;
+  const reminders = officeContractReminders();
+  const byId = new Map(reminders.map((item) => [item.changeId, item]));
+  const events = combineRemindersByDay(reminders);
+  const changeCount = reminders.length;
+  if (summary) {
+    summary.textContent = events.length
+      ? `${changeCount} queued change${changeCount === 1 ? '' : 's'} · ${events.length} reminder day${
+          events.length === 1 ? '' : 's'
+        }`
+      : 'No recorded changes are queued yet.';
+  }
+  if (update) update.disabled = !events.length;
+  if (!events.length) {
+    root.innerHTML =
+      '<p class="field-hint">Record contract changes, then Update Outlook Payroll Reminders when you are done. On a Windows PC, Outlook opens one meeting per reminder day for you to review and Send.</p>';
+    return;
+  }
+  root.innerHTML = events
+    .map((event) => {
+      const rows = (event.changeIds || [])
+        .map((changeId) => {
+          const item = byId.get(changeId);
+          const route = item?.route || changeId;
+          const effective = item?.contractDate ? prettyDate(item.contractDate) : '';
+          return `<li class="payroll-reminder-queue-item" data-change-id="${escapeHtml(changeId)}">
+            <span>Route ${escapeHtml(route)}${effective ? ` · effective ${escapeHtml(effective)}` : ''}</span>
+            <button type="button" class="secondary js-remove-payroll-reminder" data-change-id="${escapeHtml(
+              changeId
+            )}">Remove</button>
+          </li>`;
+        })
+        .join('');
+      return `<div class="payroll-reminder-queue-day">
+        <h3>${escapeHtml(prettyDate(event.reminderDate))}</h3>
+        <p class="field-hint">Routes ${escapeHtml((event.routes || []).join(', '))}</p>
+        <ul class="payroll-reminder-queue-list">${rows}</ul>
+      </div>`;
+    })
+    .join('');
+}
+
+function queuedReminderEvents() {
+  return combineRemindersByDay(officeContractReminders()).map((event) => ({
+    ...event,
+    cancelled: false,
+    updated: true,
+  }));
+}
+
+function reminderMeetingsPayload(events, invitees) {
+  return (events || [])
+    .filter((event) => !event.cancelled)
+    .map((event) => ({
+      subject: event.subject,
+      body: event.body,
+      reminderDate: event.reminderDate,
+      startLocal: `${event.reminderDate} 08:00:00`,
+      endLocal: `${event.reminderDate} 08:01:00`,
+      invitees,
+      changeIds: event.changeIds,
+      routes: event.routes,
+    }));
+}
+
+function publishedReminderMessage(events, { viaOutlook = false } = {}) {
   const active = events.filter((event) => !event.cancelled);
   const cancelled = events.filter((event) => event.cancelled);
   const parts = [];
   if (active.length) {
-    const action = active.every((event) => event.updated)
-      ? 'updated'
-      : active.some((event) => event.updated)
-        ? 'created or updated'
-        : 'downloaded';
     const dayLabel = active.map((event) => prettyDate(event.reminderDate)).join(', ');
     const routeLabel = active
       .flatMap((event) => event.routes || [])
       .filter((name, index, list) => list.indexOf(name) === index)
       .join(', ');
-    parts.push(
-      `Outlook reminder ${action} for ${dayLabel}. It includes ${routeLabel}. Open it in Outlook and send the invite. The event is one minute and stays free.`
-    );
+    if (viaOutlook) {
+      parts.push(
+        `Opened ${active.length} Outlook meeting${active.length === 1 ? '' : 's'} for ${dayLabel}. Includes ${routeLabel}. Review each window and Send to District Payroll.`
+      );
+    } else {
+      parts.push(
+        `Downloaded ${active.length} calendar file${active.length === 1 ? '' : 's'} for ${dayLabel}. Includes ${routeLabel}. Open each file in Outlook and send it to District Payroll.`
+      );
+    }
   }
   if (cancelled.length) {
     const dayLabel = cancelled.map((event) => prettyDate(event.reminderDate)).join(', ');
     parts.push(
-      `The reminder for ${dayLabel} was cancelled. Open that file in Outlook to take the old event off the calendar.`
+      `Cancelled reminder days: ${dayLabel}. Open those cancel files in Outlook to clear the old events.`
     );
   }
   return parts.join(' ');
 }
 
-function publishReminderItems(events, stamp) {
+function publishReminderItems(events, stamp, { viaOutlook = false, downloadIcs = true } = {}) {
   const settings = loadContractReminder();
   const list = events || [];
   if (!list.length) return null;
@@ -4406,50 +4672,85 @@ function publishReminderItems(events, stamp) {
       message: 'Sign in with the Outlook account that should send this reminder.',
     };
   }
-  const calendarInput = {
-    organizer: { email: organizer.email, name: organizer.name },
-    invitees: settings.invitees,
-  };
-  const active = list.filter((event) => !event.cancelled);
-  const cancelled = list.filter((event) => event.cancelled);
-  // One stable file per reminder day so updates keep the same download name
-  // and Outlook can match the existing UID for that day.
-  for (const event of active) {
-    downloadTextFile(
-      buildContractReminderCalendar({ ...calendarInput, events: [event] }),
-      reminderDayFilename(event.reminderDate)
-    );
-  }
-  for (const event of cancelled) {
-    downloadTextFile(
-      buildContractReminderCalendar({ ...calendarInput, events: [event], method: 'CANCEL' }),
-      reminderCancelFilename(event.reminderDate)
-    );
+  if (downloadIcs) {
+    const calendarInput = {
+      organizer: { email: organizer.email, name: organizer.name },
+      invitees: settings.invitees,
+    };
+    const active = list.filter((event) => !event.cancelled);
+    const cancelled = list.filter((event) => event.cancelled);
+    for (const event of active) {
+      downloadTextFile(
+        buildContractReminderCalendar({ ...calendarInput, events: [event] }),
+        reminderDayFilename(event.reminderDate)
+      );
+    }
+    for (const event of cancelled) {
+      downloadTextFile(
+        buildContractReminderCalendar({ ...calendarInput, events: [event], method: 'CANCEL' }),
+        reminderCancelFilename(event.reminderDate)
+      );
+    }
   }
   rememberPublishedReminders(list, stamp);
-  return { kind: 'ok', message: publishedReminderMessage(list) };
+  return { kind: 'ok', message: publishedReminderMessage(list, { viaOutlook }) };
 }
 
-// Download a calendar file for each reminder day that is new or different.
-// The file is created when a contract date is predicted. It is not held until that day.
-function downloadDueContractReminders() {
+// Prefer classic Outlook on Windows. Fall back to .ics download elsewhere.
+async function updateOutlookPayrollReminders() {
   const settings = loadContractReminder();
-  if (!settings.autoCreate) return null;
+  const events = queuedReminderEvents();
+  if (!events.length) {
+    return { kind: 'error', message: 'The Payroll reminder queue is empty.' };
+  }
+  if (!settings.invitees.length) {
+    return {
+      kind: 'error',
+      message: 'Choose Outlook invitees in Admin contract reminder.',
+    };
+  }
+  const organizer = currentAccount();
+  if (!organizer?.email) {
+    return {
+      kind: 'error',
+      message: 'Sign in with the Outlook account that should send this reminder.',
+    };
+  }
+  const stamp = reminderInviteStamp();
+  const meetings = reminderMeetingsPayload(events, settings.invitees);
   try {
-    const stamp = settings.invitees
-      .map((person) => person.email.toLowerCase())
-      .sort()
-      .join(',');
-    const events = planReminderPublish(
-      combineRemindersByDay(officeContractReminders()),
-      loadCreatedContractEvents(),
-      loadReminderSignatures(),
-      stamp
-    );
-    if (!events.length) return null;
-    return publishReminderItems(events, stamp);
+    const response = await fetch('/api/outlook-payroll-reminders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ meetings }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (response.ok) {
+      return publishReminderItems(events, stamp, { viaOutlook: true, downloadIcs: false });
+    }
+    // Static Pages and non-Windows hosts fall back to .ics downloads.
+    const note = publishReminderItems(events, stamp, { viaOutlook: false, downloadIcs: true });
+    if (note?.kind === 'ok') {
+      const reason =
+        payload?.error ||
+        (payload?.fallback === 'ics'
+          ? 'Outlook automation is not available on this computer.'
+          : 'Outlook automation is not available on this site.');
+      return { kind: 'ok', message: `${reason} ${note.message}` };
+    }
+    return {
+      kind: 'error',
+      message: payload?.error || note?.message || 'Could not open Outlook Payroll reminders.',
+    };
   } catch (error) {
-    return { kind: 'error', message: error.message };
+    const note = publishReminderItems(events, stamp, { viaOutlook: false, downloadIcs: true });
+    if (note?.kind === 'ok') {
+      return {
+        kind: 'ok',
+        message: `${error.message || 'Could not reach the office server.'} ${note.message}`,
+      };
+    }
+    return { kind: 'error', message: error.message || 'Could not open Outlook Payroll reminders.' };
   }
 }
 
@@ -4530,36 +4831,15 @@ async function acceptNoticeOffer() {
   if (noticeOfferQueue.length) showNoticeOffer();
 }
 
-function announcePredictedReminders(message, changeIds, previousDates = {}) {
+function announcePredictedReminders(message, changeIds) {
+  // Clock-time predictions do not create Payroll reminders. Those are Added
+  // after admin Records a contract change.
   queueNoticeOffer(changeIds);
-  const settings = loadContractReminder();
-  const predictionChanged = (changeIds || []).some((changeId) => {
-    const row = (snapshot?.schedule_history || []).find((item) => item.change_id === changeId);
-    const next = isPredictedContract(row) ? row.contracted.becomes_on : null;
-    const previous = Object.prototype.hasOwnProperty.call(previousDates, changeId)
-      ? previousDates[changeId]
-      : null;
-    return previous !== next;
-  });
-  if (!predictionChanged) {
-    setStatus(scheduleStatus, message, 'ok');
-    return;
-  }
-  if (!settings.autoCreate) {
-    setStatus(scheduleStatus, `${message} Automatic Outlook reminders are off.`, 'ok');
-    return;
-  }
-  const note = downloadDueContractReminders();
-  if (note) {
-    setStatus(scheduleStatus, `${message} ${note.message}`, note.kind === 'ok' ? 'ok' : 'error');
-    return;
-  }
   setStatus(scheduleStatus, message, 'ok');
 }
 
 async function createAutomaticNotices() {
-  const admin = downloadDueContractReminders();
-  if (admin?.message) setStatus(fileStatus, admin.message, admin.kind === 'error' ? 'error' : 'ok');
+  return;
 }
 
 function commitEntryRow() {
@@ -5414,7 +5694,10 @@ function renderApp() {
     appView.hidden = true;
     clockDesk.refresh();
     if (onPayroll) renderDriverInfo();
-    if (onClocking) refreshPaperRecords();
+    if (onClocking) {
+      refreshPaperRecords();
+      void ensureRouteCoverage();
+    }
     // Payroll settings, pay-period info, and the timeclock share one module.
     // Opening Payroll has to load it, or those buttons have nothing to run.
     if (!driversWindow) {
@@ -5517,7 +5800,10 @@ function applySharedOfficeUiRefresh() {
   showRecentRouteChanges(loadState());
   if (activeSheet === 'admin-reminder') fillReminderSettings();
   if (activeSheet === 'driver-notice') fillDriverNoticeSettings();
-  if (activeSheet === 'contract-notice') fillContractNoticeSettings();
+  if (activeSheet === 'contract-notice') {
+    fillContractNoticeSettings();
+    fillContractReminderHeaderSettings();
+  }
   if (activeSheet === 'bidding') renderEomBidding({ preserveMonth: true });
 }
 
@@ -6156,6 +6442,7 @@ document.querySelector('#send-notice-offer-dialog')?.addEventListener('click', (
   const dialog = document.querySelector('#send-notice-offer-dialog');
   if (event.target === dialog) dialog.close();
 });
+
 changeDialog.addEventListener('click', (event) => {
   if (event.target === changeDialog) {
     closeChangeDialog();
@@ -6714,6 +7001,7 @@ async function adoptStarterOffice() {
     drivers: Array.isArray(next.drivers) ? next.drivers : [],
     punches: Array.isArray(current.punches) ? current.punches : [],
     leaveRequests: Array.isArray(current.leaveRequests) ? current.leaveRequests : [],
+    routeCoverage: Array.isArray(current.routeCoverage) ? current.routeCoverage : [],
     clockPins: current.clockPins && typeof current.clockPins === 'object' ? current.clockPins : {},
     clockLockCode: current.clockLockCode || '',
     ...(Object.prototype.hasOwnProperty.call(current, 'clockLateMinutes')
@@ -6792,6 +7080,9 @@ let paperBackupDesk = { refresh() {} };
 let timeclockMount = null;
 let paperMount = null;
 let timeclockMounted = false;
+let routeCoverageDesk = { refresh() {} };
+let routeCoverageMount = null;
+let coverageSubstituteRoster = [];
 
 function refreshPaperRecords() {
   if (activeSheet !== 'clocking' && activeSheet !== 'paper-backup') return;
@@ -6882,6 +7173,80 @@ function routeClocksByRun(profile, today, earlyReleaseTimes) {
   }
 }
 
+function earlyReleaseTimesForToday(state, today) {
+  try {
+    syncSchoolYearCalendar();
+    if (isEarlyReleaseDate(today, getSchoolDays(calendarPayload()), earlyReleaseRulesForState(state))) {
+      return state.clockEarlyReleaseTimes;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function listCoverageRoutes() {
+  const state = loadState();
+  const today = localDateString();
+  const earlyReleaseTimes = earlyReleaseTimesForToday(state, today);
+  return Object.values(state.profiles || {})
+    .map((profile) => {
+      const id = String(profile?.id || '').trim();
+      const name = String(profile?.name || '').trim();
+      if (!id || !name) return null;
+      const clocks = routeClocksByRun(profile, today, earlyReleaseTimes);
+      return {
+        id,
+        name,
+        regular_driver_name: driverForDate(profile, today),
+        clockIns: ['AM', 'MIDDAY', 'PM'].flatMap((run) => (clocks[run] ? [clocks[run]] : [])),
+        clockRuns: ['AM', 'MIDDAY', 'PM'].filter((run) => clocks[run]),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => compareRouteNumbers(a.name, b.name));
+}
+
+async function loadCoverageSubstitutes() {
+  const response = await fetch('/api/substitutes');
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || 'Could not load substitute drivers.');
+  }
+  coverageSubstituteRoster = Array.isArray(body.drivers)
+    ? body.drivers.map((person) => ({
+        id: String(person.driver_id || person.id || '').trim(),
+        name: String(person.name || '').trim(),
+      })).filter((person) => person.id && person.name)
+    : [];
+  return coverageSubstituteRoster;
+}
+
+function ensureRouteCoverage() {
+  if (!routeCoverageMount) {
+    routeCoverageMount = import('./routeCoverageDesk.js').then(({ mountRouteCoverageDesk }) => {
+      routeCoverageDesk = mountRouteCoverageDesk({
+        root: document.querySelector('#route-coverage-today'),
+        readState: loadState,
+        writeState(state) {
+          saveState(state);
+          timeclockDesk.refresh();
+        },
+        listRoutes: listCoverageRoutes,
+        listSubstitutes: () => coverageSubstituteRoster,
+        onChange() {
+          timeclockDesk.refresh();
+        },
+      });
+      return routeCoverageDesk;
+    });
+  }
+  void loadCoverageSubstitutes()
+    .then(() => routeCoverageDesk.refresh())
+    .catch(() => {});
+  return routeCoverageMount;
+}
+
 function ensureTimeclock() {
   if (!timeclockMount) {
     timeclockMount = import('./timeclockKiosk.js').then(({ mountTimeclock }) => {
@@ -6895,6 +7260,7 @@ function ensureTimeclock() {
     saveState(state);
     syncSchoolYearCalendar();
     if (activeSheet === 'payroll' || activeSheet === 'clocking') clockDesk.refresh();
+    routeCoverageDesk.refresh();
     refreshPaperRecords();
     const yearChanged = JSON.stringify(savedSchoolYear(state)) !== beforeYear;
     const snapChanged =
@@ -6906,15 +7272,7 @@ function ensureTimeclock() {
   listPeople() {
     const state = loadState();
     const today = localDateString();
-    let earlyReleaseTimes = null;
-    try {
-      syncSchoolYearCalendar();
-      if (isEarlyReleaseDate(today, getSchoolDays(calendarPayload()), earlyReleaseRulesForState(state))) {
-        earlyReleaseTimes = state.clockEarlyReleaseTimes;
-      }
-    } catch {
-      earlyReleaseTimes = null;
-    }
+    const earlyReleaseTimes = earlyReleaseTimesForToday(state, today);
     const routesByName = new Map();
     const heldByName = new Map();
     for (const profile of Object.values(state.profiles || {})) {
@@ -6948,6 +7306,8 @@ function ensureTimeclock() {
       };
     });
   },
+  listRoutes: listCoverageRoutes,
+  listSubstitutes: () => coverageSubstituteRoster,
   contractedMinutes(driverName, dateKey) {
     return contractedRunMinutes(loadState().profiles, driverName, dateKey, (profile, date) => {
       try {
@@ -6967,6 +7327,7 @@ function ensureTimeclock() {
   },
       });
       timeclockMounted = true;
+      void loadCoverageSubstitutes().then(() => timeclockDesk.refresh()).catch(() => {});
       return timeclockDesk;
     });
   }

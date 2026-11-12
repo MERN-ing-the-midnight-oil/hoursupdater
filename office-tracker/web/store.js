@@ -21,6 +21,7 @@ import { normalizeSchoolYear } from '../../src/logic/schoolYear.js';
 import { normalizeLateFlashMinutes } from '../../src/logic/lateClockFlash.js';
 import { normalizeOfficeEdits } from '../src/officePunches.js';
 import { normalizePunchRun } from '../../src/logic/timesheets.js';
+import { normalizeRouteCoverage } from '../../src/logic/routeCoverage.js';
 import { normalizeStoredWorkPortions, normalizeTripTicket, normalizeWorkType } from '../../src/logic/workTypes.js';
 import { normalizeTimecardEntries } from '../src/timecardEntries.js';
 import { applyLeaveRequests, normalizeLeaveRequests, officeLeaveRequests } from '../src/leaveRequests.js';
@@ -44,6 +45,7 @@ export function emptyState() {
     profiles: {},
     punches: [],
     leaveRequests: [],
+    routeCoverage: [],
     clockPins: {},
     clockLockCode: '',
     clockReasonCodes: defaultReasonCodes(),
@@ -449,6 +451,7 @@ export function loadState(storage = globalThis.localStorage) {
       drivers: applyLeaveRequests(parsed.drivers, leaveRequests),
       punches: normalizeOfficePunches(parsed.punches),
       leaveRequests,
+      routeCoverage: normalizeRouteCoverage(parsed.routeCoverage),
       clockPins: normalizeClockPins(parsed.clockPins),
       clockLockCode: normalizeClockLockCode(parsed.clockLockCode),
       clockReasonCodes: officeReasonCodes(parsed.clockReasonCodes),
@@ -802,6 +805,14 @@ export function mergeSharedDriverList(remoteState, localState) {
   }
   remote.leaveRequests = [...leaves.values()];
   remote.drivers = applyLeaveRequests(remote.drivers, remote.leaveRequests);
+  const coverage = new Map();
+  for (const row of [
+    ...normalizeRouteCoverage(remote.routeCoverage),
+    ...normalizeRouteCoverage(localState?.routeCoverage),
+  ]) {
+    coverage.set(`${row.date}|${row.route_id}|${row.run}`, row);
+  }
+  remote.routeCoverage = [...coverage.values()];
   remote.clockPins = {
     ...normalizeClockPins(remote.clockPins),
     ...normalizeClockPins(localState?.clockPins),
@@ -888,7 +899,7 @@ export function mergeSharedDriverList(remoteState, localState) {
   return remote;
 }
 
-// Outlook reminder shared by this office. Missing settings use 1 school day before.
+// Outlook Payroll reminder shared by this office. Missing settings use 1 school day before.
 export function loadContractReminder(storage = globalThis.localStorage) {
   return normalizeContractReminder(loadState(storage).contractReminder);
 }
@@ -1007,6 +1018,19 @@ export function rememberCreatedContractEvents(entries, storage = globalThis.loca
     const reminderDate = String(entry?.reminderDate || '').slice(0, 10);
     if (!changeId || !/^\d{4}-\d{2}-\d{2}$/.test(reminderDate)) continue;
     map[changeId] = reminderDate;
+  }
+  state.contractReminderCreated = map;
+  saveState(state, storage);
+  return map;
+}
+
+// Drop one or more changes from the Added Payroll reminder set.
+export function forgetCreatedContractEvents(changeIds, storage = globalThis.localStorage) {
+  const state = loadState(storage);
+  const map = createdContractEventMap(state.contractReminderCreated);
+  for (const raw of changeIds || []) {
+    const changeId = String(raw || '').trim();
+    if (changeId) delete map[changeId];
   }
   state.contractReminderCreated = map;
   saveState(state, storage);
@@ -1138,6 +1162,7 @@ export function importState(json, storage = globalThis.localStorage) {
     drivers: applyLeaveRequests(parsed.drivers, leaveRequests),
     punches: normalizeOfficePunches(parsed.punches),
     leaveRequests,
+    routeCoverage: normalizeRouteCoverage(parsed.routeCoverage),
     clockPins: normalizeClockPins(parsed.clockPins),
     clockLockCode: normalizeClockLockCode(parsed.clockLockCode),
     clockReasonCodes: officeReasonCodes(parsed.clockReasonCodes),

@@ -6,15 +6,16 @@ import { prettyDate } from './historyMarkup.js';
 export const DEFAULT_SCHOOL_DAYS_BEFORE = 1;
 
 export const DEFAULT_REMINDER_SUBJECT =
-  'Route {{route}} becomes contracted on {{contract_date}}';
+  'Recorded contract hours · Route {{route}} effective {{contract_date}}';
 
 export const DEFAULT_REMINDER_BODY = [
-  'Route {{route}} for {{driver}} is predicted to become contracted on {{contract_date}}.',
+  'Admin recorded contracted hours for route {{route}} ({{driver}}).',
+  'Effective {{contract_date}}.',
   '',
   '{{change}}',
   '{{outcome}}',
   '',
-  'Open Contract time-changes and Record this Contract Change when ready.',
+  'These hours were finalized in Contract time-changes for District Payroll.',
   '{{accept_link}}',
 ].join('\n');
 
@@ -55,12 +56,24 @@ function inviteesFrom(raw) {
 }
 
 // Shared office setting for the Outlook reminder.
+// queueAfterRecord: after Record, put the change in the Payroll reminder queue
+// (no .ics download until Update Outlook Payroll Reminders).
+// askAfterRecord / autoCreate are legacy aliases of queueAfterRecord.
 export function normalizeContractReminder(raw) {
   const source = raw && typeof raw === 'object' ? raw : {};
   const subject = String(source.subject ?? '').trim();
   const body = String(source.body ?? '').trim();
+  const queueSource =
+    source.queueAfterRecord != null
+      ? source.queueAfterRecord
+      : source.askAfterRecord != null
+        ? source.askAfterRecord
+        : source.autoCreate;
+  const queueAfterRecord = yesNo(queueSource, true);
   return {
-    autoCreate: yesNo(source.autoCreate, true),
+    queueAfterRecord,
+    askAfterRecord: queueAfterRecord,
+    autoCreate: queueAfterRecord,
     schoolDaysBefore: schoolDaysBeforeValue(source.schoolDaysBefore),
     invitees: inviteesFrom(source.invitees),
     subject: subject || DEFAULT_REMINDER_SUBJECT,
@@ -85,9 +98,14 @@ export function fillReminderTemplate(template, values) {
   );
 }
 
-// A change whose contract date is still in the future.
+// Kept for older predicted-history checks in the office UI.
 export function isPredictedContract(row) {
   return row?.contracted?.status === 'predicted' && Boolean(row?.contracted?.becomes_on);
+}
+
+// Recorded Accept / Set items that Payroll should be reminded about.
+export function isRecordedContractChange(item) {
+  return Boolean(item?.accepted) && Boolean(toDateString(item?.becomesOn || item?.effectiveDate || ''));
 }
 
 // School day `count` school days before the contract date.
@@ -109,39 +127,71 @@ export function dateSchoolDaysBefore(calendar, contractDate, count) {
   );
 }
 
-function describeChange(row) {
-  const run = row?.segment === 'MIDDAY' ? 'Midday' : row?.segment || 'Clock time';
-  const from = formatClockAmPm(row?.previous_time);
-  const to = formatClockAmPm(row?.new_time);
+function describeChange(item) {
+  if (item?.timesLabel) return `New contracted hours: ${item.timesLabel}.`;
+  const run = item?.segment === 'MIDDAY' ? 'Midday' : item?.segment || 'Clock time';
+  const from = formatClockAmPm(item?.previous_time);
+  const to = formatClockAmPm(item?.new_time);
   if (from && to) return `${run} changed from ${from} to ${to}.`;
-  return `${run} change.`;
+  const times = item?.times;
+  if (times && typeof times === 'object') {
+    const parts = [];
+    if (times.AM) parts.push(`AM ${formatClockAmPm(times.AM)}`);
+    if (times.MIDDAY) parts.push(`Midday ${formatClockAmPm(times.MIDDAY)}`);
+    if (times.PM) parts.push(`PM ${formatClockAmPm(times.PM)}`);
+    if (parts.length) return `New contracted hours: ${parts.join('; ')}.`;
+  }
+  return 'Recorded contracted hours.';
 }
 
+function recordedEffectiveDate(item) {
+  return (
+    toDateString(item?.becomesOn || '') ||
+    toDateString(item?.effectiveDate || '') ||
+    toDateString(item?.acceptance?.effectiveDate || '')
+  );
+}
+
+// A recorded contract change for the Payroll reminder calendar.
+// The event lands schoolDaysBefore the effective date. Callers decide whether
+// the change has been Added; due-day gating is optional.
 export function prepareContractReminder({
   routeName,
   driverName,
+  item,
   row,
   settings,
   calendar,
   acceptUrl = '',
+  asOf = new Date(),
+  requireDue = false,
 } = {}) {
-  if (!isPredictedContract(row)) return null;
-  const contractDate = toDateString(row.contracted.becomes_on);
+  // Predicted history rows no longer enter the Payroll reminder queue.
+  const source = item || null;
+  if (row && !item) return null;
+  if (!isRecordedContractChange(source)) return null;
+
+  const contractDate = recordedEffectiveDate(source);
+  if (!contractDate) return null;
   const reminderDate = dateSchoolDaysBefore(calendar, contractDate, settings.schoolDaysBefore);
+  if (requireDue && !isReminderDue(reminderDate, asOf)) return null;
+
   const accept_link = String(acceptUrl || '').trim();
   const values = {
-    route: String(routeName || '').trim() || 'this route',
-    driver: String(driverName || '').trim() || 'Unassigned',
+    route: String(routeName || source.routeName || '').trim() || 'this route',
+    driver: String(driverName || source.driverName || '').trim() || 'Unassigned',
     contract_date: prettyDate(contractDate),
     reminder_date: prettyDate(reminderDate),
     school_days_before: String(settings.schoolDaysBefore),
-    change: describeChange(row),
-    outcome: String(row.contracted?.projected_outcome_label || row.contracted?.label || '').trim(),
-    note: String(row.note || '').trim(),
+    change: describeChange(source),
+    outcome: String(
+      source.reasonLabel || source.outcomeLabel || source.contracted?.projected_outcome_label || source.contracted?.label || ''
+    ).trim(),
+    note: String(source.note || source.acceptance?.note || '').trim(),
     accept_link,
   };
   return {
-    changeId: String(row.change_id || ''),
+    changeId: String(source.changeId || source.change_id || ''),
     route: values.route,
     reminderDate,
     contractDate,
@@ -167,7 +217,7 @@ export function combineRemindersByDay(reminders) {
       const items = byDay.get(reminderDate).sort((a, b) =>
         a.route.localeCompare(b.route, undefined, { numeric: true, sensitivity: 'base' })
       );
-      const routes = items.map((item) => item.route);
+      const routes = items.map((entry) => entry.route);
       const subject =
         items.length === 1
           ? items[0].subject
@@ -176,8 +226,8 @@ export function combineRemindersByDay(reminders) {
         uid: contractReminderUid(reminderDate),
         reminderDate,
         subject,
-        body: items.map((item) => item.body).join('\n\n'),
-        changeIds: items.map((item) => item.changeId),
+        body: items.map((entry) => entry.body).join('\n\n'),
+        changeIds: items.map((entry) => entry.changeId),
         routes,
       };
     });
@@ -193,9 +243,9 @@ export function reminderEventSignature(event) {
   return `${ids.join(',')}\n${event?.subject || ''}\n${event?.body || ''}`;
 }
 
-// Events to download now. A new prediction creates the day's event.
-// A moved contract date or another route on that day updates it.
-// A day that no longer has a prediction is cancelled.
+// Events to download now. A due recorded change creates the day's event.
+// A moved effective date or another route on that day updates it.
+// A day that no longer has a due recorded change is cancelled.
 export function planReminderPublish(currentEvents, previousMap = {}, previousSignatures = {}, stamp = '') {
   const previousByDay = new Map();
   for (const [changeId, day] of Object.entries(previousMap || {})) {
@@ -302,7 +352,7 @@ export function buildContractReminderCalendar({
     throw new Error('Choose at least one Outlook invitee in Admin contract reminder.');
   }
   if (!events?.length) {
-    throw new Error('There is no predicted contract date for this change.');
+    throw new Error('There is no recorded contract change due for a Payroll reminder.');
   }
   const stamp = utcStamp(now);
   const sequence = Math.floor(now.getTime() / 1000);

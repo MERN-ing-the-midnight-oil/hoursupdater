@@ -19,6 +19,12 @@ import {
   writeGuidePdf,
 } from './guideMail.js';
 import {
+  normalizeOutlookMeetings,
+  outlookAutomationSupported,
+  outlookPayrollMeetingScript,
+  runOutlookPowerShell,
+} from './outlookMeetings.js';
+import {
   ROUTE_DATA_FILE_BASE,
   payrollWorkbookFilename,
   stampedWorkbookFilename,
@@ -643,6 +649,48 @@ app.get('/api/supabase-config', (_req, res) => {
     return;
   }
   res.json({ enabled: true, url, anonKey });
+});
+
+app.get('/api/outlook-payroll-reminders', (_req, res) => {
+  res.json({
+    supported: outlookAutomationSupported(),
+    platform: process.platform,
+  });
+});
+
+// Classic desktop Outlook on Windows: open free Payroll reminder meetings for review/Send.
+app.post('/api/outlook-payroll-reminders', async (req, res) => {
+  if (!outlookAutomationSupported()) {
+    res.status(400).json({
+      error: 'Outlook calendar automation needs classic desktop Outlook on a Windows PC.',
+      fallback: 'ics',
+    });
+    return;
+  }
+  const meetings = normalizeOutlookMeetings(req.body?.meetings);
+  if (!meetings.length) {
+    res.status(400).json({ error: 'There are no Payroll reminder meetings to open in Outlook.' });
+    return;
+  }
+  if (meetings.length > 40) {
+    res.status(400).json({
+      error: 'That is more than 40 reminder days. Narrow the queue, then try again.',
+    });
+    return;
+  }
+  try {
+    await runOutlookPowerShell(outlookPayrollMeetingScript(meetings), {
+      execFile: execFileAsync,
+    });
+    res.json({ ok: true, count: meetings.length });
+  } catch (error) {
+    res.status(500).json({
+      error:
+        error?.message ||
+        'Could not open Outlook. Use classic desktop Outlook signed in on this PC, then try again.',
+      fallback: 'ics',
+    });
+  }
 });
 
 app.get('/', (_req, res) => {

@@ -1108,6 +1108,7 @@
             </div>
           </div>
         </div>
+        <section id="route-coverage-today" class="route-coverage-panel" aria-label="Route Coverage Today"></section>
         <section id="clocking-drivers" hidden>
           <h1 class="panel-title" id="clocking-driver-summary">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -1831,7 +1832,7 @@
             Substitute drivers
           </h2>
           <p class="field-hint">
-            The same list Admin edits on Drivers/Routes. On the timeclock they choose Substitute Drivers, then tap their name to clock in.
+            The same list Admin edits on Drivers/Routes. On the timeclock, substitute drivers appear in their own section under the regular roster. Assign their route on Route Coverage Today first.
           </p>
           <form id="substitute-form" class="clock-form" novalidate>
             <div class="field">
@@ -2003,35 +2004,12 @@
           Admin contract reminder
         </h1>
         <p class="lead">
-          This reminds the office before suggested contracted hours take effect, so you can Record them on Contract time-changes. When the app predicts that date, it downloads an Outlook calendar file with a Record link. Open the file in Outlook and send it. Each reminder day reuses the same .ics filename so updates replace the earlier download for that day.
+          Choose who receives the District Payroll Outlook invite when you Update
+          Outlook Payroll Reminders. Queue-after-Record and the school-days lead
+          time are set on Contract time-changes. On a Windows PC with classic
+          Outlook, Update opens meeting windows for review and Send.
         </p>
         <form id="reminder-form" novalidate>
-          <div class="section-block tone-alert">
-            <h2>
-              <span class="section-ico" aria-hidden="true">
-                <svg class="icon" viewBox="0 0 24 24">
-                  <path d="M6 8a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9" />
-                  <path d="M10 21a2 2 0 0 0 4 0" />
-                </svg>
-              </span>
-              Automatic reminder
-            </h2>
-            <fieldset class="yes-no">
-              <legend>Create the Outlook reminder automatically</legend>
-              <label><input type="radio" name="reminder_auto" value="yes" checked /> Yes</label>
-              <label><input type="radio" name="reminder_auto" value="no" /> No</label>
-              <p class="field-hint">
-                Toggling to Yes will allow the app to automatically create an Outlook calendar event to remind admin of upcoming contract changes. The event is created as 1 minute long and is considered free time by your calendar so the event will not interfere with your schedule. The event is automatically created whenever a contract change is predicted on a route. The event is updated if the predicted date changes, or if additional routes are predicted to become contracted.
-              </p>
-            </fieldset>
-            <div class="field">
-              <label for="reminder-days">School days before the contract hours change</label>
-              <input id="reminder-days" name="school_days_before" type="number" min="0" max="200" step="1" value="1" required />
-              <p class="field-hint">
-                1 puts the event on the school day before the new contract hours. 0 puts it on the contract date.
-              </p>
-            </div>
-          </div>
           <div class="section-block tone-people">
             <h2>
               <span class="section-ico" aria-hidden="true">
@@ -2085,7 +2063,7 @@
                 <p class="field-hint">
                   You can use {{route}}, {{driver}}, {{contract_date}}, {{reminder_date}},
                   {{school_days_before}}, {{change}}, {{outcome}}, {{note}}, and {{accept_link}}.
-                  {{accept_link}} opens Contract time-changes ready to Accept that route.
+                  {{accept_link}} opens Contract time-changes on that recorded change.
                   In the example above, each highlighted color is one field—hover a highlight to
                   see which one. The same colors mark {{placeholders}} in the templates.
                 </p>
@@ -2288,12 +2266,64 @@
         <p class="lead">
           Teamster countdown rules suggest when route clock-time changes become
           contracted hours. Record this Contract Change makes those hours the legal
-          contracted schedule and adds them to the Payroll Reminder workflow. Edit
+          contracted schedule and can place them in the Payroll reminder queue.
+          When you are done recording, use Update Outlook Payroll Reminders to
+          open one Outlook meeting per reminder day for review and Send. Edit
           this Contract Change lets you adjust the times or date first. Until
           recorded, suggested under-30 lock-ins stay pending. You can also set
           contracted times arbitrarily below. Written determination letters for
           drivers stay in Notices below.
         </p>
+        <div class="contract-reminder-header" aria-label="Payroll reminder settings">
+          <fieldset class="yes-no contract-reminder-auto">
+            <legend>Queue Payroll reminder after Record</legend>
+            <label><input type="radio" name="contract_reminder_queue" value="yes" checked /> Yes</label>
+            <label><input type="radio" name="contract_reminder_queue" value="no" /> No</label>
+            <p class="field-hint">
+              When Yes, Recording adds the change to the Payroll reminder queue
+              without opening Outlook. You can also queue or remove from the row.
+              Update Outlook Payroll Reminders opens the meetings when you are ready.
+            </p>
+          </fieldset>
+          <div class="field contract-reminder-days-field">
+            <label for="contract-reminder-days">School days before the effective date</label>
+            <input
+              id="contract-reminder-days"
+              name="contract_reminder_days"
+              type="number"
+              min="0"
+              max="200"
+              step="1"
+              value="1"
+              required
+            />
+            <p class="field-hint">
+              1 puts the Outlook event on the school day before the recorded hours
+              take effect. 0 puts it on the effective date itself.
+            </p>
+          </div>
+          <div id="contract-reminder-header-status" class="status" role="status" hidden></div>
+        </div>
+
+        <details id="payroll-reminder-queue" class="notice-queue tone-alert" open>
+          <summary>
+            <h2>
+              <span class="section-ico" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <path d="M6 8a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9" />
+                  <path d="M10 21a2 2 0 0 0 4 0" />
+                </svg>
+              </span>
+              Payroll reminder queue
+            </h2>
+            <p id="payroll-reminder-queue-summary" class="field-hint"></p>
+          </summary>
+          <div id="payroll-reminder-queue-status" class="status" role="status" hidden></div>
+          <div id="payroll-reminder-queue-days" class="payroll-reminder-queue-days"></div>
+          <div class="actions payroll-reminder-queue-actions">
+            <button type="button" id="payroll-reminder-update">Update Outlook Payroll Reminders</button>
+          </div>
+        </details>
 
         <details id="contract-accept-queue" class="notice-queue tone-accept" open>
           <summary>
@@ -2353,8 +2383,8 @@
             <p class="field-hint">
               Set new contracted AM, Midday, and PM times for a route on a chosen
               date without waiting on a countdown, or edit a suggested change from
-              the queue above. Recording locks those hours and adds them to the
-              Payroll Reminder workflow.
+              the queue above. Recording locks those hours and can place them in
+              the Payroll reminder queue.
             </p>
           </summary>
           <form id="contract-set-form" novalidate>
@@ -3098,14 +3128,30 @@
         </div>
       </div>
       <section id="kiosk-list">
+        <section id="kiosk-route-coverage" class="kiosk-route-coverage" aria-label="Route Coverage Today"></section>
         <div id="kiosk-roster" class="kiosk-roster"></div>
+        <section id="kiosk-substitute-panel-main" class="kiosk-substitute-panel-main">
+          <h2 class="kiosk-substitute-heading">Substitute drivers</h2>
+          <p class="kiosk-substitute-lead">Assigned coverage shows as a route button with the substitute name. Tap it to certify and clock in.</p>
+          <div id="kiosk-substitute-list" class="kiosk-substitute-list"></div>
+          <p id="kiosk-substitute-empty" class="kiosk-empty" hidden>
+            No substitute drivers yet.
+          </p>
+        </section>
         <p id="kiosk-list-status" class="status" role="status"></p>
+      </section>
+      <section id="kiosk-coverage-certify" class="kiosk-coverage-certify" hidden>
+        <button type="button" class="secondary" id="kiosk-coverage-certify-back">Go Back</button>
+        <h2 id="kiosk-coverage-certify-title">Confirm route</h2>
+        <p id="kiosk-coverage-certify-lead" class="lead"></p>
+        <button type="button" id="kiosk-coverage-certify-go">I am driving this route</button>
+        <p id="kiosk-coverage-certify-error" class="status is-error" role="alert" hidden></p>
       </section>
       <section id="kiosk-substitutes" hidden>
         <button type="button" class="secondary" id="kiosk-substitute-back">Go Back</button>
         <p class="lead">Tap your name to clock in.</p>
-        <div id="kiosk-substitute-list" class="kiosk-substitute-list"></div>
-        <p id="kiosk-substitute-empty" class="kiosk-empty" hidden>
+        <div id="kiosk-substitute-list-legacy" class="kiosk-substitute-list"></div>
+        <p id="kiosk-substitute-empty-legacy" class="kiosk-empty" hidden>
           No substitute drivers yet.
         </p>
       </section>
@@ -3330,7 +3376,8 @@
       </div>
       <p class="lead" id="contract-accept-message"></p>
       <p class="field-hint">
-        Recording makes these the legal contracted hours for this route and adds them to the Payroll Reminder workflow. Track what you send to district Payroll on your own.
+        Recording makes these the legal contracted hours for this route. You can
+        Add a District Payroll calendar reminder afterward.
       </p>
       <div class="actions">
         <button type="button" id="contract-accept-confirm">Record this Contract Change</button>

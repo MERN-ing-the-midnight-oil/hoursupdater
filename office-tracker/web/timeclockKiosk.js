@@ -16,7 +16,16 @@ import {
   schoolYearMonths,
 } from '../../src/logic/schoolYear.js';
 import { dueClockInKeys, flashingClockInKeys, normalizeLateFlashMinutes } from '../../src/logic/lateClockFlash.js';
+import {
+  activeCoverForSubstitute,
+  certifyRouteCoverage,
+  coverageForDate,
+  coverageRunLabel,
+  isRegularAbsentToday,
+  routesCoveredBySubstitute,
+} from '../../src/logic/routeCoverage.js';
 import { extraPunchIndex, localDateKey, normalizePunchRun, punchRunLabel, replacedClockPunchIds, segmentForClock } from '../../src/logic/timesheets.js';
+import { mountRouteCoverageDesk } from './routeCoverageDesk.js';
 import {
   applyLeaveRequests,
   dropLeaveForClockIn,
@@ -541,7 +550,7 @@ export function kioskRosterLayout({ count, width, height, gap = ROSTER_GAP_PX, s
   return { columns, rows: Math.ceil(count / columns), scroll: true, buttonHeight, rowGap: gap };
 }
 
-export function mountTimeclock({ readState, writeState, listPeople, contractedMinutes }) {
+export function mountTimeclock({ readState, writeState, listPeople, listRoutes, listSubstitutes, contractedMinutes }) {
   const startButton = document.querySelector('#start-timeclock');
   const screenButton = document.querySelector('#start-timeclock-screen');
   const screenChoices = document.querySelector('#timeclock-screen-choices');
@@ -560,6 +569,12 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   const kioskList = document.querySelector('#kiosk-list');
   const kioskDetail = document.querySelector('#kiosk-detail');
   const kioskSubstitutes = document.querySelector('#kiosk-substitutes');
+  const kioskCoverageCertify = document.querySelector('#kiosk-coverage-certify');
+  const kioskCoverageCertifyTitle = document.querySelector('#kiosk-coverage-certify-title');
+  const kioskCoverageCertifyLead = document.querySelector('#kiosk-coverage-certify-lead');
+  const kioskCoverageCertifyGo = document.querySelector('#kiosk-coverage-certify-go');
+  const kioskCoverageCertifyBack = document.querySelector('#kiosk-coverage-certify-back');
+  const kioskCoverageCertifyError = document.querySelector('#kiosk-coverage-certify-error');
   const kioskRoster = document.querySelector('#kiosk-roster');
   const kioskListStatus = document.querySelector('#kiosk-list-status');
   const kioskBack = document.querySelector('#kiosk-back');
@@ -575,6 +590,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   const kioskSubstituteEmpty = document.querySelector('#kiosk-substitute-empty');
   const kioskCovering = document.querySelector('#kiosk-covering');
   const kioskSubstituteWho = document.querySelector('#kiosk-substitute-who');
+  const kioskRouteCoverageRoot = document.querySelector('#kiosk-route-coverage');
   const kioskActions = document.querySelector('#kiosk-actions');
   const kioskRunChoice = document.querySelector('#kiosk-run-choice');
   const kioskCard = document.querySelector('#kiosk-card');
@@ -633,7 +649,24 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   let substituteName = '';
   // Kept so an older covering punch can still finish on the route driver it started on.
   let substituteCoversSelected = false;
+  let pendingCoverageSub = null;
+  let substituteRoster = [];
   let unlocked = false;
+  const coverageDesk = mountRouteCoverageDesk({
+    root: kioskRouteCoverageRoot,
+    readState,
+    writeState,
+    listRoutes: () => (typeof listRoutes === 'function' ? listRoutes() : []),
+    listSubstitutes: () => {
+      const local = substituteDrivers();
+      if (local.length) return local;
+      return typeof listSubstitutes === 'function' ? listSubstitutes() : [];
+    },
+    onChange() {
+      renderRoster();
+      renderSubstituteChoices();
+    },
+  });
   // Extra periods revealed from above the card. Starts with those rows out of view.
   let extraPeriodsRevealed = 0;
   // Clock in whose regular route is being marked as other work.
@@ -765,6 +798,11 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   kioskBack?.addEventListener('click', onLeaveDriver);
   document.querySelector('#kiosk-done')?.addEventListener('click', onLeaveDriver);
   document.querySelector('#kiosk-substitute-back')?.addEventListener('click', onLeaveDriver);
+  kioskCoverageCertifyBack?.addEventListener('click', () => {
+    hideCoverageCertify();
+    showList();
+  });
+  kioskCoverageCertifyGo?.addEventListener('click', onCertifyCoverage);
   kiosk.addEventListener('click', swallowSettlingRosterClick, true);
   kioskSubstitute?.addEventListener('click', onSubstituteHeader);
   kioskPin.addEventListener('input', onPinInput);
@@ -3121,11 +3159,9 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     setOfficeStatus(`PIN saved for ${person.name}.`, 'ok');
   }
 
-  let substituteRoster = [];
-
   function substituteDrivers() {
     return substituteRoster.map((person) => ({
-      id: person.driver_id,
+      id: person.driver_id || person.id,
       name: person.name,
     }));
   }
@@ -3338,7 +3374,10 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   }
 
   function showList(message = '') {
-    const coveringRoster = kioskDetail.hidden === false || Boolean(kioskSubstitutes && !kioskSubstitutes.hidden);
+    const coveringRoster =
+      kioskDetail.hidden === false ||
+      Boolean(kioskSubstitutes && !kioskSubstitutes.hidden) ||
+      Boolean(kioskCoverageCertify && !kioskCoverageCertify.hidden);
     closeReplaceConfirm();
     closeMovePanel();
     if (selected) rememberLateVisit(selected);
@@ -3368,14 +3407,25 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     if (kioskPinError) kioskPinError.textContent = '';
     if (kioskListStatus) kioskListStatus.textContent = message;
     if (kioskSubstitutes) kioskSubstitutes.hidden = true;
+    hideCoverageCertify();
     syncSubstituteHeader();
     renderRoster();
+  }
+
+  function todayCoverage() {
+    return coverageForDate(state().routeCoverage, localDateString());
+  }
+
+  function coverageRoutesForSubstitute(person) {
+    return routesCoveredBySubstitute(state().routeCoverage, localDateString(), person.name);
   }
 
   function renderRoster() {
     rosterDate = localDateString();
     applyNameSize();
+    coverageDesk.refresh();
     const roster = people();
+    const coverageRows = todayCoverage();
     kioskRoster.replaceChildren();
     if (!roster.length) {
       const empty = document.createElement('p');
@@ -3383,6 +3433,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       empty.textContent = 'No drivers.';
       kioskRoster.append(empty);
       fitRoster();
+      renderSubstituteChoices();
       return;
     }
     const colors = ensureNameColors(people());
@@ -3394,19 +3445,24 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       button.dataset.driverName = person.name;
       button.dataset.clockIns = person.clockIns.join(',');
       button.dataset.clockRuns = person.clockRuns.join(',');
-      paintNameButton(button, person.id, colors);
-      const covering = activeSubstitute(person.name);
+      const coveringNow = activeSubstitute(person.name);
+      const absent = isRegularAbsentToday(person.name, coverageRows);
       const latest = latestPunch(person.name);
       const status = latest?.action === 'in' ? 'in' : 'out';
+      const showAbsent = absent && status !== 'in';
+      if (showAbsent) paintAbsentButton(button);
+      else paintNameButton(button, person.id, colors);
       const label = document.createElement('span');
       label.className = 'kiosk-name-label';
-      fillNameLabel(label, person, covering);
-      button.dataset.spoken = spokenName(person, covering, status, latest);
+      // Assigned substitute + route live in the Substitute section, not on the greyed regular.
+      fillNameLabel(label, person, coveringNow);
+      button.classList.toggle('is-absent', showAbsent);
+      button.dataset.spoken = spokenName(person, coveringNow, status, latest);
       const badge = document.createElement('span');
       badge.className = `kiosk-status is-${status}`;
       badge.textContent = status === 'in' ? 'IN' : 'OUT';
       button.append(label, badge);
-      paintLate(button, person);
+      paintLate(button, person, { skipIfAbsent: true });
       button.addEventListener('click', (event) => {
         if (Date.now() < blockRosterOpenUntil) {
           event.preventDefault();
@@ -3418,6 +3474,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
       kioskRoster.append(button);
     }
     fitRoster();
+    renderSubstituteChoices();
   }
 
   // Latest punch for this route driver. A substitute punch stays on that driver's name.
@@ -3472,8 +3529,12 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     sessionStorage.setItem(LATE_ACK_KEY, JSON.stringify(all));
   }
 
-  function paintLate(button, person) {
+  function paintLate(button, person, options = {}) {
+    const skip =
+      options.skip === true ||
+      (options.skipIfAbsent === true && isRegularAbsentToday(person.name, todayCoverage()));
     const late =
+      !skip &&
       flashingClockInKeys({
         now: new Date(),
         graceMinutes: state().clockLateMinutes,
@@ -3493,17 +3554,31 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     const punches = Array.isArray(state().punches) ? state().punches : [];
     const graceMinutes = state().clockLateMinutes;
     const now = new Date();
-    for (const button of kioskRoster.querySelectorAll('.kiosk-name')) {
+    const buttons = [
+      ...kioskRoster.querySelectorAll('.kiosk-name'),
+      ...(kioskSubstituteList?.querySelectorAll('.kiosk-name') || []),
+    ];
+    for (const button of buttons) {
       if (!(button instanceof HTMLButtonElement)) continue;
       const name = button.dataset.driverName || '';
+      const isSubstitute = Boolean(kioskSubstituteList?.contains(button));
+      const covered = isSubstitute
+        ? routesCoveredBySubstitute(state().routeCoverage, localDateString(), name)
+        : [];
+      const flashName = isSubstitute
+        ? String(covered[0]?.regular_driver_name || '').trim() || name
+        : name;
+      const absentRegular =
+        !isSubstitute && isRegularAbsentToday(name, coverageForDate(state().routeCoverage, localDateString()));
       const next =
+        !absentRegular &&
         flashingClockInKeys({
           now,
           graceMinutes,
           clockIns: (button.dataset.clockIns || '').split(',').filter(Boolean),
           clockRuns: (button.dataset.clockRuns || '').split(',').filter(Boolean),
           punches,
-          driverName: name,
+          driverName: flashName,
           acknowledged: acknowledgements(button.dataset.driverId || ''),
         }).length > 0;
       const spoken = button.dataset.spoken || name;
@@ -3575,34 +3650,14 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
 
   function syncSubstituteHeader() {
     if (!(kioskSubstitute instanceof HTMLButtonElement)) return;
-    kioskSubstitute.hidden = false;
-    const pickerOpen = Boolean(kioskSubstitutes && !kioskSubstitutes.hidden);
-    const waiting = Boolean(substituteName) && !kioskList.hidden;
-    if (pickerOpen) kioskSubstitute.textContent = 'Driver list';
-    else if (waiting) kioskSubstitute.textContent = 'Cancel substitute';
-    else kioskSubstitute.textContent = 'Substitute Drivers';
+    // Substitutes live on the main timeclock page now.
+    kioskSubstitute.hidden = true;
   }
 
   function onSubstituteHeader() {
-    const pickerOpen = Boolean(kioskSubstitutes && !kioskSubstitutes.hidden);
-    const waiting = Boolean(substituteName) && !kioskList.hidden;
-    if (pickerOpen || waiting) {
-      showList();
-      return;
-    }
-    substituteCoversSelected = Boolean(selected) && !kioskDetail.hidden;
-    if (!substituteCoversSelected) {
-      selected = null;
-      unlocked = false;
-    }
-    kioskList.hidden = true;
-    kioskDetail.hidden = true;
-    kioskActions.hidden = true;
-    hideClockQr();
-    kiosk.classList.remove('is-detail');
-    if (kioskSubstitutes) kioskSubstitutes.hidden = false;
-    renderSubstituteChoices();
-    syncSubstituteHeader();
+    showList();
+    const panel = document.querySelector('#kiosk-substitute-panel-main');
+    panel?.scrollIntoView({ block: 'nearest' });
     const first = kioskSubstituteList?.querySelector('button');
     if (first instanceof HTMLElement) first.focus();
   }
@@ -3628,14 +3683,55 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   }
 
   function substituteAsPerson(person) {
+    const covered = coverageRoutesForSubstitute(person);
+    const routeNames = covered.map((item) => item.route_name);
+    const clockIns = [];
+    const clockRuns = [];
+    for (const item of covered) {
+      const regular = people().find(
+        (driver) => driver.name.trim().toLowerCase() === String(item.regular_driver_name || '').trim().toLowerCase()
+      );
+      if (!regular) continue;
+      for (let index = 0; index < regular.clockRuns.length; index += 1) {
+        const run = regular.clockRuns[index];
+        if (!item.runs.includes(run)) continue;
+        clockRuns.push(run);
+        clockIns.push(regular.clockIns[index] || '');
+      }
+    }
     return {
       id: person.id,
       name: person.name,
-      routes: [],
-      clockIns: [],
-      clockRuns: [],
+      routes: routeNames,
+      clockIns: clockIns.filter(Boolean),
+      clockRuns,
       kind: 'substitute',
+      coverage: covered,
     };
+  }
+
+  function substituteCoverStatus(person) {
+    const cover = activeCoverForSubstitute(state().punches, person.name, new Date());
+    if (cover) return { action: 'in', punch: cover };
+    const covered = coverageRoutesForSubstitute(person);
+    for (const item of covered) {
+      const regularName = String(item.regular_driver_name || '').trim();
+      if (!regularName) continue;
+      const latest = latestPunch(regularName);
+      if (latest?.action === 'in' && String(latest.substitute_name || '').trim().toLowerCase() === person.name.trim().toLowerCase()) {
+        return { action: 'in', punch: latest };
+      }
+    }
+    return { action: 'out', punch: null };
+  }
+
+  function paintAbsentButton(button) {
+    button.dataset.frame = 'solid';
+    button.style.setProperty('--name-bg', '#d7dbe0');
+    button.style.setProperty('--name-border', '#8b939c');
+    button.style.setProperty('--name-border-alt', '#aeb6bf');
+    button.style.setProperty('--name-frame', '#8b939c');
+    button.style.setProperty('--name-frame-2', '#c2c8cf');
   }
 
   function renderSubstituteChoices() {
@@ -3645,33 +3741,167 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     );
     kioskSubstituteList.replaceChildren();
     if (kioskSubstituteEmpty) kioskSubstituteEmpty.hidden = roster.length > 0;
-    const colors = ensureNameColors([...people(), ...roster]);
     for (const person of roster) {
+      const covered = coverageRoutesForSubstitute(person);
+      const routeNames = covered.map((item) => item.route_name);
+      const asPerson = substituteAsPerson(person);
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'kiosk-name';
+      button.className = 'kiosk-name is-substitute-cover';
       button.dataset.driverId = person.id;
       button.dataset.driverName = person.name;
-      paintNameButton(button, person.id, colors);
-      const latest = latestPunch(person.name);
-      const status = latest?.action === 'in' ? 'in' : 'out';
+      button.dataset.clockIns = asPerson.clockIns.join(',');
+      button.dataset.clockRuns = asPerson.clockRuns.join(',');
+      button.classList.toggle('is-coverage-open', covered.length > 0 && !covered.every((item) => item.certified));
+      button.classList.toggle('is-unassigned', covered.length === 0);
+      const statusInfo = substituteCoverStatus(person);
+      const status = statusInfo.action;
       const label = document.createElement('span');
       label.className = 'kiosk-name-label';
-      fillNameLabel(label, { name: person.name, routes: [] }, '');
-      button.dataset.spoken = spokenName({ name: person.name, routes: [] }, '', status, latest);
+      fillSubstituteLabel(label, person.name, routeNames, covered);
+      const routeBit = routeNames.length ? `, route ${routeNames.join(', ')}` : ', no route assigned';
+      button.dataset.spoken = `${person.name}${status === 'in' ? ' clocked in' : ' clocked out'}${routeBit}`;
       const badge = document.createElement('span');
       badge.className = `kiosk-status is-${status}`;
       badge.textContent = status === 'in' ? 'IN' : 'OUT';
       button.append(label, badge);
+      const flashPerson = {
+        ...asPerson,
+        id: person.id,
+        name: String(covered[0]?.regular_driver_name || person.name).trim(),
+      };
+      paintLate(button, flashPerson);
       button.addEventListener('click', () => chooseSubstitute(person));
       kioskSubstituteList.append(button);
     }
   }
 
+  function fillSubstituteLabel(label, name, routeNames, covered) {
+    label.replaceChildren();
+    if (routeNames.length) {
+      const route = document.createElement('span');
+      route.className = 'kiosk-name-route is-cover-route';
+      const runBits = covered.map((item) => {
+        const runs = item.runs.map((run) => (run === 'MIDDAY' ? 'MID' : run)).join('/');
+        return `${item.route_name} · ${runs}`;
+      });
+      route.textContent = runBits.join(' · ');
+      label.append(route);
+      const who = document.createElement('span');
+      who.className = 'kiosk-name-regular is-cover-sub';
+      const nameEl = document.createElement('span');
+      nameEl.textContent = name;
+      who.append(nameEl);
+      label.append(who);
+      return;
+    }
+    const regular = document.createElement('span');
+    regular.className = 'kiosk-name-regular';
+    const nameEl = document.createElement('span');
+    nameEl.textContent = name;
+    regular.append(nameEl);
+    label.append(regular);
+    const open = document.createElement('span');
+    open.className = 'kiosk-name-sub is-assigned-sub';
+    open.textContent = 'No route assigned';
+    label.append(open);
+  }
+
+  function setCertifyError(message) {
+    if (!(kioskCoverageCertifyError instanceof HTMLElement)) return;
+    kioskCoverageCertifyError.hidden = !message;
+    kioskCoverageCertifyError.textContent = message || '';
+  }
+
+  function showCoverageCertify(person, covered) {
+    pendingCoverageSub = { person, covered };
+    hidePunchConfirm();
+    kiosk.classList.add('is-detail');
+    kioskList.hidden = true;
+    kioskDetail.hidden = true;
+    if (kioskSubstitutes) kioskSubstitutes.hidden = true;
+    kioskActions.hidden = true;
+    hideClockQr();
+    if (kioskCoverageCertify) kioskCoverageCertify.hidden = false;
+    const route = covered[0];
+    const runs = route.runs.map((run) => coverageRunLabel(run)).join(', ');
+    if (kioskCoverageCertifyTitle) kioskCoverageCertifyTitle.textContent = `Route ${route.route_name}`;
+    if (kioskCoverageCertifyLead) {
+      kioskCoverageCertifyLead.textContent = `${person.name}, certify that you are driving route ${route.route_name} (${runs}) today.`;
+    }
+    setCertifyError('');
+    kioskCoverageCertifyGo?.focus();
+  }
+
+  function hideCoverageCertify() {
+    pendingCoverageSub = null;
+    if (kioskCoverageCertify) kioskCoverageCertify.hidden = true;
+    setCertifyError('');
+  }
+
+  function openCoveredRoute(person, covered) {
+    const route = covered[0];
+    const regularName = String(route.regular_driver_name || '').trim();
+    const regular =
+      people().find((driver) => driver.name.trim().toLowerCase() === regularName.toLowerCase()) || null;
+    if (!regular) {
+      setOfficeStatus(`No regular driver is on file for route ${route.route_name}.`, 'error');
+      showList();
+      return;
+    }
+    substituteName = person.name;
+    substituteCoversSelected = true;
+    openDriver(regular);
+  }
+
   function chooseSubstitute(person) {
     substituteName = '';
     substituteCoversSelected = false;
-    openDriver(substituteAsPerson(person));
+    hideCoverageCertify();
+    const covered = coverageRoutesForSubstitute(person);
+    const active = activeCoverForSubstitute(state().punches, person.name, new Date());
+    if (active) {
+      const regular =
+        people().find((driver) => driver.name.trim().toLowerCase() === active.driver_name.toLowerCase()) || null;
+      if (regular) {
+        substituteName = person.name;
+        substituteCoversSelected = true;
+        openDriver(regular);
+        return;
+      }
+    }
+    if (!covered.length) {
+      setOfficeStatus(`${person.name} has no route assigned on Route Coverage Today.`, 'error');
+      return;
+    }
+    if (covered.length > 1) {
+      setOfficeStatus(`${person.name} is assigned to more than one route. Clear the extra assignment first.`, 'error');
+      return;
+    }
+    if (!covered[0].certified) {
+      showCoverageCertify(person, covered);
+      return;
+    }
+    openCoveredRoute(person, covered);
+  }
+
+  function onCertifyCoverage() {
+    if (!pendingCoverageSub) return;
+    const { person, covered } = pendingCoverageSub;
+    try {
+      const next = state();
+      next.routeCoverage = certifyRouteCoverage(next.routeCoverage, {
+        date: localDateString(),
+        substitute_name: person.name,
+        route_id: covered[0].route_id,
+      });
+      writeState(next);
+      coverageDesk.refresh();
+      hideCoverageCertify();
+      openCoveredRoute(person, routesCoveredBySubstitute(next.routeCoverage, localDateString(), person.name));
+    } catch (error) {
+      setCertifyError(error instanceof Error ? error.message : 'Could not certify that route.');
+    }
   }
 
   function showPunchStep() {
@@ -5740,14 +5970,19 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     void loadSubstitutes()
       .then(() => {
         renderSubstituteList();
-        if (kioskSubstitutes && !kioskSubstitutes.hidden) renderSubstituteChoices();
+        coverageDesk.refresh();
+        if (!kiosk.hidden && kioskList && !kioskList.hidden) renderSubstituteChoices();
       })
       .catch((error) => {
         setOfficeStatus(error instanceof Error ? error.message : 'Could not load substitute drivers.', 'error');
       });
     renderReasonList();
     fillKioskReasons();
-    if (!kiosk.hidden && kioskDetail.hidden) renderRoster();
+    if (!kiosk.hidden && kioskDetail.hidden && (!kioskCoverageCertify || kioskCoverageCertify.hidden)) {
+      renderRoster();
+    } else {
+      coverageDesk.refresh();
+    }
   }
 
   if (typeof ResizeObserver === 'function') {

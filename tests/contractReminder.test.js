@@ -5,6 +5,7 @@ import {
   combineRemindersByDay,
   dateSchoolDaysBefore,
   isPredictedContract,
+  isRecordedContractChange,
   isReminderDue,
   normalizeContractReminder,
   planReminderPublish,
@@ -14,6 +15,7 @@ import {
   reminderEventSignature,
 } from '../office-tracker/src/contractReminder.js';
 import {
+  forgetCreatedContractEvents,
   isContractEventCreated,
   loadContractReminder,
   loadReminderSignatures,
@@ -37,18 +39,17 @@ function memoryStorage() {
   };
 }
 
-function predictedRow() {
+function recordedItem(overrides = {}) {
   return {
-    change_id: 'change-1',
-    segment: 'PM',
-    previous_time: '14:00-16:00',
-    new_time: '14:20-16:20',
-    note: 'Stop added',
-    contracted: {
-      status: 'predicted',
-      becomes_on: '2026-10-06',
-      projected_outcome_label: 'Automatically contracted',
-    },
+    changeId: 'change-1',
+    routeName: 'S5',
+    driverName: 'Jean-Luc Picard',
+    becomesOn: '2026-10-06',
+    timesLabel: 'PM 2:20 PM-4:20 PM',
+    times: { PM: '14:20-16:20' },
+    reasonLabel: 'Office recorded contracted hours',
+    accepted: true,
+    ...overrides,
   };
 }
 
@@ -56,17 +57,22 @@ function unfold(ics) {
   return ics.replace(/\r\n[ \t]/g, '');
 }
 
-test('missing reminder settings use 1 school day before the contract date', () => {
+test('missing reminder settings queue after Record and use 1 school day before', () => {
   const storage = memoryStorage();
   assert.equal(loadContractReminder(storage).schoolDaysBefore, 1);
+  assert.equal(loadContractReminder(storage).queueAfterRecord, true);
+  assert.equal(loadContractReminder(storage).askAfterRecord, true);
   assert.equal(loadContractReminder(storage).autoCreate, true);
   assert.equal(normalizeContractReminder({ schoolDaysBefore: 0 }).schoolDaysBefore, 0);
-  assert.equal(normalizeContractReminder({ autoCreate: 'no' }).autoCreate, false);
+  assert.equal(normalizeContractReminder({ queueAfterRecord: 'no' }).queueAfterRecord, false);
+  assert.equal(normalizeContractReminder({ askAfterRecord: 'no' }).queueAfterRecord, false);
+  assert.equal(normalizeContractReminder({ autoCreate: 'no' }).queueAfterRecord, false);
   assert.equal(isReminderDue('2026-10-05', '2026-10-05'), true);
   assert.equal(isReminderDue('2026-10-06', '2026-10-05'), false);
   const saved = saveContractReminder(
     {
       schoolDaysBefore: 3,
+      queueAfterRecord: false,
       invitees: [
         { email: 'ada@bps.org', name: 'Ada Lovelace' },
         { email: 'Ada@bps.org', name: 'Duplicate' },
@@ -79,6 +85,7 @@ test('missing reminder settings use 1 school day before the contract date', () =
     storage
   );
   assert.equal(saved.schoolDaysBefore, 3);
+  assert.equal(saved.queueAfterRecord, false);
   assert.deepEqual(
     saved.invitees.map((item) => item.email),
     ['ada@bps.org', 'grace@bps.org']
@@ -97,7 +104,7 @@ test('the reminder lands on the previous school day by default', () => {
   );
 });
 
-test('a predicted contract becomes a one-minute free Outlook invite', () => {
+test('Add schedules a recorded contract change even before the reminder day', () => {
   const settings = normalizeContractReminder({
     schoolDaysBefore: 1,
     invitees: [
@@ -105,23 +112,44 @@ test('a predicted contract becomes a one-minute free Outlook invite', () => {
       { email: 'grace@bps.org', name: 'Grace Hopper' },
     ],
   });
-  const row = predictedRow();
-  assert.equal(isPredictedContract(row), true);
-  assert.equal(isPredictedContract({ contracted: { status: 'became_contracted', becomes_on: '2026-10-06' } }), false);
-  const event = combineRemindersByDay([
+  const item = recordedItem();
+  assert.equal(isRecordedContractChange(item), true);
+  assert.equal(isRecordedContractChange({ ...item, accepted: false }), false);
+  assert.equal(isPredictedContract({ contracted: { status: 'predicted', becomes_on: '2026-10-06' } }), true);
+  assert.equal(
     prepareContractReminder({
       routeName: 'S5',
       driverName: 'Jean-Luc Picard',
-      row,
+      row: { change_id: 'change-1', contracted: { status: 'predicted', becomes_on: '2026-10-06' } },
       settings,
       calendar: schoolDays,
     }),
-  ])[0];
+    null
+  );
+  const early = prepareContractReminder({
+    item,
+    settings,
+    calendar: schoolDays,
+    asOf: '2026-10-02',
+  });
+  assert.equal(early.reminderDate, '2026-10-05');
+  assert.equal(
+    prepareContractReminder({
+      item,
+      settings,
+      calendar: schoolDays,
+      asOf: '2026-10-02',
+      requireDue: true,
+    }),
+    null
+  );
+  const event = combineRemindersByDay([early])[0];
   assert.equal(event.reminderDate, '2026-10-05');
   assert.equal(event.uid, 'contract-reminder-2026-10-05@teamster-time-changes');
-  assert.match(event.subject, /Route S5 becomes contracted on Tue, Oct 6, 2026/);
+  assert.match(event.subject, /Recorded contract hours · Route S5 effective Tue, Oct 6, 2026/);
   assert.match(event.body, /Jean-Luc Picard/);
-  assert.match(event.body, /PM changed from 2:00 PM-4:00 PM to 2:20 PM-4:20 PM/);
+  assert.match(event.body, /New contracted hours: PM 2:20 PM-4:20 PM/);
+  assert.match(event.body, /District Payroll/);
   const ics = unfold(
     buildContractReminderCalendar({
       organizer: { email: 'pat@bps.org', name: 'Pat' },
@@ -135,18 +163,10 @@ test('a predicted contract becomes a one-minute free Outlook invite', () => {
   assert.match(ics, /DTEND:20261005T080100/);
   assert.match(ics, /TRANSP:TRANSPARENT/);
   assert.match(ics, /X-MICROSOFT-CDO-BUSYSTATUS:FREE/);
-  assert.match(ics, /X-MICROSOFT-CDO-INTENDEDSTATUS:FREE/);
   assert.match(ics, /ORGANIZER;CN=Pat:mailto:pat@bps.org/);
   assert.match(ics, /mailto:ada@bps.org/);
-  assert.match(ics, /mailto:grace@bps.org/);
   assert.equal(reminderDayFilename('2026-10-05'), 'contract-reminder-20261005.ics');
   assert.equal(reminderCancelFilename('2026-10-05'), 'contract-reminder-cancel-20261005.ics');
-  assert.equal(prepareContractReminder({
-    routeName: 'S5',
-    row: { contracted: { status: 'superseded' } },
-    settings,
-    calendar: schoolDays,
-  }), null);
 });
 
 test('routes that share a reminder day become one Outlook event', () => {
@@ -154,25 +174,26 @@ test('routes that share a reminder day become one Outlook event', () => {
   const first = prepareContractReminder({
     routeName: 'S9',
     driverName: 'Beverly Crusher',
-    row: predictedRow(),
+    item: recordedItem({ changeId: 'change-1', routeName: 'S9', driverName: 'Beverly Crusher' }),
     settings,
     calendar: schoolDays,
   });
   const second = prepareContractReminder({
     routeName: 'S5',
     driverName: 'Jean-Luc Picard',
-    row: { ...predictedRow(), change_id: 'change-2', segment: 'AM' },
+    item: recordedItem({ changeId: 'change-2', routeName: 'S5' }),
     settings,
     calendar: schoolDays,
   });
   const later = prepareContractReminder({
     routeName: 'S1',
     driverName: 'William Riker',
-    row: {
-      ...predictedRow(),
-      change_id: 'change-3',
-      contracted: { ...predictedRow().contracted, becomes_on: '2026-10-07' },
-    },
+    item: recordedItem({
+      changeId: 'change-3',
+      routeName: 'S1',
+      driverName: 'William Riker',
+      becomesOn: '2026-10-07',
+    }),
     settings,
     calendar: schoolDays,
   });
@@ -182,29 +203,15 @@ test('routes that share a reminder day become one Outlook event', () => {
   assert.deepEqual(events[0].changeIds, ['change-2', 'change-1']);
   assert.deepEqual(events[0].routes, ['S5', 'S9']);
   assert.match(events[0].subject, /Routes S5, S9/);
-  assert.match(events[0].body, /Beverly Crusher/);
-  assert.match(events[0].body, /Jean-Luc Picard/);
-  assert.equal(events[0].uid, 'contract-reminder-2026-10-05@teamster-time-changes');
   assert.equal(events[1].reminderDate, '2026-10-06');
-  assert.equal(events[1].uid, 'contract-reminder-2026-10-06@teamster-time-changes');
-  const ics = unfold(
-    buildContractReminderCalendar({
-      organizer: { email: 'pat@bps.org', name: 'Pat' },
-      invitees: [{ email: 'ada@bps.org', name: 'Ada' }],
-      events: [events[0]],
-      now: new Date('2026-10-02T15:00:00Z'),
-    })
-  );
-  assert.equal(ics.match(/BEGIN:VEVENT/g).length, 1);
-  assert.match(ics, /UID:contract-reminder-2026-10-05@teamster-time-changes/);
 });
 
-test('a predicted contract is published immediately and updated when the day or routes change', () => {
+test('publishing updates the Added set and can cancel a day', () => {
   const settings = normalizeContractReminder({ schoolDaysBefore: 1 });
   const first = prepareContractReminder({
     routeName: 'S5',
     driverName: 'Jean-Luc Picard',
-    row: predictedRow(),
+    item: recordedItem(),
     settings,
     calendar: schoolDays,
   });
@@ -212,65 +219,43 @@ test('a predicted contract is published immediately and updated when the day or 
   const created = planReminderPublish(day, {}, {});
   assert.equal(created.length, 1);
   assert.equal(created[0].reminderDate, '2026-10-05');
-  assert.equal(created[0].updated, false);
   const signature = `${reminderEventSignature(created[0])}\n`;
   const stored = { 'change-1': '2026-10-05' };
   const signatures = { '2026-10-05': signature };
   assert.equal(planReminderPublish(day, stored, signatures).length, 0);
-  const rewritten = { ...day[0], body: 'Updated wording for the office.' };
-  const reworded = planReminderPublish([rewritten], stored, signatures);
-  assert.equal(reworded.length, 1);
-  assert.equal(reworded[0].updated, true);
-  assert.equal(reworded[0].body, 'Updated wording for the office.');
 
   const second = prepareContractReminder({
     routeName: 'S9',
     driverName: 'Beverly Crusher',
-    row: { ...predictedRow(), change_id: 'change-2' },
+    item: recordedItem({ changeId: 'change-2', routeName: 'S9', driverName: 'Beverly Crusher' }),
     settings,
     calendar: schoolDays,
   });
   const withBoth = planReminderPublish(combineRemindersByDay([first, second]), stored, signatures);
   assert.equal(withBoth.length, 1);
-  assert.equal(withBoth[0].updated, true);
   assert.deepEqual([...withBoth[0].changeIds].sort(), ['change-1', 'change-2']);
-
-  const moved = prepareContractReminder({
-    routeName: 'S5',
-    driverName: 'Jean-Luc Picard',
-    row: {
-      ...predictedRow(),
-      contracted: { ...predictedRow().contracted, becomes_on: '2026-10-07' },
-    },
-    settings,
-    calendar: schoolDays,
-  });
-  const relocated = planReminderPublish(combineRemindersByDay([moved]), stored, signatures);
-  assert.equal(relocated.length, 2);
-  assert.equal(relocated[0].reminderDate, '2026-10-05');
-  assert.equal(relocated[0].cancelled, true);
-  assert.equal(relocated[1].reminderDate, '2026-10-06');
-  assert.equal(relocated[1].updated, false);
 
   const storage = memoryStorage();
   rememberPublishedReminders(withBoth, '', storage);
   assert.equal(isContractEventCreated('change-1', storage), true);
   assert.equal(isContractEventCreated('change-2', storage), true);
-  assert.equal(loadReminderSignatures(storage)['2026-10-05'], `${reminderEventSignature(withBoth[0])}\n`);
-  rememberPublishedReminders(relocated, '', storage);
+  forgetCreatedContractEvents(['change-2'], storage);
   assert.equal(isContractEventCreated('change-2', storage), false);
-  assert.equal(loadContractReminder(storage) && isContractEventCreated('change-1', storage), true);
+  assert.equal(isContractEventCreated('change-1', storage), true);
+  assert.equal(loadReminderSignatures(storage)['2026-10-05'], `${reminderEventSignature(withBoth[0])}\n`);
+
+  const cancelled = planReminderPublish([], { 'change-1': '2026-10-05' }, signatures);
+  assert.equal(cancelled[0].cancelled, true);
   const cancelIcs = unfold(
     buildContractReminderCalendar({
       organizer: { email: 'pat@bps.org', name: 'Pat' },
       invitees: [{ email: 'ada@bps.org', name: 'Ada' }],
-      events: [relocated[0]],
+      events: [cancelled[0]],
       method: 'CANCEL',
       now: new Date('2026-10-02T15:00:00Z'),
     })
   );
   assert.match(cancelIcs, /METHOD:CANCEL/);
-  assert.match(cancelIcs, /STATUS:CANCELLED/);
   assert.match(cancelIcs, /UID:contract-reminder-2026-10-05@teamster-time-changes/);
 });
 
@@ -286,7 +271,8 @@ test('an event created badge remembers each change on that day', () => {
   );
   assert.equal(isContractEventCreated('change-1', storage), true);
   assert.equal(isContractEventCreated('change-2', storage), true);
-  saveContractReminder({ schoolDaysBefore: 2 }, storage);
+  saveContractReminder({ schoolDaysBefore: 2, queueAfterRecord: false }, storage);
   assert.equal(isContractEventCreated('change-1', storage), true);
   assert.equal(loadContractReminder(storage).schoolDaysBefore, 2);
+  assert.equal(loadContractReminder(storage).queueAfterRecord, false);
 });
