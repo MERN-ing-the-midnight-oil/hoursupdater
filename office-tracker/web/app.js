@@ -1635,6 +1635,19 @@ document.querySelector('#notice-queue')?.addEventListener('change', (event) => {
   syncNoticeSelection('#notice-queue');
 });
 
+document.querySelector('#contract-time-change-calendar-open')?.addEventListener('click', () => {
+  const button = document.querySelector('#contract-time-change-calendar-open');
+  const panel = document.querySelector('#contract-time-change-calendar');
+  if (!button || !panel) return;
+  const open = button.getAttribute('aria-expanded') !== 'true';
+  button.setAttribute('aria-expanded', open ? 'true' : 'false');
+  button.title = open
+    ? 'Hide contract time-change calendar'
+    : 'Show contract time-change calendar';
+  panel.hidden = !open;
+  if (open) renderContractTimeChangeCalendar();
+});
+
 document.querySelector('#contract-accept-queue')?.addEventListener('click', (event) => {
   const record = event.target.closest('.js-record-contract');
   if (record) {

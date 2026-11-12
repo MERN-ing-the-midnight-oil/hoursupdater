@@ -2262,7 +2262,34 @@
             <path d="M12 17h.01" />
           </svg>
           Contract time-changes
+          <button
+            type="button"
+            class="panel-title-calendar"
+            id="contract-time-change-calendar-open"
+            aria-expanded="false"
+            aria-controls="contract-time-change-calendar"
+            title="Show contract time-change calendar"
+          >
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <path d="M16 2v4" />
+              <path d="M8 2v4" />
+              <path d="M3 10h18" />
+              <path d="M12 13l3 5H9z" />
+            </svg>
+            <span class="visually-hidden">Contract time-change calendar</span>
+          </button>
         </h1>
+        <div id="contract-time-change-calendar" class="contract-time-change-calendar-panel" hidden>
+          <p id="contract-time-change-calendar-summary" class="field-hint"></p>
+          <div id="contract-time-change-calendar-key"></div>
+          <p class="field-hint">
+            Triangles mark suggested or accepted contracted-hour dates with the
+            route number. Hover a mark or the key for details. Light shading marks
+            each end-of-month bid period.
+          </p>
+          <div id="contract-time-change-calendar-months" class="calendar-months contract-notice-calendar-months"></div>
+        </div>
         <p class="lead">
           Teamster countdown rules suggest when route clock-time changes become
           contracted hours. Record this Contract Change makes those hours the legal
@@ -2438,31 +2465,6 @@
           </form>
         </details>
 
-        <details id="contract-time-change-calendar" class="notice-queue tone-calendar" open>
-          <summary>
-            <h2>
-              <span class="section-ico" aria-hidden="true">
-                <svg class="icon" viewBox="0 0 24 24">
-                  <rect x="3" y="4" width="18" height="18" rx="2" />
-                  <path d="M16 2v4" />
-                  <path d="M8 2v4" />
-                  <path d="M3 10h18" />
-                  <path d="M12 13l3 5H9z" />
-                </svg>
-              </span>
-              Contract time-change calendar
-            </h2>
-            <p id="contract-time-change-calendar-summary" class="field-hint"></p>
-          </summary>
-          <div id="contract-time-change-calendar-key"></div>
-          <p class="field-hint">
-            Triangles mark suggested or accepted contracted-hour dates with the
-            route number. Hover a mark or the key for details. Light shading marks
-            each end-of-month bid period.
-          </p>
-          <div id="contract-time-change-calendar-months" class="calendar-months contract-notice-calendar-months"></div>
-        </details>
-
         <details id="contract-notice-queue" class="notice-queue tone-notices">
           <summary>
             <h2>
@@ -2577,7 +2579,7 @@
           <p class="field-hint">
             Every written determination letter appears on its Send by date with
             that letter’s icon and the route number. Contracted-hour dates use
-            the triangle calendar above.
+            the calendar icon on Contract time-changes.
           </p>
           <div id="contract-notice-calendar-months" class="calendar-months contract-notice-calendar-months"></div>
         </details>

@@ -1491,6 +1491,51 @@ button.secondary#open-drivers:focus-visible {
   }
 }
 
+.panel-title-calendar {
+  margin-left: auto;
+  margin-top: 0.05rem;
+  width: 2rem;
+  height: 2rem;
+  min-width: 2rem;
+  padding: 0;
+  border-color: var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--muted);
+  box-shadow: none;
+}
+
+.panel-title-calendar .icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-top: 0;
+}
+
+.panel-title-calendar:hover,
+.panel-title-calendar:focus-visible {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.panel-title-calendar[aria-expanded='true'] {
+  background: var(--clocking-hot);
+  border-color: var(--clocking);
+  color: var(--clocking-deep);
+}
+
+.contract-time-change-calendar-panel {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--clocking) 35%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--clocking-hot) 55%, #fff);
+}
+
+.contract-time-change-calendar-panel > .field-hint:first-child {
+  margin-top: 0;
+}
+
 .contract-time-change-key {
   display: flex;
   flex-wrap: wrap;
