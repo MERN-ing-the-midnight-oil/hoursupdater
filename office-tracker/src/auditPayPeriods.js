@@ -108,3 +108,35 @@ export function auditSchoolYearLabel(state, today = new Date()) {
 export function auditPayPeriodRules(state) {
   return normalizePayPeriods(state?.clockPayDefaults?.periods);
 }
+
+/**
+ * Default selected pay-period end: the next ending on or after today, else the latest past.
+ * @param {Array<{ iso: string }> | null | undefined} periods
+ * @param {Date} [today]
+ */
+export function defaultPayPeriodIso(periods, today = new Date()) {
+  const list = Array.isArray(periods) ? periods : [];
+  if (!list.length) return '';
+  const todayIso = isoFromDate(today);
+  const upcoming = list.find((period) => String(period?.iso || '') >= todayIso);
+  if (upcoming?.iso) return upcoming.iso;
+  return String(list.at(-1)?.iso || '');
+}
+
+/**
+ * Warn when a card sticker date is a different pay-period ending than the desk selection.
+ * @param {string | null | undefined} selectedIso
+ * @param {unknown} dateOnCard
+ * @param {Array<{ iso: string, label?: string }> | null | undefined} periods
+ * @returns {string | null}
+ */
+export function payPeriodMismatchWarning(selectedIso, dateOnCard, periods = []) {
+  const selected = String(selectedIso || '').trim();
+  const stickerIso = parseCardPeriodEnd(dateOnCard);
+  if (!selected || !stickerIso || selected === stickerIso) return null;
+  const selectedLabel =
+    (Array.isArray(periods) ? periods.find((period) => period.iso === selected)?.label : null) ||
+    selected;
+  const stickerLabel = String(dateOnCard ?? '').trim() || stickerIso;
+  return `This card’s sticker date (${stickerLabel}) is not the selected pay period ending ${selectedLabel}.`;
+}

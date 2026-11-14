@@ -97,13 +97,17 @@
               <rect class="px-genie-case" x="14" y="5" width="1" height="1" />
               <rect class="px-genie-case" x="5" y="14" width="1" height="1" />
               <rect class="px-genie-case" x="14" y="14" width="1" height="1" />
-              <rect class="px-genie-ink" x="6" y="6" width="5" height="1" />
-              <rect class="px-genie-ink" x="6" y="8" width="5" height="1" />
-              <rect class="px-genie-ink" x="6" y="10" width="5" height="1" />
-              <rect class="px-genie-ink" x="6" y="12" width="4" height="1" />
-              <rect class="px-genie-rule" x="12" y="6" width="1" height="7" />
-              <rect class="px-genie-gold" x="13" y="7" width="1" height="2" />
-              <rect class="px-genie-gold" x="13" y="10" width="1" height="2" />
+              <rect class="px-genie-ink" x="8" y="6" width="1" height="1" />
+              <rect class="px-genie-ink" x="7" y="7" width="2" height="1" />
+              <rect class="px-genie-gold" x="12" y="6" width="2" height="1" />
+              <rect class="px-genie-gold" x="11" y="7" width="2" height="1" />
+              <rect class="px-genie-gold" x="6" y="8" width="7" height="1" />
+              <rect class="px-genie-gold" x="5" y="9" width="9" height="2" />
+              <rect class="px-genie-gold" x="6" y="11" width="7" height="1" />
+              <rect class="px-genie-ink" x="7" y="12" width="5" height="1" />
+              <rect class="px-genie-gold" x="6" y="13" width="7" height="1" />
+              <rect class="px-genie-rule" x="7" y="9" width="2" height="2" />
+              <rect class="px-genie-hot" x="13" y="5" width="1" height="1" />
               <rect class="px-genie-gold" x="14" y="3" width="2" height="2" />
               <rect class="px-genie-hot" x="14" y="3" width="1" height="1" />
             </svg>
@@ -690,104 +694,85 @@
       </section>
 
       <section id="timecard-genie-view" class="panel" hidden>
-        <h1 class="panel-title">Timecard Genie</h1>
+        <header class="timesheet-genie-header">
+          <div class="timesheet-genie-header-copy">
+            <h1 class="panel-title">Timecard Genie</h1>
+            <p class="timesheet-genie-qr-lead">
+              Open this QR code to scan timecards with your phone
+            </p>
+            <div class="timesheet-period-bar">
+              <label for="timesheet-pay-period-select">Pay period ending</label>
+              <select id="timesheet-pay-period-select" aria-describedby="timesheet-period-mismatch"></select>
+            </div>
+            <p id="timesheet-period-mismatch" class="status is-error timesheet-period-mismatch" role="status" hidden></p>
+          </div>
+          <canvas
+            id="timesheet-phone-qr"
+            class="timesheet-phone-qr timesheet-genie-header-qr"
+            width="144"
+            height="144"
+            aria-label="QR code. Open with your phone to scan timecards."
+          ></canvas>
+        </header>
+        <div
+          id="timesheet-session"
+          class="timesheet-session timesheet-session-strip"
+          hidden
+          role="region"
+          aria-roledescription="carousel"
+          aria-labelledby="timesheet-session-label"
+        >
+          <div class="timesheet-session-toolbar">
+            <p class="timesheet-session-label" id="timesheet-session-label">This session</p>
+            <div class="actions timesheet-session-actions">
+              <button type="button" id="timesheet-session-next" hidden>Next card</button>
+              <button type="button" class="secondary" id="timesheet-session-clear">Clear session</button>
+            </div>
+          </div>
+          <div
+            id="timesheet-session-chips"
+            class="timesheet-session-chips"
+            role="list"
+            aria-labelledby="timesheet-session-label"
+          ></div>
+        </div>
         <p class="lead">
-          Photograph the front and back of a blue paper time card. Genie copies the card: the Clock Record
-          stamps and the Reg and OT already written on it. Type over any number it could not read.
-          Tot. Hrs. is calculated from the clocks. Reg and OT should only show hours worked past the
-          sticker contract (the line under the route number). A row turns red when written Reg and OT
-          do not match that residual — blank when Tot is at or under contract.
-          Photos are not kept, and this desk does not change any route.
+          Photograph the front and back of a sky-blue paper time card. When both sides arrive, Genie
+          submits them automatically and builds the card. Tot. Hrs., Reg, and OT are calculated on this
+          desk from the Clock Record stamps — not copied from the Hours columns. With a sticker contract,
+          Reg and OT show only hours worked past that contract (blank when Tot is at or under). Type over
+          any stamp it could not read. Use Retake front or Retake back on a constructed card when a side
+          needs another photo. Photos are not kept unless you save for printing, and this desk does not
+          change any route.
         </p>
         <form id="timesheet-form" class="timesheet-form" novalidate>
-          <div
-            class="timesheet-capture-source"
-            id="timesheet-capture-source"
-            role="group"
-            aria-label="How to take the card photos"
-          >
-            <button
-              type="button"
-              class="timesheet-capture-source-btn"
-              id="timesheet-source-phone"
-              data-capture-source="phone"
-              aria-pressed="true"
-            >
-              Use my phone
-            </button>
-            <button
-              type="button"
-              class="timesheet-capture-source-btn"
-              id="timesheet-source-computer"
-              data-capture-source="computer"
-              aria-pressed="false"
-            >
-              Use my computer
-            </button>
-          </div>
-          <div id="timesheet-computer-capture" class="timesheet-computer-capture" hidden>
-            <button type="button" id="timesheet-scan">Scan the card</button>
-            <div class="timesheet-sides">
-              <div class="timesheet-side" id="timesheet-front-side" hidden>
-                <h2>Front</h2>
-                <img id="timesheet-front-preview" class="timesheet-preview" alt="" hidden />
-              </div>
-              <div class="timesheet-side" id="timesheet-back-side" hidden>
-                <h2>Back</h2>
-                <img id="timesheet-back-preview" class="timesheet-preview" alt="" hidden />
-              </div>
-            </div>
-            <input id="timesheet-front" name="front" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" />
-            <input id="timesheet-back" name="back" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" />
-          </div>
+          <input id="timesheet-front" name="front" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" />
+          <input id="timesheet-back" name="back" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" />
           <div id="timesheet-phone-capture" class="timesheet-phone-capture">
-            <div class="timesheet-phone-capture-layout">
-              <canvas
-                id="timesheet-phone-qr"
-                class="timesheet-phone-qr"
-                width="288"
-                height="288"
-                aria-label="QR code. Scan with your phone to take the front and back photos."
-              ></canvas>
+            <div class="timesheet-phone-capture-layout timesheet-phone-capture-layout-solo">
               <div class="timesheet-phone-capture-copy">
-                <h2>Scan to take photos</h2>
-                <p class="lead" id="timesheet-phone-lead">
-                  Open the link on your phone (same Wi‑Fi as this computer). Take Front, then Back.
-                  Photos appear here automatically. Most phones open the Camera app from the button
-                  (flashlight works there). Live in-page preview only appears on HTTPS.
-                </p>
                 <p id="timesheet-phone-status" class="status" role="status" hidden></p>
-                <div class="timesheet-sides timesheet-phone-previews">
-                  <div class="timesheet-side">
-                    <h3>Front</h3>
-                    <img id="timesheet-phone-front-preview" class="timesheet-preview" alt="" hidden />
-                    <p id="timesheet-phone-front-state" class="timesheet-phone-state">Waiting…</p>
-                  </div>
-                  <div class="timesheet-side">
-                    <h3>Back</h3>
-                    <img id="timesheet-phone-back-preview" class="timesheet-preview" alt="" hidden />
-                    <p id="timesheet-phone-back-state" class="timesheet-phone-state">Waiting…</p>
-                  </div>
-                </div>
                 <label class="timesheet-print-save" for="timesheet-save-for-print">
                   <input id="timesheet-save-for-print" type="checkbox" />
                   Save for printing
                 </label>
                 <p class="field-hint" id="timesheet-print-save-hint">
                   When this is on, each finished front and back is also kept in this browser as a grayscale copy.
-                  A new QR code starts the next card. Originals stay on paper.
+                  After Genie reads the card, calculated Reg and OT are stamped onto that copy for printing.
+                  Each card gets its own print copy in this session — you can keep scanning on the same QR.
+                  Open Print copies and use Print range when you are ready. Originals stay on paper.
                 </p>
                 <div class="actions">
                   <button type="button" class="secondary" id="timesheet-phone-refresh">New QR code</button>
                   <button type="button" class="secondary" id="timesheet-print-open">Print copies</button>
+                  <button type="button" class="secondary" id="timesheet-clear">Clear</button>
                 </div>
               </div>
             </div>
           </div>
-          <div class="actions">
-            <button type="submit" id="timesheet-read">Submit the photos</button>
-            <button type="button" class="secondary" id="timesheet-clear">Clear</button>
-          </div>
+          <button type="submit" id="timesheet-read" class="visually-hidden" tabindex="-1" aria-hidden="true">
+            Submit the photos
+          </button>
         </form>
         <dialog id="timesheet-camera" class="timesheet-camera" aria-labelledby="timesheet-camera-title">
           <h2 id="timesheet-camera-title">Front of the time card</h2>
@@ -814,34 +799,8 @@
         </p>
         <div id="timesheet-result" hidden>
           <form id="timesheet-card-header" class="timesheet-card-header" autocomplete="off">
-            <h2 class="timesheet-card-header-title">Card header</h2>
+            <h2 class="timesheet-card-header-title">Contract runs &amp; pay status</h2>
             <div class="timesheet-card-header-fields">
-              <div class="field">
-                <label for="timesheet-header-driver">Driver</label>
-                <input
-                  id="timesheet-header-driver"
-                  name="driver"
-                  list="timesheet-driver-options"
-                  autocomplete="off"
-                  placeholder="Type or pick a name"
-                />
-                <datalist id="timesheet-driver-options"></datalist>
-              </div>
-              <div class="field">
-                <label for="timesheet-header-route">Route</label>
-                <input
-                  id="timesheet-header-route"
-                  name="route"
-                  list="timesheet-route-options"
-                  autocomplete="off"
-                  placeholder="Type or pick a route"
-                />
-                <datalist id="timesheet-route-options"></datalist>
-              </div>
-              <div class="field">
-                <label for="timesheet-header-contract">Contract hours</label>
-                <input id="timesheet-header-contract" name="contract_hours" inputmode="decimal" placeholder="Under the route number" />
-              </div>
               <div class="field">
                 <label for="timesheet-header-am">AM contract hours</label>
                 <input id="timesheet-header-am" name="am" inputmode="decimal" placeholder="—" />
@@ -862,8 +821,10 @@
               </div>
             </div>
             <p class="field-hint">
-              Contract hours are read from the sticker, the line under the route number. Type a number if that line could not be read. Rows turn red when Reg and OT do not match hours worked past that contract (blank when Tot is at or under). You can also type any illegible Reg or OT.
+              Name, route, date, and the contract line sit on the white sticker on the Front card — same place as the paper card. Split AM / midday / PM here when you need them. Rows turn red when Reg and OT do not match hours worked past that contract.
             </p>
+            <datalist id="timesheet-driver-options"></datalist>
+            <datalist id="timesheet-route-options"></datalist>
           </form>
           <p class="lead" id="timesheet-clock-lead">
             Edit the blue card after the read. Choose how Tot. Hrs. is calculated: snap each clock with office minute bands, or round the exact Out→In duration to the nearest quarter hour.
@@ -915,7 +876,67 @@
           <div class="timesheet-cards" id="timesheet-cards">
             <div class="timesheet-card-pair" data-side="front">
               <article class="timesheet-card-panel" aria-labelledby="timesheet-front-heading">
-                <h3 id="timesheet-front-heading">Front</h3>
+                <div class="timesheet-card-panel-head">
+                  <h3 id="timesheet-front-heading">Front</h3>
+                  <button type="button" class="secondary timesheet-retake-side" id="timesheet-retake-front" data-retake-side="front">
+                    Retake front
+                  </button>
+                </div>
+                <div class="timesheet-card-sticker" id="timesheet-card-sticker" aria-label="White sticker from the front of the card">
+                  <div class="timesheet-card-sticker-grid">
+                    <div class="timesheet-card-sticker-left">
+                      <label class="timesheet-card-sticker-field timesheet-card-sticker-driver">
+                        <span class="visually-hidden">Driver</span>
+                        <input
+                          id="timesheet-header-driver"
+                          name="driver"
+                          form="timesheet-card-header"
+                          list="timesheet-driver-options"
+                          autocomplete="off"
+                          placeholder="Last, First"
+                          spellcheck="false"
+                        />
+                      </label>
+                      <label class="timesheet-card-sticker-field timesheet-card-sticker-route">
+                        <span class="timesheet-card-sticker-route-label" aria-hidden="true">Route #</span>
+                        <span class="visually-hidden">Route number</span>
+                        <input
+                          id="timesheet-header-route"
+                          name="route"
+                          form="timesheet-card-header"
+                          list="timesheet-route-options"
+                          autocomplete="off"
+                          placeholder="—"
+                          spellcheck="false"
+                        />
+                      </label>
+                      <label class="timesheet-card-sticker-field timesheet-card-sticker-contract">
+                        <span class="visually-hidden">Contract hours</span>
+                        <input
+                          id="timesheet-header-contract"
+                          name="contract_hours"
+                          form="timesheet-card-header"
+                          inputmode="decimal"
+                          placeholder="5.25 (2, 3.25)"
+                          spellcheck="false"
+                        />
+                      </label>
+                    </div>
+                    <div class="timesheet-card-sticker-right">
+                      <label class="timesheet-card-sticker-field timesheet-card-sticker-date">
+                        <span class="visually-hidden">Date on card</span>
+                        <input
+                          id="timesheet-header-date"
+                          name="date_on_card"
+                          form="timesheet-card-header"
+                          inputmode="numeric"
+                          placeholder="M/DD/YY"
+                          spellcheck="false"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
                 <div class="table-wrap timesheet-card-wrap">
                   <table class="timesheet-card-sheet" id="timesheet-front-card">
                     <thead>
@@ -935,13 +956,13 @@
                   </table>
                 </div>
               </article>
-              <aside class="timesheet-snap-panel" aria-labelledby="timesheet-front-snap-heading">
-                <h3 id="timesheet-front-snap-heading">Snap rounded times</h3>
+              <aside class="timesheet-snap-panel" aria-labelledby="timesheet-front-snap-label">
+                <div class="timesheet-snap-sticker-spacer" aria-hidden="true"></div>
                 <div class="table-wrap timesheet-snap-wrap">
                   <table class="timesheet-snap-sheet" id="timesheet-front-snap">
                     <thead>
                       <tr>
-                        <th scope="col" data-timesheet-hours-mode-label>Snap rounded times</th>
+                        <th scope="col" id="timesheet-front-snap-label" data-timesheet-hours-mode-label>Snap rounded times</th>
                       </tr>
                     </thead>
                     <tbody></tbody>
@@ -951,7 +972,12 @@
             </div>
             <div class="timesheet-card-pair" data-side="back">
               <article class="timesheet-card-panel" aria-labelledby="timesheet-back-heading">
-                <h3 id="timesheet-back-heading">Back</h3>
+                <div class="timesheet-card-panel-head">
+                  <h3 id="timesheet-back-heading">Back</h3>
+                  <button type="button" class="secondary timesheet-retake-side" id="timesheet-retake-back" data-retake-side="back">
+                    Retake back
+                  </button>
+                </div>
                 <div class="table-wrap timesheet-card-wrap">
                   <table class="timesheet-card-sheet" id="timesheet-back-card">
                     <thead>
@@ -971,13 +997,12 @@
                   </table>
                 </div>
               </article>
-              <aside class="timesheet-snap-panel" aria-labelledby="timesheet-back-snap-heading">
-                <h3 id="timesheet-back-snap-heading">Snap rounded times</h3>
+              <aside class="timesheet-snap-panel" aria-labelledby="timesheet-back-snap-label">
                 <div class="table-wrap timesheet-snap-wrap">
                   <table class="timesheet-snap-sheet" id="timesheet-back-snap">
                     <thead>
                       <tr>
-                        <th scope="col" data-timesheet-hours-mode-label>Snap rounded times</th>
+                        <th scope="col" id="timesheet-back-snap-label" data-timesheet-hours-mode-label>Snap rounded times</th>
                       </tr>
                     </thead>
                     <tbody></tbody>
@@ -998,7 +1023,9 @@
           <dialog id="timesheet-print-dialog" class="timesheet-desc-dialog timesheet-print-dialog" aria-labelledby="timesheet-print-title">
             <h2 id="timesheet-print-title">Print copies</h2>
             <p class="lead" id="timesheet-print-lead">
-              Crop any card, then print the whole set or a numbered range. Front and back print as separate pages.
+              Crop any card, then print a numbered range (or the whole set). Front and back print as separate pages
+              in one document. When Genie has calculated Reg and OT for that card, those hours are straightened onto
+              the photocopy so you do not have to copy them by hand.
             </p>
             <div id="timesheet-print-list"></div>
             <div id="timesheet-print-crop" class="timesheet-print-crop" hidden>
@@ -1031,8 +1058,8 @@
             </div>
             <p id="timesheet-print-status" class="status" role="status" hidden></p>
             <div class="actions">
-              <button type="button" id="timesheet-print-all">Print all</button>
-              <button type="button" class="secondary" id="timesheet-print-range-btn">Print range</button>
+              <button type="button" id="timesheet-print-range-btn">Print range</button>
+              <button type="button" class="secondary" id="timesheet-print-all">Print all</button>
               <button type="button" class="secondary" id="timesheet-print-close">Close</button>
             </div>
           </dialog>
@@ -3130,11 +3157,10 @@
         </div>
       </div>
       <section id="kiosk-list">
-        <section id="kiosk-route-coverage" class="kiosk-route-coverage" aria-label="Route Coverage Today"></section>
         <div id="kiosk-roster" class="kiosk-roster"></div>
         <section id="kiosk-substitute-panel-main" class="kiosk-substitute-panel-main">
           <h2 class="kiosk-substitute-heading">Substitute drivers</h2>
-          <p class="kiosk-substitute-lead">Assigned coverage shows as a route button with the substitute name. Tap it to certify and clock in.</p>
+          <p class="kiosk-substitute-lead">Assigned coverage from Route Coverage Today shows as a route button with the substitute name. Tap it to certify and clock in.</p>
           <div id="kiosk-substitute-list" class="kiosk-substitute-list"></div>
           <p id="kiosk-substitute-empty" class="kiosk-empty" hidden>
             No substitute drivers yet.

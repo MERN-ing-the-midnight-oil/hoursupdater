@@ -1,8 +1,10 @@
 import { jsPDF } from 'jspdf';
+import { detectCardQuad } from './timecardQuadDetect.js';
+import { annotateCardJpeg } from './timecardWarp.js';
 
 const DB_NAME = 'teamster-timesheet-print';
 const STORE = 'cards';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const MAX_EDGE = 2600;
 
 export const FULL_PRINT_CROP = { x: 0, y: 0, w: 1, h: 1 };
@@ -23,6 +25,22 @@ export function clampPrintCrop(rect) {
   if (x + w > 1) x = 1 - w;
   if (y + h > 1) y = 1 - h;
   return { x, y, w, h };
+}
+
+/**
+ * Compact Reg/OT snapshot for one card side (null when blank).
+ * @param {object[] | null | undefined} rows
+ * @returns {{ reg: number | null, ot: number | null }[]}
+ */
+export function hoursFromCardRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((row) => {
+    const reg = Number(row?.hours_regular ?? row?.written_regular);
+    const ot = Number(row?.hours_overtime ?? row?.written_overtime);
+    return {
+      reg: Number.isFinite(reg) && reg !== 0 ? reg : null,
+      ot: Number.isFinite(ot) && ot !== 0 ? ot : null,
+    };
+  });
 }
 
 function openDb() {
@@ -128,11 +146,39 @@ export async function upsertPrintCard(id, front, back) {
       createdAt: existing?.createdAt || Date.now(),
       front,
       back,
-      frontCrop: { ...FULL_PRINT_CROP },
-      backCrop: { ...FULL_PRINT_CROP },
+      frontCrop: existing?.frontCrop ? clampPrintCrop(existing.frontCrop) : { ...FULL_PRINT_CROP },
+      backCrop: existing?.backCrop ? clampPrintCrop(existing.backCrop) : { ...FULL_PRINT_CROP },
+      frontHours: Array.isArray(existing?.frontHours) ? existing.frontHours : null,
+      backHours: Array.isArray(existing?.backHours) ? existing.backHours : null,
     };
     await requestToPromise(db.transaction(STORE, 'readwrite').objectStore(STORE).put(record, key));
     return record;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Attach Genie-calculated Reg/OT (and optional driver label) to an existing print copy.
+ * @param {string} id
+ * @param {{ front?: object[] | null, back?: object[] | null, front_rows?: object[] | null, back_rows?: object[] | null, header?: { employee_name?: string | null } | null } | null | undefined} extractionOrRows
+ */
+export async function attachPrintHours(id, extractionOrRows) {
+  const key = String(id || '').trim();
+  if (!key) return null;
+  const frontRows = extractionOrRows?.front_rows ?? extractionOrRows?.front ?? null;
+  const backRows = extractionOrRows?.back_rows ?? extractionOrRows?.back ?? null;
+  const driverName = String(extractionOrRows?.header?.employee_name || '').trim();
+  const db = await openDb();
+  try {
+    const existing = await requestToPromise(db.transaction(STORE, 'readonly').objectStore(STORE).get(key));
+    if (!existing) return null;
+    existing.frontHours = hoursFromCardRows(frontRows);
+    existing.backHours = hoursFromCardRows(backRows);
+    existing.hoursUpdatedAt = Date.now();
+    if (driverName) existing.driverName = driverName;
+    await requestToPromise(db.transaction(STORE, 'readwrite').objectStore(STORE).put(existing, key));
+    return existing;
   } finally {
     db.close();
   }
@@ -191,9 +237,39 @@ function blobToDataUrl(blob) {
   });
 }
 
+function sideHasHours(hours) {
+  return Array.isArray(hours) && hours.some((slot) => slot && (slot.reg != null || slot.ot != null));
+}
+
 /**
- * Letter pages: each card is front, then back.
+ * Crop, straighten, and burn Reg/OT for one side.
+ * @param {object} card
+ * @param {'front' | 'back'} side
+ */
+export async function prepareAnnotatedSide(card, side) {
+  const blob = side === 'back' ? card.back : card.front;
+  const crop = side === 'back' ? card.backCrop : card.frontCrop;
+  const hours = side === 'back' ? card.backHours : card.frontHours;
+  const cropped = await cropJpegBlob(blob, crop || FULL_PRINT_CROP);
+  if (!sideHasHours(hours)) {
+    return {
+      blob: cropped,
+      stamped: 0,
+      confidence: 'n/a',
+      warning: null,
+      missingHours: true,
+    };
+  }
+  return {
+    ...(await annotateCardJpeg(cropped, side, hours, { detectQuad: detectCardQuad })),
+    missingHours: false,
+  };
+}
+
+/**
+ * Letter pages: each card is front, then back. Reg/OT burned when linked hours exist.
  * @param {object[]} cards
+ * @returns {Promise<{ blob: Blob, warnings: string[] }>}
  */
 export async function buildPrintPdfBlob(cards) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter', compress: true });
@@ -203,13 +279,27 @@ export async function buildPrintPdfBlob(cards) {
   const innerW = pageW - margin * 2;
   const innerH = pageH - margin * 2;
   let started = false;
+  /** @type {string[]} */
+  const warnings = [];
+  let index = 0;
   for (const card of cards) {
-    const front = await cropJpegBlob(card.front, card.frontCrop || FULL_PRINT_CROP);
-    const back = await cropJpegBlob(card.back, card.backCrop || FULL_PRINT_CROP);
-    for (const blob of [front, back]) {
+    index += 1;
+    const label = `Card ${index}`;
+    const front = await prepareAnnotatedSide(card, 'front');
+    const back = await prepareAnnotatedSide(card, 'back');
+    if (front.missingHours && back.missingHours) {
+      warnings.push(`${label}: no Genie Reg/OT linked yet — photo only.`);
+    } else if (front.missingHours) {
+      warnings.push(`${label} front: no Reg/OT linked — photo only.`);
+    } else if (back.missingHours) {
+      warnings.push(`${label} back: no Reg/OT linked — photo only.`);
+    }
+    if (front.warning) warnings.push(`${label} front: ${front.warning}`);
+    if (back.warning) warnings.push(`${label} back: ${back.warning}`);
+    for (const side of [front, back]) {
       if (started) doc.addPage();
       started = true;
-      const url = await blobToDataUrl(blob);
+      const url = await blobToDataUrl(side.blob);
       const props = doc.getImageProperties(url);
       const scale = Math.min(innerW / props.width, innerH / props.height);
       const width = props.width * scale;
@@ -219,7 +309,7 @@ export async function buildPrintPdfBlob(cards) {
       doc.addImage(url, 'JPEG', x, y, width, height);
     }
   }
-  return doc.output('blob');
+  return { blob: doc.output('blob'), warnings };
 }
 
 export function printPdfBlob(blob) {

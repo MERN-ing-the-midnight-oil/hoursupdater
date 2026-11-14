@@ -47,18 +47,21 @@ describe('timecard genie phone capture share', () => {
     assert.equal(share.getPhoto(opened.token, 'back')?.mime, 'image/jpeg');
   });
 
-  it('restarts a session so the phone can take front and back again', () => {
+  it('keeps both photos until restart so the desk can download the back', () => {
     const share = createTimesheetCaptureShare({ token: () => 'again' });
     const opened = share.open();
     const tiny = Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString('base64');
     share.putPhoto(opened.token, 'front', { mime: 'image/jpeg', data: tiny });
     share.putPhoto(opened.token, 'back', { mime: 'image/jpeg', data: tiny });
     assert.equal(share.read(opened.token)?.ready, true);
+    // Desk must be able to fetch back before anyone clears the pair.
+    assert.equal(share.getPhoto(opened.token, 'back')?.mime, 'image/jpeg');
     const restarted = share.restart(opened.token);
     assert.equal(restarted?.front, false);
     assert.equal(restarted?.back, false);
     assert.equal(restarted?.ready, false);
     assert.equal(share.getPhoto(opened.token, 'front'), null);
+    assert.equal(share.getPhoto(opened.token, 'back'), null);
   });
 
   it('expires sessions and rejects bad uploads', () => {

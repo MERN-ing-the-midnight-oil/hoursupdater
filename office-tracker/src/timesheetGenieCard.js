@@ -13,8 +13,9 @@ import { localDateKey } from '../../src/logic/timesheets.js';
 export const GENIE_CARD_SYSTEM = `You read one side of a sky-blue paper timecard.
 
 Look only at the far-right "Clock Record" column. Ignore every other column.
-Read every Clock Record line from the top of the column to the bottom.
-Front has exactly ${FRONT_LINE_COUNT} lines. Back has exactly ${BACK_LINE_COUNT} lines.
+Read every printed Clock Record line from the top of the column to the bottom.
+Front has exactly ${FRONT_LINE_COUNT} printed lines. Back has exactly ${BACK_LINE_COUNT} printed lines.
+A line is only a printed stamp row in that column. The blank bottom margin, border, and card edge below the last printed line are not Clock Record lines — do not count them, and do not shift stamps down to invent an extra bottom null.
 
 For each line return one of:
 - null — blank
@@ -45,7 +46,8 @@ Right column: date_on_card as MM/DD/YY or M/DD/YY.
 Use null when a part is not clearly visible. Do not invent sticker fields from the stamps.`
       : 'Set employee_name, route_number, contract_hours, and date_on_card to null. This is the back. The sticker is only on the front.';
   return `This photo is the ${side.toUpperCase()} of a sky-blue paper timecard.
-Fill report_genie_card with exactly ${lineCount} Clock Record lines, top to bottom.
+Fill report_genie_card with exactly ${lineCount} printed Clock Record lines, top to bottom.
+Put each stamp on the printed line it sits in. The blank bottom margin and card edge are not lines — do not add them as an extra null or shift stamps down.
 
 For each line:
 - null — blank
@@ -75,8 +77,8 @@ export function genieCardTool(lineCount, options = {}) {
   return {
     name: 'report_genie_card',
     description: sticker
-      ? `Report exactly ${lineCount} Clock Record lines plus the front sticker fields.`
-      : `Report exactly ${lineCount} Clock Record lines. Sticker fields are null on the back.`,
+      ? `Report exactly ${lineCount} printed Clock Record lines plus the front sticker fields.`
+      : `Report exactly ${lineCount} printed Clock Record lines. Sticker fields are null on the back.`,
     input_schema: {
       type: 'object',
       additionalProperties: false,
@@ -105,7 +107,7 @@ export function genieCardTool(lineCount, options = {}) {
           type: 'array',
           minItems: lineCount,
           maxItems: lineCount,
-          description: `${lineCount} Clock Record lines from top to bottom.`,
+          description: `${lineCount} printed Clock Record lines from top to bottom (not the bottom margin).`,
           items: stampLine,
         },
       },
@@ -242,9 +244,10 @@ function writtenOf(row, field) {
 }
 
 /**
- * Fill Reg / OT from clocks + contract hours (Genie does the math).
- * One residual past contract for the date goes on the first clocked row;
- * other same-day rows are cleared. Without contract hours, Reg / OT stay blank.
+ * Fill Reg / OT on the app side from snapped clocks (Genie never reads those cells).
+ * Without contract hours: each row gets the overtime-rules split of its Tot. Hrs.
+ * With contract hours: only the residual past contract for that date, on the first
+ * clocked row; other same-day rows are cleared. At or under contract both stay blank.
  * Mutates `hours_regular` / `hours_overtime` and the written_* fields used by the card.
  * @param {object[] | null | undefined} frontRows
  * @param {object[] | null | undefined} backRows
@@ -257,31 +260,25 @@ export function applyContractRegOtRows(frontRows, backRows, contractHours, optio
   const contract = Number(contractHours);
   const hasContract = Number.isFinite(contract) && contract > 0;
 
-  if (!hasContract) {
-    for (const rows of lists) {
-      for (const row of rows) {
-        if (!row) continue;
-        const snapped = snapRoundedForRow(row, options.breaks, year, options.mode);
-        if (snapped.totalHours == null) continue;
-        clearRegOtWriting(row);
-      }
-    }
-    return;
-  }
-
   const clones = lists.map((rows) =>
     rows.map((row) => ({ ...(row || {}), hours_regular: null, hours_overtime: null }))
   );
-  /** @type {string[]} */
-  const dayKeys = [];
-  for (const rows of clones) {
-    for (const row of rows) {
-      const snapped = snapRoundedForRow(row, options.breaks, year, options.mode);
-      if (snapped.totalHours == null || !snapped.spanStart) continue;
-      dayKeys.push(localDateKey(snapped.spanStart));
+
+  /** @type {Map<string, string> | null} */
+  let contractedByDay = null;
+  if (hasContract) {
+    /** @type {string[]} */
+    const dayKeys = [];
+    for (const rows of clones) {
+      for (const row of rows) {
+        const snapped = snapRoundedForRow(row, options.breaks, year, options.mode);
+        if (snapped.totalHours == null || !snapped.spanStart) continue;
+        dayKeys.push(localDateKey(snapped.spanStart));
+      }
     }
+    contractedByDay = new Map(dayKeys.map((key) => [key, String(contract)]));
   }
-  const contractedByDay = new Map(dayKeys.map((key) => [key, String(contract)]));
+
   splitTotHoursIntoRegOt(clones, {
     breaks: options.breaks,
     rules: options.rules,
@@ -295,7 +292,10 @@ export function applyContractRegOtRows(frontRows, backRows, contractHours, optio
     rows.forEach((row, index) => {
       if (!row) return;
       const snapped = snapRoundedForRow(row, options.breaks, year, options.mode);
-      if (snapped.totalHours == null) return;
+      if (snapped.totalHours == null) {
+        clearRegOtWriting(row);
+        return;
+      }
       const calc = clones[listIndex][index];
       writeRegOt(row, calc?.hours_regular, calc?.hours_overtime);
     });

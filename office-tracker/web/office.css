@@ -4067,7 +4067,6 @@ form.school-year-form {
   min-height: 12rem;
 }
 
-#kiosk-list .kiosk-route-coverage,
 #kiosk-list .kiosk-substitute-panel-main {
   flex: 0 0 auto;
 }
@@ -6636,6 +6635,45 @@ body.is-timeclock {
   margin-bottom: 0.75rem;
 }
 
+.timesheet-genie-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem 1.25rem;
+  margin-bottom: 0.85rem;
+}
+
+.timesheet-genie-header-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  flex: 1 1 14rem;
+}
+
+.timesheet-genie-header .panel-title {
+  margin: 0;
+}
+
+.timesheet-genie-qr-lead {
+  margin: 0;
+  color: var(--muted, #5c6b7a);
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.timesheet-genie-header-qr {
+  flex: 0 0 auto;
+  width: 9rem;
+  max-width: 36vw;
+  height: auto;
+  border: 1px solid var(--genie-rule, #7eb6d6);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  box-shadow: 0 1px 0 rgba(31, 75, 102, 0.06);
+}
+
 .timesheet-capture-source {
   display: inline-flex;
   flex-wrap: wrap;
@@ -6696,12 +6734,21 @@ body.is-timeclock {
   background: var(--genie-case, #eef6fb);
 }
 
+.timesheet-phone-capture-layout-solo {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .timesheet-phone-qr {
   display: block;
   width: min(18rem, 70vw);
   height: auto;
   border-radius: var(--radius-sm);
   background: #fff;
+}
+
+.timesheet-phone-qr.timesheet-genie-header-qr {
+  width: 9rem;
+  max-width: 36vw;
 }
 
 .timesheet-phone-capture-copy {
@@ -6741,6 +6788,103 @@ body.is-timeclock {
   gap: 0.45rem;
   font-weight: 650;
   color: #1f4b66;
+}
+
+.timesheet-session {
+  margin: 0.85rem 0 1rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #c5d6e2;
+  border-radius: 0.55rem;
+  background: linear-gradient(180deg, #f7fbfd 0%, #eef5f9 100%);
+}
+
+.timesheet-session-strip {
+  width: calc(100% + 2.8rem);
+  max-width: none;
+  margin: 0.15rem 0 1rem;
+  margin-left: -1.4rem;
+  margin-right: -1.4rem;
+  padding: 0.7rem 1.15rem 0.8rem;
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  border-color: #b7d0df;
+  background: linear-gradient(180deg, #f3f9fc 0%, #e6f1f8 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.timesheet-session-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.55rem;
+}
+
+.timesheet-session-label {
+  margin: 0;
+  font-weight: 700;
+  color: #1f4b66;
+}
+
+.timesheet-session-actions {
+  margin: 0;
+}
+
+.timesheet-session-chips {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.45rem;
+  overflow-x: auto;
+  padding: 0.1rem 0.1rem 0.35rem;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+
+.timesheet-session-chip {
+  flex: 0 0 auto;
+  appearance: none;
+  border: 1px solid #9bb4c5;
+  border-radius: 999px;
+  padding: 0.42rem 0.85rem;
+  background: #fff;
+  color: #1f4b66;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+  scroll-snap-align: start;
+}
+
+.timesheet-session-chip:hover,
+.timesheet-session-chip:focus-visible {
+  border-color: #1f4b66;
+  outline: 2px solid #9bb4c5;
+  outline-offset: 1px;
+}
+
+.timesheet-session-chip.is-active {
+  background: #1f4b66;
+  border-color: #1f4b66;
+  color: #fff;
+}
+
+.timesheet-session-chip.is-needs-review {
+  border-color: #b45309;
+  color: #9a3412;
+}
+
+.timesheet-session-chip.is-active.is-needs-review {
+  background: #9a3412;
+  border-color: #9a3412;
+  color: #fff;
+}
+
+.timesheet-session-chip.is-reading {
+  border-style: dashed;
+  opacity: 0.85;
 }
 
 .timesheet-print-dialog {
@@ -6819,6 +6963,15 @@ body.is-timeclock {
 @media (max-width: 720px) {
   .timesheet-phone-capture-layout {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .timesheet-genie-header {
+    align-items: flex-start;
+  }
+
+  .timesheet-genie-header-qr,
+  .timesheet-phone-qr.timesheet-genie-header-qr {
+    width: 7.5rem;
   }
 }
 
@@ -7141,17 +7294,21 @@ body.is-genie-app #timesheet-read:focus-visible {
 
 .timesheet-cards {
   --timesheet-row-height: 52px;
+  --timesheet-card-heading-block: calc(1.65rem + 0.65rem);
+  --timesheet-sticker-block: 4.85rem;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 0.75rem 0.85rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.85rem;
   align-items: start;
+  width: 100%;
+  min-width: 0;
   margin: 1rem 0 0.5rem;
 }
 
 .timesheet-card-pair {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 7.4rem;
-  gap: 0.45rem;
+  grid-template-columns: minmax(0, 1fr) minmax(6.75rem, 8rem);
+  gap: 0.55rem;
   align-items: start;
   width: 100%;
   max-width: 100%;
@@ -7163,31 +7320,64 @@ body.is-genie-app #timesheet-read:focus-visible {
   padding: 0.55rem 0.45rem;
   width: auto;
   min-width: 0;
-  max-width: none;
+  max-width: 100%;
+  overflow: hidden;
   border: 1px solid var(--genie-rule, #7eb6d6);
   border-radius: var(--radius-sm);
   background: var(--genie-case, #eef6fb);
 }
 
-.timesheet-card-panel h3,
-.timesheet-snap-panel h3 {
+.timesheet-card-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem 0.65rem;
+  margin: 0 0 0.65rem;
+  min-height: 1.65rem;
+}
+
+.timesheet-card-panel-head h3 {
   display: flex;
   align-items: center;
   box-sizing: border-box;
+  margin: 0;
   height: 1.65rem;
-  margin: 0 0 0.65rem;
   font-size: 1.15rem;
   line-height: 1.15;
 }
 
-.timesheet-snap-panel h3 {
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.timesheet-retake-side {
+  margin: 0;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.timesheet-period-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.65rem;
+  margin: 0.65rem 0 0;
+}
+
+.timesheet-period-bar label {
+  font-size: 0.88rem;
+  font-weight: 650;
+  color: #1f4b66;
+}
+
+.timesheet-period-bar select {
+  min-width: 11rem;
+  max-width: 100%;
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+}
+
+.timesheet-period-mismatch {
+  margin: 0.45rem 0 0;
+  max-width: 36rem;
 }
 
 .timesheet-hours-mode {
@@ -7259,19 +7449,135 @@ body.is-genie-app #timesheet-read:focus-visible {
 
 .timesheet-snap-panel {
   margin: 0;
-  padding: 0.55rem 0.35rem;
+  padding: calc(0.55rem + var(--timesheet-card-heading-block)) 0.35rem 0.55rem;
   border: 1px solid #c5d0da;
   border-radius: var(--radius-sm);
   background: #f7f9fb;
-  width: 7.4rem;
+  width: auto;
   min-width: 0;
-  max-width: 7.4rem;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.timesheet-snap-sticker-spacer {
+  box-sizing: border-box;
+  height: var(--timesheet-sticker-block);
+  margin: 0 0 0.55rem;
+}
+
+.timesheet-card-sticker {
+  box-sizing: border-box;
+  width: min(58%, 16.5rem);
+  min-height: var(--timesheet-sticker-block);
+  margin: 0 0 0.65rem;
+  padding: 0.5rem 0.55rem 0.55rem;
+  border: 1px solid #a8a89e;
+  border-radius: 0.1rem;
+  background: #fffef9;
+  box-shadow:
+    0 1px 0 rgba(28, 36, 48, 0.12),
+    0 3px 7px rgba(28, 36, 48, 0.1);
+  position: relative;
+}
+
+.timesheet-card-sticker::before {
+  content: 'Sticker';
+  position: absolute;
+  top: -0.55rem;
+  left: 0.45rem;
+  padding: 0 0.3rem;
+  background: var(--genie-case, #eef6fb);
+  color: #3a5163;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.timesheet-card-sticker-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem 0.55rem;
+  align-items: start;
+}
+
+.timesheet-card-sticker-left {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.timesheet-card-sticker-right {
+  min-width: 4.4rem;
+  padding-top: 0.05rem;
+}
+
+.timesheet-card-sticker-field {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  margin: 0;
+  min-width: 0;
+}
+
+.timesheet-card-sticker-route-label {
+  flex: 0 0 auto;
+  font-family: "American Typewriter", "Courier New", Courier, monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #2a2a2a;
+  white-space: nowrap;
+}
+
+.timesheet-card-sticker input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0.05rem 0.1rem;
+  border: 1px solid transparent;
+  border-radius: 0.15rem;
+  background: transparent;
+  color: #1c1c1c;
+  font-family: "American Typewriter", "Courier New", Courier, monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.timesheet-card-sticker-driver input {
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.timesheet-card-sticker-route input {
+  width: 3.6rem;
+  flex: 0 1 auto;
+}
+
+.timesheet-card-sticker-date input {
+  width: 4.4rem;
+  text-align: right;
+  font-size: 0.8rem;
+}
+
+.timesheet-card-sticker input:hover,
+.timesheet-card-sticker input:focus {
+  border-color: #9aa7b2;
+  background: #fff;
+  outline: none;
+}
+
+.timesheet-card-sticker input::placeholder {
+  color: #9a9a92;
+  font-weight: 500;
 }
 
 .timesheet-snap-wrap {
   margin: 0;
-  max-width: none;
-  contain: none;
+  max-width: 100%;
+  contain: inline-size;
 }
 
 .timesheet-snap-sheet {
@@ -7343,17 +7649,18 @@ body.is-genie-app #timesheet-read:focus-visible {
   cursor: default;
 }
 
-@media (max-width: 980px) {
+@media (min-width: 1400px) {
   .timesheet-cards {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.85rem 1rem;
   }
 }
 
 .timesheet-card-wrap {
   margin: 0;
-  overflow: visible;
-  max-width: none;
-  contain: none;
+  overflow-x: auto;
+  max-width: 100%;
+  contain: inline-size;
 }
 
 .timesheet-card-sheet {
@@ -8829,9 +9136,20 @@ body.audit-genie-page.is-driver-embed #audit-phone-capture {
 }
 
 /* Route Coverage Today */
-.route-coverage-panel,
-.kiosk-route-coverage {
-  margin: 0 0 1rem;
+.route-coverage-panel {
+  margin: 1rem 0 0;
+}
+
+.route-coverage-panel .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .route-coverage-desk {
@@ -8852,8 +9170,7 @@ body.audit-genie-page.is-driver-embed #audit-phone-capture {
 
 .route-coverage-lead,
 .route-coverage-summary,
-.route-coverage-empty,
-.route-coverage-assign-label {
+.route-coverage-empty {
   margin: 0;
 }
 
@@ -8862,98 +9179,451 @@ body.audit-genie-page.is-driver-embed #audit-phone-capture {
   color: var(--muted);
 }
 
+.route-coverage-jump {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+  max-width: 22rem;
+}
+
+.route-coverage-jump label {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.route-coverage-jump-row {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.route-coverage-jump-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.route-coverage-jump-status {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.route-coverage-jump-status.is-error {
+  color: #9b2c1f;
+}
+
+.route-coverage-gantt-panel {
+  margin-top: 0.15rem;
+}
+
+.route-coverage-gantt-empty,
+.route-coverage-gantt {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.75rem 0.85rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.95rem;
+  background: #fff;
+}
+
+.route-coverage-gantt-empty p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.route-coverage-gantt-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 1rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.route-coverage-gantt-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.route-coverage-gantt-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.85rem;
+  align-items: center;
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.route-coverage-swatch {
+  display: inline-block;
+  width: 0.85rem;
+  height: 0.85rem;
+  margin-right: 0.2rem;
+  border-radius: 2px;
+  vertical-align: -0.1rem;
+  border: 1px solid transparent;
+}
+
+.route-coverage-swatch.is-open {
+  background: #f97316;
+}
+
+.route-coverage-swatch.is-assigned {
+  background: #fbbf24;
+  border-color: #b45309;
+}
+
+.route-coverage-swatch.is-in {
+  background: #1f5c4a;
+}
+
+.route-coverage-gantt-scroll {
+  overflow-x: auto;
+}
+
+.route-coverage-gantt-grid {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(28rem, 1fr);
+  gap: 0.35rem 0.55rem;
+  align-items: center;
+  min-width: 34rem;
+}
+
+.route-coverage-gantt-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink);
+  display: grid;
+  gap: 0.1rem;
+  scroll-margin-block: 5rem;
+}
+
+.route-coverage-gantt-label strong {
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+}
+
+.route-coverage-gantt-sub {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #9a3412;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-coverage-gantt-scale,
+.route-coverage-gantt-track {
+  position: relative;
+}
+
+.route-coverage-gantt-scale {
+  height: 1.15rem;
+}
+
+.route-coverage-gantt-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: 0.68rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.route-coverage-gantt-track {
+  height: 2.35rem;
+  background:
+    repeating-linear-gradient(
+      to right,
+      transparent,
+      transparent calc(100% / var(--hours, 14) - 1px),
+      rgba(40, 55, 50, 0.1) calc(100% / var(--hours, 14) - 1px),
+      rgba(40, 55, 50, 0.1) calc(100% / var(--hours, 14))
+    ),
+    #f4f7f5;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  scroll-margin-block: 5rem;
+}
+
+.route-coverage-gantt-track.is-jump-target,
+.route-coverage-gantt-label.is-jump-target {
+  box-shadow: 0 0 0 3px rgba(31, 92, 74, 0.22);
+  border-radius: 4px;
+}
+
+.route-coverage-gantt-bar {
+  position: absolute;
+  top: 0.28rem;
+  height: 1.75rem;
+  min-width: 0.35rem;
+  border-radius: 3px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 0.22rem 0.35rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  font-weight: 700;
+  text-align: left;
+  border: 1px solid transparent;
+  cursor: pointer;
+  color: #1a1a1a;
+}
+
+.route-coverage-gantt-bar.is-open {
+  background: #fb923c;
+  border-color: #c2410c;
+  color: #1a1a1a;
+}
+
+.route-coverage-gantt-bar.is-assigned {
+  background: #fbbf24;
+  border-color: #b45309;
+}
+
+.route-coverage-gantt-bar.is-in {
+  background: #1f5c4a;
+  border-color: #16463a;
+  color: #fff;
+}
+
+.route-coverage-gantt-missing {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 0.55rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 .route-coverage-pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
+  gap: 1.1rem 1.35rem;
+  align-items: stretch;
 }
 
-button.route-coverage-pill {
+.route-coverage-route {
   display: grid;
-  gap: 0.12rem;
-  min-width: 7.5rem;
-  max-width: 12rem;
-  padding: 0.45rem 0.65rem;
-  border-radius: 999px;
-  border: 2px solid var(--line);
-  background: #fff;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.55rem 0.7rem;
+  align-items: center;
+  min-width: min(100%, 18rem);
+  max-width: 28rem;
+  padding: 0.55rem 0.65rem 0.6rem;
+  border: 1px solid #c5cdc8;
+  border-radius: 1.15rem;
+  background: #e8ebe9;
+  color: #5d675f;
+  outline: none;
+  scroll-margin-block: 5rem;
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+.route-coverage-route.is-drab {
+  filter: saturate(0.35);
+}
+
+.route-coverage-route.is-needs-sub {
+  border-color: #d97706;
+  background:
+    linear-gradient(135deg, rgba(255, 237, 213, 0.95), rgba(254, 243, 199, 0.92)),
+    #fff7ed;
   color: var(--ink);
-  text-align: left;
-  line-height: 1.15;
+  box-shadow:
+    0 0 0 2px rgba(217, 119, 6, 0.18),
+    0 8px 18px rgba(146, 64, 14, 0.12);
+  filter: none;
 }
 
-button.route-coverage-pill.is-regular {
-  border-color: #6f8790;
-  background: #eef3f5;
-}
-
-button.route-coverage-pill.is-substitute {
-  border-color: #b86b1c;
-  background: #fff4e5;
-}
-
-button.route-coverage-pill.is-uncovered {
-  border-color: #b23b2f;
-  background: #ffece9;
-  box-shadow: inset 0 0 0 1px rgba(178, 59, 47, 0.18);
-}
-
-button.route-coverage-pill.is-regular_in,
-button.route-coverage-pill.is-clocked_in {
+.route-coverage-route.is-jump-target {
   border-color: #1f5c4a;
-  background: #e7f5ef;
+  box-shadow: 0 0 0 3px rgba(31, 92, 74, 0.22);
 }
 
-button.route-coverage-pill.is-certified,
-button.route-coverage-pill.is-assigned {
-  border-style: solid;
-}
-
-.route-coverage-pill-route {
-  font-size: 0.78rem;
+button.route-coverage-route-number {
+  appearance: none;
+  font: inherit;
+  font-size: 2rem;
   font-weight: 800;
-  letter-spacing: 0.02em;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  min-width: 2.6rem;
+  padding: 0.15rem 0.2rem;
+  border: 0;
+  border-radius: 0.7rem;
+  background: transparent;
+  color: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.route-coverage-route.is-drab button.route-coverage-route-number:hover,
+.route-coverage-route.is-drab button.route-coverage-route-number:focus-visible {
+  background: rgba(255, 255, 255, 0.45);
+  color: #3f4a42;
+}
+
+.route-coverage-route.is-needs-sub button.route-coverage-route-number {
+  color: #9a3412;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.route-coverage-route.is-needs-sub button.route-coverage-route-number:hover,
+.route-coverage-route.is-needs-sub button.route-coverage-route-number:focus-visible {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.route-coverage-route-body {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.route-coverage-route-regular,
+.route-coverage-route-mark {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-coverage-route-regular {
+  color: inherit;
+  opacity: 0.82;
+}
+
+.route-coverage-route-mark {
+  color: inherit;
+  opacity: 0.7;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.route-coverage-route.is-needs-sub .route-coverage-route-mark {
+  color: #9a3412;
+  opacity: 1;
+  font-weight: 800;
+}
+
+.route-coverage-segments {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 2px solid rgba(90, 100, 94, 0.28);
+  background: #dfe3e0;
+}
+
+.route-coverage-route.is-needs-sub .route-coverage-segments {
+  border-color: rgba(180, 83, 9, 0.45);
+  background: #fff;
+}
+
+.route-coverage-segment {
+  flex: 1 1 0;
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+  padding: 0.35rem 0.45rem 0.4rem;
+  border: 0;
+  border-right: 1px solid rgba(40, 55, 50, 0.18);
+  background: #d7dcd8;
+  color: #606860;
+}
+
+.route-coverage-segment.is-last,
+.route-coverage-segment:last-child {
+  border-right: 0;
+}
+
+.route-coverage-segment.is-drab {
+  background: #d7dcd8;
+}
+
+.route-coverage-route.is-needs-sub .route-coverage-segment.is-regular {
+  background: #eef3f5;
+  color: var(--ink);
+}
+
+.route-coverage-route.is-needs-sub .route-coverage-segment.is-substitute,
+.route-coverage-route.is-needs-sub .route-coverage-segment.is-assigned,
+.route-coverage-route.is-needs-sub .route-coverage-segment.is-certified {
+  background: #fff4e5;
+  color: var(--ink);
+}
+
+.route-coverage-route.is-needs-sub .route-coverage-segment.is-uncovered {
+  background: #ffece9;
+  color: var(--ink);
+}
+
+.route-coverage-route.is-needs-sub .route-coverage-segment.is-regular_in,
+.route-coverage-route.is-needs-sub .route-coverage-segment.is-clocked_in {
+  background: #e7f5ef;
+  color: var(--ink);
+}
+
+.route-coverage-segment-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.route-coverage-segment-run {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-.route-coverage-pill-who {
-  font-size: 0.92rem;
+.route-coverage-segment-meta {
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: inherit;
+  opacity: 0.75;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.route-coverage-segment-who {
+  font-size: 0.78rem;
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.route-coverage-pill-meta {
-  font-size: 0.72rem;
+.route-coverage-segment-label {
+  display: block;
+  margin: 0;
+  min-width: 0;
+}
+
+.route-coverage-segment-select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 0.2rem 0.35rem;
+  border-radius: 0.55rem;
+  border: 1px solid rgba(40, 55, 50, 0.22);
+  background: rgba(255, 255, 255, 0.92);
+  font-size: 0.78rem;
   font-weight: 700;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.route-coverage-assign {
-  display: grid;
-  gap: 0.65rem;
-  padding: 0.75rem;
-  border-radius: 0.85rem;
-  border: 1px solid var(--line);
-  background: #fff;
-}
-
-.route-coverage-assign-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
-
-.kiosk-route-coverage .route-coverage-desk {
-  padding: 0.7rem 0.8rem 0.85rem;
-  border-radius: 0.85rem;
-}
-
-.kiosk-route-coverage .route-coverage-title {
-  font-size: 1rem;
+  line-height: 1.2;
+  color: var(--ink);
 }
 
 .kiosk-substitute-panel-main {

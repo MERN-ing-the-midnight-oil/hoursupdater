@@ -43,8 +43,10 @@ import {
   loadCaptureShareOrigin,
   openCaptureSession,
   readCaptureSession,
+  restartCaptureSession,
 } from './timesheetCaptureClient.js';
 import {
+  attachPrintHours,
   buildPrintPdfBlob,
   clampPrintCrop,
   deletePrintCard,
@@ -61,6 +63,13 @@ import {
   contractSnapBreaksFromState,
   driversFromState,
 } from './store.js';
+import {
+  auditPayPeriodRules,
+  auditSchoolYearLabel,
+  defaultPayPeriodIso,
+  payPeriodMismatchWarning,
+  payPeriodsInSchoolYear,
+} from '../src/auditPayPeriods.js';
 
 const MAX_BYTES = 12 * 1024 * 1024;
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
@@ -68,6 +77,7 @@ const CAMERA_KEY = 'teamster-timesheet-camera';
 const ROW_HEIGHT_KEY = 'teamster-timesheet-row-height';
 const HOURS_MODE_KEY = 'teamster-timesheet-hours-mode';
 const PRINT_SAVE_KEY = 'teamster-timesheet-save-for-print';
+const PAY_PERIOD_KEY = 'teamster-timesheet-pay-period';
 const ROW_HEIGHT_MIN = 28;
 const ROW_HEIGHT_MAX = 120;
 const ROW_HEIGHT_DEFAULT = 52;
@@ -80,12 +90,14 @@ const CARD_ASPECT_WIDTH = 5;
 const CARD_ASPECT_HEIGHT = 8;
 const FRONT_SLOT_COUNT = 13;
 const BACK_SLOT_COUNT = 15;
-const previewUrls = { front: '', back: '' };
 
 /**
- * @param {{ onCapture: (side: 'front' | 'back', file: File) => void }} options
+ * @param {{
+ *   onCapture: (side: 'front' | 'back', file: File) => void,
+ *   onDismiss?: () => void,
+ * }} options
  */
-function mountTimesheetCamera({ onCapture }) {
+function mountTimesheetCamera({ onCapture, onDismiss }) {
   const dialog = document.querySelector('#timesheet-camera');
   const video = document.querySelector('#timesheet-camera-video');
   const picker = document.querySelector('#timesheet-camera-picker');
@@ -111,6 +123,8 @@ function mountTimesheetCamera({ onCapture }) {
   let side = 'front';
   /** @type {'live' | 'review'} */
   let phase = 'live';
+  /** When true, accepting a front photo closes instead of flipping to the back. */
+  let singleSide = false;
   /** @type {File | null} */
   let pendingFile = null;
   let reviewUrl = '';
@@ -132,7 +146,9 @@ function mountTimesheetCamera({ onCapture }) {
     pendingFile = null;
     clearReviewImage();
     side = 'front';
+    singleSide = false;
     paintStep('live');
+    onDismiss?.();
   });
   dialog.addEventListener('click', (event) => {
     if (event.target === dialog) dialog.close();
@@ -153,11 +169,16 @@ function mountTimesheetCamera({ onCapture }) {
     refreshDeviceList().catch(() => {});
   });
 
-  async function open(nextSide) {
+  /**
+   * @param {'front' | 'back'} nextSide
+   * @param {{ single?: boolean }} [options]
+   */
+  async function open(nextSide, options = {}) {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error('This browser cannot use a camera.');
     }
     side = nextSide === 'back' ? 'back' : 'front';
+    singleSide = options.single === true;
     switchedToPreferred = false;
     pendingFile = null;
     clearReviewImage();
@@ -284,6 +305,8 @@ function mountTimesheetCamera({ onCapture }) {
       if (side === 'front' && !reviewing) {
         lead.textContent =
           'Point the camera at the front of the card. The bright screen helps light it. Press Space to take the photo.';
+      } else if (side === 'front' && singleSide) {
+        lead.textContent = 'Check the front. Retake it, or use this photo.';
       } else if (side === 'front') {
         lead.textContent = 'Check the front. Retake it, or go on to the back.';
       } else if (!reviewing) {
@@ -298,7 +321,8 @@ function mountTimesheetCamera({ onCapture }) {
       shutter.hidden = reviewing;
       retake.hidden = !reviewing;
       usePhoto.hidden = !reviewing;
-      usePhoto.textContent = side === 'front' ? 'Take the back photo' : 'Use this photo';
+      usePhoto.textContent =
+        side === 'front' && !singleSide ? 'Take the back photo' : 'Use this photo';
     }
     shutter.disabled = reviewing || !stream;
   }
@@ -328,7 +352,7 @@ function mountTimesheetCamera({ onCapture }) {
     const accepted = side;
     pendingFile = null;
     onCapture(accepted, file);
-    if (accepted === 'front') {
+    if (accepted === 'front' && !singleSide) {
       side = 'back';
       clearReviewImage();
       paintStep('live');
@@ -422,60 +446,6 @@ function forgetCamera() {
   }
 }
 
-function sidePreviewNodes(side) {
-  if (side === 'front') {
-    return [
-      document.querySelector('#timesheet-front-preview'),
-      document.querySelector('#timesheet-phone-front-preview'),
-    ];
-  }
-  return [
-    document.querySelector('#timesheet-back-preview'),
-    document.querySelector('#timesheet-phone-back-preview'),
-  ];
-}
-
-function showSidePreview(side, file) {
-  const sideBox = document.querySelector(side === 'front' ? '#timesheet-front-side' : '#timesheet-back-side');
-  const phoneState = document.querySelector(
-    side === 'front' ? '#timesheet-phone-front-state' : '#timesheet-phone-back-state'
-  );
-  if (previewUrls[side]) URL.revokeObjectURL(previewUrls[side]);
-  const url = URL.createObjectURL(file);
-  previewUrls[side] = url;
-  for (const preview of sidePreviewNodes(side)) {
-    if (!(preview instanceof HTMLImageElement)) continue;
-    preview.src = url;
-    preview.alt = side === 'front' ? 'Front of the time card' : 'Back of the time card';
-    preview.hidden = false;
-  }
-  if (sideBox instanceof HTMLElement) sideBox.hidden = false;
-  if (phoneState) {
-    phoneState.textContent = 'Received';
-    phoneState.classList.add('is-ready');
-  }
-}
-
-function clearSidePreview(side) {
-  const sideBox = document.querySelector(side === 'front' ? '#timesheet-front-side' : '#timesheet-back-side');
-  const phoneState = document.querySelector(
-    side === 'front' ? '#timesheet-phone-front-state' : '#timesheet-phone-back-state'
-  );
-  if (previewUrls[side]) URL.revokeObjectURL(previewUrls[side]);
-  previewUrls[side] = '';
-  for (const preview of sidePreviewNodes(side)) {
-    if (!(preview instanceof HTMLImageElement)) continue;
-    preview.removeAttribute('src');
-    preview.alt = '';
-    preview.hidden = true;
-  }
-  if (sideBox instanceof HTMLElement) sideBox.hidden = true;
-  if (phoneState) {
-    phoneState.textContent = 'Waiting…';
-    phoneState.classList.remove('is-ready');
-  }
-}
-
 /**
  * Timecard Genie desk. Reads Clock Record stamps from paper-card photos.
  * @param {{ readState?: () => object, asOf?: () => string }} [options]
@@ -508,12 +478,62 @@ export function mountTimesheetReader(options = {}) {
   /** @type {ReturnType<typeof setInterval> | null} */
   let progressTimer = null;
   let reading = false;
+  /**
+   * In-memory batch of cards for this Genie visit.
+   * @type {{
+   *   id: string,
+   *   printId: string,
+   *   status: 'reading' | 'needs_review' | 'ready',
+   *   extraction: object,
+   *   updatedAt: number,
+   *   frontFile?: File | null,
+   *   backFile?: File | null,
+   * }[]}
+   */
+  let sessionCards = [];
+  /** @type {string} */
+  let activeSessionId = '';
+  /** Print id for photos currently being collected (unique per card, not the phone QR token). */
+  let activePrintId = '';
+  /** Print id linked to the extraction on screen. */
+  let linkedPrintId = '';
+  /** Most recently completed print pair (may belong to the next unread photos). */
+  let lastSavedPrintId = '';
+  /** Block auto-read of the next card until the desk continues. */
+  let awaitingReview = false;
+  /** @type {'front' | 'back' | null} */
+  let retakingSide = null;
+  /** @type {Array<{ iso: string, label: string, key: string, id: string }>} */
+  let payPeriodOptions = [];
 
   const camera = mountTimesheetCamera({
     onCapture: (side, file) => {
       setSideFile(side, file);
       setStatus('');
     },
+    onDismiss() {
+      retakingSide = null;
+    },
+  });
+
+  const payPeriodSelect = document.querySelector('#timesheet-pay-period-select');
+  refreshPayPeriodOptions();
+  payPeriodSelect?.addEventListener('change', () => {
+    const value = payPeriodSelect instanceof HTMLSelectElement ? payPeriodSelect.value : '';
+    try {
+      if (value) localStorage.setItem(PAY_PERIOD_KEY, value);
+      else localStorage.removeItem(PAY_PERIOD_KEY);
+    } catch {
+      /* ignore */
+    }
+    paintPeriodMismatch(extraction);
+    paintCaveats(extraction);
+  });
+  document.querySelector('#timesheet-retake-front')?.addEventListener('click', () => {
+    startRetake('front').catch((error) => setStatus(error?.message || 'Could not retake the front.', 'error'));
+  });
+  document.querySelector('#timesheet-retake-back')?.addEventListener('click', () => {
+    startRetake('back').catch((error) => setStatus(error?.message || 'Could not retake the back.', 'error'));
   });
 
   const descDialog = mountDescriptionDialog({
@@ -570,10 +590,9 @@ export function mountTimesheetReader(options = {}) {
     event.preventDefault();
     readCard().catch((error) => setStatus(error.message || 'Could not read that card.', 'error'));
   });
-  document.querySelector('#timesheet-clear')?.addEventListener('click', clearCard);
-  document.querySelector('#timesheet-scan')?.addEventListener('click', () => {
-    camera.open('front').catch((error) => setStatus(error.message || 'Could not open the camera.', 'error'));
-  });
+  document.querySelector('#timesheet-clear')?.addEventListener('click', clearLiveCard);
+  document.querySelector('#timesheet-session-next')?.addEventListener('click', continueAfterReview);
+  document.querySelector('#timesheet-session-clear')?.addEventListener('click', clearSession);
   document.querySelector('#timesheet-front')?.addEventListener('change', (event) => {
     const file = event.target.files?.[0];
     if (file) setSideFile('front', file);
@@ -589,22 +608,304 @@ export function mountTimesheetReader(options = {}) {
     currentPair() {
       const front = document.querySelector('#timesheet-front');
       const back = document.querySelector('#timesheet-back');
+      const frontFile = front instanceof HTMLInputElement ? front.files?.[0] || null : null;
+      const backFile = back instanceof HTMLInputElement ? back.files?.[0] || null : null;
+      const token =
+        activePrintId ||
+        (frontFile && backFile
+          ? printIdForCapture()
+          : linkedPrintId || lastSavedPrintId || '');
       return {
-        token: phoneCapture?.currentToken?.() || '',
-        front: front instanceof HTMLInputElement ? front.files?.[0] || null : null,
-        back: back instanceof HTMLInputElement ? back.files?.[0] || null : null,
+        token,
+        front: frontFile,
+        back: backFile,
       };
+    },
+    onCardSaved(id) {
+      if (!id) return;
+      lastSavedPrintId = id;
+      if (activePrintId === id) activePrintId = '';
+    },
+    getSessionPrintIds() {
+      return sessionCards.map((card) => card.printId).filter(Boolean);
     },
   });
   phoneCapture = mountPhoneCapture({
     setSideFile,
     setStatus,
-    onPhonePhoto(side, file, sessionToken) {
-      printCopies.notePhoto(sessionToken, side, file).catch((error) => {
+    onPhonePhoto(side, file) {
+      const id = printIdForCapture();
+      printCopies.notePhoto(id, side, file).catch((error) => {
         setStatus(error?.message || 'Could not save that print copy.', 'error');
       });
     },
   });
+
+  function printIdForCapture() {
+    if (!activePrintId) activePrintId = mintPrintCardId();
+    return activePrintId;
+  }
+
+  function activeSessionCard() {
+    return sessionCards.find((card) => card.id === activeSessionId) || null;
+  }
+
+  async function ensurePrintCardFromFiles() {
+    const toggle = document.querySelector('#timesheet-save-for-print');
+    if (!(toggle instanceof HTMLInputElement) || !toggle.checked) {
+      return activeSessionCard()?.printId || linkedPrintId || lastSavedPrintId;
+    }
+    const front = document.querySelector('#timesheet-front');
+    const back = document.querySelector('#timesheet-back');
+    const frontFile = front instanceof HTMLInputElement ? front.files?.[0] : null;
+    const backFile = back instanceof HTMLInputElement ? back.files?.[0] : null;
+    if (!frontFile || !backFile) {
+      return activeSessionCard()?.printId || linkedPrintId || lastSavedPrintId;
+    }
+    // Pair already saved for these photos — do not mint a second print id.
+    if (lastSavedPrintId && !activePrintId) {
+      linkedPrintId = lastSavedPrintId;
+      return linkedPrintId;
+    }
+    const id = printIdForCapture();
+    await printCopies.notePhoto(id, 'front', frontFile);
+    await printCopies.notePhoto(id, 'back', backFile);
+    linkedPrintId = id;
+    lastSavedPrintId = id;
+    if (activePrintId === id) activePrintId = '';
+    return id;
+  }
+
+  async function syncPrintHoursFromExtraction() {
+    if (!extraction) return null;
+    const id =
+      activeSessionCard()?.printId ||
+      linkedPrintId ||
+      (await ensurePrintCardFromFiles().catch(() => lastSavedPrintId)) ||
+      lastSavedPrintId;
+    if (!id) return null;
+    linkedPrintId = id;
+    const active = activeSessionCard();
+    if (active) active.printId = id;
+    return printCopies.syncHours(id, extraction);
+  }
+
+  function paintSessionChips() {
+    const root = document.querySelector('#timesheet-session');
+    const chips = document.querySelector('#timesheet-session-chips');
+    const nextBtn = document.querySelector('#timesheet-session-next');
+    const label = document.querySelector('#timesheet-session-label');
+    if (!(root instanceof HTMLElement) || !(chips instanceof HTMLElement)) return;
+    root.hidden = sessionCards.length === 0;
+    if (label instanceof HTMLElement) {
+      label.textContent = 'This session';
+    }
+    if (nextBtn instanceof HTMLButtonElement) {
+      nextBtn.hidden = !awaitingReview;
+      nextBtn.textContent = 'Next card';
+    }
+    chips.replaceChildren();
+    sessionCards.forEach((card, index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'timesheet-session-chip';
+      button.setAttribute('role', 'listitem');
+      button.dataset.sessionId = card.id;
+      if (card.id === activeSessionId) button.classList.add('is-active');
+      if (card.status === 'needs_review') button.classList.add('is-needs-review');
+      if (card.status === 'reading') button.classList.add('is-reading');
+      const statusLabel =
+        card.status === 'needs_review'
+          ? 'Needs review'
+          : card.status === 'reading'
+            ? 'Reading…'
+            : 'Ready';
+      button.textContent = `${index + 1} · ${sessionCardChipLabel(card.extraction, index)} · ${statusLabel}`;
+      button.addEventListener('click', () => {
+        selectSessionCard(card.id).catch((error) => {
+          setStatus(error?.message || 'Could not open that card.', 'error');
+        });
+      });
+      chips.append(button);
+    });
+  }
+
+  function flushActiveSessionCard() {
+    if (!extraction || !activeSessionId) return;
+    const card = activeSessionCard();
+    if (!card) return;
+    card.extraction = extraction;
+    card.printId = card.printId || linkedPrintId || lastSavedPrintId || '';
+    card.status = sessionCardNeedsReview(extraction) ? 'needs_review' : 'ready';
+    card.updatedAt = Date.now();
+    syncPrintHoursFromExtraction().catch(() => null);
+  }
+
+  function clearCaptureFilesOnly() {
+    const front = document.querySelector('#timesheet-front');
+    const back = document.querySelector('#timesheet-back');
+    if (front instanceof HTMLInputElement) front.value = '';
+    if (back instanceof HTMLInputElement) back.value = '';
+    activePrintId = '';
+  }
+
+  function continueAfterReview() {
+    flushActiveSessionCard();
+    awaitingReview = false;
+    paintSessionChips();
+    const card = activeSessionCard();
+    const front = document.querySelector('#timesheet-front');
+    const back = document.querySelector('#timesheet-back');
+    const hasFront = front instanceof HTMLInputElement && Boolean(front.files?.[0]);
+    const hasBack = back instanceof HTMLInputElement && Boolean(back.files?.[0]);
+    const nextPairReady =
+      Boolean(lastSavedPrintId) &&
+      Boolean(card?.printId) &&
+      lastSavedPrintId !== card.printId &&
+      hasFront &&
+      hasBack;
+    if (nextPairReady) {
+      setStatus('Next card photos are ready — reading…', 'ok');
+      maybeAutoRead();
+      return;
+    }
+    clearCaptureFilesOnly();
+    setStatus('Ready for the next card. Scan the next front and back.', 'ok');
+  }
+
+  async function selectSessionCard(sessionId) {
+    const target = sessionCards.find((card) => card.id === sessionId);
+    if (!target) return;
+    if (target.id === activeSessionId) return;
+    flushActiveSessionCard();
+    activeSessionId = target.id;
+    extraction = target.extraction;
+    linkedPrintId = target.printId || '';
+    awaitingReview = target.status === 'needs_review';
+    renderResult();
+    paintSessionChips();
+    paintCaveats(extraction);
+    setStatus(
+      awaitingReview
+        ? 'Review this card, then press Next card when you are ready to continue.'
+        : `Showing ${sessionCardChipLabel(extraction, sessionCards.indexOf(target))}.`,
+      awaitingReview ? 'error' : 'ok'
+    );
+  }
+
+  function upsertSessionFromExtraction(nextExtraction, printId) {
+    const needsReview = sessionCardNeedsReview(nextExtraction);
+    const status = needsReview ? 'needs_review' : 'ready';
+    let card = activeSessionCard();
+    if (!card || card.status !== 'reading') {
+      card = {
+        id: `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+        printId: printId || '',
+        status,
+        extraction: nextExtraction,
+        updatedAt: Date.now(),
+      };
+      sessionCards.push(card);
+    } else {
+      card.extraction = nextExtraction;
+      card.printId = printId || card.printId || '';
+      card.status = status;
+      card.updatedAt = Date.now();
+    }
+    activeSessionId = card.id;
+    linkedPrintId = card.printId || linkedPrintId;
+    awaitingReview = needsReview;
+    paintSessionChips();
+    return card;
+  }
+
+  function selectedPayPeriodIso() {
+    return payPeriodSelect instanceof HTMLSelectElement ? payPeriodSelect.value.trim() : '';
+  }
+
+  function refreshPayPeriodOptions() {
+    if (!(payPeriodSelect instanceof HTMLSelectElement)) return;
+    const state = officeState();
+    payPeriodOptions = payPeriodsInSchoolYear(auditSchoolYearLabel(state), auditPayPeriodRules(state));
+    const previous = payPeriodSelect.value.trim();
+    let saved = '';
+    try {
+      saved = String(localStorage.getItem(PAY_PERIOD_KEY) || '').trim();
+    } catch {
+      saved = '';
+    }
+    const fallback = defaultPayPeriodIso(payPeriodOptions);
+    const preferred =
+      (previous && payPeriodOptions.some((period) => period.iso === previous) && previous) ||
+      (saved && payPeriodOptions.some((period) => period.iso === saved) && saved) ||
+      fallback;
+    payPeriodSelect.replaceChildren(
+      ...payPeriodOptions.map((period) => {
+        const option = document.createElement('option');
+        option.value = period.iso;
+        option.textContent = period.label;
+        return option;
+      })
+    );
+    if (preferred) payPeriodSelect.value = preferred;
+  }
+
+  function paintPeriodMismatch(nextExtraction) {
+    const box = document.querySelector('#timesheet-period-mismatch');
+    if (!(box instanceof HTMLElement)) return;
+    const warning = payPeriodMismatchWarning(
+      selectedPayPeriodIso(),
+      nextExtraction?.header?.date_on_card,
+      payPeriodOptions
+    );
+    box.hidden = !warning;
+    box.textContent = warning || '';
+  }
+
+  function paintCaveats(nextExtraction) {
+    const caveats = document.querySelector('#timesheet-caveats');
+    if (!(caveats instanceof HTMLElement)) return;
+    const lines = [];
+    if (Array.isArray(nextExtraction?.caveats)) {
+      for (const line of nextExtraction.caveats) {
+        const text = String(line || '').trim();
+        if (text) lines.push(text);
+      }
+    }
+    if (hasIllegibleClockStamps(nextExtraction)) {
+      lines.push('Some Clock Record stamps could not be read — type over illegible values.');
+    }
+    if (parseStickerContractHours(nextExtraction?.header?.contract_hours) == null) {
+      lines.push('Contract hours are missing — type the sticker contract if you know it.');
+    }
+    const rows = [...(nextExtraction?.front_rows ?? []), ...(nextExtraction?.back_rows ?? [])];
+    if (rows.some((row) => row?.hours_add_up === false)) {
+      lines.push('Red rows are hours that do not add up for that sticker contract.');
+    }
+    const periodWarning = payPeriodMismatchWarning(
+      selectedPayPeriodIso(),
+      nextExtraction?.header?.date_on_card,
+      payPeriodOptions
+    );
+    if (periodWarning) lines.push(periodWarning);
+    caveats.hidden = lines.length === 0;
+    caveats.textContent = lines.join(' ');
+    paintPeriodMismatch(nextExtraction);
+  }
+
+  function clearSession() {
+    if (!sessionCards.length) {
+      clearLiveCard();
+      return;
+    }
+    const ok = window.confirm('Clear every card in this Genie session? Print copies in this browser stay until you remove them.');
+    if (!ok) return;
+    sessionCards = [];
+    activeSessionId = '';
+    awaitingReview = false;
+    clearLiveCard();
+    paintSessionChips();
+  }
 
   new MutationObserver(() => {
     if (view.hidden) {
@@ -701,6 +1002,9 @@ export function mountTimesheetReader(options = {}) {
       // Contract hours drive Reg / OT fill — recalculate when the sticker changes.
       applyContractDerivedFields();
       markAndPaintHourRows();
+      flushActiveSessionCard();
+      paintCaveats(extraction);
+      paintSessionChips();
     },
   });
 
@@ -747,7 +1051,13 @@ export function mountTimesheetReader(options = {}) {
   }
 
   function refresh() {
-    if (extraction) renderResult();
+    refreshPayPeriodOptions();
+    if (extraction) {
+      renderResult();
+      paintCaveats(extraction);
+    } else {
+      paintPeriodMismatch(null);
+    }
   }
 
   function contractHourOptions() {
@@ -771,6 +1081,9 @@ export function mountTimesheetReader(options = {}) {
     );
     paintRegOtFields(frontCard, extraction.front_rows);
     paintRegOtFields(backCard, extraction.back_rows);
+    syncPrintHoursFromExtraction().catch(() => {
+      /* Print copy may not exist yet for this session. */
+    });
   }
 
   function markAndPaintHourRows() {
@@ -783,6 +1096,13 @@ export function mountTimesheetReader(options = {}) {
     );
     paintHourFlags(frontCard, extraction.front_rows);
     paintHourFlags(backCard, extraction.back_rows);
+    const card = activeSessionCard();
+    if (card && card.extraction === extraction) {
+      card.status = sessionCardNeedsReview(extraction) ? 'needs_review' : 'ready';
+      card.updatedAt = Date.now();
+      paintCaveats(extraction);
+      paintSessionChips();
+    }
   }
 
   function refreshDerivedFromExtraction() {
@@ -841,38 +1161,62 @@ export function mountTimesheetReader(options = {}) {
     refreshPayPeriodInfo(extraction, breaks, officeState(), mode);
   }
 
-  async function readCard() {
+  /**
+   * @param {{ replaceActive?: boolean }} [options]
+   */
+  async function readCard(options = {}) {
+    const replaceActive = options.replaceActive === true;
     if (reading) return;
+    if (awaitingReview && !replaceActive) {
+      setStatus('Finish reviewing this card, then press Next card before reading another.', 'error');
+      return;
+    }
     const front = document.querySelector('#timesheet-front').files?.[0] ?? null;
     const back = document.querySelector('#timesheet-back').files?.[0] ?? null;
     if (!front && !back) {
       setStatus('Take a photo of the front, the back, or both.', 'error');
       return;
     }
+    if (!front || !back) {
+      setStatus('Front and back photos both submit together. Capture the missing side.', 'error');
+      return;
+    }
     validateFile(front, 'Front');
     validateFile(back, 'Back');
     const button = document.querySelector('#timesheet-read');
     const clearButton = document.querySelector('#timesheet-clear');
+    let readingCard = replaceActive ? activeSessionCard() : null;
+    if (replaceActive && readingCard) {
+      flushActiveSessionCard();
+      readingCard.status = 'reading';
+      readingCard.updatedAt = Date.now();
+      activeSessionId = readingCard.id;
+    } else {
+      flushActiveSessionCard();
+      readingCard = {
+        id: `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+        printId: lastSavedPrintId && !activePrintId ? lastSavedPrintId : activePrintId || '',
+        status: /** @type {'reading'} */ ('reading'),
+        extraction: extraction || { header: blankCardHeader(), front_rows: [], back_rows: [], caveats: [] },
+        updatedAt: Date.now(),
+        frontFile: null,
+        backFile: null,
+      };
+      sessionCards.push(readingCard);
+      activeSessionId = readingCard.id;
+    }
+    paintSessionChips();
     reading = true;
-    button.disabled = true;
-    if (clearButton) clearButton.disabled = true;
-    const sides = [front && 'front', back && 'back'].filter(Boolean);
-    const photoLabel =
-      sides.length === 2 ? 'photos' : sides[0] === 'front' ? 'front photo' : 'back photo';
+    if (button instanceof HTMLButtonElement) button.disabled = true;
+    if (clearButton instanceof HTMLButtonElement) clearButton.disabled = true;
     try {
-      setBusyStatus(
-        sides.length === 2 ? 'Preparing the front and back photos…' : `Preparing the ${photoLabel}…`
-      );
-      const frontPayload = front ? await filePayload(front) : null;
-      const backPayload = back ? await filePayload(back) : null;
+      setBusyStatus('Preparing the front and back photos…');
+      const frontPayload = await filePayload(front);
+      const backPayload = await filePayload(back);
 
-      setBusyStatus(
-        sides.length === 2
-          ? 'Sending photos for analysis…'
-          : `Sending ${photoLabel} for analysis…`
-      );
+      setBusyStatus('Sending photos for analysis…');
       const waiting = [
-        sides.length === 2 ? 'Reading the photos…' : `Reading the ${photoLabel}…`,
+        'Reading the photos…',
         'Looking for Clock Record stamps…',
         'Reading the contract hours under the route number…',
         'Still analyzing the card…',
@@ -895,23 +1239,58 @@ export function mountTimesheetReader(options = {}) {
         throw new Error(payload.error || 'Could not read that card.');
       }
       extraction = payload.extraction;
+      const printId = (await ensurePrintCardFromFiles().catch(() => null)) || lastSavedPrintId || linkedPrintId || '';
+      linkedPrintId = printId;
+      const card = upsertSessionFromExtraction(extraction, printId);
+      card.frontFile = front;
+      card.backFile = back;
       renderResult();
-      const rows = [...(extraction?.front_rows ?? []), ...(extraction?.back_rows ?? [])];
-      const off = rows.some((row) => row?.hours_add_up === false);
-      setStatus(
-        off
-          ? 'Copied the card. Red rows are hours that do not add up.'
-          : 'Copied the card.',
-        off ? 'error' : 'ok'
+      paintCaveats(extraction);
+      await syncPrintHoursFromExtraction().catch(() => null);
+      clearCaptureFilesOnly();
+      const label = sessionCardChipLabel(extraction, sessionCards.indexOf(card));
+      const periodWarning = payPeriodMismatchWarning(
+        selectedPayPeriodIso(),
+        extraction?.header?.date_on_card,
+        payPeriodOptions
       );
+      if (awaitingReview) {
+        setStatus(
+          periodWarning
+            ? `${periodWarning} Needs review before the next card.`
+            : 'Needs review before the next card. Fix what you can, then press Next card.',
+          'error'
+        );
+      } else {
+        setStatus(
+          periodWarning
+            ? `${label} ready. ${periodWarning}`
+            : `${label} ready. Scan the next card, or open Print copies to print a range.`,
+          periodWarning ? 'error' : 'ok'
+        );
+      }
     } catch (error) {
       stopProgressMessages();
+      if (!replaceActive) {
+        sessionCards = sessionCards.filter((card) => card.id !== readingCard.id || card.status !== 'reading');
+      } else if (readingCard) {
+        readingCard.status = sessionCardNeedsReview(readingCard.extraction) ? 'needs_review' : 'ready';
+      }
+      if (activeSessionId === readingCard.id) {
+        activeSessionId = sessionCards[sessionCards.length - 1]?.id || '';
+        const prior = activeSessionCard();
+        extraction = prior?.extraction || null;
+        linkedPrintId = prior?.printId || '';
+        if (extraction) renderResult();
+        else result.hidden = true;
+      }
+      paintSessionChips();
       setStatus(error?.message || 'Could not read that card.', 'error');
     } finally {
       stopProgressMessages();
       reading = false;
-      button.disabled = false;
-      if (clearButton) clearButton.disabled = false;
+      if (button instanceof HTMLButtonElement) button.disabled = false;
+      if (clearButton instanceof HTMLButtonElement) clearButton.disabled = false;
     }
   }
 
@@ -920,45 +1299,102 @@ export function mountTimesheetReader(options = {}) {
     const back = document.querySelector('#timesheet-back');
     const hasFront = front instanceof HTMLInputElement && Boolean(front.files?.[0]);
     const hasBack = back instanceof HTMLInputElement && Boolean(back.files?.[0]);
-    if (!hasFront || !hasBack || reading) return;
+    if (!hasFront || !hasBack || reading || awaitingReview) return;
     readCard().catch((error) => setStatus(error.message || 'Could not read that card.', 'error'));
   }
 
-  function setSideFile(side, file) {
+  /**
+   * @param {'front' | 'back'} side
+   * @param {File} file
+   */
+  function putSideFile(side, file) {
     const input = document.querySelector(side === 'front' ? '#timesheet-front' : '#timesheet-back');
-    if (input && input.files?.[0] !== file) {
-      const transfer = new DataTransfer();
-      transfer.items.add(file);
-      input.files = transfer.files;
+    if (!(input instanceof HTMLInputElement)) return;
+    if (input.files?.[0] === file) return;
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+  }
+
+  function setSideFile(side, file) {
+    putSideFile(side, file);
+    if (retakingSide) {
+      const card = activeSessionCard();
+      const other = side === 'front' ? 'back' : 'front';
+      const otherFile = other === 'front' ? card?.frontFile : card?.backFile;
+      if (otherFile) putSideFile(other, otherFile);
+      if (card) {
+        if (side === 'front') card.frontFile = file;
+        else card.backFile = file;
+      }
+      retakingSide = null;
+      readCard({ replaceActive: true }).catch((error) =>
+        setStatus(error?.message || 'Could not read that card.', 'error')
+      );
+      return;
     }
-    showSidePreview(side, file);
     maybeAutoRead();
   }
 
-  function clearCard() {
+  /**
+   * @param {'front' | 'back'} side
+   */
+  async function startRetake(side) {
+    const card = activeSessionCard();
+    if (!card || !extraction) {
+      setStatus('Read a card first, then retake a side.', 'error');
+      return;
+    }
+    const other = side === 'front' ? 'back' : 'front';
+    const otherFile = other === 'front' ? card.frontFile : card.backFile;
+    if (!otherFile) {
+      setStatus(
+        `The ${other} photo is not kept for this card. Scan front and back again, or open Print copies if you saved them.`,
+        'error'
+      );
+      return;
+    }
+    retakingSide = side;
+    putSideFile(other, otherFile);
+    const kept = side === 'front' ? card.frontFile : card.backFile;
+    if (kept) putSideFile(side, kept);
+    setStatus(`Retake the ${side}. The other side stays as-is until both submit again.`, '');
+    try {
+      await camera.open(side, { single: true });
+    } catch {
+      const input = document.querySelector(side === 'front' ? '#timesheet-front' : '#timesheet-back');
+      if (input instanceof HTMLInputElement) input.click();
+      else throw new Error('This browser cannot use a camera.');
+    }
+  }
+
+  function clearLiveCard() {
     stopProgressMessages();
+    flushActiveSessionCard();
     extraction = null;
+    activeSessionId = '';
+    linkedPrintId = '';
+    awaitingReview = false;
     camera.close();
     descDialog.close();
     sliceDialog.close();
-    phoneCapture.reset();
     cardHeader.clear();
+    // Keep the phone QR / session chips; only clear the live capture + result.
+    const saveToggle = document.querySelector('#timesheet-save-for-print');
+    const saveOn = saveToggle instanceof HTMLInputElement && saveToggle.checked;
     form.reset();
-    clearSidePreview('front');
-    clearSidePreview('back');
+    if (saveToggle instanceof HTMLInputElement) saveToggle.checked = saveOn;
+    clearCaptureFilesOnly();
     frontCard.replaceChildren();
     backCard.replaceChildren();
     frontSnap.replaceChildren();
     backSnap.replaceChildren();
     const payPeriod = document.querySelector('#timesheet-pay-period');
     if (payPeriod) payPeriod.replaceChildren();
-    const caveats = document.querySelector('#timesheet-caveats');
-    if (caveats) {
-      caveats.hidden = true;
-      caveats.textContent = '';
-    }
+    paintCaveats(null);
     result.hidden = true;
-    setStatus('');
+    paintSessionChips();
+    setStatus(sessionCards.length ? 'Live card cleared. Session chips are still here.' : '');
   }
 
   return { refresh };
@@ -974,6 +1410,37 @@ export function hasIllegibleClockStamps(extraction) {
       /^illegible$/i.test(String(row?.clock_out_raw ?? '').trim()) ||
       /^illegible$/i.test(String(row?.clock_in_raw ?? '').trim())
   );
+}
+
+/**
+ * Whether the desk should pause batch scanning for a human look.
+ * @param {object | null | undefined} extraction
+ */
+export function sessionCardNeedsReview(extraction) {
+  if (!extraction || typeof extraction !== 'object') return true;
+  const caveats = Array.isArray(extraction.caveats) ? extraction.caveats.filter(Boolean) : [];
+  if (caveats.length) return true;
+  if (hasIllegibleClockStamps(extraction)) return true;
+  const contract = parseStickerContractHours(extraction.header?.contract_hours);
+  if (contract == null) return true;
+  const rows = [...(extraction.front_rows ?? []), ...(extraction.back_rows ?? [])];
+  if (rows.some((row) => row?.hours_add_up === false)) return true;
+  return false;
+}
+
+/**
+ * Short chip label for a session card.
+ * @param {object | null | undefined} extraction
+ * @param {number} index
+ */
+export function sessionCardChipLabel(extraction, index) {
+  const name = String(extraction?.header?.employee_name || '').trim();
+  const n = Number(index) + 1;
+  return name || `Card ${Number.isFinite(n) && n > 0 ? n : 1}`;
+}
+
+function mintPrintCardId() {
+  return `card-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 /**
@@ -1390,6 +1857,21 @@ function blankCardHeader() {
 }
 
 /**
+ * Printed sticker contract line: total, or "5.25 (2, 3.25)" when run parts exist.
+ * @param {object | null | undefined} header
+ */
+function formatStickerContractLine(header) {
+  const total = header?.contract_hours;
+  if (total == null || !(Number.isFinite(Number(total)) && Number(total) > 0)) return '';
+  const parts = [header?.contract_am_hours, header?.contract_midday_hours, header?.contract_pm_hours]
+    .map((value) => (value == null ? null : Number(value)))
+    .filter((value) => value != null && Number.isFinite(value) && value > 0);
+  const totalText = formatAuditHours(total);
+  if (!parts.length) return totalText;
+  return `${totalText} (${parts.map((value) => formatAuditHours(value)).join(', ')})`;
+}
+
+/**
  * Clear a front/back card line so it no longer feeds the Monthly Time Summary.
  * Slot stays in place so the paper-card row alignment is unchanged.
  * @param {object | null | undefined} row
@@ -1493,6 +1975,7 @@ function mountCardHeaderForm(options) {
   const form = document.querySelector('#timesheet-card-header');
   const driverInput = document.querySelector('#timesheet-header-driver');
   const routeInput = document.querySelector('#timesheet-header-route');
+  const dateInput = document.querySelector('#timesheet-header-date');
   const amInput = document.querySelector('#timesheet-header-am');
   const midInput = document.querySelector('#timesheet-header-mid');
   const pmInput = document.querySelector('#timesheet-header-pm');
@@ -1605,25 +2088,38 @@ function mountCardHeaderForm(options) {
     refreshPayStatusChoices();
   }
 
-  function readHeaderFromForm() {
+  function readHeaderFromForm({ fromContractLine = false } = {}) {
     const extraction = options.getExtraction();
     const previous = extraction?.header && typeof extraction.header === 'object'
       ? extraction.header
       : blankCardHeader();
     const payStatus =
       payStatusSelect instanceof HTMLSelectElement ? payStatusSelect.value.trim() : '';
+    const stickerContract =
+      contractInput instanceof HTMLInputElement
+        ? parseStickerContractHours(contractInput.value)
+        : null;
+    const am = parseHoursInput(amInput.value);
+    const midday = parseHoursInput(midInput.value);
+    const pm = parseHoursInput(pmInput.value);
+    const dateText =
+      dateInput instanceof HTMLInputElement ? dateInput.value.trim() : '';
+    const fromRuns = am != null || midday != null || pm != null;
+    const runTotal = fromRuns
+      ? Math.round(([am, midday, pm].reduce((sum, value) => sum + (value || 0), 0)) * 100) / 100
+      : null;
     return {
       ...blankCardHeader(),
       ...previous,
       employee_name: driverInput.value.trim() || null,
       route_number: routeInput.value.trim() || null,
-      contract_am_hours: parseHoursInput(amInput.value),
-      contract_midday_hours: parseHoursInput(midInput.value),
-      contract_pm_hours: parseHoursInput(pmInput.value),
-      contract_hours:
-        contractInput instanceof HTMLInputElement
-          ? parseStickerContractHours(contractInput.value)?.total ?? null
-          : previous.contract_hours ?? null,
+      date_on_card: dateText || null,
+      contract_am_hours: fromContractLine ? stickerContract?.am ?? null : am,
+      contract_midday_hours: fromContractLine ? stickerContract?.midday ?? null : midday,
+      contract_pm_hours: fromContractLine ? stickerContract?.pm ?? null : pm,
+      contract_hours: fromContractLine
+        ? stickerContract?.total ?? null
+        : runTotal ?? stickerContract?.total ?? previous.contract_hours ?? null,
       default_pay_status: isPayLineId(payStatus) ? payStatus : null,
     };
   }
@@ -1632,11 +2128,14 @@ function mountCardHeaderForm(options) {
     const next = header && typeof header === 'object' ? header : blankCardHeader();
     driverInput.value = next.employee_name ? String(next.employee_name) : '';
     routeInput.value = next.route_number ? String(next.route_number) : '';
+    if (dateInput instanceof HTMLInputElement) {
+      dateInput.value = next.date_on_card ? String(next.date_on_card) : '';
+    }
     amInput.value = hoursFieldText(next.contract_am_hours);
     midInput.value = hoursFieldText(next.contract_midday_hours);
     pmInput.value = hoursFieldText(next.contract_pm_hours);
     if (contractInput instanceof HTMLInputElement) {
-      contractInput.value = next.contract_hours == null ? '' : formatAuditHours(next.contract_hours);
+      contractInput.value = formatStickerContractLine(next);
     }
     refreshPayStatusChoices(next.default_pay_status);
   }
@@ -1661,18 +2160,27 @@ function mountCardHeaderForm(options) {
     return next;
   }
 
-  function commitForm({ matchFrom } = {}) {
+  function commitForm({ matchFrom, fromContractLine = false } = {}) {
     if (!options.getExtraction()) return;
-    let header = readHeaderFromForm();
+    let header = readHeaderFromForm({ fromContractLine });
     if (matchFrom === 'driver' && header.employee_name) {
       header = applyMatchedSuggestions(header, { fillRoute: true });
     } else if (matchFrom === 'route' && header.route_number) {
       header = applyMatchedSuggestions(header, { fillDriver: true });
     }
     options.setExtractionHeader(header);
-    if (matchFrom) {
+    if (matchFrom || fromContractLine) {
       fillingFromMatch = true;
       writeHeaderToForm(header);
+      fillingFromMatch = false;
+    } else if (
+      contractInput instanceof HTMLInputElement &&
+      (amInput === document.activeElement ||
+        midInput === document.activeElement ||
+        pmInput === document.activeElement)
+    ) {
+      fillingFromMatch = true;
+      contractInput.value = formatStickerContractLine(header);
       fillingFromMatch = false;
     }
   }
@@ -1686,11 +2194,11 @@ function mountCardHeaderForm(options) {
     if (fillingFromMatch) return;
     commitForm({ matchFrom: 'route' });
   });
-  for (const input of [driverInput, routeInput, amInput, midInput, pmInput, contractInput]) {
+  for (const input of [driverInput, routeInput, dateInput, amInput, midInput, pmInput, contractInput]) {
     if (!input) continue;
     input.addEventListener('input', () => {
       if (fillingFromMatch) return;
-      commitForm();
+      commitForm({ fromContractLine: input === contractInput });
     });
   }
   if (payStatusSelect instanceof HTMLSelectElement) {
@@ -2025,7 +2533,7 @@ function savedRowHeight() {
 /**
  * Local grayscale copies of phone scans, for cropping and printing later.
  */
-function mountPrintCopies({ setStatus, currentPair } = {}) {
+function mountPrintCopies({ setStatus, currentPair, onCardSaved, getSessionPrintIds } = {}) {
   const dialog = document.querySelector('#timesheet-print-dialog');
   const list = document.querySelector('#timesheet-print-list');
   const cropPanel = document.querySelector('#timesheet-print-crop');
@@ -2043,6 +2551,9 @@ function mountPrintCopies({ setStatus, currentPair } = {}) {
     return {
       notePhoto() {
         return Promise.resolve();
+      },
+      syncHours() {
+        return Promise.resolve(null);
       },
       close() {},
     };
@@ -2128,7 +2639,15 @@ function mountPrintCopies({ setStatus, currentPair } = {}) {
     cards.forEach((card, index) => {
       const item = document.createElement('li');
       const label = document.createElement('span');
-      label.textContent = `${index + 1}. ${formatWhen(card.createdAt)}`;
+      const hasHours =
+        (Array.isArray(card.frontHours) &&
+          card.frontHours.some((slot) => slot && (slot.reg != null || slot.ot != null))) ||
+        (Array.isArray(card.backHours) &&
+          card.backHours.some((slot) => slot && (slot.reg != null || slot.ot != null)));
+      const driver = String(card.driverName || '').trim();
+      label.textContent = `${index + 1}. ${driver ? `${driver} · ` : ''}${formatWhen(card.createdAt)}${
+        hasHours ? ' · Reg/OT ready' : ' · photo only'
+      }`;
       const cropBtn = document.createElement('button');
       cropBtn.type = 'button';
       cropBtn.className = 'secondary';
@@ -2147,8 +2666,14 @@ function mountPrintCopies({ setStatus, currentPair } = {}) {
       ol.append(item);
     });
     list.append(ol);
-    if (fromInput instanceof HTMLInputElement) fromInput.value = '1';
-    if (toInput instanceof HTMLInputElement) toInput.value = String(cards.length);
+    const sessionIds = typeof getSessionPrintIds === 'function' ? getSessionPrintIds() : [];
+    const sessionIndexes = cards
+      .map((card, index) => (sessionIds.includes(card.id) ? index + 1 : -1))
+      .filter((n) => n > 0);
+    const from = sessionIndexes.length ? Math.min(...sessionIndexes) : 1;
+    const to = sessionIndexes.length ? Math.max(...sessionIndexes) : cards.length;
+    if (fromInput instanceof HTMLInputElement) fromInput.value = String(from);
+    if (toInput instanceof HTMLInputElement) toInput.value = String(to);
   }
 
   async function refreshList() {
@@ -2209,10 +2734,17 @@ function mountPrintCopies({ setStatus, currentPair } = {}) {
     ]);
     await upsertPrintCard(key, front, back);
     pending.delete(key);
+    if (typeof onCardSaved === 'function') onCardSaved(key);
     if (typeof setStatus === 'function') {
       setStatus('Front and back saved in this browser for printing.', 'ok');
     }
     if (dialog.open) await refreshList();
+  }
+
+  async function syncHours(id, extraction) {
+    const key = String(id || '').trim();
+    if (!key || !extraction) return null;
+    return attachPrintHours(key, extraction);
   }
 
   async function printCards(subset) {
@@ -2221,12 +2753,21 @@ function mountPrintCopies({ setStatus, currentPair } = {}) {
       return;
     }
     setPrintStatus('Preparing the print job…', '');
-    const blob = await buildPrintPdfBlob(subset);
+    const result = await buildPrintPdfBlob(subset);
+    const blob = result?.blob || result;
+    const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
     printPdfBlob(blob);
-    setPrintStatus(
-      subset.length === 1 ? 'Printing 1 card.' : `Printing ${subset.length} cards.`,
-      'ok'
-    );
+    if (warnings.length) {
+      setPrintStatus(
+        `${subset.length === 1 ? 'Printing 1 card.' : `Printing ${subset.length} cards.`} ${warnings[0]}`,
+        'ok'
+      );
+    } else {
+      setPrintStatus(
+        subset.length === 1 ? 'Printing 1 card.' : `Printing ${subset.length} cards.`,
+        'ok'
+      );
+    }
   }
 
   if (toggle instanceof HTMLInputElement) {
@@ -2352,7 +2893,13 @@ function mountPrintCopies({ setStatus, currentPair } = {}) {
     setPrintStatus(error?.message || 'Could not open print copies.', 'error');
   }
 
-  return { notePhoto, close: () => { if (dialog.open) dialog.close(); } };
+  return {
+    notePhoto,
+    syncHours,
+    close: () => {
+      if (dialog.open) dialog.close();
+    },
+  };
 }
 
 function readStoredHoursMode() {
@@ -2372,16 +2919,11 @@ function readStoredHoursMode() {
  * }} options
  */
 function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
-  const computerPanel = document.querySelector('#timesheet-computer-capture');
   const phonePanel = document.querySelector('#timesheet-phone-capture');
   const canvas = document.querySelector('#timesheet-phone-qr');
   const phoneStatus = document.querySelector('#timesheet-phone-status');
   const refreshBtn = document.querySelector('#timesheet-phone-refresh');
-  const sourceRoot = document.querySelector('#timesheet-capture-source');
-  const sourceButtons = sourceRoot
-    ? [...sourceRoot.querySelectorAll('[data-capture-source]')]
-    : [];
-  if (!computerPanel || !phonePanel || !(canvas instanceof HTMLCanvasElement)) {
+  if (!phonePanel || !(canvas instanceof HTMLCanvasElement)) {
     return {
       pause() {},
       reset() {},
@@ -2391,13 +2933,13 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
     };
   }
 
-  /** @type {'computer' | 'phone'} */
-  let source = 'phone';
   /** @type {string} */
   let token = '';
   /** @type {ReturnType<typeof setInterval> | null} */
   let pollTimer = null;
   let starting = false;
+  let pollInFlight = false;
+  let pairClaimed = false;
   const seen = { front: false, back: false };
 
   function setPhoneStatus(message, kind = '') {
@@ -2420,24 +2962,13 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
     token = '';
     seen.front = false;
     seen.back = false;
+    pairClaimed = false;
     if (prior) await closeCaptureSession(prior);
-  }
-
-  function paintSource() {
-    for (const button of sourceButtons) {
-      if (!(button instanceof HTMLButtonElement)) continue;
-      button.setAttribute(
-        'aria-pressed',
-        button.dataset.captureSource === source ? 'true' : 'false'
-      );
-    }
-    computerPanel.hidden = source !== 'computer';
-    phonePanel.hidden = source !== 'phone';
   }
 
   async function drawQr(url) {
     await QRCode.toCanvas(canvas, url, {
-      width: 288,
+      width: 144,
       margin: 1,
       color: { dark: '#1f4b66', light: '#ffffff' },
     });
@@ -2453,8 +2984,27 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
     }
   }
 
+  async function claimPairForNextCard() {
+    if (pairClaimed || !token) return;
+    pairClaimed = true;
+    try {
+      // Desk clears the shared photos only after both downloads succeed, so the
+      // phone never races us and leaves Back stuck on Waiting…
+      await restartCaptureSession(token);
+      seen.front = false;
+      seen.back = false;
+      pairClaimed = false;
+      setPhoneStatus('Front and back arrived. Ready for the next card.', 'ok');
+      setStatus('Front and back arrived from your phone. Ready to read.', 'ok');
+    } catch (error) {
+      pairClaimed = false;
+      setPhoneStatus(error?.message || 'Could not reset the phone link for the next card.', 'error');
+    }
+  }
+
   async function pollOnce() {
-    if (!token || source !== 'phone') return;
+    if (!token || pollInFlight) return;
+    pollInFlight = true;
     try {
       const session = await readCaptureSession(token);
       if (!session) {
@@ -2462,18 +3012,28 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
         stopPolling();
         return;
       }
-      // Phone resets the same link for the next card after both sides land.
-      if (!session.front && !session.back && (seen.front || seen.back)) {
+      // After we claim a pair we restart the link; empty + partial seen means a
+      // photo vanished before both sides arrived here.
+      if (!session.front && !session.back && (seen.front || seen.back) && !pairClaimed) {
+        if (seen.front && seen.back) {
+          seen.front = false;
+          seen.back = false;
+          setPhoneStatus('Ready for the next card…', '');
+          return;
+        }
+        const missing = seen.front ? 'back' : 'front';
         seen.front = false;
         seen.back = false;
-        setPhoneStatus('Ready for the next card…', '');
+        setPhoneStatus(
+          `The ${missing} photo disappeared before it arrived here. Take both sides again.`,
+          'error'
+        );
         return;
       }
       if (session.front && !seen.front) await pullSide('front');
       if (session.back && !seen.back) await pullSide('back');
-      if (session.ready || (seen.front && seen.back)) {
-        setPhoneStatus('Front and back arrived. Ready for the next card.', 'ok');
-        setStatus('Front and back arrived from your phone. Ready to read.', 'ok');
+      if (seen.front && seen.back) {
+        await claimPairForNextCard();
         return;
       }
       if (seen.front) setPhoneStatus('Front is in. Waiting for the back…', '');
@@ -2481,6 +3041,8 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
       else setPhoneStatus('Waiting for photos from your phone…', '');
     } catch (error) {
       setPhoneStatus(error?.message || 'Could not check for phone photos.', 'error');
+    } finally {
+      pollInFlight = false;
     }
   }
 
@@ -2498,7 +3060,7 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
       const url = captureShareUrl(origin, opened.token);
       if (!url) {
         throw new Error(
-          'This computer’s address is not reachable from a phone. Use the office app on this network, or take photos on this computer.'
+          'This computer’s address is not reachable from a phone. Use the office app on this network.'
         );
       }
       token = opened.token;
@@ -2516,30 +3078,6 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
     }
   }
 
-  async function setSource(next) {
-    const wanted = next === 'phone' ? 'phone' : 'computer';
-    if (wanted === source && wanted === 'phone' && token) {
-      paintSource();
-      return;
-    }
-    source = wanted;
-    paintSource();
-    if (source === 'phone') {
-      await startSession();
-      return;
-    }
-    await endSession();
-    setPhoneStatus('');
-  }
-
-  for (const button of sourceButtons) {
-    if (!(button instanceof HTMLButtonElement)) continue;
-    button.addEventListener('click', () => {
-      setSource(button.dataset.captureSource || 'computer').catch((error) => {
-        setStatus(error?.message || 'Could not switch photo source.', 'error');
-      });
-    });
-  }
   refreshBtn?.addEventListener('click', () => {
     startSession().catch((error) => {
       setPhoneStatus(error?.message || 'Could not make a new QR code.', 'error');
@@ -2551,9 +3089,9 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
     return view instanceof HTMLElement && !view.hidden;
   }
 
-  paintSource();
+  phonePanel.hidden = false;
   if (genieVisible()) {
-    setSource('phone').catch((error) => {
+    startSession().catch((error) => {
       setPhoneStatus(error?.message || 'Could not start phone capture.', 'error');
     });
   }
@@ -2563,7 +3101,6 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
       stopPolling();
     },
     resume() {
-      if (source !== 'phone') return;
       if (!token) {
         startSession().catch((error) => {
           setPhoneStatus(error?.message || 'Could not start phone capture.', 'error');
@@ -2580,8 +3117,6 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
       return token;
     },
     reset() {
-      source = 'phone';
-      paintSource();
       canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
       endSession()
         .then(() => {
@@ -2605,10 +3140,6 @@ function mountHoursModeControl({ mode, onChange }) {
   const buttons = root
     ? [...root.querySelectorAll('[data-hours-mode]')]
     : [];
-  const headings = [
-    document.querySelector('#timesheet-front-snap-heading'),
-    document.querySelector('#timesheet-back-snap-heading'),
-  ];
   const labels = [...document.querySelectorAll('[data-timesheet-hours-mode-label]')];
 
   function setMode(next, { save = true, notify = false } = {}) {
@@ -2620,9 +3151,6 @@ function mountHoursModeControl({ mode, onChange }) {
         'aria-pressed',
         button.dataset.hoursMode === modeNext ? 'true' : 'false'
       );
-    }
-    for (const heading of headings) {
-      if (heading) heading.textContent = title;
     }
     for (const label of labels) {
       label.textContent = title;

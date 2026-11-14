@@ -17,8 +17,9 @@ export function lineCountForSide(side) {
 export const EXTRACTION_SYSTEM = `You read one side of a sky-blue paper timecard.
 
 Look only at the far-right "Clock Record" column. Ignore every other column.
-Read every Clock Record line from the top of the column to the bottom.
-Front has exactly ${FRONT_LINE_COUNT} lines. Back has exactly ${BACK_LINE_COUNT} lines.
+Read every printed Clock Record line from the top of the column to the bottom.
+Front has exactly ${FRONT_LINE_COUNT} printed lines. Back has exactly ${BACK_LINE_COUNT} printed lines.
+A line is only a printed stamp row in that column. The blank bottom margin, border, and card edge below the last printed line are not Clock Record lines — do not count them, and do not shift stamps down to invent an extra bottom null.
 
 For each line return one of:
 - null — blank
@@ -47,7 +48,8 @@ Right column: date_on_card as MM/DD/YY or M/DD/YY.
 Use null when a part is not clearly visible. Do not invent sticker fields from the stamps.`
       : 'Set employee_name, route_number, contract_hours, and date_on_card to null. The sticker is only on the front.';
   return `This photo is the ${side.toUpperCase()} of a sky-blue paper timecard.
-Fill report_clock_records with exactly ${lineCount} Clock Record lines, top to bottom.
+Fill report_clock_records with exactly ${lineCount} printed Clock Record lines, top to bottom.
+Put each stamp on the printed line it sits in. The blank bottom margin and card edge are not lines — do not add them as an extra null or shift stamps down.
 
 For each line:
 - null — blank
@@ -80,7 +82,7 @@ export function clockRecordTool(lineCount, options = {}) {
       type: 'array',
       minItems: lineCount,
       maxItems: lineCount,
-      description: `${lineCount} Clock Record lines from top to bottom.`,
+      description: `${lineCount} printed Clock Record lines from top to bottom (not the bottom margin).`,
       items: stampLine,
     },
   };

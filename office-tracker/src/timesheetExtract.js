@@ -5,6 +5,7 @@ import {
   normalizeAuditExtraction,
 } from './timesheetAudit.js';
 import {
+  applyContractRegOtRows,
   GENIE_CARD_SYSTEM,
   genieCardTool,
   genieCardUserPrefix,
@@ -16,10 +17,13 @@ import {
   clockRecordTool,
   EXTRACTION_SYSTEM,
   extractionUserPrefix,
+  inferDefaultYear,
   parseJsonFromAssistantText,
   pairStampLines,
   sideFromSlotCount,
 } from './timesheetNormalize.js';
+import { DEFAULT_OVERTIME_RULES } from './overtimeRules.js';
+import { DEFAULT_CONTRACT_SNAP_BREAKS } from '../../src/logic/timeUtils.js';
 
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 const MAX_BYTES = 12 * 1024 * 1024;
@@ -145,6 +149,14 @@ export async function runTimesheetReadBody(body, options = {}) {
           contract_hours: sideField(frontRead, 'contractHours'),
           date_on_card: sideField(frontRead, 'dateOnCard'),
         });
+    if (!audit) {
+      // Reg / OT are app math from clocks (+ sticker contract), never model output.
+      applyContractRegOtRows(extraction.front_rows, extraction.back_rows, extraction.header?.contract_hours, {
+        breaks: DEFAULT_CONTRACT_SNAP_BREAKS,
+        rules: DEFAULT_OVERTIME_RULES,
+        defaultYear: inferDefaultYear(extraction.header?.date_on_card),
+      });
+    }
     return { status: 200, json: { extraction, model } };
   } catch (error) {
     return {

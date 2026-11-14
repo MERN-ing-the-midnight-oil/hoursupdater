@@ -30,6 +30,8 @@ import {
   clearCardRow,
   coverCropRect,
   hasIllegibleClockStamps,
+  sessionCardChipLabel,
+  sessionCardNeedsReview,
 } from '../office-tracker/web/timesheetReader.js';
 import {
   buildMonthlyTimeSummary,
@@ -155,16 +157,18 @@ describe('timecard clock-record extraction', () => {
   it('keeps the prompt short and asks for flat Clock Record lines', () => {
     assert.match(EXTRACTION_SYSTEM, /sky-blue/i);
     assert.match(EXTRACTION_SYSTEM, /far-right "Clock Record" column/i);
-    assert.match(EXTRACTION_SYSTEM, /Front has exactly 26 lines/i);
-    assert.match(EXTRACTION_SYSTEM, /Back has exactly 30 lines/i);
+    assert.match(EXTRACTION_SYSTEM, /Front has exactly 26 printed lines/i);
+    assert.match(EXTRACTION_SYSTEM, /Back has exactly 30 printed lines/i);
+    assert.match(EXTRACTION_SYSTEM, /blank bottom margin/i);
     assert.doesNotMatch(EXTRACTION_SYSTEM, /bold horizontal lines/i);
     assert.match(EXTRACTION_SYSTEM, /Do not write notes, caveats, commentary/i);
     assert.match(EXTRACTION_SYSTEM, /Never guess a month, day, AM\/PM, or time/i);
     assert.match(EXTRACTION_SYSTEM, /"HANDWRITING"/);
     assert.match(EXTRACTION_SYSTEM, /"illegible"/);
     assert.match(EXTRACTION_SYSTEM, /white sticker/i);
-    assert.match(extractionUserPrefix('front', 26), /exactly 26/);
-    assert.match(extractionUserPrefix('back', 30), /exactly 30/);
+    assert.match(extractionUserPrefix('front', 26), /exactly 26 printed/);
+    assert.match(extractionUserPrefix('back', 30), /exactly 30 printed/);
+    assert.match(extractionUserPrefix('front', 26), /bottom margin/i);
     assert.match(extractionUserPrefix('front', 26), /Never guess/i);
     assert.ok(EXTRACTION_SYSTEM.length < 1600);
   });
@@ -180,6 +184,30 @@ describe('timecard clock-record extraction', () => {
       back: [],
     });
     assert.equal(hasIllegibleClockStamps(dirty), true);
+  });
+
+  it('pauses the session when contract, caveats, or illegible stamps need a look', () => {
+    const ready = {
+      header: { employee_name: 'Driver, Alex', contract_hours: '6.50' },
+      front_rows: [{ row_index: 1, hours_add_up: true }],
+      back_rows: [],
+      caveats: [],
+    };
+    assert.equal(sessionCardNeedsReview(ready), false);
+    assert.equal(sessionCardChipLabel(ready, 0), 'Driver, Alex');
+    assert.equal(
+      sessionCardNeedsReview({ ...ready, header: { ...ready.header, contract_hours: null } }),
+      true
+    );
+    assert.equal(sessionCardNeedsReview({ ...ready, caveats: ['Blurry photo'] }), true);
+    assert.equal(
+      sessionCardNeedsReview({
+        ...ready,
+        front_rows: [{ row_index: 1, hours_add_up: false }],
+      }),
+      true
+    );
+    assert.equal(sessionCardChipLabel({ header: {} }, 2), 'Card 3');
   });
 
   it('uses line or slot count to tell front from back', () => {

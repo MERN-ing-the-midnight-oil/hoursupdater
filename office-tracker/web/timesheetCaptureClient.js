@@ -72,3 +72,22 @@ export async function closeCaptureSession(token) {
     /* Closing is best-effort; expiry also clears the session. */
   }
 }
+
+/**
+ * Clear Front/Back on an existing link so the phone can shoot the next card.
+ * The desk should call this only after both photos have been downloaded.
+ */
+export async function restartCaptureSession(token) {
+  const link = String(token || '').trim();
+  if (!link) return null;
+  const response = await fetch(`/api/timesheet-capture/${encodeURIComponent(link)}/restart`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+  const body = await readJson(response);
+  if (!response.ok) {
+    throw new Error(body?.error || 'Could not reset the phone photo link.');
+  }
+  return body;
+}

@@ -183,6 +183,29 @@ async function restartCapture() {
   if (cameraInput instanceof HTMLInputElement) cameraInput.value = '';
 }
 
+/**
+ * Keep both photos on the server until the desk downloads them and restarts
+ * the link. Clearing earlier races the desk poll and leaves Back as Waiting…
+ */
+async function waitForDeskThenNextCard() {
+  clearBackButtonTimer();
+  showBusy('Photos sent. Waiting for the desk…');
+  hideCameraButton();
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try {
+      const live = await refreshSession();
+      if (!live.front && !live.back) return;
+    } catch {
+      // Link expired or closed — treat as done so the phone can continue.
+      return;
+    }
+  }
+  // Desk never claimed the pair; clear so this phone can shoot the next card.
+  await restartCapture();
+}
+
 async function afterPhotoSaved(which) {
   if (which === 'front') {
     session = { front: true, back: false, ready: false };
@@ -192,11 +215,8 @@ async function afterPhotoSaved(which) {
   }
 
   session = { front: true, back: true, ready: true };
-  clearBackButtonTimer();
-  showBusy('Starting next card…');
-  hideCameraButton();
   try {
-    await restartCapture();
+    await waitForDeskThenNextCard();
     submitting = false;
     setStatus('');
     paintFront();
@@ -256,10 +276,8 @@ async function boot() {
   }
 
   if (savedSide === 'back' || session?.ready) {
-    showBusy('Starting next card…');
-    hideCameraButton();
     try {
-      await restartCapture();
+      await waitForDeskThenNextCard();
       setStatus('');
       paintFront();
       openCamera();

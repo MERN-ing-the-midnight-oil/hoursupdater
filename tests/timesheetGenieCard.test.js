@@ -69,10 +69,12 @@ describe('sticker contract hours', () => {
 describe('genie card copy', () => {
   it('asks for flat Clock Record lines and the white sticker', () => {
     assert.match(GENIE_CARD_SYSTEM, /sky-blue/i);
-    assert.match(GENIE_CARD_SYSTEM, /exactly 26 lines/i);
+    assert.match(GENIE_CARD_SYSTEM, /exactly 26 printed lines/i);
+    assert.match(GENIE_CARD_SYSTEM, /blank bottom margin/i);
     assert.match(GENIE_CARD_SYSTEM, /white sticker/i);
     assert.match(GENIE_CARD_SYSTEM, /5\.25 \(2, 3\.25\)/);
-    assert.match(genieCardUserPrefix('front', 26), /exactly 26 Clock Record lines/i);
+    assert.match(genieCardUserPrefix('front', 26), /exactly 26 printed Clock Record lines/i);
+    assert.match(genieCardUserPrefix('front', 26), /bottom margin/i);
     assert.match(genieCardUserPrefix('front', 26), /date_on_card/i);
     assert.match(genieCardUserPrefix('back', 30), /contract_hours, and date_on_card to null/i);
   });
@@ -172,10 +174,12 @@ describe('Genie fills Reg / OT from the contract', () => {
     assert.equal(front[1].written_regular_status, 'blank');
   });
 
-  it('clears Reg and OT when contract hours are missing', () => {
+  it('splits Tot into Reg and OT when contract hours are missing', () => {
     const front = [row(1, 'NOV 4 AM 6:00', 'NOV 4 AM 8:00', { reg: 2, ot: 0 })];
     applyContractRegOtRows(front, [], null, options);
-    assert.equal(front[0].hours_regular, null);
-    assert.equal(front[0].written_regular_status, 'blank');
+    assert.equal(front[0].hours_regular, 2);
+    assert.equal(front[0].hours_overtime, null);
+    assert.equal(front[0].written_regular_status, 'number');
+    assert.equal(front[0].written_regular, 2);
   });
 });
