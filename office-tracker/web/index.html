@@ -696,122 +696,182 @@
       <section id="timecard-genie-view" class="panel" hidden>
         <header class="timesheet-genie-header">
           <div class="timesheet-genie-header-copy">
-            <div class="timesheet-genie-title-row">
+            <div class="timesheet-genie-brand">
+              <svg class="timesheet-genie-mark" viewBox="0 0 21 21" shape-rendering="crispEdges" aria-hidden="true">
+                <g class="px-genie-shadow">
+                  <rect x="4" y="2" width="14" height="18" />
+                  <rect x="2" y="4" width="18" height="14" />
+                </g>
+                <rect class="px-genie-frame" x="3" y="1" width="14" height="18" />
+                <rect class="px-genie-frame" x="1" y="3" width="18" height="14" />
+                <rect class="px-genie-case" x="3" y="3" width="14" height="14" />
+                <rect class="px-genie-paper" x="5" y="5" width="10" height="10" />
+                <rect class="px-genie-case" x="5" y="5" width="1" height="1" />
+                <rect class="px-genie-case" x="14" y="5" width="1" height="1" />
+                <rect class="px-genie-case" x="5" y="14" width="1" height="1" />
+                <rect class="px-genie-case" x="14" y="14" width="1" height="1" />
+                <rect class="px-genie-ink" x="8" y="6" width="1" height="1" />
+                <rect class="px-genie-ink" x="7" y="7" width="2" height="1" />
+                <rect class="px-genie-gold" x="12" y="6" width="2" height="1" />
+                <rect class="px-genie-gold" x="11" y="7" width="2" height="1" />
+                <rect class="px-genie-gold" x="6" y="8" width="7" height="1" />
+                <rect class="px-genie-gold" x="5" y="9" width="9" height="2" />
+                <rect class="px-genie-gold" x="6" y="11" width="7" height="1" />
+                <rect class="px-genie-ink" x="7" y="12" width="5" height="1" />
+                <rect class="px-genie-gold" x="6" y="13" width="7" height="1" />
+                <rect class="px-genie-rule" x="7" y="9" width="2" height="2" />
+                <rect class="px-genie-hot" x="13" y="5" width="1" height="1" />
+                <rect class="px-genie-gold" x="14" y="3" width="2" height="2" />
+                <rect class="px-genie-hot" x="14" y="3" width="1" height="1" />
+              </svg>
               <h1 class="panel-title">Timecard Genie</h1>
             </div>
-            <div id="timesheet-phone-capture" class="timesheet-phone-capture">
-              <div class="timesheet-genie-actions">
-                <button
-                  type="button"
-                  class="secondary"
-                  id="timesheet-session-backup"
-                  title="Download every constructed card and pay period summary saved in this browser. Photos are not included."
-                >
-                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 4v11" />
-                    <path d="M7 11l5 5 5-5" />
-                    <path d="M5 20h14" />
-                  </svg>
-                  Backup all scans
-                </button>
-              </div>
-              <p id="timesheet-phone-status" class="status" role="status" hidden></p>
-            </div>
-            <div class="timesheet-genie-settings">
-              <div class="timesheet-card-tools">
-                <form id="timesheet-card-header" class="timesheet-card-tools-form" autocomplete="off">
-                  <datalist id="timesheet-driver-options"></datalist>
-                  <datalist id="timesheet-route-options"></datalist>
-                </form>
-                <div
-                  class="timesheet-hours-mode"
-                  id="timesheet-hours-mode"
-                  role="group"
-                  aria-label="How Tot. Hrs. is calculated"
-                >
+            <form id="timesheet-card-header" class="timesheet-card-tools-form" autocomplete="off">
+              <datalist id="timesheet-driver-options"></datalist>
+              <datalist id="timesheet-route-options"></datalist>
+            </form>
+            <details class="timesheet-genie-settings">
+              <summary class="timesheet-genie-settings-summary">Genie Settings</summary>
+              <ul class="timesheet-genie-settings-list">
+                <li>
                   <button
                     type="button"
-                    class="timesheet-hours-mode-btn"
-                    id="timesheet-mode-snap"
-                    data-hours-mode="snap"
-                    aria-pressed="true"
-                    title="Moves each Out and In clock onto the contract quarter hour (:00, :15, :30, or :45) using the office minute bands. Tot. Hrs. is the time between those clocks."
+                    class="timesheet-genie-settings-item"
+                    id="timesheet-session-backup"
+                    title="Download every constructed card and pay period summary saved in this browser. Photos are not included."
                   >
                     <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                      <circle cx="12" cy="12" r="8" />
-                      <path d="M12 7.5V12l3 2" />
+                      <path d="M12 4v11" />
+                      <path d="M7 11l5 5 5-5" />
+                      <path d="M5 20h14" />
                     </svg>
-                    Snap rounded times
+                    Backup all scans
                   </button>
-                  <button
-                    type="button"
-                    class="timesheet-hours-mode-btn"
-                    id="timesheet-mode-quarter"
-                    data-hours-mode="quarter"
-                    aria-pressed="false"
-                    title="Keeps the written clocks. Tot. Hrs. is the time from Out to In, rounded to the nearest quarter hour."
+                </li>
+                <li>
+                  <div
+                    class="timesheet-hours-mode"
+                    id="timesheet-hours-mode"
+                    role="group"
+                    aria-label="How Tot. Hrs. is calculated"
                   >
-                    Quarter hour rounding
-                  </button>
-                </div>
-                <div
-                  class="timesheet-run-windows"
-                  id="timesheet-run-windows"
-                  role="group"
-                  aria-label="Which start times count as AM, MID, or PM"
-                  title="A clock pair uses the time it starts. AM is strictly before the first time. MID is strictly after the second time and strictly before the third. PM is strictly after the last time. A start at the exact cutoff is not included. If a start fits more than one window, AM is used, then MID, then PM."
-                >
-                  <span class="timesheet-run-windows-label">Run windows</span>
-                  <label class="timesheet-run-window">
-                    AM before
-                    <input
-                      type="time"
-                      id="timesheet-run-am-before"
-                      value="08:00"
-                      step="60"
-                      title="Clock pairs that start before this time are AM. A start at this exact time is not AM."
-                    />
-                  </label>
-                  <label class="timesheet-run-window">
-                    MID after
-                    <input
-                      type="time"
-                      id="timesheet-run-mid-after"
-                      value="09:00"
-                      step="60"
-                      title="MID starts after this time. A start at this exact time is not MID."
-                    />
-                  </label>
-                  <label class="timesheet-run-window">
-                    MID before
-                    <input
-                      type="time"
-                      id="timesheet-run-mid-before"
-                      value="11:00"
-                      step="60"
-                      title="MID ends before this time. A start at this exact time is not MID."
-                    />
-                  </label>
-                  <label class="timesheet-run-window">
-                    PM after
-                    <input
-                      type="time"
-                      id="timesheet-run-pm-after"
-                      value="11:30"
-                      step="60"
-                      title="Clock pairs that start after this time are PM. A start at this exact time is not PM."
-                    />
-                  </label>
-                </div>
-                <div class="timesheet-row-height" title="Change the row height so a real card can be held up next to the displayed card. Nudge until the rows line up.">
-                  <div class="timesheet-row-height-pill" role="group" aria-label="Row height">
-                    <button type="button" class="timesheet-row-height-btn" data-row-height="-1" aria-label="Decrease row height" title="Make each card row shorter so a real card held next to the screen can line up.">−</button>
-                    <span class="timesheet-row-height-label">Row height</span>
-                    <output class="timesheet-row-height-value">52px</output>
-                    <button type="button" class="timesheet-row-height-btn" data-row-height="1" aria-label="Increase row height" title="Make each card row taller so a real card held next to the screen can line up.">+</button>
+                    <button
+                      type="button"
+                      class="timesheet-hours-mode-btn timesheet-genie-settings-item"
+                      id="timesheet-mode-snap"
+                      data-hours-mode="snap"
+                      aria-pressed="true"
+                      title="Moves each Out and In clock onto the contract quarter hour (:00, :15, :30, or :45) using the office minute bands. Tot. Hrs. is the time between those clocks."
+                    >
+                      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="12" cy="12" r="8" />
+                        <path d="M12 7.5V12l3 2" />
+                      </svg>
+                      Snap rounded times
+                    </button>
+                    <button
+                      type="button"
+                      class="timesheet-hours-mode-btn timesheet-genie-settings-item"
+                      id="timesheet-mode-quarter"
+                      data-hours-mode="quarter"
+                      aria-pressed="false"
+                      title="Keeps the written clocks. Tot. Hrs. is the time from Out to In, rounded to the nearest quarter hour."
+                    >
+                      Quarter hour rounding
+                    </button>
                   </div>
-                </div>
-              </div>
+                </li>
+                <li>
+                  <label
+                    class="timesheet-early-clock timesheet-genie-settings-item"
+                    title="Marks the punch that starts a run when it is earlier than that run’s Time Changes clock-in and quarter-hour rounding, or snap rounding, makes the run at least a quarter hour longer. On the card that start punch is the Out."
+                  >
+                    <input type="checkbox" id="timesheet-highlight-early-clock-in" checked />
+                    Highlight early clock-in times
+                  </label>
+                </li>
+                <li>
+                  <details class="timesheet-genie-settings-fold">
+                    <summary class="timesheet-genie-settings-item">Define AM/MID/PM runs</summary>
+                    <div
+                      class="timesheet-run-windows"
+                      id="timesheet-run-windows"
+                      role="group"
+                      aria-label="Define AM/MID/PM runs"
+                      title="A clock pair uses the time it starts. AM is strictly before the first time. MID is strictly after the second time and strictly before the third. PM is strictly after the last time. A start at the exact cutoff is not included. If a start fits more than one window, AM is used, then MID, then PM."
+                    >
+                      <label class="timesheet-run-window">
+                        AM before
+                        <input
+                          type="time"
+                          id="timesheet-run-am-before"
+                          value="08:00"
+                          step="60"
+                          title="Clock pairs that start before this time are AM. A start at this exact time is not AM."
+                        />
+                      </label>
+                      <label class="timesheet-run-window">
+                        MID after
+                        <input
+                          type="time"
+                          id="timesheet-run-mid-after"
+                          value="09:00"
+                          step="60"
+                          title="MID starts after this time. A start at this exact time is not MID."
+                        />
+                      </label>
+                      <label class="timesheet-run-window">
+                        MID before
+                        <input
+                          type="time"
+                          id="timesheet-run-mid-before"
+                          value="11:00"
+                          step="60"
+                          title="MID ends before this time. A start at this exact time is not MID."
+                        />
+                      </label>
+                      <label class="timesheet-run-window">
+                        PM after
+                        <input
+                          type="time"
+                          id="timesheet-run-pm-after"
+                          value="11:30"
+                          step="60"
+                          title="Clock pairs that start after this time are PM. A start at this exact time is not PM."
+                        />
+                      </label>
+                    </div>
+                  </details>
+                </li>
+                <li>
+                  <details class="timesheet-genie-settings-fold">
+                    <summary class="timesheet-genie-settings-item" title="The note that opens when you email a timecard copy.">
+                      Email copies message
+                    </summary>
+                    <label class="timesheet-copy-mail" for="timesheet-copy-mail">
+                      <span class="field-hint">{{first}} is the driver’s first name. {{name}} is the full name. A long timecard is copied so you can paste it under this note.</span>
+                      <textarea id="timesheet-copy-mail" rows="5" spellcheck="true" aria-label="Email copies message"></textarea>
+                    </label>
+                  </details>
+                </li>
+                <li>
+                  <details class="timesheet-genie-settings-fold">
+                    <summary class="timesheet-genie-settings-item" id="timesheet-row-height-label" title="Make rows thicker or thinner to match real time cards.">
+                      <span>Make rows thicker or thinner to match real time cards</span>
+                    </summary>
+                    <div class="timesheet-row-height" title="Make rows thicker or thinner to match real time cards.">
+                      <div class="timesheet-row-height-pill" role="group" aria-labelledby="timesheet-row-height-label">
+                        <button type="button" class="timesheet-row-height-btn" data-row-height="-1" aria-label="Make rows thinner" title="Make each card row thinner so a real card held next to the screen can line up.">−</button>
+                        <output class="timesheet-row-height-value">52px</output>
+                        <button type="button" class="timesheet-row-height-btn" data-row-height="1" aria-label="Make rows thicker" title="Make each card row thicker so a real card held next to the screen can line up.">+</button>
+                      </div>
+                    </div>
+                  </details>
+                </li>
+              </ul>
+            </details>
+            <div id="timesheet-phone-capture" class="timesheet-phone-capture">
+              <p id="timesheet-phone-status" class="status" role="status" hidden></p>
             </div>
             <p id="timesheet-period-mismatch" class="status is-error timesheet-period-mismatch" role="status" hidden></p>
           </div>
@@ -954,7 +1014,7 @@
           </div>
           <p id="timesheet-queue-status" class="status" role="status" hidden></p>
           <div class="actions">
-            <button type="button" id="timesheet-queue-print-range" title="Print the numbered From–To squares in this queue.">
+            <button type="button" id="timesheet-queue-print-range" title="Print the timecard table for the numbered From–To squares in this queue.">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M6 9V3h12v6" />
                 <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
@@ -962,7 +1022,7 @@
               </svg>
               Print range
             </button>
-            <button type="button" id="timesheet-queue-print-selected" title="Print only the checked employee squares.">
+            <button type="button" id="timesheet-queue-print-selected" title="Print the timecard table for the checked employee squares.">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M6 9V3h12v6" />
                 <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
@@ -991,13 +1051,14 @@
                 </div>
                 <h3 id="timesheet-front-heading" class="visually-hidden">Front</h3>
               </div>
-              <aside class="timesheet-run-panel" aria-label="Run, duration, and extra time">
+              <aside class="timesheet-run-panel" aria-label="Run, contract, duration, and extra time">
                 <div class="timesheet-snap-sticker-spacer" aria-hidden="true"></div>
                 <div class="table-wrap timesheet-run-wrap">
                   <table class="timesheet-run-sheet" id="timesheet-front-run">
                     <thead>
                       <tr>
                         <th scope="col">Run</th>
+                        <th scope="col" title="Contract hours for this run. Edit a number to recalculate Tot. Hrs., Reg, and OT.">Contract</th>
                         <th scope="col" title="Hours from clock out to clock in. Snap rounded times uses the snapped clocks.">Duration</th>
                         <th scope="col" title="This pair’s duration minus the contract hours for its run.">Extra Time</th>
                       </tr>
@@ -1061,45 +1122,53 @@
                     <div class="timesheet-card-sticker-field timesheet-card-sticker-contract">
                       <span class="visually-hidden">Contract hours: total, then AM, midday, and PM</span>
                       <span class="timesheet-sticker-contract">
-                        <input
-                          id="timesheet-header-contract"
-                          name="contract_hours"
-                          form="timesheet-card-header"
-                          inputmode="decimal"
-                          placeholder="4.25"
-                          aria-label="Total contract hours"
-                          spellcheck="false"
-                        />
+                        <span class="timesheet-sticker-contract-part" data-contract-part="total">
+                          <input
+                            id="timesheet-header-contract"
+                            name="contract_hours"
+                            form="timesheet-card-header"
+                            inputmode="decimal"
+                            placeholder="4.25"
+                            aria-label="Total contract hours"
+                            spellcheck="false"
+                          />
+                        </span>
                         <span class="timesheet-sticker-contract-mark" aria-hidden="true">(</span>
-                        <input
-                          id="timesheet-header-contract-am"
-                          name="contract_am_hours"
-                          form="timesheet-card-header"
-                          inputmode="decimal"
-                          placeholder="AM"
-                          aria-label="AM contract hours"
-                          spellcheck="false"
-                        />
+                        <span class="timesheet-sticker-contract-part" data-contract-part="am">
+                          <input
+                            id="timesheet-header-contract-am"
+                            name="contract_am_hours"
+                            form="timesheet-card-header"
+                            inputmode="decimal"
+                            placeholder="AM"
+                            aria-label="AM contract hours"
+                            spellcheck="false"
+                          />
+                        </span>
                         <span class="timesheet-sticker-contract-mark" aria-hidden="true">,</span>
-                        <input
-                          id="timesheet-header-contract-mid"
-                          name="contract_midday_hours"
-                          form="timesheet-card-header"
-                          inputmode="decimal"
-                          placeholder="Mid"
-                          aria-label="Midday contract hours"
-                          spellcheck="false"
-                        />
+                        <span class="timesheet-sticker-contract-part" data-contract-part="mid">
+                          <input
+                            id="timesheet-header-contract-mid"
+                            name="contract_midday_hours"
+                            form="timesheet-card-header"
+                            inputmode="decimal"
+                            placeholder="Mid"
+                            aria-label="Midday contract hours"
+                            spellcheck="false"
+                          />
+                        </span>
                         <span class="timesheet-sticker-contract-mark" aria-hidden="true">,</span>
-                        <input
-                          id="timesheet-header-contract-pm"
-                          name="contract_pm_hours"
-                          form="timesheet-card-header"
-                          inputmode="decimal"
-                          placeholder="PM"
-                          aria-label="PM contract hours"
-                          spellcheck="false"
-                        />
+                        <span class="timesheet-sticker-contract-part" data-contract-part="pm">
+                          <input
+                            id="timesheet-header-contract-pm"
+                            name="contract_pm_hours"
+                            form="timesheet-card-header"
+                            inputmode="decimal"
+                            placeholder="PM"
+                            aria-label="PM contract hours"
+                            spellcheck="false"
+                          />
+                        </span>
                         <span class="timesheet-sticker-contract-mark" aria-hidden="true">)</span>
                       </span>
                     </div>
@@ -1149,12 +1218,13 @@
                 <h3 id="timesheet-back-heading" class="visually-hidden">Back</h3>
               </div>
               <div class="timesheet-back-sticker-slot" id="timesheet-back-sticker-slot"></div>
-              <aside class="timesheet-run-panel" aria-label="Run, duration, and extra time">
+              <aside class="timesheet-run-panel" aria-label="Run, contract, duration, and extra time">
                 <div class="table-wrap timesheet-run-wrap">
                   <table class="timesheet-run-sheet" id="timesheet-back-run">
                     <thead>
                       <tr>
                         <th scope="col">Run</th>
+                        <th scope="col" title="Contract hours for this run. Edit a number to recalculate Tot. Hrs., Reg, and OT.">Contract</th>
                         <th scope="col" title="Hours from clock out to clock in. Snap rounded times uses the snapped clocks.">Duration</th>
                         <th scope="col" title="This pair’s duration minus the contract hours for its run.">Extra Time</th>
                       </tr>
@@ -1291,6 +1361,13 @@
             <div class="actions">
               <button type="button" id="timesheet-desc-save" title="Save this Description of Work on the row.">Done</button>
               <button type="button" class="secondary" id="timesheet-desc-cancel" title="Close without changing the description.">Cancel</button>
+            </div>
+          </dialog>
+          <dialog id="timesheet-contract-mismatch-dialog" class="timesheet-desc-dialog" aria-labelledby="timesheet-contract-mismatch-title">
+            <h2 id="timesheet-contract-mismatch-title">Contract time differs</h2>
+            <p class="lead" id="timesheet-contract-mismatch-lead"></p>
+            <div class="actions">
+              <button type="button" id="timesheet-contract-mismatch-close" title="Close this note.">Close</button>
             </div>
           </dialog>
           <dialog id="timesheet-slice-dialog" class="timesheet-desc-dialog timesheet-slice-dialog" aria-labelledby="timesheet-slice-title">

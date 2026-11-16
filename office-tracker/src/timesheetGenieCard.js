@@ -231,9 +231,11 @@ export function normalizeGenieCardExtraction(parsed) {
   };
 }
 
-function positiveHours(value) {
+function contractHoursValue(value) {
+  if (value == null || value === '') return null;
   const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? number : null;
+  if (!Number.isFinite(number) || number < 0) return null;
+  return Math.round(number * 100) / 100;
 }
 
 function roundQuarter(value) {
@@ -243,14 +245,14 @@ function roundQuarter(value) {
 /**
  * AM, midday, and PM contract hours from a sticker header or `{ am, midday, pm }`.
  * Null when the sticker has only a single daily total.
- * A missing run is 0 so work on that run is all extra.
+ * An explicit 0 stays 0. A missing run is 0 when another run has hours, so that work is all extra.
  * @param {object | null | undefined} source
  */
 export function contractRunParts(source) {
   if (!source || typeof source !== 'object') return null;
-  const am = positiveHours(source.am ?? source.contract_am_hours);
-  const midday = positiveHours(source.midday ?? source.contract_midday_hours);
-  const pm = positiveHours(source.pm ?? source.contract_pm_hours);
+  const am = contractHoursValue(source.am ?? source.contract_am_hours);
+  const midday = contractHoursValue(source.midday ?? source.contract_midday_hours);
+  const pm = contractHoursValue(source.pm ?? source.contract_pm_hours);
   if (am == null && midday == null && pm == null) return null;
   return { am: am ?? 0, midday: midday ?? 0, pm: pm ?? 0 };
 }

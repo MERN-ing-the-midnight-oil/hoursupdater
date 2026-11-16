@@ -41,11 +41,17 @@ import {
   TIMESHEET_HOURS_MODE_SNAP,
 } from '../src/timesheetSnap.js';
 import {
+  contractHoursDiffer,
+  contractHoursForRun,
+  contractMismatchNote,
   formatRunHours,
-  formatRunLabel,
+  formatRunTitle,
+  earlyClockInMarks,
   formatWindowClock,
   minutesToTimeValue,
   normalizeRunWindows,
+  parseRunContractInput,
+  RUN_CONTRACT_FIELD,
   RUN_WINDOWS_KEY,
   runTableSlots,
 } from '../src/timesheetRunTable.js';
@@ -78,10 +84,17 @@ import {
 } from './timesheetPrintStore.js';
 import { noticeMailto } from '../src/noticeMail.js';
 import {
+  DEFAULT_TIMECARD_COPY_TEMPLATE,
   driverForTimecardName,
   isTimecardEmail,
-  timecardCopyMail,
+  timecardCopyDelivery,
+  timecardCopyTemplate,
 } from '../src/timesheetCopyMail.js';
+import {
+  buildTimecardCopySheet,
+  renderTimecardCopyDocument,
+  renderTimecardCopyText,
+} from '../src/timecardCopySheet.js';
 import {
   clockRoundingMode,
   compareRouteNumbers,
@@ -112,6 +125,8 @@ const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 const CAMERA_KEY = 'teamster-timesheet-camera';
 const ROW_HEIGHT_KEY = 'teamster-timesheet-row-height';
 const HOURS_MODE_KEY = 'teamster-timesheet-hours-mode';
+const COPY_MAIL_KEY = 'teamster-timesheet-copy-mail';
+const EARLY_CLOCK_KEY = 'teamster-timesheet-highlight-early-clock-in';
 const CAROUSEL_PERIOD_KEY = 'teamster-timesheet-carousel-period';
 const HIDDEN_EXAMPLE_KEY = 'teamster-timesheet-hidden-examples';
 const ROW_HEIGHT_MAX = 120;
@@ -742,6 +757,7 @@ export function mountTimesheetReader(options = {}) {
       paintExtraSides();
       paintRunSheets();
       markAndPaintHourRows();
+      paintEarlyClockIns();
     },
   });
 
@@ -1049,17 +1065,6 @@ export function mountTimesheetReader(options = {}) {
     return printCopies.syncHours(id, extraction);
   }
 
-  function downloadBlobFile(blob, filename) {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
-  }
-
   function openCardMailto(mail) {
     const link = document.createElement('a');
     link.href = noticeMailto(mail);
@@ -1069,65 +1074,80 @@ export function mountTimesheetReader(options = {}) {
     link.remove();
   }
 
-  function explainTimecardDownload(filename) {
-    const dialog = document.querySelector('#notice-download-dialog');
-    const message = document.querySelector('#notice-download-message');
-    const title = document.querySelector('#notice-download-title');
-    if (!(dialog instanceof HTMLDialogElement) || !(message instanceof HTMLElement)) return;
-    if (title instanceof HTMLElement) title.textContent = 'Attach the timecard';
-    message.textContent = `Please look for ${filename} in your downloads folder and attach it.`;
-    if (!dialog.open) dialog.showModal();
+  async function copyTimecardSheet(sheet) {
+    const text = renderTimecardCopyText(sheet);
+    const html = renderTimecardCopyDocument([sheet], { externalFonts: false });
+    const clipboard = navigator.clipboard;
+    if (clipboard?.write && typeof ClipboardItem !== 'undefined') {
+      await clipboard.write([
+        new ClipboardItem({
+          'text/plain': new Blob([text], { type: 'text/plain' }),
+          'text/html': new Blob([html], { type: 'text/html' }),
+        }),
+      ]);
+      return;
+    }
+    if (clipboard?.writeText) {
+      await clipboard.writeText(text);
+      return;
+    }
+    throw new Error('Could not copy the timecard.');
   }
 
-  async function printRecordsForCard(card) {
-    /** @type {{ id: string, extraction: object }[]} */
-    const jobs = [];
-    const seen = new Set();
-    const header = card?.extraction?.header || null;
-    const add = (id, extraction) => {
-      const key = String(id || '').trim();
-      if (!key || seen.has(key)) return;
-      seen.add(key);
-      jobs.push({ id: key, extraction });
-    };
-    add(card?.printId, {
-      header,
-      front_rows: card?.extraction?.front_rows,
-      back_rows: card?.extraction?.back_rows,
+  function sheetForSessionCard(card) {
+    if (card?.id === activeSessionId) flushActiveSessionCard();
+    const cardExtraction = card?.extraction || null;
+    const index = Math.max(0, sessionCards.indexOf(card));
+    let summary = null;
+    try {
+      summary = buildGenieCardMonthlySummary(
+        cardExtraction,
+        snapBreaks(),
+        officeState(),
+        hoursMode,
+        runWindows
+      );
+    } catch {
+      summary = null;
+    }
+    return buildTimecardCopySheet({
+      extraction: cardExtraction,
+      driverName: sessionCardDriverName(cardExtraction, index),
+      breaks: snapBreaks(),
+      mode: hoursMode,
+      windows: runWindows,
+      known: knownRunContracts(cardExtraction?.header),
+      summary,
     });
-    /** @type {Map<string, object>} */
-    const extras = new Map();
-    for (const side of Array.isArray(card?.extraction?.extra_sides) ? card.extraction.extra_sides : []) {
-      const id = String(side?.printId || '').trim();
-      if (!id) continue;
-      const bucket = extras.get(id) || { header, front_rows: null, back_rows: null };
-      if (side?.side === 'back') bucket.back_rows = side.rows;
-      else bucket.front_rows = side.rows;
-      extras.set(id, bucket);
-    }
-    for (const [id, extraction] of extras) add(id, extraction);
-    if (!jobs.length) {
-      const wanted = String(header?.employee_name || '').trim().toLowerCase();
-      if (wanted) {
-        const all = await listPrintCards();
-        const match = all.filter((item) => String(item?.driverName || '').trim().toLowerCase() === wanted).at(-1);
-        if (match?.id) {
-          card.printId = match.id;
-          add(match.id, {
-            header,
-            front_rows: card?.extraction?.front_rows,
-            back_rows: card?.extraction?.back_rows,
-          });
-        }
+  }
+
+  function printCopySheets(sheets) {
+    const html = renderTimecardCopyDocument(sheets);
+    const iframe = document.createElement('iframe');
+    iframe.title = 'Timecard copies';
+    iframe.style.cssText = 'position:fixed;width:0;height:0;border:0;opacity:0;pointer-events:none;';
+    let printed = false;
+    const cleanup = () => iframe.remove();
+    const tryPrint = () => {
+      if (printed || !iframe.contentWindow) return;
+      printed = true;
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+      window.setTimeout(cleanup, 90_000);
+    };
+    iframe.onload = () => {
+      const fonts = iframe.contentDocument?.fonts;
+      if (fonts?.ready) {
+        Promise.race([fonts.ready, new Promise((resolve) => window.setTimeout(resolve, 800))]).then(tryPrint);
+        return;
       }
-    }
-    /** @type {object[]} */
-    const records = [];
-    for (const job of jobs) {
-      const saved = await attachPrintHours(job.id, job.extraction);
-      if (saved?.front || saved?.back) records.push(saved);
-    }
-    return records;
+      tryPrint();
+    };
+    iframe.srcdoc = html;
+    document.body.append(iframe);
+    window.setTimeout(() => {
+      if (!printed) tryPrint();
+    }, 1200);
   }
 
   async function emailChipCopy(id) {
@@ -1137,7 +1157,6 @@ export function mountTimesheetReader(options = {}) {
       setStatus('That card is still being read.', 'error');
       return false;
     }
-    if (card.id === activeSessionId) flushActiveSessionCard();
     const name = sessionCardDriverName(card.extraction, Math.max(0, sessionCards.indexOf(card)));
     const driver = driverForTimecardName(driversFromState(officeState()), card.extraction?.header?.employee_name);
     const email = String(driver?.email || '').trim();
@@ -1148,19 +1167,21 @@ export function mountTimesheetReader(options = {}) {
     mailingCardId = card.id;
     paintSessionChips();
     try {
-      const records = await printRecordsForCard(card);
-      if (!records.length) {
-        setStatus(`There is no scan photo for ${name} in this browser, so there is no timecard image to send.`, 'error');
-        return false;
-      }
-      setBusyStatus('Preparing the timecard image…');
-      const result = await buildPrintPdfBlob(records);
-      const mail = timecardCopyMail({ to: email, driverName: driver?.name || name });
-      downloadBlobFile(result.blob, mail.filename);
-      openCardMailto(mail);
-      explainTimecardDownload(mail.filename);
-      const warning = Array.isArray(result?.warnings) && result.warnings[0] ? ` ${result.warnings[0]}` : '';
-      setStatus(`Email is open for ${name}. Attach ${mail.filename} from your downloads.${warning}`, 'ok');
+      const sheet = sheetForSessionCard(card);
+      const delivery = timecardCopyDelivery({
+        to: email,
+        driverName: driver?.name || name,
+        sheetText: renderTimecardCopyText(sheet),
+        template: copyMailTemplate(),
+      });
+      if (delivery.paste) await copyTimecardSheet(sheet);
+      openCardMailto(delivery.mail);
+      setStatus(
+        delivery.paste
+          ? `Email is open for ${name}. Paste to put the timecard table in the message.`
+          : `Email is open for ${name}. The timecard table is in the message.`,
+        'ok'
+      );
       return true;
     } catch (error) {
       setStatus(error?.message || 'Could not email that timecard.', 'error');
@@ -1192,53 +1213,17 @@ export function mountTimesheetReader(options = {}) {
 
   /**
    * @param {object[]} cards
-   */
-  async function printCopiesForSessionCards(cards) {
-    /** @type {object[]} */
-    const records = [];
-    /** @type {string[]} */
-    const missing = [];
-    for (const card of cards) {
-      if (card?.id === activeSessionId) flushActiveSessionCard();
-      const name = sessionCardDriverName(card?.extraction, Math.max(0, sessionCards.indexOf(card)));
-      const found = await printRecordsForCard(card);
-      if (!found.length) missing.push(name);
-      else records.push(...found);
-    }
-    return { records, missing };
-  }
-
-  /**
-   * @param {object[]} cards
    * @param {(message: string, kind?: string) => void} report
    */
-  async function printSessionCardCopies(cards, report) {
+  function printSessionCardCopies(cards, report) {
     if (!cards.length) {
       report('Choose at least one employee square.', 'error');
       return;
     }
     report('Preparing the print job…', '');
-    const { records, missing } = await printCopiesForSessionCards(cards);
-    if (!records.length) {
-      report(
-        missing.length === 1
-          ? `There is no scan photo for ${missing[0]} in this browser, so there is no card copy to print.`
-          : 'None of those squares have a scan photo in this browser yet.',
-        'error'
-      );
-      return;
-    }
-    const result = await buildPrintPdfBlob(records);
-    printPdfBlob(result.blob || result);
-    const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
-    const skipped = missing.length
-      ? ` ${missing.length === 1 ? `${missing[0]} has no scan photo.` : `${missing.length} squares have no scan photo.`}`
-      : '';
-    const extra = warnings[0] ? ` ${warnings[0]}` : '';
-    report(
-      `${records.length === 1 ? 'Printing 1 card copy.' : `Printing ${records.length} card copies.`}${skipped}${extra}`,
-      missing.length || warnings.length ? 'error' : 'ok'
-    );
+    const sheets = cards.map((card) => sheetForSessionCard(card));
+    printCopySheets(sheets);
+    report(sheets.length === 1 ? 'Printing 1 timecard.' : `Printing ${sheets.length} timecards.`, 'ok');
   }
 
   async function printSingleChip(id) {
@@ -1582,14 +1567,14 @@ export function mountTimesheetReader(options = {}) {
       printBtn.className = 'timesheet-chip-action timesheet-chip-print';
       printBtn.dataset.chipPrintSingle = 'true';
       printBtn.textContent = 'Print single';
-      printBtn.title = `Print ${name}'s card by itself, front and back as separate pages.`;
+      printBtn.title = `Print ${name}'s timecard table, including the run table and Monthly Time Summary.`;
       printBtn.setAttribute('aria-label', `Print single card for ${name}`);
       const emailBtn = document.createElement('button');
       emailBtn.type = 'button';
       emailBtn.className = 'timesheet-chip-action timesheet-chip-email';
       emailBtn.dataset.chipEmail = 'true';
       emailBtn.textContent = 'Email copies';
-      emailBtn.title = `Email ${name} the pay-period copies for this card.`;
+      emailBtn.title = `Email ${name} the timecard table, including the run table and Monthly Time Summary.`;
       emailBtn.setAttribute('aria-label', `Email copies to ${name}`);
       const busy = card.id === mailingCardId || card.status === 'reading';
       queueBtn.disabled = busy;
@@ -1603,7 +1588,8 @@ export function mountTimesheetReader(options = {}) {
       deleteBtn.type = 'button';
       deleteBtn.className = 'timesheet-chip-delete';
       deleteBtn.dataset.chipDelete = 'true';
-      deleteBtn.textContent = 'Delete';
+      deleteBtn.innerHTML =
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
       deleteBtn.title = `Delete ${name}'s card from this pay period.`;
       deleteBtn.setAttribute('aria-label', `Delete ${name}`);
       deleteBtn.disabled = busy;
@@ -1879,6 +1865,15 @@ export function mountTimesheetReader(options = {}) {
       if (extraction) refreshDerivedFromExtraction();
     },
   });
+  const copyMailTemplate = mountCopyMailTemplate();
+  let highlightEarlyClockIn = readStoredEarlyClockIn();
+  mountEarlyClockControl({
+    on: highlightEarlyClockIn,
+    onChange(next) {
+      highlightEarlyClockIn = next;
+      paintEarlyClockIns();
+    },
+  });
   let runWindows = readStoredRunWindows();
   mountRunWindowsControl({
     windows: runWindows,
@@ -1894,6 +1889,7 @@ export function mountTimesheetReader(options = {}) {
     const mode = hoursMode;
     const windows = runWindows;
     const contract = extraction.header;
+    const known = knownRunContracts();
     paintRunSheet(
       frontRun,
       extraction.front_rows ?? [],
@@ -1919,6 +1915,137 @@ export function mountTimesheetReader(options = {}) {
       const runBody = pair.querySelector('.timesheet-run-sheet tbody');
       paintRunSheet(runBody, rows, shownSlotCount(rows), breaks, mode, windows, contract);
       alignSnapRows(pair.querySelector('.timesheet-card-sheet tbody'), runBody);
+    });
+    syncStickerContractWarnings(contract, known);
+  }
+
+  function knownRunContracts(header = extraction?.header) {
+    try {
+      const asOf = String(asOfDate() || '').trim();
+      const rows = payrollDriverRows(officeState() || {}, {
+        asOf: asOf || undefined,
+        usePunches: false,
+      });
+      const row = matchPayrollRow(rows, header);
+      if (!row) return null;
+      return {
+        total: row.fullDayRoundedQuarterHours,
+        am: contractHoursFromPayroll(row, 'am'),
+        midday: contractHoursFromPayroll(row, 'midday'),
+        pm: contractHoursFromPayroll(row, 'pm'),
+        clocks: {
+          am: String(row.amIn || '').trim(),
+          midday: String(row.middayIn || '').trim(),
+          pm: String(row.pmIn || '').trim(),
+        },
+        driver: [row.firstName, row.lastName].filter(Boolean).join(' ').trim(),
+        route: String(row.route || '').trim(),
+        asOf: formatOfficeDate(asOf),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function contractTextForRun(run) {
+    const hours = contractHoursForRun(extraction?.header, run);
+    return hours == null ? '' : formatRunHours(hours);
+  }
+
+  function syncRunContractFigures() {
+    if (!extraction) return;
+    const breaks = snapBreaks();
+    const mode = hoursMode;
+    const windows = runWindows;
+    const contract = extraction.header;
+    const active = document.activeElement;
+    const visit = (body, rows) => {
+      updateRunContractFigures(
+        body,
+        rows,
+        shownSlotCount(rows),
+        breaks,
+        mode,
+        windows,
+        contract,
+        active
+      );
+    };
+    visit(frontRun, extraction.front_rows ?? []);
+    visit(backRun, extraction.back_rows ?? []);
+    eachExtraSide((pair, extra) => {
+      visit(pair.querySelector('.timesheet-run-sheet tbody'), extra.rows);
+    });
+  }
+
+  function commitRunContract(run, hours) {
+    if (!extraction) return;
+    const field = RUN_CONTRACT_FIELD[run];
+    if (!field) return;
+    const header = {
+      ...(extraction.header && typeof extraction.header === 'object' ? extraction.header : blankCardHeader()),
+    };
+    const next = hours == null ? null : hours;
+    const previous = storedContractHours(header[field]);
+    if (previous === next) return;
+    header[field] = next;
+    const parts = ['contract_am_hours', 'contract_midday_hours', 'contract_pm_hours']
+      .map((key) => storedContractHours(header[key]))
+      .filter((value) => value != null);
+    if (parts.length) {
+      header.contract_hours = Math.round(parts.reduce((sum, value) => sum + value, 0) * 100) / 100;
+    }
+    extraction.header = header;
+    cardHeader.reflectContract(header);
+    syncStickerContractWarnings(header, knownRunContracts());
+    refreshPayPeriodInfo(extraction, snapBreaks(), officeState(), hoursMode, runWindows);
+    applyContractDerivedFields();
+    markAndPaintHourRows();
+    syncRunContractFigures();
+    flushActiveSessionCard();
+    paintCaveats(extraction);
+    paintSessionChips();
+    paintEarlyClockIns();
+  }
+
+  const contractMismatch = mountContractMismatchDialog();
+  const runCards = document.querySelector('#timesheet-cards');
+  if (runCards) {
+    runCards.addEventListener('input', (event) => {
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement) || !input.classList.contains('timesheet-run-contract')) return;
+      const parsed = parseRunContractInput(input.value);
+      input.classList.toggle('is-invalid', !parsed.ok);
+      if (!parsed.ok) return;
+      commitRunContract(input.dataset.run, parsed.hours);
+    });
+    runCards.addEventListener('focusout', (event) => {
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement) || !input.classList.contains('timesheet-run-contract')) return;
+      input.classList.remove('is-invalid');
+      input.value = contractTextForRun(input.dataset.run);
+    });
+    runCards.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement) || !input.classList.contains('timesheet-run-contract')) return;
+      event.preventDefault();
+      input.blur();
+    });
+    runCards.addEventListener('click', (event) => {
+      const button = event.target instanceof Element ? event.target.closest('.timesheet-contract-warn') : null;
+      if (!(button instanceof HTMLButtonElement)) return;
+      const known = knownRunContracts();
+      contractMismatch.open(
+        contractMismatchNote({
+          run: button.dataset.run,
+          cardHours: button.dataset.cardHours,
+          knownHours: button.dataset.knownHours,
+          driver: known?.driver || extraction?.header?.employee_name,
+          route: known?.route || extraction?.header?.route_number,
+          asOf: known?.asOf || '',
+        })
+      );
     });
   }
 
@@ -1954,6 +2081,7 @@ export function mountTimesheetReader(options = {}) {
       flushActiveSessionCard();
       paintCaveats(extraction);
       paintSessionChips();
+      paintEarlyClockIns();
     },
   });
 
@@ -2110,6 +2238,7 @@ export function mountTimesheetReader(options = {}) {
     });
     paintRunSheets();
     refreshPayPeriodInfo(extraction, breaks, officeState(), mode, runWindows);
+    paintEarlyClockIns();
   }
 
   function renderResult() {
@@ -2153,6 +2282,7 @@ export function mountTimesheetReader(options = {}) {
     paintRunSheets();
     paintSideVisibility();
     refreshPayPeriodInfo(extraction, breaks, officeState(), mode, runWindows);
+    paintEarlyClockIns();
   }
 
   /**
@@ -2810,6 +2940,32 @@ export function mountTimesheetReader(options = {}) {
       alignSnapRows(body, snapBody);
     });
     paintSideVisibility();
+    paintEarlyClockIns();
+  }
+
+  function paintEarlyClockIns() {
+    if (!extraction) return;
+    const clocks = highlightEarlyClockIn ? knownRunContracts()?.clocks : null;
+    const breaks = snapBreaks();
+    const mode = hoursMode;
+    const windows = runWindows;
+    const year = inferDefaultYear(extraction?.header?.date_on_card);
+    const markSide = (cardBody, snapBody, rows) => {
+      const marks =
+        highlightEarlyClockIn && clocks
+          ? earlyClockInMarks(rows, { breaks, mode, windows, clocks, defaultYear: year })
+          : [];
+      applyEarlyClockInMarks(cardBody, snapBody, marks);
+    };
+    markSide(frontCard, frontSnap, extraction.front_rows ?? []);
+    markSide(backCard, backSnap, extraction.back_rows ?? []);
+    eachExtraSide((pair, extra) => {
+      markSide(
+        pair.querySelector('.timesheet-card-sheet tbody'),
+        pair.querySelector('.timesheet-snap-sheet tbody'),
+        extra.rows
+      );
+    });
   }
 
   let archiveReady = false;
@@ -3624,8 +3780,11 @@ export function paintSnapSheet(body, rows, slotCount, breaks, mode) {
   }
 }
 
+const CONTRACT_WARN_ICON =
+  '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"></circle><path d="M8 4.1v4.6"></path><circle class="timesheet-contract-warn-dot" cx="8" cy="11.6" r="0.85"></circle></svg>';
+
 /**
- * Run, duration, and extra time for each clock pair, lined up with the card rows.
+ * Run, contract, duration, and extra time for each clock pair, lined up with the card rows.
  * A pair that spans several card lines uses one set of cells across those lines.
  * @param {HTMLElement | null | undefined} body
  * @param {object[] | null | undefined} rows
@@ -3658,18 +3817,18 @@ function paintRunSheet(body, rows, slotCount, breaks, mode, windows, contract) {
     if (isInOutPairBreak(endRow, nextRow)) tr.classList.add('is-pair-break');
     if (slot.role !== 'pair') {
       tr.classList.add('is-quiet');
-      tr.innerHTML = '<td></td><td></td><td></td>';
+      tr.innerHTML = '<td></td><td></td><td></td><td></td>';
       body.append(tr);
       continue;
     }
     const span = slot.rowspan > 1 ? ` rowspan="${slot.rowspan}"` : '';
-    const runText = runCellHtml(slot);
     const durationText = slot.duration == null ? '—' : formatRunHours(slot.duration);
     const extraText = slot.extra == null ? '—' : formatRunHours(slot.extra);
     const extraClass =
       slot.extra == null ? '' : slot.extra < 0 ? ' is-short' : slot.extra > 0 ? ' is-over' : '';
     tr.innerHTML = `
-      <td${span} title="${escapeAttr(runWindowTitle(slot, rules))}">${runText}</td>
+      <td${span} title="${escapeAttr(runWindowTitle(slot, rules))}">${escapeHtml(formatRunTitle(slot.run))}</td>
+      <td${span} class="timesheet-run-contract-cell">${contractCellHtml(slot)}</td>
       <td${span} title="${escapeAttr(runDurationTitle(hoursMode))}">${escapeHtml(durationText)}</td>
       <td${span} class="timesheet-run-extra${extraClass}" title="${escapeAttr(runExtraTitle(slot))}">${escapeHtml(extraText)}</td>`;
     body.append(tr);
@@ -3677,14 +3836,146 @@ function paintRunSheet(body, rows, slotCount, breaks, mode, windows, contract) {
 }
 
 /**
- * @param {{ run?: string, start?: Date | null }} slot
- * @param {{ amBefore: number, midAfter: number, midBefore: number, pmAfter: number }} rules
+ * Refresh extra time and contract warnings without replacing the field being typed.
+ * @param {HTMLElement | null | undefined} body
+ * @param {object[] | null | undefined} rows
+ * @param {number} slotCount
+ * @param {object} breaks
+ * @param {string | null | undefined} mode
+ * @param {object | null | undefined} windows
+ * @param {object | null | undefined} contract
+ * @param {Element | null} active
  */
-function runCellHtml(slot) {
-  const label = formatRunLabel(slot.run, slot.contract);
-  const split = label.indexOf(' ');
-  if (split < 0) return escapeHtml(label);
-  return `${escapeHtml(label.slice(0, split))} <span class="timesheet-run-contract">${escapeHtml(label.slice(split + 1))}</span>`;
+function updateRunContractFigures(body, rows, slotCount, breaks, mode, windows, contract, active) {
+  if (!body) return;
+  const list = Array.isArray(rows) ? rows.slice(0, slotCount) : [];
+  const snaps = snapsForCardRows(list, breaks, null, mode);
+  const slots = runTableSlots(list, snaps, windows, contract);
+  for (const slot of slots) {
+    if (slot.role !== 'pair') continue;
+    const tr = body.querySelector(`tr[data-row-index="${slot.index}"]`);
+    if (!(tr instanceof HTMLTableRowElement)) continue;
+    const extra = tr.querySelector('.timesheet-run-extra');
+    if (extra instanceof HTMLElement) {
+      extra.textContent = slot.extra == null ? '—' : formatRunHours(slot.extra);
+      extra.classList.toggle('is-short', slot.extra != null && slot.extra < 0);
+      extra.classList.toggle('is-over', slot.extra != null && slot.extra > 0);
+      extra.title = runExtraTitle(slot);
+    }
+    const input = tr.querySelector('.timesheet-run-contract');
+    if (input instanceof HTMLInputElement && input !== active) {
+      const text = slot.contract == null ? '' : formatRunHours(slot.contract);
+      if (input.value !== text) input.value = text;
+    }
+  }
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number | null}
+ */
+function storedContractHours(value) {
+  if (value == null || value === '') return null;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return null;
+  return Math.round(number * 100) / 100;
+}
+
+/**
+ * @param {{ run?: string, contract?: number | null }} slot
+ */
+function contractCellHtml(slot) {
+  if (slot.run !== 'AM' && slot.run !== 'MID' && slot.run !== 'PM') return '';
+  const value = slot.contract == null ? '' : formatRunHours(slot.contract);
+  return `<input class="timesheet-run-contract" data-run="${escapeAttr(slot.run)}" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" value="${escapeAttr(value)}" aria-label="${escapeAttr(`${slot.run} contract hours`)}" title="Contract hours for this run. Editing recalculates Tot. Hrs., Reg, and OT.">`;
+}
+
+const STICKER_CONTRACT_PARTS = [
+  ['total', 'TOTAL', 'contract_hours', 'total'],
+  ['am', 'AM', 'contract_am_hours', 'am'],
+  ['mid', 'MID', 'contract_midday_hours', 'midday'],
+  ['pm', 'PM', 'contract_pm_hours', 'pm'],
+];
+
+/**
+ * @param {string} run
+ * @param {unknown} cardHours
+ * @param {unknown} knownHours
+ */
+function stickerContractWarnHtml(run, cardHours, knownHours) {
+  if (!contractHoursDiffer(cardHours, knownHours)) return '';
+  const card = cardHours == null || cardHours === '' ? '' : formatRunHours(cardHours);
+  const known = formatRunHours(knownHours);
+  const which = run === 'TOTAL' ? 'Total contract' : `${run} contract`;
+  return `<button type="button" class="timesheet-contract-warn" data-run="${escapeAttr(run)}" data-card-hours="${escapeAttr(card)}" data-known-hours="${escapeAttr(known)}" aria-label="${escapeAttr(`${which} does not match Time Changes`)}" title="This contract does not match Time Changes. Click for details.">${CONTRACT_WARN_ICON}</button>`;
+}
+
+/**
+ * Show or clear the sticker warning beside one contract figure.
+ * @param {Element | null} host
+ * @param {string} run
+ * @param {unknown} cardHours
+ * @param {unknown} knownHours
+ */
+function syncOneStickerWarning(host, run, cardHours, knownHours) {
+  if (!(host instanceof Element)) return;
+  let button = host.querySelector('.timesheet-contract-warn');
+  if (!contractHoursDiffer(cardHours, knownHours)) {
+    button?.remove();
+    return;
+  }
+  if (!(button instanceof HTMLButtonElement)) {
+    host.insertAdjacentHTML('beforeend', stickerContractWarnHtml(run, cardHours, knownHours));
+    return;
+  }
+  const card = cardHours == null || cardHours === '' ? '' : formatRunHours(cardHours);
+  const which = run === 'TOTAL' ? 'Total contract' : `${run} contract`;
+  button.dataset.run = run;
+  button.dataset.cardHours = card;
+  button.dataset.knownHours = formatRunHours(knownHours);
+  button.title = 'This contract does not match Time Changes. Click for details.';
+  button.setAttribute('aria-label', `${which} does not match Time Changes`);
+}
+
+/**
+ * @param {object | null | undefined} header
+ * @param {object | null | undefined} known
+ */
+function syncStickerContractWarnings(header, known) {
+  for (const [part, run, field, knownKey] of STICKER_CONTRACT_PARTS) {
+    const host = document.querySelector(`.timesheet-sticker-contract-part[data-contract-part="${part}"]`);
+    syncOneStickerWarning(host, run, header?.[field], known?.[knownKey]);
+  }
+}
+
+/**
+ * @param {string | null | undefined} iso
+ */
+function formatOfficeDate(iso) {
+  const match = String(iso || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return '';
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function mountContractMismatchDialog() {
+  const dialog = document.querySelector('#timesheet-contract-mismatch-dialog');
+  const lead = document.querySelector('#timesheet-contract-mismatch-lead');
+  const closeBtn = document.querySelector('#timesheet-contract-mismatch-close');
+  if (!(dialog instanceof HTMLDialogElement)) return { open() {} };
+  if (closeBtn instanceof HTMLButtonElement) {
+    closeBtn.addEventListener('click', () => dialog.close());
+  }
+  dialog.addEventListener('click', (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+  return {
+    open(message) {
+      if (lead instanceof HTMLElement) lead.textContent = message || '';
+      if (!dialog.open) dialog.showModal();
+    },
+  };
 }
 
 function runWindowTitle(slot, rules) {
@@ -3920,6 +4211,7 @@ function mountCardHeaderForm(options) {
     return {
       syncFromExtraction() {},
       clear() {},
+      reflectContract() {},
     };
   }
 
@@ -4026,14 +4318,14 @@ function mountCardHeaderForm(options) {
     const text = input.value.trim();
     if (!/^\d+(?:\.\d+)?$/.test(text)) return null;
     const number = Number(text);
-    if (!Number.isFinite(number) || number <= 0 || number > 24) return null;
+    if (!Number.isFinite(number) || number < 0 || number > 24) return null;
     return Math.round(number * 100) / 100;
   }
 
   function contractFieldText(value) {
     if (value == null || value === '') return '';
     const number = Number(value);
-    if (!Number.isFinite(number) || number <= 0) return '';
+    if (!Number.isFinite(number) || number < 0) return '';
     return formatAuditHours(number);
   }
 
@@ -4189,10 +4481,29 @@ function mountCardHeaderForm(options) {
     });
   }
 
+  function writeContractFields(header) {
+    const next = header && typeof header === 'object' ? header : blankCardHeader();
+    if (contractInput instanceof HTMLInputElement) {
+      contractInput.value = contractFieldText(next.contract_hours);
+    }
+    if (contractAmInput instanceof HTMLInputElement) {
+      contractAmInput.value = contractFieldText(next.contract_am_hours);
+    }
+    if (contractMidInput instanceof HTMLInputElement) {
+      contractMidInput.value = contractFieldText(next.contract_midday_hours);
+    }
+    if (contractPmInput instanceof HTMLInputElement) {
+      contractPmInput.value = contractFieldText(next.contract_pm_hours);
+    }
+  }
+
   return {
     syncFromExtraction(header) {
       refreshChoices();
       writeHeaderToForm(header);
+    },
+    reflectContract(header) {
+      writeContractFields(header);
     },
     clear() {
       writeHeaderToForm(blankCardHeader());
@@ -4910,6 +5221,16 @@ function readStoredHoursMode() {
   }
 }
 
+function readStoredEarlyClockIn() {
+  try {
+    const stored = localStorage.getItem(EARLY_CLOCK_KEY);
+    if (stored == null) return true;
+    return stored === '1';
+  } catch {
+    return true;
+  }
+}
+
 function readStoredRunWindows() {
   try {
     return normalizeRunWindows(JSON.parse(localStorage.getItem(RUN_WINDOWS_KEY) || ''));
@@ -4972,13 +5293,14 @@ function mountRunWindowsControl({ windows, onChange }) {
 function runAsideElement() {
   const aside = document.createElement('aside');
   aside.className = 'timesheet-run-panel';
-  aside.setAttribute('aria-label', 'Run, duration, and extra time');
+  aside.setAttribute('aria-label', 'Run, contract, duration, and extra time');
   const wrap = document.createElement('div');
   wrap.className = 'table-wrap timesheet-run-wrap';
   const table = document.createElement('table');
   table.className = 'timesheet-run-sheet';
   table.innerHTML = `<thead><tr>
     <th scope="col">Run</th>
+    <th scope="col" title="Contract hours for this run. Edit a number to recalculate Tot. Hrs., Reg, and OT.">Contract</th>
     <th scope="col" title="Hours from clock out to clock in. Snap rounded times uses the snapped clocks.">Duration</th>
     <th scope="col" title="This pair’s duration minus the contract hours for its run.">Extra Time</th>
   </tr></thead><tbody></tbody>`;
@@ -5380,6 +5702,62 @@ function mountHoursModeControl({ mode, onChange }) {
 }
 
 /**
+ * Header checkbox for early clock-in highlights.
+ * @param {{ on: boolean, onChange: (on: boolean) => void }} options
+ */
+function mountEarlyClockControl({ on, onChange }) {
+  const input = document.querySelector('#timesheet-highlight-early-clock-in');
+  if (!(input instanceof HTMLInputElement)) return;
+
+  function setOn(next, { save = true, notify = false } = {}) {
+    const checked = Boolean(next);
+    input.checked = checked;
+    if (save) {
+      try {
+        localStorage.setItem(EARLY_CLOCK_KEY, checked ? '1' : '0');
+      } catch {
+        /* Preference can stay for this visit only. */
+      }
+    }
+    if (notify && typeof onChange === 'function') onChange(checked);
+  }
+
+  input.addEventListener('change', () => setOn(input.checked, { notify: true }));
+  setOn(on, { save: false });
+}
+
+/**
+ * Saved note for Email copies. {{first}} and {{name}} are filled per driver.
+ */
+function mountCopyMailTemplate() {
+  const field = document.querySelector('#timesheet-copy-mail');
+  const read = () =>
+    field instanceof HTMLTextAreaElement
+      ? timecardCopyTemplate(field.value)
+      : DEFAULT_TIMECARD_COPY_TEMPLATE;
+  if (!(field instanceof HTMLTextAreaElement)) return read;
+  let saved = '';
+  try {
+    saved = localStorage.getItem(COPY_MAIL_KEY) || '';
+  } catch {
+    saved = '';
+  }
+  field.value = timecardCopyTemplate(saved);
+  const save = () => {
+    const next = timecardCopyTemplate(field.value);
+    field.value = next;
+    try {
+      localStorage.setItem(COPY_MAIL_KEY, next);
+    } catch {
+      /* The note can stay for this visit only. */
+    }
+  };
+  field.addEventListener('change', save);
+  field.addEventListener('blur', save);
+  return read;
+}
+
+/**
  * Keep snap rows lined up with the blue card rows.
  * @param {HTMLElement} cardBody
  * @param {HTMLElement} snapBody
@@ -5607,11 +5985,11 @@ function clockRecordHtml(row, rowIndex) {
  * @param {{ outLabel?: string, inLabel?: string, outIllegible?: boolean, inIllegible?: boolean }} snapped
  */
 function snapRecordHtml(row, snapped) {
-  const out = `<div class="timesheet-snap-stamp">
+  const out = `<div class="timesheet-snap-stamp" data-snap="out">
           <span class="timesheet-card-label">Out</span>
           <span class="timesheet-snap-value${snapped?.outIllegible ? ' is-illegible' : ''}">${escapeHtml(snapped?.outLabel || '—')}</span>
         </div>`;
-  const inn = `<div class="timesheet-snap-stamp">
+  const inn = `<div class="timesheet-snap-stamp" data-snap="in">
           <span class="timesheet-card-label">In</span>
           <span class="timesheet-snap-value${snapped?.inIllegible ? ' is-illegible' : ''}">${escapeHtml(snapped?.inLabel || '—')}</span>
         </div>`;
@@ -5654,6 +6032,29 @@ function stampEditorHtml(which, raw, rowIndex) {
     </span>
     <span class="timesheet-stamp-note" ${note ? '' : 'hidden'}>${escapeHtml(note)}</span>
   </div>`;
+}
+
+/**
+ * Yellow mark on an In that adds at least a quarter hour versus the assigned clock-in.
+ * @param {HTMLElement | null | undefined} cardBody
+ * @param {HTMLElement | null | undefined} snapBody
+ * @param {Array<{ index: number, title: string }> | null | undefined} marks
+ */
+function applyEarlyClockInMarks(cardBody, snapBody, marks) {
+  const titles = new Map((marks || []).map((mark) => [`${mark.index}:${mark.side}`, mark.title]));
+  const paint = (root, selector) => {
+    if (!root) return;
+    for (const el of root.querySelectorAll(selector)) {
+      const index = Number(el.closest('tr[data-row-index]')?.dataset.rowIndex) || 0;
+      const side = el.getAttribute('data-stamp') || el.getAttribute('data-snap') || '';
+      const title = titles.get(`${index}:${side}`) || '';
+      el.classList.toggle('is-early-clock-in', Boolean(title));
+      if (title) el.title = title;
+      else el.removeAttribute('title');
+    }
+  };
+  paint(cardBody, '[data-stamp]');
+  paint(snapBody, '[data-snap]');
 }
 
 function stampText(value) {
