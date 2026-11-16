@@ -1,5 +1,5 @@
 import { inferDefaultYear, toLocalWallIso } from './timesheetNormalize.js';
-import { snapRoundedForRow } from './timesheetSnap.js';
+import { snapsForCardRows } from './timesheetSnap.js';
 import { overtimeForPairs, pairOvertimeKey } from './overtimeRules.js';
 import { regOtGapHours } from './summaryMath.js';
 import { localDateKey } from '../../src/logic/timesheets.js';
@@ -39,6 +39,7 @@ export function splitTotHoursIntoRegOt(rowLists, options = {}) {
   const ready = [];
 
   for (const rows of lists) {
+    const snaps = snapsForCardRows(rows, breaks, year, mode);
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index];
       if (!row || typeof row !== 'object') continue;
@@ -47,7 +48,7 @@ export function splitTotHoursIntoRegOt(rowLists, options = {}) {
         row.hours_overtime = null;
         continue;
       }
-      const snapped = snapRoundedForRow(row, breaks, year, mode);
+      const snapped = snaps[index];
       const totHours = snapped.totalHours;
       const start = snapped.spanStart;
       const end = snapped.spanEnd;
@@ -189,10 +190,11 @@ export function punchesFromCardExtraction(
   });
   for (const [side, rows] of sides) {
     if (!Array.isArray(rows)) continue;
+    const snaps = snapsForCardRows(rows, breaks, year, mode);
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index];
       if (!row || row.crossed_out) continue;
-      const snapped = snapRoundedForRow(row, breaks, year, mode);
+      const snapped = snaps[index];
       const start = snapped.spanStart;
       const end = snapped.spanEnd;
       if (snapped.totalHours == null || !start || !end || end.getTime() <= start.getTime()) continue;

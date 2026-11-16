@@ -1,8 +1,9 @@
 import { parseAuditHours } from './timesheetAudit.js';
 import { inferDefaultYear, pairStampLines, rowFromClockStamps } from './timesheetNormalize.js';
 import { splitTotHoursIntoRegOt } from './timesheetRegOt.js';
-import { snapRoundedForRow } from './timesheetSnap.js';
-import { localDateKey, segmentForClock } from '../../src/logic/timesheets.js';
+import { runForStartDate } from './timesheetRunTable.js';
+import { snapsForCardRows } from './timesheetSnap.js';
+import { localDateKey } from '../../src/logic/timesheets.js';
 
 export const GENIE_CARD_SYSTEM = `You read one photo of one side of a sky-blue paper timecard. The message says FRONT or BACK. Other sides and other cards are sent separately. A card may have only this side.
 
@@ -259,18 +260,34 @@ function rowListsFrom(frontRows, backRows, moreRows) {
   return [frontRows, backRows, ...more].map((rows) => (Array.isArray(rows) ? rows : []));
 }
 
-function snappedClock(row, options) {
+function rowSnaps(rows, options) {
   const year = options.defaultYear ?? inferDefaultYear(null);
-  return snapRoundedForRow(row, options.breaks, year, options.mode);
+  return snapsForCardRows(rows, options.breaks, year, options.mode);
 }
 
 /**
- * Tot. Hrs. when the sticker names AM, midday, and PM hours.
- * Each run's Tot. Hrs. is the time worked past that run's contract.
- * A run at or under contract contributes nothing, so a short run does not
- * shrink another run. The extra sits on the first clocked row of that run
- * for the day. The column adds up to the day's extra.
- * With no run parts, Tot. Hrs. stays the clock span.
+ * Contract-part key for a span start, using the same AM / MID / PM windows as
+ * the extra-time column. A start outside those windows is not a run.
+ * @param {Date} date
+ * @param {unknown} windows
+ * @returns {'am' | 'midday' | 'pm' | ''}
+ */
+function contractRunKey(date, windows) {
+  const run = runForStartDate(date, windows);
+  if (run === 'AM') return 'am';
+  if (run === 'MID') return 'midday';
+  if (run === 'PM') return 'pm';
+  return '';
+}
+
+/**
+ * Clock spans for Tot. Hrs., plus the extra and short past each run contract.
+ * Tot. Hrs. is the time between an Out and its In, including when those stamps
+ * sit on neighboring lines. The start time picks the run with the same windows
+ * as the extra-time column. A run at or under its contract adds no extra, and
+ * a short run does not shrink another run. A start outside the windows is not
+ * extra. Reg / OT uses that extra.
+ * With no run parts, the maps are unused and Tot. Hrs. is still the span.
  * @param {object[][]} rowLists
  * @param {object | null | undefined} contractRuns
  * @param {object} [options]
@@ -281,14 +298,15 @@ export function applyRunExtraTotals(rowLists, contractRuns, options = {}) {
   const lists = (Array.isArray(rowLists) ? rowLists : []).filter(Array.isArray);
   if (!parts) {
     for (const rows of lists) {
-      for (const row of rows) {
-        if (!row) continue;
+      const snaps = rowSnaps(rows, options);
+      rows.forEach((row, index) => {
+        if (!row) return;
         if (row.crossed_out) {
           row.total_hours = null;
-          continue;
+          return;
         }
-        row.total_hours = snappedClock(row, options).totalHours;
-      }
+        row.total_hours = snaps[index]?.totalHours ?? null;
+      });
     }
     return null;
   }
@@ -298,25 +316,30 @@ export function applyRunExtraTotals(rowLists, contractRuns, options = {}) {
   /** @type {Map<string, number>} */
   const rawByDay = new Map();
   for (const rows of lists) {
-    for (const row of rows) {
-      if (!row) continue;
+    const snaps = rowSnaps(rows, options);
+    rows.forEach((row, index) => {
+      if (!row) return;
       if (row.crossed_out) {
         row.total_hours = null;
-        continue;
+        return;
       }
-      const snapped = snappedClock(row, options);
-      if (snapped.totalHours == null || !snapped.spanStart) {
+      const snapped = snaps[index];
+      if (snapped?.totalHours == null || !snapped.spanStart) {
         row.total_hours = null;
-        continue;
+        return;
       }
       const day = localDateKey(snapped.spanStart);
-      const run = segmentForClock(snapped.spanStart);
+      const run = contractRunKey(snapped.spanStart, options.windows);
       rawByDay.set(day, roundQuarter((rawByDay.get(day) || 0) + snapped.totalHours));
+      if (!run) {
+        row.total_hours = snapped.totalHours;
+        return;
+      }
       const key = `${day}\t${run}`;
       const list = groups.get(key) || [];
       list.push({ row, worked: snapped.totalHours });
       groups.set(key, list);
-    }
+    });
   }
 
   /** @type {Map<string, number>} */
@@ -329,8 +352,8 @@ export function applyRunExtraTotals(rowLists, contractRuns, options = {}) {
     const contract = parts[run] ?? 0;
     const extra = Math.max(0, roundQuarter(worked - contract));
     const short = Math.max(0, roundQuarter(contract - worked));
-    items.forEach((item, index) => {
-      item.row.total_hours = index === 0 && extra > 0 ? extra : null;
+    items.forEach((item) => {
+      item.row.total_hours = item.worked;
     });
     if (extra > 0) extraByDay.set(day, roundQuarter((extraByDay.get(day) || 0) + extra));
     if (short > 0) shortByDay.set(day, roundQuarter((shortByDay.get(day) || 0) + short));
@@ -362,12 +385,13 @@ function contractedByDayFor(lists, contractHours, options = {}) {
   /** @type {string[]} */
   const dayKeys = [];
   for (const rows of lists) {
-    for (const row of rows) {
-      if (!row || row.crossed_out) continue;
-      const snapped = snappedClock(row, options);
-      if (snapped.totalHours == null || !snapped.spanStart) continue;
+    const snaps = rowSnaps(rows, options);
+    rows.forEach((row, index) => {
+      if (!row || row.crossed_out) return;
+      const snapped = snaps[index];
+      if (snapped?.totalHours == null || !snapped.spanStart) return;
       dayKeys.push(localDateKey(snapped.spanStart));
-    }
+    });
   }
   if (!dayKeys.length) return null;
   return new Map(dayKeys.map((key) => [key, String(contract)]));
@@ -391,9 +415,10 @@ function writtenOf(row, field) {
  * Without contract hours: each row gets the overtime-rules split of its clock span.
  * With only a daily contract total: the residual past that total, on the first
  * clocked row. At or under contract both stay blank.
- * With AM / midday / PM contract hours: Tot. Hrs. is the extra past each run, and
- * Reg / OT is the sum of those extras for the date (still one combo, on the first
- * clocked row). A short run does not reduce the extra from another run.
+ * With AM / midday / PM contract hours: Tot. Hrs. stays each pair's clock span.
+ * Reg / OT is the sum of time past each run for the date (still one combo, on the
+ * first clocked row), using the same run windows as the extra-time column.
+ * A short run does not reduce the extra from another run.
  * Mutates `hours_regular` / `hours_overtime`, `total_hours`, and the written_* fields.
  * @param {object[] | null | undefined} frontRows
  * @param {object[] | null | undefined} backRows
@@ -419,10 +444,11 @@ export function applyContractRegOtRows(frontRows, backRows, contractHours, optio
   });
 
   lists.forEach((rows, listIndex) => {
+    const snaps = rowSnaps(rows, { ...options, defaultYear: year });
     rows.forEach((row, index) => {
       if (!row) return;
-      const snapped = snapRoundedForRow(row, options.breaks, year, options.mode);
-      if (snapped.totalHours == null) {
+      const snapped = snaps[index];
+      if (snapped?.totalHours == null) {
         clearRegOtWriting(row);
         return;
       }
@@ -472,10 +498,11 @@ export function markContractHourRows(frontRows, backRows, contractHours, options
   /** @type {Map<string, { row: object, calc: object }[]>} */
   const byDay = new Map();
   lists.forEach((rows, listIndex) => {
+    const snaps = rowSnaps(rows, { ...options, defaultYear: year });
     rows.forEach((row, index) => {
       if (!row) return;
-      const snapped = snapRoundedForRow(row, options.breaks, year, options.mode);
-      if (snapped.totalHours == null || !snapped.spanStart) return;
+      const snapped = snaps[index];
+      if (snapped?.totalHours == null || !snapped.spanStart) return;
       const key = localDateKey(snapped.spanStart);
       const list = byDay.get(key) || [];
       list.push({ row, calc: clones[listIndex][index] });

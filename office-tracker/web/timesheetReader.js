@@ -26,18 +26,29 @@ import { formatAuditHours, parseAuditHours } from '../src/timesheetAudit.js';
 import {
   applyContractRegOtRows,
   applyRunExtraTotals,
-  contractRunParts,
   extractionRowLists,
   markContractHourRows,
   mergeSameDriverExtraction,
   parseStickerContractHours,
 } from '../src/timesheetGenieCard.js';
 import {
+  alternateDayShade,
+  formatSnappedClock,
   normalizeTimesheetHoursMode,
   snapRoundedForRow,
+  snapsForCardRows,
   TIMESHEET_HOURS_MODE_QUARTER,
   TIMESHEET_HOURS_MODE_SNAP,
 } from '../src/timesheetSnap.js';
+import {
+  formatRunHours,
+  formatRunLabel,
+  formatWindowClock,
+  minutesToTimeValue,
+  normalizeRunWindows,
+  RUN_WINDOWS_KEY,
+  runTableSlots,
+} from '../src/timesheetRunTable.js';
 import { DEFAULT_CONTRACT_SNAP_BREAKS } from '../../src/logic/timeUtils.js';
 import { driverPhotoSrc } from './driverPhotos.js';
 import QRCode from 'qrcode';
@@ -101,7 +112,8 @@ const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 const CAMERA_KEY = 'teamster-timesheet-camera';
 const ROW_HEIGHT_KEY = 'teamster-timesheet-row-height';
 const HOURS_MODE_KEY = 'teamster-timesheet-hours-mode';
-const ROW_HEIGHT_MIN = 28;
+const CAROUSEL_PERIOD_KEY = 'teamster-timesheet-carousel-period';
+const HIDDEN_EXAMPLE_KEY = 'teamster-timesheet-hidden-examples';
 const ROW_HEIGHT_MAX = 120;
 const ROW_HEIGHT_DEFAULT = 52;
 const HOURS_MODE_LABELS = {
@@ -502,6 +514,68 @@ function forgetCamera() {
   }
 }
 
+function readStoredCarouselPeriod() {
+  try {
+    return localStorage.getItem(CAROUSEL_PERIOD_KEY)?.trim() || '';
+  } catch {
+    return '';
+  }
+}
+
+function rememberCarouselPeriod(key) {
+  const value = String(key || '').trim();
+  if (!value) return;
+  try {
+    localStorage.setItem(CAROUSEL_PERIOD_KEY, value);
+  } catch {
+    /* Preference can stay for this visit only. */
+  }
+}
+
+function hiddenExampleIds() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(HIDDEN_EXAMPLE_KEY) || '[]');
+    return new Set(Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string' && id) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function rememberHiddenExample(id) {
+  const value = String(id || '').trim();
+  if (!value.startsWith('example-')) return;
+  const hidden = hiddenExampleIds();
+  hidden.add(value);
+  try {
+    localStorage.setItem(HIDDEN_EXAMPLE_KEY, JSON.stringify([...hidden]));
+  } catch {
+    /* The square stays gone until this page is reloaded. */
+  }
+}
+
+function clearHiddenExamples() {
+  try {
+    localStorage.removeItem(HIDDEN_EXAMPLE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Pay period to show in the carousel. A remembered ending wins when it is still listed.
+ * Otherwise the latest ending on or before today.
+ * @param {string | null | undefined} currentKey
+ * @param {Array<{ key?: string, iso?: string }> | null | undefined} periods
+ * @param {Date} [today]
+ */
+export function resolvedCarouselPeriodKey(currentKey, periods, today = new Date()) {
+  const list = Array.isArray(periods) ? periods : [];
+  const key = String(currentKey || '');
+  if (key && list.some((period) => period.key === key)) return key;
+  const iso = defaultPayPeriodIso(list, today);
+  return list.find((period) => period.key === iso)?.key || '';
+}
+
 /**
  * Timecard Genie desk. Reads Clock Record stamps from paper-card photos.
  * @param {{ readState?: () => object, asOf?: () => string }} [options]
@@ -516,6 +590,8 @@ export function mountTimesheetReader(options = {}) {
   const backCard = document.querySelector('#timesheet-back-card tbody');
   const frontSnap = document.querySelector('#timesheet-front-snap tbody');
   const backSnap = document.querySelector('#timesheet-back-snap tbody');
+  const frontRun = document.querySelector('#timesheet-front-run tbody');
+  const backRun = document.querySelector('#timesheet-back-run tbody');
   if (!view || !form || !status || !result || !frontCard || !backCard || !frontSnap || !backSnap) {
     return { refresh() {} };
   }
@@ -562,7 +638,7 @@ export function mountTimesheetReader(options = {}) {
   /** Session card that physicalCardNumber belongs to. */
   let physicalCardForId = '';
   /** Pay period currently shown in the card carousel. */
-  let carouselPeriodKey = '';
+  let carouselPeriodKey = readStoredCarouselPeriod();
   /** When true, the carousel stays on the open card’s pay period. */
   let carouselFollowsActive = false;
   /** Session card whose timecard image is being prepared for email. */
@@ -638,7 +714,7 @@ export function mountTimesheetReader(options = {}) {
     getBreaks: () => snapBreaks(),
     onChange() {
       if (!extraction) return;
-      refreshPayPeriodInfo(extraction, snapBreaks(), officeState(), hoursMode);
+      refreshPayPeriodInfo(extraction, snapBreaks(), officeState(), hoursMode, runWindows);
     },
     onClose() {
       if (!extraction) return;
@@ -661,7 +737,10 @@ export function mountTimesheetReader(options = {}) {
       });
       alignSnapRows(frontCard, frontSnap);
       alignSnapRows(backCard, backSnap);
+      alignSnapRows(frontCard, frontRun);
+      alignSnapRows(backCard, backRun);
       paintExtraSides();
+      paintRunSheets();
       markAndPaintHourRows();
     },
   });
@@ -708,6 +787,7 @@ export function mountTimesheetReader(options = {}) {
     if (!(select instanceof HTMLSelectElement)) return;
     carouselFollowsActive = false;
     carouselPeriodKey = select.value;
+    rememberCarouselPeriod(carouselPeriodKey);
     paintSessionChips();
   });
   document.querySelector('#timesheet-carousel-prev')?.addEventListener('click', () => {
@@ -729,6 +809,11 @@ export function mountTimesheetReader(options = {}) {
     if (!(chip instanceof HTMLElement)) return;
     const id = chip.dataset.sessionId || '';
     if (!id) return;
+    if (target.closest('[data-chip-delete]')) {
+      event.preventDefault();
+      deleteCarouselCard(id);
+      return;
+    }
     if (target.closest('[data-chip-queue]')) {
       event.preventDefault();
       toggleChipQueue(id);
@@ -1389,10 +1474,7 @@ export function mountTimesheetReader(options = {}) {
       const activeKey = carouselPeriodKeyForCard(activeSessionCard());
       if (activeKey && periods.some((period) => period.key === activeKey)) carouselPeriodKey = activeKey;
     }
-    if (!periods.some((period) => period.key === carouselPeriodKey)) {
-      const iso = defaultPayPeriodIso(periods);
-      carouselPeriodKey = periods.find((period) => period.key === iso)?.key || '';
-    }
+    carouselPeriodKey = resolvedCarouselPeriodKey(carouselPeriodKey, periods);
     paintCarouselPeriodSelect(periods);
     const visible = cardsInCarouselPeriod(sessionCards, carouselPeriodKey);
     if (
@@ -1517,7 +1599,15 @@ export function mountTimesheetReader(options = {}) {
       printRow.className = 'timesheet-chip-print-row';
       printRow.append(queueBtn, printBtn);
       actions.append(printRow, emailBtn);
-      chip.append(open, actions);
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'timesheet-chip-delete';
+      deleteBtn.dataset.chipDelete = 'true';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.title = `Delete ${name}'s card from this pay period.`;
+      deleteBtn.setAttribute('aria-label', `Delete ${name}`);
+      deleteBtn.disabled = busy;
+      chip.append(open, actions, deleteBtn);
       chips.append(chip);
     });
     publishPhoneCarousel();
@@ -1525,6 +1615,32 @@ export function mountTimesheetReader(options = {}) {
       revealActiveChip(chips);
       syncCarouselNav();
     });
+  }
+
+  function deleteCarouselCard(id) {
+    const card = sessionCards.find((item) => item.id === id);
+    if (!card || card.status === 'reading' || card.id === mailingCardId) return;
+    const name = sessionCardDriverName(card.extraction, 0);
+    const ok = window.confirm(`Delete ${name} from this pay period?`);
+    if (!ok) return;
+    const visible = cardsInCarouselPeriod(sessionCards, carouselPeriodKey);
+    const visibleIndex = visible.findIndex((item) => item.id === id);
+    const wasActive = card.id === activeSessionId;
+    if (card.example === true) rememberHiddenExample(card.id);
+    sessionCards = sessionCards.filter((item) => item.id !== id);
+    if (wasActive) {
+      activeSessionId = '';
+      extraction = null;
+    }
+    if (!wasActive) paintSessionChips();
+    else {
+      const remaining = cardsInCarouselPeriod(sessionCards, carouselPeriodKey);
+      const next = remaining[Math.min(Math.max(visibleIndex, 0), remaining.length - 1)] || null;
+      if (next) selectSessionCard(next.id).catch(() => null);
+      else clearLiveCard();
+    }
+    setStatus(`Deleted ${name}.`, 'ok');
+    persistConstructedCards();
   }
 
   function flushActiveSessionCard() {
@@ -1670,6 +1786,7 @@ export function mountTimesheetReader(options = {}) {
     sessionCards = [];
     activeSessionId = '';
     awaitingReview = false;
+    clearHiddenExamples();
     clearLiveCard();
     persistConstructedCards();
     seedLocalExampleCards();
@@ -1743,11 +1860,12 @@ export function mountTimesheetReader(options = {}) {
       if (result.hidden) return;
       alignSnapRows(frontCard, frontSnap);
       alignSnapRows(backCard, backSnap);
+      alignSnapRows(frontCard, frontRun);
+      alignSnapRows(backCard, backRun);
       eachExtraSide((pair) => {
-        alignSnapRows(
-          pair.querySelector('.timesheet-card-sheet tbody'),
-          pair.querySelector('.timesheet-snap-sheet tbody')
-        );
+        const cardBody = pair.querySelector('.timesheet-card-sheet tbody');
+        alignSnapRows(cardBody, pair.querySelector('.timesheet-snap-sheet tbody'));
+        alignSnapRows(cardBody, pair.querySelector('.timesheet-run-sheet tbody'));
       });
     },
   });
@@ -1761,6 +1879,48 @@ export function mountTimesheetReader(options = {}) {
       if (extraction) refreshDerivedFromExtraction();
     },
   });
+  let runWindows = readStoredRunWindows();
+  mountRunWindowsControl({
+    windows: runWindows,
+    onChange(next) {
+      runWindows = next;
+      if (extraction) refreshDerivedFromExtraction();
+    },
+  });
+
+  function paintRunSheets() {
+    if (!extraction) return;
+    const breaks = snapBreaks();
+    const mode = hoursMode;
+    const windows = runWindows;
+    const contract = extraction.header;
+    paintRunSheet(
+      frontRun,
+      extraction.front_rows ?? [],
+      shownSlotCount(extraction.front_rows),
+      breaks,
+      mode,
+      windows,
+      contract
+    );
+    paintRunSheet(
+      backRun,
+      extraction.back_rows ?? [],
+      shownSlotCount(extraction.back_rows),
+      breaks,
+      mode,
+      windows,
+      contract
+    );
+    alignSnapRows(frontCard, frontRun);
+    alignSnapRows(backCard, backRun);
+    eachExtraSide((pair, extra) => {
+      const rows = Array.isArray(extra.rows) ? extra.rows : [];
+      const runBody = pair.querySelector('.timesheet-run-sheet tbody');
+      paintRunSheet(runBody, rows, shownSlotCount(rows), breaks, mode, windows, contract);
+      alignSnapRows(pair.querySelector('.timesheet-card-sheet tbody'), runBody);
+    });
+  }
 
   function officeState() {
     try {
@@ -1786,10 +1946,11 @@ export function mountTimesheetReader(options = {}) {
       if (!extraction) return;
       extraction.header = header;
       applyHeaderDefaultPayStatus(extraction, header?.default_pay_status);
-      refreshPayPeriodInfo(extraction, snapBreaks(), officeState(), hoursMode);
+      refreshPayPeriodInfo(extraction, snapBreaks(), officeState(), hoursMode, runWindows);
       // Contract hours drive Reg / OT fill — recalculate when the sticker changes.
       applyContractDerivedFields();
       markAndPaintHourRows();
+      paintRunSheets();
       flushActiveSessionCard();
       paintCaveats(extraction);
       paintSessionChips();
@@ -1861,6 +2022,7 @@ export function mountTimesheetReader(options = {}) {
         .map((side) => side?.rows)
         .filter(Array.isArray),
       contractRuns: extraction?.header || null,
+      windows: runWindows,
     };
   }
 
@@ -1872,15 +2034,14 @@ export function mountTimesheetReader(options = {}) {
       extraction.header?.contract_hours,
       contractHourOptions()
     );
-    const runExtras = Boolean(contractRunParts(extraction.header));
     paintRegOtFields(frontCard, extraction.front_rows);
     paintRegOtFields(backCard, extraction.back_rows);
-    paintTotHourFields(frontCard, extraction.front_rows, runExtras);
-    paintTotHourFields(backCard, extraction.back_rows, runExtras);
+    paintTotHourFields(frontCard, extraction.front_rows);
+    paintTotHourFields(backCard, extraction.back_rows);
     eachExtraSide((pair, extra) => {
       const body = pair.querySelector('.timesheet-card-sheet tbody');
       paintRegOtFields(body, extra.rows);
-      paintTotHourFields(body, extra.rows, runExtras);
+      paintTotHourFields(body, extra.rows);
     });
     syncPrintHoursFromExtraction().catch(() => {
       /* Print copy may not exist yet for this session. */
@@ -1921,6 +2082,8 @@ export function mountTimesheetReader(options = {}) {
     markAndPaintHourRows();
     paintSnapSheet(frontSnap, extraction.front_rows ?? [], shownSlotCount(extraction.front_rows), breaks, mode);
     paintSnapSheet(backSnap, extraction.back_rows ?? [], shownSlotCount(extraction.back_rows), breaks, mode);
+    applyDayShade(frontCard, extraction.front_rows);
+    applyDayShade(backCard, extraction.back_rows);
     alignSnapRows(frontCard, frontSnap);
     alignSnapRows(backCard, backSnap);
     eachExtraSide((pair, extra) => {
@@ -1939,12 +2102,14 @@ export function mountTimesheetReader(options = {}) {
         breaks,
         mode
       );
+      applyDayShade(pair.querySelector('.timesheet-card-sheet tbody'), extra.rows);
       alignSnapRows(
         pair.querySelector('.timesheet-card-sheet tbody'),
         pair.querySelector('.timesheet-snap-sheet tbody')
       );
     });
-    refreshPayPeriodInfo(extraction, breaks, officeState(), mode);
+    paintRunSheets();
+    refreshPayPeriodInfo(extraction, breaks, officeState(), mode, runWindows);
   }
 
   function renderResult() {
@@ -1985,8 +2150,9 @@ export function mountTimesheetReader(options = {}) {
     alignSnapRows(frontCard, frontSnap);
     alignSnapRows(backCard, backSnap);
     paintExtraSides();
+    paintRunSheets();
     paintSideVisibility();
-    refreshPayPeriodInfo(extraction, breaks, officeState(), mode);
+    refreshPayPeriodInfo(extraction, breaks, officeState(), mode, runWindows);
   }
 
   /**
@@ -2247,6 +2413,8 @@ export function mountTimesheetReader(options = {}) {
     backCard.replaceChildren();
     frontSnap.replaceChildren();
     backSnap.replaceChildren();
+    frontRun?.replaceChildren();
+    backRun?.replaceChildren();
     const payPeriod = document.querySelector('#timesheet-pay-period');
     if (payPeriod) payPeriod.replaceChildren();
     paintCaveats(null);
@@ -2391,6 +2559,28 @@ export function mountTimesheetReader(options = {}) {
     }
   }
 
+  /**
+   * The sticker belongs to the front of the card. On the back it sits above
+   * the constructed card, still the same fields.
+   * @param {'front' | 'back'} face
+   */
+  function placeCardSticker(face) {
+    const sticker = document.querySelector('#timesheet-card-sticker');
+    if (!(sticker instanceof HTMLElement)) return;
+    if (face === 'back') {
+      const slot = document.querySelector('#timesheet-back-sticker-slot');
+      if (slot instanceof HTMLElement && sticker.parentElement !== slot) slot.append(sticker);
+      return;
+    }
+    const panel = document.querySelector(
+      '#timesheet-driver-card-frame > .timesheet-card-pair[data-side="front"] .timesheet-card-panel'
+    );
+    const wrap = panel instanceof HTMLElement ? panel.querySelector('.timesheet-card-wrap') : null;
+    if (panel instanceof HTMLElement && wrap && sticker.parentElement !== panel) {
+      panel.insertBefore(sticker, wrap);
+    }
+  }
+
   function paintSideVisibility() {
     rememberCardFace();
     const present = extraction?.sides_present;
@@ -2399,6 +2589,7 @@ export function mountTimesheetReader(options = {}) {
     if (cardFace === 'front' && !frontShown && backShown) cardFace = 'back';
     if (cardFace === 'back' && !backShown && frontShown) cardFace = 'front';
     const face = cardFace === 'back' ? 'back' : 'front';
+    placeCardSticker(face);
     const physical = shownPhysicalCardNumber();
 
     for (const pair of document.querySelectorAll('#timesheet-driver-card-frame > .timesheet-card-pair')) {
@@ -2411,6 +2602,7 @@ export function mountTimesheetReader(options = {}) {
 
     const host = document.querySelector('#timesheet-extra-sides');
     if (!(host instanceof HTMLElement)) {
+      alignVisibleCardTables();
       paintDriverCardNav();
       return;
     }
@@ -2435,7 +2627,18 @@ export function mountTimesheetReader(options = {}) {
         paintFaceToggle(pair, which, available.includes(otherCardFace(which)));
       }
     }
+    alignVisibleCardTables();
     paintDriverCardNav();
+  }
+
+  function alignVisibleCardTables() {
+    if (result.hidden) return;
+    for (const pair of document.querySelectorAll('#timesheet-cards .timesheet-card-pair')) {
+      if (!(pair instanceof HTMLElement) || pair.hidden) continue;
+      const cardBody = pair.querySelector('.timesheet-card-sheet tbody');
+      alignSnapRows(cardBody, pair.querySelector('.timesheet-snap-sheet tbody'));
+      alignSnapRows(cardBody, pair.querySelector('.timesheet-run-sheet tbody'));
+    }
   }
 
   function sideDeleteButton() {
@@ -2589,7 +2792,7 @@ export function mountTimesheetReader(options = {}) {
       snapTable.append(snapHead, snapBody);
       snapWrap.append(snapTable);
       aside.append(snapWrap);
-      stage.append(face, article, aside);
+      stage.append(face, runAsideElement(), article, aside);
       pair.append(stage);
       host.append(pair);
       const rows = Array.isArray(extra.rows) ? extra.rows : [];
@@ -2641,16 +2844,19 @@ export function mountTimesheetReader(options = {}) {
   function seedLocalExampleCards() {
     if (isLocalGenieHost(window.location.hostname)) {
       const saved = sessionCards.filter((card) => card.example !== true);
-      const examples = localExampleGenieExtractions().map((cardExtraction, index) => ({
-        id: `example-${index + 1}`,
-        printId: '',
-        status: sessionCardNeedsReview(cardExtraction) ? 'needs_review' : 'ready',
-        extraction: cardExtraction,
-        updatedAt: 0,
-        frontFile: null,
-        backFile: null,
-        example: true,
-      }));
+      const hidden = hiddenExampleIds();
+      const examples = localExampleGenieExtractions()
+        .map((cardExtraction, index) => ({
+          id: `example-${index + 1}`,
+          printId: '',
+          status: sessionCardNeedsReview(cardExtraction) ? 'needs_review' : 'ready',
+          extraction: cardExtraction,
+          updatedAt: 0,
+          frontFile: null,
+          backFile: null,
+          example: true,
+        }))
+        .filter((card) => !hidden.has(card.id));
       sessionCards = [...examples, ...saved];
     }
     showActiveCard();
@@ -2665,10 +2871,7 @@ export function mountTimesheetReader(options = {}) {
       return;
     }
     const periods = carouselPayPeriods(sessionCards, payPeriodOptions);
-    if (!periods.some((period) => period.key === carouselPeriodKey)) {
-      const iso = defaultPayPeriodIso(periods);
-      carouselPeriodKey = periods.find((period) => period.key === iso)?.key || '';
-    }
+    carouselPeriodKey = resolvedCarouselPeriodKey(carouselPeriodKey, periods);
     const inPeriod = cardsInCarouselPeriod(sessionCards, carouselPeriodKey);
     const saved = inPeriod.filter((card) => card.example !== true);
     const newest = saved.reduce(
@@ -2696,7 +2899,7 @@ export function mountTimesheetReader(options = {}) {
     card.hoursMode = hoursMode;
     try {
       card.summary = payPeriodSummarySnapshot(
-        buildGenieCardMonthlySummary(card.extraction, snapBreaks(), officeState(), hoursMode)
+        buildGenieCardMonthlySummary(card.extraction, snapBreaks(), officeState(), hoursMode, runWindows)
       );
     } catch {
       card.summary = card.summary || null;
@@ -3025,7 +3228,7 @@ function paintHourFlags(body, rows) {
  * @param {HTMLElement | null} body
  * @param {object[] | null | undefined} rows
  */
-function paintTotHourFields(body, rows, runExtras) {
+function paintTotHourFields(body, rows) {
   if (!body || !Array.isArray(rows)) return;
   for (const row of rows) {
     const index = Number(row?.row_index) || 0;
@@ -3033,7 +3236,7 @@ function paintTotHourFields(body, rows, runExtras) {
     const input = body.querySelector(`tr[data-row-index="${index}"] input[data-field="total_hours"]`);
     if (!(input instanceof HTMLInputElement)) continue;
     input.value = row?.total_hours == null || row.total_hours === '' ? '' : String(row.total_hours);
-    input.title = runExtras && input.value ? 'Hours worked past this run’s contract' : '';
+    input.title = '';
   }
 }
 
@@ -3062,6 +3265,7 @@ export function paintCardSheet(body, rows, slotCount, mode) {
   const hoursMode = normalizeTimesheetHoursMode(mode);
   const totSource = HOURS_MODE_LABELS[hoursMode];
   body.replaceChildren();
+  const dayShade = alternateDayShade(Array.isArray(rows) ? rows.slice(0, slotCount) : []);
   const byIndex = new Map(
     (Array.isArray(rows) ? rows : []).map((row) => [Number(row?.row_index) || 0, row])
   );
@@ -3078,35 +3282,45 @@ export function paintCardSheet(body, rows, slotCount, mode) {
     if (row.crossed_out) tr.classList.add('is-crossed');
     if (row.hours_add_up === false) tr.classList.add('is-hours-off');
     if (portionCount) tr.classList.add('has-slices');
+    if (isInOutPairBreak(row, byIndex.get(index + 1))) tr.classList.add('is-pair-break');
+    if (dayShade[index - 1]) tr.classList.add('is-day-shade');
     tr.innerHTML = `
       <td class="timesheet-card-blank timesheet-card-desc">
-        ${descriptionOpenHtml(row.description_of_work, index)}
+        <div class="timesheet-row-clip">${descriptionOpenHtml(row.description_of_work, index)}</div>
       </td>
       <td class="timesheet-card-blank timesheet-card-reg">
-        <input class="timesheet-edit" data-field="hours_regular" type="text"
-          value="${escapeAttr(hourFieldValue(row, 'reg'))}" aria-label="Reg hours row ${index}">
+        <div class="timesheet-row-clip">
+          <input class="timesheet-edit" data-field="hours_regular" type="text"
+            value="${escapeAttr(hourFieldValue(row, 'reg'))}" aria-label="Reg hours row ${index}">
+        </div>
       </td>
       <td class="timesheet-card-blank timesheet-card-ot">
-        <input class="timesheet-edit" data-field="hours_overtime" type="text"
-          value="${escapeAttr(hourFieldValue(row, 'ot'))}" aria-label="OT hours row ${index}">
+        <div class="timesheet-row-clip">
+          <input class="timesheet-edit" data-field="hours_overtime" type="text"
+            value="${escapeAttr(hourFieldValue(row, 'ot'))}" aria-label="OT hours row ${index}">
+        </div>
       </td>
       <td class="timesheet-card-blank timesheet-card-tot">
-        <input class="timesheet-edit timesheet-tot-hrs" data-field="total_hours" type="text"
-          value="${escapeAttr(row.total_hours)}" readonly tabindex="-1"
-          aria-label="Tot. Hrs. row ${index} from ${totSource}">
+        <div class="timesheet-row-clip">
+          <input class="timesheet-edit timesheet-tot-hrs" data-field="total_hours" type="text"
+            value="${escapeAttr(row.total_hours)}" readonly tabindex="-1"
+            aria-label="Tot. Hrs. row ${index} from ${totSource}">
+        </div>
       </td>
       <td class="timesheet-card-clock">
-        ${clockRecordHtml(row, index)}
+        <div class="timesheet-row-clip">${clockRecordHtml(row, index)}</div>
       </td>
       <td class="timesheet-card-actions">
-        <button type="button" class="timesheet-row-slice${portionCount ? ' has-slices' : ''}"
-          ${blank || row.crossed_out ? 'disabled' : ''}
-          aria-label="Slice pay status for row ${index}${portionCount ? ` (${portionCount} parts)` : ''}"
-          title="Split this clock period across pay statuses. Hours are taken from the start of the period.">✂</button>
-        <button type="button" class="timesheet-row-delete"
-          ${blank && !row.description_of_work && !portionCount ? 'disabled' : ''}
-          aria-label="Delete row ${index}"
-          title="Remove this clock line and its hours from the card.">×</button>
+        <div class="timesheet-row-clip">
+          <button type="button" class="timesheet-row-slice${portionCount ? ' has-slices' : ''}"
+            ${blank || row.crossed_out ? 'disabled' : ''}
+            aria-label="Slice pay status for row ${index}${portionCount ? ` (${portionCount} parts)` : ''}"
+            title="Split this clock period across pay statuses. Hours are taken from the start of the period.">✂</button>
+          <button type="button" class="timesheet-row-delete"
+            ${blank && !row.description_of_work && !portionCount ? 'disabled' : ''}
+            aria-label="Delete row ${index}"
+            title="Remove this clock line and its hours from the card.">×</button>
+        </div>
       </td>`;
     body.append(tr);
   }
@@ -3182,9 +3396,10 @@ function bindCardEditors(body, rows, slotCount, extras = {}) {
     if (which !== 'out' && which !== 'in') return;
     applyStampEdits(row, which, stamp, year);
     refreshRowState(tr, row);
+    markPairBreaks(body, rows);
     const mode =
       typeof extras.getMode === 'function' ? extras.getMode() : TIMESHEET_HOURS_MODE_SNAP;
-    updateRowSnapDerived(tr, row, breaks, mode);
+    applySnapDerivedFields(rows, slotCount, breaks, body, mode);
     if (typeof extras.onStampChange === 'function') extras.onStampChange();
   };
 }
@@ -3198,32 +3413,18 @@ function bindCardEditors(body, rows, slotCount, extras = {}) {
  */
 function applySnapDerivedFields(rows, slotCount, breaks, body, mode) {
   if (!Array.isArray(rows)) return;
+  const snaps = snapsForCardRows(rows.slice(0, slotCount), breaks, null, mode);
   for (let index = 1; index <= slotCount; index += 1) {
     const row = rows[index - 1];
     if (!row) continue;
-    const snapped = snapRoundedForRow(row, breaks, null, mode);
-    row.total_hours = snapped.totalHours;
+    const totalHours = snaps[index - 1]?.totalHours ?? null;
+    row.total_hours = totalHours;
     const input = body?.querySelector(
       `tr[data-row-index="${index}"] input[data-field="total_hours"]`
     );
     if (input instanceof HTMLInputElement) {
-      input.value = snapped.totalHours == null ? '' : String(snapped.totalHours);
+      input.value = totalHours == null ? '' : String(totalHours);
     }
-  }
-}
-
-/**
- * @param {HTMLTableRowElement} tr
- * @param {object} row
- * @param {object} breaks
- * @param {string | null | undefined} [mode]
- */
-function updateRowSnapDerived(tr, row, breaks, mode) {
-  const snapped = snapRoundedForRow(row, breaks, null, mode);
-  row.total_hours = snapped.totalHours;
-  const input = tr.querySelector('input[data-field="total_hours"]');
-  if (input instanceof HTMLInputElement) {
-    input.value = snapped.totalHours == null ? '' : String(snapped.totalHours);
   }
 }
 
@@ -3237,13 +3438,14 @@ function cardDayFigures(extraction, breaks, _state, mode) {
   const year = inferDefaultYear(extraction?.header?.date_on_card);
   const totHoursByDay = new Map();
   for (const rows of extractionRowLists(extraction)) {
-    for (const row of rows) {
-      if (!row || row.crossed_out) continue;
-      const snapped = snapRoundedForRow(row, breaks, year, mode);
-      if (snapped.totalHours == null || !snapped.spanStart) continue;
+    const snaps = snapsForCardRows(rows, breaks, year, mode);
+    rows.forEach((row, index) => {
+      if (!row || row.crossed_out) return;
+      const snapped = snaps[index];
+      if (snapped?.totalHours == null || !snapped.spanStart) return;
       const key = localDateKey(snapped.spanStart);
       totHoursByDay.set(key, (totHoursByDay.get(key) || 0) + snapped.totalHours);
-    }
+    });
   }
   return { totHoursByDay };
 }
@@ -3253,12 +3455,13 @@ function cardDayFigures(extraction, breaks, _state, mode) {
  * @param {object} breaks
  * @param {object | null} state
  * @param {string | null | undefined} [mode]
+ * @param {object | null | undefined} [windows]
  */
-function refreshPayPeriodInfo(extraction, breaks, state, mode) {
+function refreshPayPeriodInfo(extraction, breaks, state, mode, windows) {
   const host = document.querySelector('#timesheet-pay-period');
   if (!(host instanceof HTMLElement)) return;
   try {
-    const summary = buildGenieCardMonthlySummary(extraction, breaks, state, mode);
+    const summary = buildGenieCardMonthlySummary(extraction, breaks, state, mode, windows);
     if (!summary) {
       host.innerHTML =
         '<p class="lead timesheet-pay-period-empty">Add readable Clock Record stamps to build the Monthly Time Summary.</p>';
@@ -3290,8 +3493,9 @@ function refreshPayPeriodInfo(extraction, breaks, state, mode) {
  * @param {object} breaks
  * @param {object | null} state
  * @param {string | null | undefined} [mode]
+ * @param {object | null | undefined} [windows]
  */
-function buildGenieCardMonthlySummary(extraction, breaks, state, mode) {
+function buildGenieCardMonthlySummary(extraction, breaks, state, mode, windows) {
   if (!extraction) return null;
   const year = inferDefaultYear(extraction?.header?.date_on_card);
   const driverName = String(extraction?.header?.employee_name || '').trim() || 'Driver';
@@ -3322,6 +3526,7 @@ function buildGenieCardMonthlySummary(extraction, breaks, state, mode) {
     breaks,
     defaultYear: year,
     mode,
+    windows,
   });
   let cardNow = null;
   for (const punch of punches) {
@@ -3363,12 +3568,13 @@ function ensureCardRowPayDefaults(extraction, breaks, year, mode, defaultPayStat
   const status = String(defaultPayStatus || '').trim();
   if (!status) return;
   for (const rows of extractionRowLists(extraction)) {
-    for (const row of rows) {
-      if (!row || row.crossed_out) continue;
-      const snapped = snapRoundedForRow(row, breaks, year, mode);
-      if (snapped.totalHours == null || !snapped.spanStart || !snapped.spanEnd) continue;
+    const snaps = snapsForCardRows(rows, breaks, year, mode);
+    rows.forEach((row, index) => {
+      if (!row || row.crossed_out) return;
+      const snapped = snaps[index];
+      if (snapped?.totalHours == null || !snapped.spanStart || !snapped.spanEnd) return;
       if (!String(row.pay_status || '').trim()) row.pay_status = status;
-    }
+    });
   }
 }
 
@@ -3399,6 +3605,7 @@ function applyHeaderDefaultPayStatus(extraction, defaultPayStatus) {
 export function paintSnapSheet(body, rows, slotCount, breaks, mode) {
   if (!body) return;
   body.replaceChildren();
+  const dayShade = alternateDayShade(Array.isArray(rows) ? rows.slice(0, slotCount) : []);
   for (let index = 1; index <= slotCount; index += 1) {
     const row = Array.isArray(rows) ? rows[index - 1] : null;
     const snapped = snapRoundedForRow(row, breaks, null, mode);
@@ -3406,12 +3613,110 @@ export function paintSnapSheet(body, rows, slotCount, breaks, mode) {
     tr.dataset.rowIndex = String(index);
     const blank = !snapped.outLabel && !snapped.inLabel;
     if (blank) tr.classList.add('is-quiet');
+    if (dayShade[index - 1]) tr.classList.add('is-day-shade');
+    const next = Array.isArray(rows) ? rows[index] : null;
+    if (isInOutPairBreak(row, next)) tr.classList.add('is-pair-break');
     tr.innerHTML = `
       <td>
-        ${snapRecordHtml(row, snapped)}
+        <div class="timesheet-row-clip">${snapRecordHtml(row, snapped)}</div>
       </td>`;
     body.append(tr);
   }
+}
+
+/**
+ * Run, duration, and extra time for each clock pair, lined up with the card rows.
+ * A pair that spans several card lines uses one set of cells across those lines.
+ * @param {HTMLElement | null | undefined} body
+ * @param {object[] | null | undefined} rows
+ * @param {number} slotCount
+ * @param {object} breaks
+ * @param {string | null | undefined} mode
+ * @param {object | null | undefined} windows
+ * @param {object | null | undefined} contract
+ */
+function paintRunSheet(body, rows, slotCount, breaks, mode, windows, contract) {
+  if (!body) return;
+  const list = Array.isArray(rows) ? rows.slice(0, slotCount) : [];
+  const snaps = snapsForCardRows(list, breaks, null, mode);
+  const slots = runTableSlots(list, snaps, windows, contract);
+  const hoursMode = normalizeTimesheetHoursMode(mode);
+  const rules = normalizeRunWindows(windows);
+  const dayShade = alternateDayShade(list);
+  body.replaceChildren();
+  for (const slot of slots) {
+    const tr = document.createElement('tr');
+    tr.dataset.rowIndex = String(slot.index);
+    if (dayShade[slot.index - 1]) tr.classList.add('is-day-shade');
+    if (slot.role === 'continue') {
+      tr.classList.add('is-run-follow');
+      body.append(tr);
+      continue;
+    }
+    const endRow = list[slot.endIndex];
+    const nextRow = list[slot.endIndex + 1];
+    if (isInOutPairBreak(endRow, nextRow)) tr.classList.add('is-pair-break');
+    if (slot.role !== 'pair') {
+      tr.classList.add('is-quiet');
+      tr.innerHTML = '<td></td><td></td><td></td>';
+      body.append(tr);
+      continue;
+    }
+    const span = slot.rowspan > 1 ? ` rowspan="${slot.rowspan}"` : '';
+    const runText = runCellHtml(slot);
+    const durationText = slot.duration == null ? '—' : formatRunHours(slot.duration);
+    const extraText = slot.extra == null ? '—' : formatRunHours(slot.extra);
+    const extraClass =
+      slot.extra == null ? '' : slot.extra < 0 ? ' is-short' : slot.extra > 0 ? ' is-over' : '';
+    tr.innerHTML = `
+      <td${span} title="${escapeAttr(runWindowTitle(slot, rules))}">${runText}</td>
+      <td${span} title="${escapeAttr(runDurationTitle(hoursMode))}">${escapeHtml(durationText)}</td>
+      <td${span} class="timesheet-run-extra${extraClass}" title="${escapeAttr(runExtraTitle(slot))}">${escapeHtml(extraText)}</td>`;
+    body.append(tr);
+  }
+}
+
+/**
+ * @param {{ run?: string, start?: Date | null }} slot
+ * @param {{ amBefore: number, midAfter: number, midBefore: number, pmAfter: number }} rules
+ */
+function runCellHtml(slot) {
+  const label = formatRunLabel(slot.run, slot.contract);
+  const split = label.indexOf(' ');
+  if (split < 0) return escapeHtml(label);
+  return `${escapeHtml(label.slice(0, split))} <span class="timesheet-run-contract">${escapeHtml(label.slice(split + 1))}</span>`;
+}
+
+function runWindowTitle(slot, rules) {
+  const clock = slot.start ? formatSnappedClock(slot.start) : '';
+  const contract =
+    slot.contract == null ? '' : ` Contract ${formatRunHours(slot.contract)} hours.`;
+  if (slot.run === 'AM') return `Starts at ${clock}, before ${formatWindowClock(rules.amBefore)}.${contract}`;
+  if (slot.run === 'MID') {
+    return `Starts at ${clock}, after ${formatWindowClock(rules.midAfter)} and before ${formatWindowClock(rules.midBefore)}.${contract}`;
+  }
+  if (slot.run === 'PM') return `Starts at ${clock}, after ${formatWindowClock(rules.pmAfter)}.${contract}`;
+  return clock
+    ? `Starts at ${clock}. That start does not fall in the AM, MID, or PM windows.`
+    : '';
+}
+
+/**
+ * @param {'snap' | 'quarter'} hoursMode
+ */
+function runDurationTitle(hoursMode) {
+  return hoursMode === TIMESHEET_HOURS_MODE_QUARTER
+    ? 'Hours from clock out to clock in, rounded to the nearest quarter hour.'
+    : 'Hours between the snap-rounded clock out and clock in.';
+}
+
+/**
+ * @param {{ run?: string, duration?: number | null, contract?: number | null }} slot
+ */
+function runExtraTitle(slot) {
+  if (!slot.run) return 'No run, so there is no contract to subtract.';
+  if (slot.contract == null) return 'This sticker has no contract hours for the run.';
+  return `${formatRunHours(slot.duration)} hours minus the ${slot.run} contract of ${formatRunHours(slot.contract)}.`;
 }
 
 function blankCardHeader() {
@@ -4096,13 +4401,17 @@ function mountSliceDialog(options) {
       const row = Array.isArray(rows) ? rows[index - 1] : null;
       if (!row) return;
       const year = inferDefaultYear(null);
-      const snapped = snapRoundedForRow(row, options.getBreaks(), year, options.getMode());
-      if (snapped.totalHours == null || !snapped.spanStart || !snapped.spanEnd) {
+      const snaps = snapsForCardRows(rows, options.getBreaks(), year, options.getMode());
+      const own = snaps[index - 1];
+      const ownerIndex = own?.spanOwner ?? index - 1;
+      const snapped = snaps[ownerIndex] || own;
+      const target = rows[ownerIndex] || row;
+      if (snapped?.totalHours == null || !snapped.spanStart || !snapped.spanEnd) {
         return;
       }
       editing = {
         side,
-        index,
+        index: ownerIndex + 1,
         extraIndex,
         start: snapped.spanStart,
         end: snapped.spanEnd,
@@ -4110,12 +4419,12 @@ function mountSliceDialog(options) {
       const sideLabel = side === 'back' ? 'Back' : 'Front';
       if (title) title.textContent = 'Slice clock time';
       if (lead) {
-        lead.textContent = `${sideLabel} row ${index} · ${snapped.totalHours} Tot. Hrs. Pick a pay status and how many hours belong to it.`;
+        lead.textContent = `${sideLabel} row ${ownerIndex + 1} · ${snapped.totalHours} Tot. Hrs. Pick a pay status and how many hours belong to it.`;
       }
       const headerPay = document.querySelector('#timesheet-header-pay-status');
       const headerDefault =
         headerPay instanceof HTMLSelectElement ? headerPay.value.trim() : '';
-      fillStatusChoices(String(row.pay_status || headerDefault).trim());
+      fillStatusChoices(String(target.pay_status || headerDefault).trim());
       hoursInput.value = '';
       setError('');
       paintParts();
@@ -4170,7 +4479,8 @@ function mountRowHeightControl({ cards, realign }) {
   }
 
   function apply(px, { save = true } = {}) {
-    current = Math.min(ROW_HEIGHT_MAX, Math.max(ROW_HEIGHT_MIN, Math.round(Number(px) || ROW_HEIGHT_DEFAULT)));
+    const rounded = Math.round(Number(px));
+    current = Math.min(ROW_HEIGHT_MAX, Number.isFinite(rounded) ? Math.max(0, rounded) : ROW_HEIGHT_DEFAULT);
     cards.style.setProperty('--timesheet-row-height', `${current}px`);
     for (const out of root.querySelectorAll('.timesheet-row-height-value')) {
       out.textContent = `${current}px`;
@@ -4600,6 +4910,83 @@ function readStoredHoursMode() {
   }
 }
 
+function readStoredRunWindows() {
+  try {
+    return normalizeRunWindows(JSON.parse(localStorage.getItem(RUN_WINDOWS_KEY) || ''));
+  } catch {
+    return normalizeRunWindows(null);
+  }
+}
+
+/**
+ * AM / MID / PM start cutoffs in the Timecard Genie header.
+ * @param {{ windows: object, onChange: (windows: object) => void }} options
+ */
+function mountRunWindowsControl({ windows, onChange }) {
+  const amBefore = document.querySelector('#timesheet-run-am-before');
+  const midAfter = document.querySelector('#timesheet-run-mid-after');
+  const midBefore = document.querySelector('#timesheet-run-mid-before');
+  const pmAfter = document.querySelector('#timesheet-run-pm-after');
+  const fields = [
+    ['amBefore', amBefore],
+    ['midAfter', midAfter],
+    ['midBefore', midBefore],
+    ['pmAfter', pmAfter],
+  ];
+  if (fields.some(([, input]) => !(input instanceof HTMLInputElement))) {
+    return { setWindows() {} };
+  }
+
+  function apply(next, { save = true, notify = false } = {}) {
+    const rules = normalizeRunWindows(next);
+    for (const [key, input] of fields) {
+      if (input instanceof HTMLInputElement) input.value = minutesToTimeValue(rules[key]);
+    }
+    if (save) {
+      try {
+        localStorage.setItem(RUN_WINDOWS_KEY, JSON.stringify(rules));
+      } catch {
+        /* Preference can stay for this visit only. */
+      }
+    }
+    if (notify && typeof onChange === 'function') onChange(rules);
+  }
+
+  function read() {
+    return {
+      amBefore: amBefore instanceof HTMLInputElement ? amBefore.value : '',
+      midAfter: midAfter instanceof HTMLInputElement ? midAfter.value : '',
+      midBefore: midBefore instanceof HTMLInputElement ? midBefore.value : '',
+      pmAfter: pmAfter instanceof HTMLInputElement ? pmAfter.value : '',
+    };
+  }
+
+  for (const [, input] of fields) {
+    if (!(input instanceof HTMLInputElement)) continue;
+    input.addEventListener('change', () => apply(read(), { notify: true }));
+  }
+  apply(windows, { save: false });
+  return { setWindows: (next) => apply(next, { save: true, notify: false }) };
+}
+
+function runAsideElement() {
+  const aside = document.createElement('aside');
+  aside.className = 'timesheet-run-panel';
+  aside.setAttribute('aria-label', 'Run, duration, and extra time');
+  const wrap = document.createElement('div');
+  wrap.className = 'table-wrap timesheet-run-wrap';
+  const table = document.createElement('table');
+  table.className = 'timesheet-run-sheet';
+  table.innerHTML = `<thead><tr>
+    <th scope="col">Run</th>
+    <th scope="col" title="Hours from clock out to clock in. Snap rounded times uses the snapped clocks.">Duration</th>
+    <th scope="col" title="This pair’s duration minus the contract hours for its run.">Extra Time</th>
+  </tr></thead><tbody></tbody>`;
+  wrap.append(table);
+  aside.append(wrap);
+  return aside;
+}
+
 /**
  * Desktop Genie: QR for phone capture, poll until Front/Back land in the form.
  * @param {{
@@ -4999,6 +5386,10 @@ function mountHoursModeControl({ mode, onChange }) {
  */
 function alignSnapRows(cardBody, snapBody) {
   if (!cardBody || !snapBody) return;
+  const pair = cardBody.closest('.timesheet-card-pair');
+  if (pair instanceof HTMLElement && pair.hidden) return;
+  const pane = cardBody.closest('#timesheet-result');
+  if (pane instanceof HTMLElement && pane.hidden) return;
   const cardRows = [...cardBody.querySelectorAll('tr[data-row-index]')];
   const snapRows = [...snapBody.querySelectorAll('tr[data-row-index]')];
   const count = Math.min(cardRows.length, snapRows.length);
@@ -5268,6 +5659,55 @@ function stampEditorHtml(which, raw, rowIndex) {
 function stampText(value) {
   const text = String(value ?? '').trim();
   return text || '';
+}
+
+/**
+ * One clock line is an Out, an In, or a whole pair when both stamps share the row.
+ * @param {object | null | undefined} row
+ * @returns {'out' | 'in' | 'pair' | ''}
+ */
+function clockLineKind(row) {
+  const hasOut = Boolean(stampText(row?.clock_out_raw));
+  const hasIn = Boolean(stampText(row?.clock_in_raw));
+  if (hasIn && !hasOut) return 'in';
+  if (hasOut && !hasIn) return 'out';
+  if (hasIn && hasOut) return 'pair';
+  return '';
+}
+
+/**
+ * The heavier rule sits between pairs: under an In (or a combined pair) and above the next Out.
+ * @param {object | null | undefined} row
+ * @param {object | null | undefined} next
+ */
+export function isInOutPairBreak(row, next) {
+  const kind = clockLineKind(row);
+  const nextKind = clockLineKind(next);
+  if (!kind || !nextKind) return false;
+  const endsPair = kind === 'in' || kind === 'pair';
+  const startsPair = nextKind === 'out' || nextKind === 'pair';
+  return endsPair && startsPair;
+}
+
+/**
+ * @param {HTMLElement | null | undefined} body
+ * @param {object[] | null | undefined} rows
+ */
+function applyDayShade(body, rows) {
+  if (!body) return;
+  const shade = alternateDayShade(rows);
+  for (const tr of body.querySelectorAll('tr[data-row-index]')) {
+    const index = Number(tr.dataset.rowIndex) || 0;
+    tr.classList.toggle('is-day-shade', Boolean(shade[index - 1]));
+  }
+}
+
+function markPairBreaks(body, rows) {
+  if (!body || !Array.isArray(rows)) return;
+  for (const tr of body.querySelectorAll('tr[data-row-index]')) {
+    const index = Number(tr.dataset.rowIndex) || 0;
+    tr.classList.toggle('is-pair-break', isInOutPairBreak(rows[index - 1], rows[index]));
+  }
 }
 
 function isBlockedStampRaw(value) {

@@ -288,8 +288,8 @@ describe('Genie fills Reg / OT from the contract', () => {
     assert.equal(extra[0].hours_overtime, null);
   });
 
-  it('sets Tot. Hrs. to each run’s extra past its own contract', () => {
-    // "4.25 (2, 2.5)": 3h AM past 2 is 1, 3h PM past 2.5 is 0.5, total 1.5.
+  it('keeps Tot. Hrs. as each run’s clock span and puts the extra in Reg / OT', () => {
+    // "4.25 (2, 2.5)": 3h AM past 2 is 1, 3h PM past 2.5 is 0.5, extra 1.5.
     // The daily total 4.25 is not the subtractand (that would be 6 − 4.25 = 1.75).
     const front = [
       row(1, 'NOV 4 AM 6:00', 'NOV 4 AM 9:00', {}),
@@ -297,9 +297,8 @@ describe('Genie fills Reg / OT from the contract', () => {
     ];
     const runs = { ...options, contractRuns: { am: 2, pm: 2.5 } };
     applyContractRegOtRows(front, [], 4.25, runs);
-    assert.equal(front[0].total_hours, 1);
-    assert.equal(front[1].total_hours, 0.5);
-    assert.equal((front[0].total_hours || 0) + (front[1].total_hours || 0), 1.5);
+    assert.equal(front[0].total_hours, 3);
+    assert.equal(front[1].total_hours, 3);
     assert.equal((front[0].hours_regular || 0) + (front[0].hours_overtime || 0), 1.5);
     assert.equal(front[1].hours_regular, null);
     assert.equal(front[1].hours_overtime, null);
@@ -320,8 +319,8 @@ describe('Genie fills Reg / OT from the contract', () => {
     ];
     const runs = { am: 2, pm: 2.5 };
     applyContractRegOtRows(front, [], 4.25, { ...options, contractRuns: runs });
-    assert.equal(front[0].total_hours, null);
-    assert.equal(front[1].total_hours, 0.5);
+    assert.equal(front[0].total_hours, 1);
+    assert.equal(front[1].total_hours, 3);
     assert.equal((front[0].hours_regular || 0) + (front[0].hours_overtime || 0), 0.5);
     const parts = applyRunExtraTotals([front], runs, options);
     assert.equal(parts.extraByDay.get('2026-11-04'), 0.5);
@@ -334,8 +333,77 @@ describe('Genie fills Reg / OT from the contract', () => {
       row(2, 'NOV 4 AM 7:30', 'NOV 4 AM 9:00', {}),
     ];
     applyContractRegOtRows(front, [], 4.25, { ...options, contractRuns: { am: 2, pm: 2.5 } });
-    assert.equal(front[0].total_hours, 1);
+    assert.equal(front[0].total_hours, 1.5);
+    assert.equal(front[1].total_hours, 1.5);
+    assert.equal((front[0].hours_regular || 0) + (front[0].hours_overtime || 0), 1);
+    assert.equal(front[1].hours_regular, null);
+  });
+
+  it('totals an Out line with the following In line', () => {
+    const front = [
+      row(1, 'NOV 4 AM 6:00', null),
+      row(2, null, 'NOV 4 AM 8:00'),
+      row(3, 'NOV 4 PM 1:00', null),
+      row(4, null, 'NOV 4 PM 4:00'),
+    ];
+    applyContractRegOtRows(front, [], null, options);
+    assert.equal(front[0].total_hours, 2);
     assert.equal(front[1].total_hours, null);
+    assert.equal(front[2].total_hours, 3);
+    assert.equal(front[3].total_hours, null);
+    assert.equal(front[0].hours_regular, 2);
+    assert.equal(front[2].hours_regular, 3);
+  });
+
+  it('writes Reg as the sum of the run extras when PM starts at noon', () => {
+    // Snapped: AM 6:45–9:00 is 2.25 past 1.75 → 0.5 extra.
+    // 11:55 snaps to noon and 3:07 snaps to 3:15: 3.25 past a PM contract of 3 → 0.25 extra.
+    // Noon is PM in the run windows. The older cutoff treated it as midday
+    // with no contract and wrote 3.75 (0.5 + the whole 3.25) in Reg.
+    const front = [
+      row(1, 'OCT 8 AM 6:40', 'OCT 8 AM 9:01', {}),
+      row(2, 'OCT 8 AM 11:55', 'OCT 8 PM 3:07', {}),
+    ];
+    const runs = { ...options, contractRuns: { am: 1.75, pm: 3 } };
+    applyContractRegOtRows(front, [], 4.75, runs);
+    assert.equal(front[0].total_hours, 2.25);
+    assert.equal(front[1].total_hours, 3.25);
+    assert.equal(front[0].hours_regular, 0.75);
+    assert.equal(front[0].hours_overtime, null);
+    assert.equal(front[1].hours_regular, null);
+    assert.equal(front[1].hours_overtime, null);
+
+    front[0].written_regular = 0.75;
+    front[0].written_regular_status = 'number';
+    front[0].written_overtime = 0;
+    front[0].written_overtime_status = 'number';
+    markContractHourRows(front, [], 4.75, runs);
+    assert.equal(front[0].hours_add_up, true);
+    assert.equal(front[1].hours_add_up, true);
+  });
+
+  it('does not count a start outside the run windows as extra', () => {
+    const front = [
+      row(1, 'NOV 4 AM 6:00', 'NOV 4 AM 8:30', {}),
+      row(2, 'NOV 4 AM 8:15', 'NOV 4 AM 9:00', {}),
+    ];
+    applyContractRegOtRows(front, [], 4.5, { ...options, contractRuns: { am: 2, pm: 2.5 } });
+    assert.equal(front[0].total_hours, 2.5);
+    assert.equal(front[1].total_hours, 0.75);
+    assert.equal(front[0].hours_regular, 0.5);
+    assert.equal(front[1].hours_regular, null);
+  });
+
+  it('follows a later PM cutoff and leaves a noon start out of Reg', () => {
+    const front = [row(1, 'OCT 8 PM 12:00', 'OCT 8 PM 3:15', {})];
+    applyContractRegOtRows(front, [], 4.75, {
+      ...options,
+      contractRuns: { am: 1.75, pm: 3 },
+      windows: { amBefore: 8 * 60, midAfter: 9 * 60, midBefore: 11 * 60, pmAfter: 12 * 60 + 30 },
+    });
+    assert.equal(front[0].total_hours, 3.25);
+    assert.equal(front[0].hours_regular, null);
+    assert.equal(front[0].hours_overtime, null);
   });
 
   it('counts midday work with no midday contract as extra', () => {

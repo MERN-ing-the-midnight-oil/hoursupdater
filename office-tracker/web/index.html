@@ -754,6 +754,55 @@
                     Quarter hour rounding
                   </button>
                 </div>
+                <div
+                  class="timesheet-run-windows"
+                  id="timesheet-run-windows"
+                  role="group"
+                  aria-label="Which start times count as AM, MID, or PM"
+                  title="A clock pair uses the time it starts. AM is strictly before the first time. MID is strictly after the second time and strictly before the third. PM is strictly after the last time. A start at the exact cutoff is not included. If a start fits more than one window, AM is used, then MID, then PM."
+                >
+                  <span class="timesheet-run-windows-label">Run windows</span>
+                  <label class="timesheet-run-window">
+                    AM before
+                    <input
+                      type="time"
+                      id="timesheet-run-am-before"
+                      value="08:00"
+                      step="60"
+                      title="Clock pairs that start before this time are AM. A start at this exact time is not AM."
+                    />
+                  </label>
+                  <label class="timesheet-run-window">
+                    MID after
+                    <input
+                      type="time"
+                      id="timesheet-run-mid-after"
+                      value="09:00"
+                      step="60"
+                      title="MID starts after this time. A start at this exact time is not MID."
+                    />
+                  </label>
+                  <label class="timesheet-run-window">
+                    MID before
+                    <input
+                      type="time"
+                      id="timesheet-run-mid-before"
+                      value="11:00"
+                      step="60"
+                      title="MID ends before this time. A start at this exact time is not MID."
+                    />
+                  </label>
+                  <label class="timesheet-run-window">
+                    PM after
+                    <input
+                      type="time"
+                      id="timesheet-run-pm-after"
+                      value="11:30"
+                      step="60"
+                      title="Clock pairs that start after this time are PM. A start at this exact time is not PM."
+                    />
+                  </label>
+                </div>
                 <div class="timesheet-row-height" title="Change the row height so a real card can be held up next to the displayed card. Nudge until the rows line up.">
                   <div class="timesheet-row-height-pill" role="group" aria-label="Row height">
                     <button type="button" class="timesheet-row-height-btn" data-row-height="-1" aria-label="Decrease row height" title="Make each card row shorter so a real card held next to the screen can line up.">−</button>
@@ -942,6 +991,21 @@
                 </div>
                 <h3 id="timesheet-front-heading" class="visually-hidden">Front</h3>
               </div>
+              <aside class="timesheet-run-panel" aria-label="Run, duration, and extra time">
+                <div class="timesheet-snap-sticker-spacer" aria-hidden="true"></div>
+                <div class="table-wrap timesheet-run-wrap">
+                  <table class="timesheet-run-sheet" id="timesheet-front-run">
+                    <thead>
+                      <tr>
+                        <th scope="col">Run</th>
+                        <th scope="col" title="Hours from clock out to clock in. Snap rounded times uses the snapped clocks.">Duration</th>
+                        <th scope="col" title="This pair’s duration minus the contract hours for its run.">Extra Time</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </aside>
               <article class="timesheet-card-panel" aria-labelledby="timesheet-front-heading">
                 <button type="button" class="secondary timesheet-delete-side" aria-label="Delete this side" title="Remove this photographed side. If it is the last side, the whole constructed card is removed.">
                   <svg class="timesheet-delete-mark" viewBox="0 0 24 24" aria-hidden="true">
@@ -1084,6 +1148,21 @@
                 </div>
                 <h3 id="timesheet-back-heading" class="visually-hidden">Back</h3>
               </div>
+              <div class="timesheet-back-sticker-slot" id="timesheet-back-sticker-slot"></div>
+              <aside class="timesheet-run-panel" aria-label="Run, duration, and extra time">
+                <div class="table-wrap timesheet-run-wrap">
+                  <table class="timesheet-run-sheet" id="timesheet-back-run">
+                    <thead>
+                      <tr>
+                        <th scope="col">Run</th>
+                        <th scope="col" title="Hours from clock out to clock in. Snap rounded times uses the snapped clocks.">Duration</th>
+                        <th scope="col" title="This pair’s duration minus the contract hours for its run.">Extra Time</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </aside>
               <article class="timesheet-card-panel" aria-labelledby="timesheet-back-heading">
                 <button type="button" class="secondary timesheet-delete-side" aria-label="Delete this side" title="Remove this photographed side. If it is the last side, the whole constructed card is removed.">
                   <svg class="timesheet-delete-mark" viewBox="0 0 24 24" aria-hidden="true">

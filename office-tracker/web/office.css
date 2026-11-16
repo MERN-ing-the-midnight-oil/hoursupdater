@@ -7332,6 +7332,45 @@ button.secondary.timesheet-print-queue-btn.has-queued:focus-visible {
   color: #1a5278;
 }
 
+.timesheet-chip-delete,
+.timesheet-chip-delete:hover,
+.timesheet-chip-delete:focus-visible {
+  position: absolute;
+  top: 0.12rem;
+  left: 0.12rem;
+  z-index: 3;
+  width: auto;
+  margin: 0;
+  padding: 0.04rem 0.28rem;
+  border: 1px solid #7f1d1d;
+  border-radius: 0.15rem;
+  background: #b42318;
+  color: #fff;
+  box-shadow: none;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+}
+
+.timesheet-chip-delete:hover,
+.timesheet-chip-delete:focus-visible {
+  background: #7f1d1d;
+  border-color: #7f1d1d;
+  color: #fff;
+}
+
+.timesheet-chip-delete:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+}
+
+.timesheet-chip-delete:disabled,
+.timesheet-chip-delete:disabled:hover {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .timesheet-chip-action:disabled,
 .timesheet-chip-action:disabled:hover {
   opacity: 0.55;
@@ -8285,7 +8324,7 @@ body.is-genie-app #timesheet-read:focus-visible {
 
 .timesheet-card-stage {
   display: grid;
-  grid-template-columns: max-content max-content;
+  grid-template-columns: max-content max-content max-content;
   grid-template-rows: auto auto;
   column-gap: 0.55rem;
   row-gap: 0.2rem;
@@ -8295,7 +8334,7 @@ body.is-genie-app #timesheet-read:focus-visible {
 
 .timesheet-card-face {
   position: relative;
-  grid-column: 1;
+  grid-column: 2;
   grid-row: 1;
   display: flex;
   align-items: center;
@@ -8349,14 +8388,34 @@ button.timesheet-face-toggle-btn:focus-visible {
   outline-offset: 2px;
 }
 
-.timesheet-card-panel {
+.timesheet-run-panel {
   grid-column: 1;
   grid-row: 2;
 }
 
-.timesheet-snap-panel {
+.timesheet-card-panel {
   grid-column: 2;
   grid-row: 2;
+}
+
+.timesheet-snap-panel {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.timesheet-back-sticker-slot {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.timesheet-card-pair[data-side='back'] .timesheet-run-panel,
+.timesheet-card-pair[data-side='back'] .timesheet-card-panel,
+.timesheet-card-pair[data-side='back'] .timesheet-snap-panel {
+  grid-row: 3;
+}
+
+.timesheet-back-sticker-slot .timesheet-card-sticker {
+  margin-bottom: 0;
 }
 
 .timesheet-card-tools {
@@ -8495,6 +8554,50 @@ button.secondary.timesheet-delete-side:focus-visible {
   outline-offset: 1px;
 }
 
+.timesheet-run-windows {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.28rem 0.55rem;
+  max-width: 100%;
+  margin: 0;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid #c5d0da;
+  border-radius: var(--radius-sm);
+  background: #f7f9fb;
+  color: #1f4b66;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.timesheet-run-windows-label {
+  letter-spacing: 0.01em;
+}
+
+.timesheet-run-window {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  margin: 0;
+  font-weight: 650;
+}
+
+.timesheet-run-window input[type='time'] {
+  margin: 0;
+  padding: 0.12rem 0.28rem;
+  border: 1px solid #9ec5db;
+  border-radius: 0.3rem;
+  background: #fff;
+  color: #1f4b66;
+  font: inherit;
+  font-weight: 700;
+}
+
+.timesheet-run-window input[type='time']:focus-visible {
+  outline: 2px solid #1f4b66;
+  outline-offset: 1px;
+}
+
 /* Blue Timecard Checker: pill toggle above Front/Back photo controls */
 .audit-hours-toggle {
   display: grid;
@@ -8526,7 +8629,8 @@ button.secondary.timesheet-delete-side:focus-visible {
   max-width: 40rem;
 }
 
-.timesheet-snap-panel {
+.timesheet-snap-panel,
+.timesheet-run-panel {
   margin: 0;
   padding: 0.55rem 0.35rem;
   border: 1px solid #c5d0da;
@@ -8671,7 +8775,8 @@ button.secondary.timesheet-delete-side:focus-visible {
   font-weight: 500;
 }
 
-.timesheet-snap-wrap {
+.timesheet-snap-wrap,
+.timesheet-run-wrap {
   margin: 0;
   width: max-content;
   max-width: none;
@@ -8693,6 +8798,21 @@ button.secondary.timesheet-delete-side:focus-visible {
   padding: 0.2rem 0.2rem;
   vertical-align: middle;
   background: #fff;
+}
+
+/* Every other day is one group. White cells go light grey; blue card cells go a step darker. */
+.timesheet-snap-sheet tr.is-day-shade > td,
+.timesheet-run-sheet tr.is-day-shade > td,
+.timesheet-card-sheet tr.is-day-shade:not(.is-hours-off) > td.timesheet-card-clock:not(.is-audit-flag) {
+  background: #e6e8eb;
+}
+
+.timesheet-card-sheet tr.is-day-shade:not(.is-hours-off) > td.timesheet-card-blank:not(.is-audit-flag) {
+  background: #d7e8f4;
+}
+
+.timesheet-card-sheet tr.is-day-shade:not(.is-hours-off) > td.timesheet-card-actions {
+  background: #c5dff0;
 }
 
 .timesheet-snap-sheet thead th {
@@ -8730,6 +8850,61 @@ button.secondary.timesheet-delete-side:focus-visible {
 
 .timesheet-snap-sheet tr.is-quiet {
   color: var(--muted, #5c6b7a);
+}
+
+.timesheet-run-sheet {
+  width: max-content;
+  min-width: 12.5rem;
+  border-collapse: collapse;
+  font-family: "American Typewriter", "Courier New", Courier, monospace;
+  font-size: 0.78rem;
+}
+
+.timesheet-run-sheet th,
+.timesheet-run-sheet td {
+  border: 1px solid #c5d0da;
+  padding: 0.2rem 0.35rem;
+  vertical-align: middle;
+  background: #fff;
+  text-align: center;
+}
+
+.timesheet-run-sheet thead th {
+  box-sizing: border-box;
+  height: 1.85rem;
+  padding: 0.2rem 0.4rem;
+  background: #e8eef3;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.timesheet-run-sheet tbody td {
+  box-sizing: border-box;
+  white-space: nowrap;
+  font-weight: 700;
+  color: #1f4b66;
+}
+
+.timesheet-run-sheet tr.is-quiet td {
+  color: var(--muted, #5c6b7a);
+  font-weight: 500;
+}
+
+.timesheet-run-contract {
+  margin-left: 0.28rem;
+  font-weight: 500;
+  color: #5c6b7a;
+}
+
+.timesheet-run-sheet td.is-short {
+  color: #9a3412;
+}
+
+.timesheet-run-sheet td.is-over {
+  color: #0f6b4c;
 }
 
 .timesheet-snap-sheet tbody td {
@@ -8789,6 +8964,13 @@ button.secondary.timesheet-delete-side:focus-visible {
   vertical-align: top;
 }
 
+/* Paper cards use a heavier rule between clock pairs. That edge is the line under an In, above the next Out. */
+.timesheet-card-sheet tr.is-pair-break > td,
+.timesheet-snap-sheet tr.is-pair-break > td,
+.timesheet-run-sheet tr.is-pair-break > td {
+  border-bottom: 2px solid #1a1a1a;
+}
+
 .timesheet-card-sheet tbody td {
   box-sizing: border-box;
   height: var(--timesheet-row-height);
@@ -8798,6 +8980,67 @@ button.secondary.timesheet-delete-side:focus-visible {
   padding-bottom: 0.2rem;
   vertical-align: middle;
   overflow: hidden;
+}
+
+/* Table cells treat height as a minimum, so the contents were holding the row
+   near 28px after the control went lower. The clip is the real row height. */
+.timesheet-card-sheet tbody td:has(> .timesheet-row-clip),
+.timesheet-snap-sheet tbody td:has(> .timesheet-row-clip) {
+  height: 0;
+  min-height: 0;
+  max-height: none;
+  padding-top: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.timesheet-row-clip {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  height: calc(var(--timesheet-row-height) - 1px);
+  max-height: calc(var(--timesheet-row-height) - 1px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.timesheet-card-clock > .timesheet-row-clip,
+.timesheet-snap-sheet .timesheet-row-clip {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.timesheet-row-clip > .timesheet-stamp,
+.timesheet-row-clip > .timesheet-snap-stamp {
+  flex: 1 1 0;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+  line-height: 1;
+}
+
+.timesheet-row-clip > .timesheet-edit {
+  height: 100%;
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 1;
+}
+
+.timesheet-card-actions > .timesheet-row-clip {
+  justify-content: center;
+  gap: 0.1rem;
+}
+
+.timesheet-card-actions > .timesheet-row-clip button {
+  height: 100%;
+  width: auto;
+  max-height: 1.55rem;
+  max-width: 1.55rem;
+  aspect-ratio: 1;
+  margin: 0;
+  flex: 0 1 auto;
 }
 
 .timesheet-card-sheet thead th {

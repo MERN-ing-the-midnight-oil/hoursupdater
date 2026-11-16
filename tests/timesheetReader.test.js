@@ -22,6 +22,7 @@ import {
 } from '../office-tracker/src/timesheetRegOt.js';
 import {
   snapRoundedForRow,
+  snapsForCardRows,
   TIMESHEET_HOURS_MODE_QUARTER,
 } from '../office-tracker/src/timesheetSnap.js';
 import { computeDeltaMinutes, DEFAULT_CONTRACT_SNAP_BREAKS } from '../src/logic/timeUtils.js';
@@ -36,6 +37,7 @@ import {
   cardsInCarouselPeriod,
   carouselPayPeriods,
   carouselPeriodKeyForCard,
+  resolvedCarouselPeriodKey,
   driverPayPeriodCardSteps,
   physicalCardNumbers,
   queuedCardsInPeriod,
@@ -43,6 +45,7 @@ import {
   sessionCardChipLabel,
   sessionCardDriverName,
   sessionCardNeedsReview,
+  isInOutPairBreak,
 } from '../office-tracker/web/timesheetReader.js';
 import {
   isLocalGenieHost,
@@ -428,6 +431,25 @@ describe('timecard clock-record extraction', () => {
     );
     assert.equal(mixed.outLabel, 'unknown');
     assert.equal(mixed.totalHours, null);
+  });
+
+  it('totals neighboring Out and In lines as one pair', () => {
+    const snaps = snapsForCardRows(
+      [
+        { clock_out_raw: 'NOV 4 AM 6:00', clock_in_raw: null },
+        { clock_out_raw: null, clock_in_raw: 'NOV 4 AM 8:30' },
+        { clock_out_raw: 'NOV 4 PM 1:00', clock_in_raw: null },
+        { clock_out_raw: null, clock_in_raw: 'NOV 4 PM 4:00' },
+      ],
+      DEFAULT_CONTRACT_SNAP_BREAKS,
+      2026
+    );
+    assert.equal(snaps[0].totalHours, 2.5);
+    assert.equal(snaps[1].totalHours, null);
+    assert.equal(snaps[1].spanOwner, 0);
+    assert.equal(snaps[2].totalHours, 3);
+    assert.equal(snaps[3].totalHours, null);
+    assert.equal(snaps[3].spanOwner, 2);
   });
 });
 
@@ -929,6 +951,15 @@ describe('local example timecards', () => {
     assert.equal(periods[0].label, 'Jul 15, 2026');
     assert.equal(periods.at(-1).key, '2027-06-30');
     assert.equal(defaultPayPeriodIso(periods, new Date(2026, 10, 15)), '2026-11-15');
+    assert.equal(
+      resolvedCarouselPeriodKey('2026-10-31', periods, new Date(2026, 10, 16)),
+      '2026-10-31'
+    );
+    assert.equal(resolvedCarouselPeriodKey('', periods, new Date(2026, 10, 16)), '2026-11-15');
+    assert.equal(
+      resolvedCarouselPeriodKey('1999-01-01', periods, new Date(2026, 10, 16)),
+      '2026-11-15'
+    );
     assert.equal(cardsInCarouselPeriod([], '2026-12-15').length, 0);
     const withOutside = carouselPayPeriods(
       [{ extraction: { header: { date_on_card: '6/15/26' } } }],
@@ -1022,6 +1053,19 @@ describe('driver pay-period card steps', () => {
       queuedCardsInPeriod(cards, carouselPeriodKeyForCard(cards[3])).map((card) => card.id),
       ['october']
     );
+  });
+});
+
+describe('pair rules on a constructed card', () => {
+  it('thickens the line between an In and the next Out', () => {
+    const out = { clock_out_raw: 'NOV 4 AM 6:00', clock_in_raw: null };
+    const inn = { clock_out_raw: null, clock_in_raw: 'NOV 4 AM 8:00' };
+    const pair = { clock_out_raw: 'NOV 4 PM 1:00', clock_in_raw: 'NOV 4 PM 4:00' };
+    assert.equal(isInOutPairBreak(out, inn), false);
+    assert.equal(isInOutPairBreak(inn, out), true);
+    assert.equal(isInOutPairBreak(pair, pair), true);
+    assert.equal(isInOutPairBreak(inn, null), false);
+    assert.equal(isInOutPairBreak(out, out), false);
   });
 });
 

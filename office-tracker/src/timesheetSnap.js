@@ -207,3 +207,137 @@ export function snapRoundedForRow(row, breaks, defaultYear, mode) {
     totalHours,
   };
 }
+
+function stampPresent(raw) {
+  return Boolean(String(raw ?? '').trim());
+}
+
+/**
+ * Snap every row on one card side.
+ * A row that already holds both stamps is one pair.
+ * A row with only Out or only In pairs with the next opposite line, so a
+ * photo read as one clock per line still gets a Tot. Hrs. Blank lines between
+ * them stay in the pair. The hours sit on the first line of the pair.
+ * `spanOwner` is that line's index for both lines.
+ * @param {object[] | null | undefined} rows
+ * @param {object | null | undefined} breaks
+ * @param {number | null | undefined} defaultYear
+ * @param {'snap' | 'quarter' | string | null | undefined} [mode]
+ */
+export function snapsForCardRows(rows, breaks, defaultYear, mode) {
+  const list = Array.isArray(rows) ? rows : [];
+  const snaps = list.map((row, index) => ({
+    ...snapRoundedForRow(row, breaks, defaultYear, mode),
+    spanOwner: index,
+  }));
+  let pending = -1;
+  for (let index = 0; index < list.length; index += 1) {
+    const row = list[index];
+    if (!row || row.crossed_out) {
+      pending = -1;
+      continue;
+    }
+    const hasOut = stampPresent(row.clock_out_raw);
+    const hasIn = stampPresent(row.clock_in_raw);
+    if (hasOut && hasIn) {
+      pending = -1;
+      continue;
+    }
+    if (!hasOut && !hasIn) continue;
+    const side = hasOut ? 'out' : 'in';
+    if (pending < 0) {
+      pending = index;
+      continue;
+    }
+    const pendingRow = list[pending];
+    const pendingOut = stampPresent(pendingRow?.clock_out_raw);
+    const pendingIn = stampPresent(pendingRow?.clock_in_raw);
+    const pendingSide = pendingOut && !pendingIn ? 'out' : pendingIn && !pendingOut ? 'in' : '';
+    if (!pendingSide || pendingSide === side) {
+      pending = index;
+      continue;
+    }
+    const outRaw = pendingSide === 'out' ? pendingRow.clock_out_raw : row.clock_out_raw;
+    const inRaw = pendingSide === 'in' ? pendingRow.clock_in_raw : row.clock_in_raw;
+    const paired = snapRoundedForRow(
+      { clock_out_raw: outRaw, clock_in_raw: inRaw },
+      breaks,
+      defaultYear,
+      mode
+    );
+    snaps[pending] = {
+      ...snaps[pending],
+      totalHours: paired.totalHours,
+      spanStart: paired.spanStart,
+      spanEnd: paired.spanEnd,
+      spanOwner: pending,
+    };
+    snaps[index] = {
+      ...snaps[index],
+      spanOwner: pending,
+    };
+    pending = -1;
+  }
+  return snaps;
+}
+
+/**
+ * Shade every other calendar day so the runs on that day read as one group.
+ * The first day on the side stays unshaded. A clock pair uses its Out date,
+ * including blank lines between that Out and its In. A blank line sitting
+ * between two lines of the same day takes that day.
+ * @param {object[] | null | undefined} rows
+ * @param {number | null | undefined} [defaultYear]
+ * @returns {boolean[]}
+ */
+export function alternateDayShade(rows, defaultYear) {
+  const list = Array.isArray(rows) ? rows : [];
+  const year = defaultYear ?? inferDefaultYear(null);
+  const snaps = snapsForCardRows(list, null, year, TIMESHEET_HOURS_MODE_QUARTER);
+  const keys = list.map((_, index) => dayKeyForBand(list, snaps, index, year));
+  for (let index = 0; index < keys.length; index += 1) {
+    if (keys[index]) continue;
+    let previous = index - 1;
+    while (previous >= 0 && !keys[previous]) previous -= 1;
+    let next = index + 1;
+    while (next < keys.length && !keys[next]) next += 1;
+    if (previous >= 0 && next < keys.length && keys[previous] === keys[next]) {
+      keys[index] = keys[previous];
+    }
+  }
+  const shaded = [];
+  let last = '';
+  let band = 0;
+  for (const key of keys) {
+    if (key && key !== last) {
+      if (last) band += 1;
+      last = key;
+    }
+    shaded.push(Boolean(key) && band % 2 === 1);
+  }
+  return shaded;
+}
+
+/**
+ * @param {object[]} rows
+ * @param {object[]} snaps
+ * @param {number} index
+ * @param {number} year
+ */
+function dayKeyForBand(rows, snaps, index, year) {
+  const owner = snaps[index]?.spanOwner;
+  const ownerIndex = Number.isInteger(owner) ? owner : index;
+  return printedDayKey(rows[ownerIndex], year) || printedDayKey(rows[index], year);
+}
+
+/**
+ * @param {object | null | undefined} row
+ * @param {number} year
+ */
+function printedDayKey(row, year) {
+  for (const raw of [row?.clock_out_raw, row?.clock_in_raw]) {
+    const date = parseLegacyStampToDate(raw, year);
+    if (date instanceof Date && !Number.isNaN(date.getTime())) return localDayKey(date);
+  }
+  return '';
+}
