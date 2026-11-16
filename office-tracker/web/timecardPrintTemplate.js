@@ -8,14 +8,15 @@ export const TEMPLATE_WIDTH = 1000;
 export const TEMPLATE_HEIGHT = 1600;
 
 /** @typedef {{ x: number, y: number }} NormPoint */
-/** @typedef {{ reg: NormPoint, ot: NormPoint, fontNorm: number }} SlotCells */
+/** @typedef {{ reg: NormPoint, ot: NormPoint, tot: NormPoint, fontNorm: number }} SlotCells */
 
 const FRONT_SLOTS = 13;
 const BACK_SLOTS = 15;
 
-/** Hours Reg / OT column centers on the printed grid. */
+/** Hours column centers on the printed grid. Tot. Hrs. sits just left of Clock Record. */
 const REG_X = 0.455;
 const OT_X = 0.535;
+const TOT_X = 0.65;
 
 /**
  * Vertical band of the Clock Record / hours grid (below the front sticker).
@@ -39,6 +40,7 @@ function buildSlots(slotCount, grid) {
     slots.push({
       reg: { x: REG_X, y },
       ot: { x: OT_X, y },
+      tot: { x: TOT_X, y },
       fontNorm: Math.min(0.028, band * 0.55),
     });
   }
@@ -67,7 +69,7 @@ export function regOtSlotsForSide(side) {
  * Pixel center for one Reg or OT cell on the template canvas.
  * @param {'front' | 'back'} side
  * @param {number} slotIndex zero-based
- * @param {'reg' | 'ot'} field
+ * @param {'reg' | 'ot' | 'tot'} field
  * @param {number} [width]
  * @param {number} [height]
  */
@@ -75,7 +77,7 @@ export function templateCellPixel(side, slotIndex, field, width = TEMPLATE_WIDTH
   const slots = regOtSlotsForSide(side);
   const slot = slots[slotIndex];
   if (!slot) return null;
-  const point = field === 'ot' ? slot.ot : slot.reg;
+  const point = field === 'ot' ? slot.ot : field === 'tot' ? slot.tot : slot.reg;
   return {
     x: point.x * width,
     y: point.y * height,

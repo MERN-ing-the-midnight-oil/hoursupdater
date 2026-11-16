@@ -72,11 +72,14 @@ describe('pay periods in the school year', () => {
     assert.equal(auditSchoolYearLabel(null, new Date(2026, 10, 5)), '2026-2027');
   });
 
-  it('defaults to the next pay-period end on or after today', () => {
+  it('defaults to the most recent pay-period end on or before today', () => {
     const periods = payPeriodsInSchoolYear('2026-2027');
-    assert.equal(defaultPayPeriodIso(periods, new Date(2026, 10, 13)), '2026-11-15');
+    assert.equal(defaultPayPeriodIso(periods, new Date(2026, 6, 1)), '2026-07-15');
+    assert.equal(defaultPayPeriodIso(periods, new Date(2026, 10, 13)), '2026-10-31');
     assert.equal(defaultPayPeriodIso(periods, new Date(2026, 10, 15)), '2026-11-15');
-    assert.equal(defaultPayPeriodIso(periods, new Date(2026, 10, 16)), '2026-11-30');
+    assert.equal(defaultPayPeriodIso(periods, new Date(2026, 10, 16)), '2026-11-15');
+    assert.equal(defaultPayPeriodIso(periods, new Date(2027, 6, 1)), '2027-06-30');
+    assert.equal(defaultPayPeriodIso([], new Date(2026, 10, 15)), '');
   });
 
   it('warns when the sticker date is a different pay-period ending', () => {

@@ -45,7 +45,50 @@
             capture="environment"
           />
         </label>
+        <button type="button" class="timesheet-capture-skip" id="timesheet-capture-skip" hidden>
+          Skip front
+        </button>
+        <button
+          type="button"
+          class="timesheet-capture-same"
+          id="timesheet-capture-same"
+          aria-pressed="false"
+          hidden
+        >
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="8" y="8" width="11" height="12" rx="1.5" />
+            <path d="M5 16V5.5A1.5 1.5 0 0 1 6.5 4H16" />
+          </svg>
+          <span id="timesheet-capture-same-text">Another card, same driver</span>
+        </button>
+        <button type="button" class="timesheet-capture-retake" id="timesheet-capture-retake" hidden>
+          Retake an Already Submitted Photo
+        </button>
       </form>
+      <section
+        id="timesheet-capture-carousel"
+        class="timesheet-capture-carousel"
+        aria-labelledby="timesheet-capture-carousel-heading"
+        hidden
+      >
+        <div class="timesheet-capture-period-bar">
+          <h2 id="timesheet-capture-carousel-heading">All pay periods</h2>
+          <label class="timesheet-capture-period">
+            <span class="visually-hidden">Pay period</span>
+            <select id="timesheet-capture-period"></select>
+          </label>
+        </div>
+        <div
+          id="timesheet-capture-cards"
+          class="timesheet-capture-chips"
+          aria-label="Employees in this pay period"
+        ></div>
+        <div id="timesheet-capture-card-pick" class="timesheet-capture-pick" hidden></div>
+        <div id="timesheet-capture-side-pick" class="timesheet-capture-pick" hidden></div>
+        <button type="button" class="timesheet-capture-retake-cancel" id="timesheet-capture-retake-cancel">
+          Back to camera
+        </button>
+      </section>
     </section>
     <script type="module" src="./timesheet-capture.js"></script>
   </body>

@@ -28,20 +28,37 @@ import { computeDeltaMinutes, DEFAULT_CONTRACT_SNAP_BREAKS } from '../src/logic/
 import {
   allocateHoursToPayStatus,
   clearCardRow,
+  constructedCardSides,
+  deleteConstructedSide,
+  deleteSideWarning,
   coverCropRect,
   hasIllegibleClockStamps,
+  cardsInCarouselPeriod,
+  carouselPayPeriods,
+  carouselPeriodKeyForCard,
+  driverPayPeriodCardSteps,
+  physicalCardNumbers,
+  queuedCardsInPeriod,
+  driverNameParts,
   sessionCardChipLabel,
+  sessionCardDriverName,
   sessionCardNeedsReview,
 } from '../office-tracker/web/timesheetReader.js';
+import {
+  isLocalGenieHost,
+  localExampleGenieExtractions,
+} from '../office-tracker/src/exampleGenieCards.js';
 import {
   buildMonthlyTimeSummary,
   monthlyTimeSummaryEmbedMarkup,
 } from '../office-tracker/src/monthlyTimeSummary.js';
 import { normalizeClockPayDefaults } from '../office-tracker/src/driverPay.js';
+import { defaultPayPeriodIso, payPeriodsInSchoolYear } from '../office-tracker/src/auditPayPeriods.js';
 import {
   BACK_SLOT_COUNT,
   EXTRACTION_SYSTEM,
   FRONT_SLOT_COUNT,
+  clockRecordTool,
   extractionUserPrefix,
 } from '../office-tracker/src/timesheetPrompt.js';
 
@@ -154,11 +171,31 @@ describe('timecard camera card crop', () => {
 });
 
 describe('timecard clock-record extraction', () => {
-  it('keeps the prompt short and asks for flat Clock Record lines', () => {
+  it('asks for ordered Out/In pairs and does not name a line count', () => {
     assert.match(EXTRACTION_SYSTEM, /sky-blue/i);
     assert.match(EXTRACTION_SYSTEM, /far-right "Clock Record" column/i);
-    assert.match(EXTRACTION_SYSTEM, /Front has exactly 26 printed lines/i);
-    assert.match(EXTRACTION_SYSTEM, /Back has exactly 30 printed lines/i);
+    assert.match(EXTRACTION_SYSTEM, /sideways/i);
+    assert.match(EXTRACTION_SYSTEM, /OUT or IN/i);
+    assert.match(EXTRACTION_SYSTEM, /left of the "Tot\. Hrs\." column/i);
+    assert.match(EXTRACTION_SYSTEM, /left of the "Total" column/i);
+    assert.equal(
+      extractionUserPrefix('front'),
+      'This photo is the FRONT. List each clock time on its own, from the top of the photo downward. Do not combine an Out line and an In line.'
+    );
+    assert.equal(
+      extractionUserPrefix('back'),
+      'This photo is the BACK. List each clock time on its own, from the top of the photo downward. Do not combine an Out line and an In line.'
+    );
+    assert.match(EXTRACTION_SYSTEM, /one clock time per printed line/i);
+    assert.match(EXTRACTION_SYSTEM, /Do not combine an Out line and an In line/i);
+    assert.doesNotMatch(EXTRACTION_SYSTEM, /Ignore every other column/i);
+    assert.match(EXTRACTION_SYSTEM, /no set number of lines/i);
+    assert.match(EXTRACTION_SYSTEM, /top to bottom/i);
+    assert.match(EXTRACTION_SYSTEM, /side — "out" or "in"/i);
+    assert.doesNotMatch(EXTRACTION_SYSTEM, /one pair/i);
+    assert.doesNotMatch(EXTRACTION_SYSTEM, /exactly \d+/i);
+    assert.doesNotMatch(EXTRACTION_SYSTEM, /\b26\b/);
+    assert.doesNotMatch(EXTRACTION_SYSTEM, /\b30\b/);
     assert.match(EXTRACTION_SYSTEM, /blank bottom margin/i);
     assert.doesNotMatch(EXTRACTION_SYSTEM, /bold horizontal lines/i);
     assert.match(EXTRACTION_SYSTEM, /Do not write notes, caveats, commentary/i);
@@ -166,11 +203,12 @@ describe('timecard clock-record extraction', () => {
     assert.match(EXTRACTION_SYSTEM, /"HANDWRITING"/);
     assert.match(EXTRACTION_SYSTEM, /"illegible"/);
     assert.match(EXTRACTION_SYSTEM, /white sticker/i);
-    assert.match(extractionUserPrefix('front', 26), /exactly 26 printed/);
-    assert.match(extractionUserPrefix('back', 30), /exactly 30 printed/);
-    assert.match(extractionUserPrefix('front', 26), /bottom margin/i);
-    assert.match(extractionUserPrefix('front', 26), /Never guess/i);
-    assert.ok(EXTRACTION_SYSTEM.length < 1600);
+    assert.match(EXTRACTION_SYSTEM, /Other sides and other cards are sent separately/i);
+    const tool = clockRecordTool({ sticker: true });
+    assert.equal(tool.input_schema.properties.slots.minItems, undefined);
+    assert.equal(tool.input_schema.properties.slots.maxItems, undefined);
+    assert.deepEqual(tool.input_schema.properties.slots.items.required, ['side', 'stamp']);
+    assert.ok(EXTRACTION_SYSTEM.length < 1800);
   });
 
   it('flags extractions that include illegible clock stamps', () => {
@@ -388,7 +426,7 @@ describe('timecard clock-record extraction', () => {
       DEFAULT_CONTRACT_SNAP_BREAKS,
       2026
     );
-    assert.equal(mixed.outLabel, 'illegible');
+    assert.equal(mixed.outLabel, 'unknown');
     assert.equal(mixed.totalHours, null);
   });
 });
@@ -623,7 +661,46 @@ describe('timesheet Reg / OT split', () => {
     assert.equal(punches[0].pay_status, 'ot-trainer');
   });
 
-  it('keeps punch-based REG on the Monthly Summary and puts past-contract hours on EX DRIVER', () => {
+  it('includes overflow card sides in Monthly Time Summary punches', () => {
+    const extraction = {
+      header: { employee_name: 'Alex Driver' },
+      front_rows: [
+        {
+          row_index: 1,
+          clock_out_raw: 'NOV 4 AM 6:00',
+          clock_in_raw: 'NOV 4 AM 8:00',
+          pay_status: 'reg-driver',
+        },
+      ],
+      back_rows: [],
+      extra_sides: [
+        {
+          side: 'front',
+          card: 2,
+          rows: [
+            {
+              row_index: 1,
+              clock_out_raw: 'NOV 5 AM 6:00',
+              clock_in_raw: 'NOV 5 AM 8:00',
+              pay_status: 'ex-driver',
+            },
+          ],
+        },
+      ],
+    };
+    const punches = punchesFromCardExtraction(
+      extraction,
+      DEFAULT_CONTRACT_SNAP_BREAKS,
+      2026,
+      'Alex Driver',
+      null,
+      'ex-driver'
+    );
+    assert.equal(punches.length, 4);
+    assert.equal(punches[2].pay_status, 'ex-driver');
+  });
+
+  it('puts hours short of the contract on REG DRIVER and hours past it on EX DRIVER', () => {
     const officeState = {
       profiles: {
         route12: {
@@ -675,8 +752,8 @@ describe('timesheet Reg / OT split', () => {
     const november = summary.periods.find((period) => period.key === '2026-11-1');
     const day = (id) => november.lines.find((line) => line.id === id).cells.find((cell) => cell.day === 4);
     assert.equal(november.contractedHours[november.days.indexOf(4)], '4.00');
-    // Punch-based REG stays; no shortfall fill to contract − Tot.
-    assert.equal(day('reg-driver').value, '3.00');
+    // REG DRIVER is the deduct when the day is short of contract, not the punch hours.
+    assert.equal(day('reg-driver').value, '-1.00');
     assert.equal(day('ex-driver').value, '');
 
     const over = buildMonthlyTimeSummary({
@@ -714,7 +791,7 @@ describe('timesheet Reg / OT split', () => {
     const overNovember = over.periods.find((period) => period.key === '2026-11-1');
     const overDay = (id) => overNovember.lines.find((line) => line.id === id).cells.find((cell) => cell.day === 4);
     assert.equal(overNovember.contractedHours[overNovember.days.indexOf(4)], '2.00');
-    assert.equal(overDay('reg-driver').value, '3.00');
+    assert.equal(overDay('reg-driver').value, '');
     assert.equal(overDay('ex-driver').value, '1.00');
   });
 });
@@ -762,5 +839,229 @@ describe('timecard pay-status hour slices', () => {
     });
     assert.match(result.error, /Only 1 hour/);
     assert.equal(result.portions.length, 0);
+  });
+});
+
+describe('local example timecards', () => {
+  it('treats the office app on this computer as local', () => {
+    assert.equal(isLocalGenieHost('localhost'), true);
+    assert.equal(isLocalGenieHost('127.0.0.1'), true);
+    assert.equal(isLocalGenieHost('::1'), true);
+    assert.equal(isLocalGenieHost('teamster.example'), false);
+  });
+
+  it('returns ten drivers for this pay period and the ones before it', () => {
+    const cards = localExampleGenieExtractions();
+    assert.equal(cards.length, 40);
+    const names = [...new Set(cards.map((card) => card.header.employee_name))];
+    assert.deepEqual(names, [
+      'Picard, Jean-Luc',
+      'Riker, William',
+      'Data',
+      'La Forge, Geordi',
+      'Crusher, Beverly',
+      'Troi, Deanna',
+      'Worf',
+      'Crusher, Wesley',
+      "O'Brien, Miles",
+      'Guinan',
+    ]);
+    assert.deepEqual(
+      [...new Set(cards.map((card) => card.header.date_on_card))],
+      ['11/15/26', '10/31/26', '10/15/26', '9/30/26']
+    );
+    assert.equal(cards.filter((card) => card.header.date_on_card === '10/31/26').length, 10);
+    assert.equal(cards.filter((card) => card.header.date_on_card === '10/15/26').length, 10);
+    assert.equal(cards.filter((card) => card.header.date_on_card === '9/30/26').length, 10);
+    assert.equal(cards[0].header.employee_name, 'Picard, Jean-Luc');
+    assert.equal(cards[0].header.route_number, 'S1');
+    assert.equal(cards[0].header.contract_hours, 5.25);
+    assert.equal(cards[0].front_rows[0].clock_out_raw, 'NOV 2 AM 6:10');
+    assert.ok(cards[0].back_rows.length > 0);
+    assert.equal(sessionCardNeedsReview(cards[0]), false);
+    assert.equal(sessionCardChipLabel(cards[0], 0), 'Picard, Jean-Luc · 11/15/26');
+    assert.equal(sessionCardDriverName(cards[0], 0), 'Picard, Jean-Luc');
+    assert.deepEqual(driverNameParts('Picard, Jean-Luc'), { last: 'Picard', first: 'Jean-Luc' });
+    assert.deepEqual(driverNameParts('Data'), { last: 'Data', first: '' });
+    const session = cards.map((extraction, index) => ({ id: `example-${index + 1}`, extraction }));
+    const periods = carouselPayPeriods(session, [
+      { iso: '2026-09-30', label: 'Sep 30, 2026' },
+      { iso: '2026-10-15', label: 'Oct 15, 2026' },
+      { iso: '2026-10-31', label: 'Oct 31, 2026' },
+      { iso: '2026-11-15', label: 'Nov 15, 2026' },
+    ]);
+    assert.deepEqual(
+      periods.map((period) => period.label),
+      ['Sep 30, 2026', 'Oct 15, 2026', 'Oct 31, 2026', 'Nov 15, 2026']
+    );
+    assert.equal(cardsInCarouselPeriod(session, '2026-11-15').length, 10);
+    assert.equal(cardsInCarouselPeriod(session, '2026-10-31').length, 10);
+    assert.equal(carouselPeriodKeyForCard(session[0]), '2026-11-15');
+    assert.equal(cardsInCarouselPeriod(session, '2026-11-15')[0].extraction.header.employee_name, 'Picard, Jean-Luc');
+    assert.equal(carouselPeriodKeyForCard({ extraction: { header: {} } }), 'none');
+    const rikerNow = cards.find(
+      (card) => card.header.employee_name === 'Riker, William' && card.header.date_on_card === '11/15/26'
+    );
+    const rikerOctober = cards.find(
+      (card) => card.header.employee_name === 'Riker, William' && card.header.date_on_card === '10/31/26'
+    );
+    assert.equal(sessionCardNeedsReview(rikerNow), true);
+    assert.equal(sessionCardNeedsReview(rikerOctober), false);
+    assert.equal(cards[2].header.employee_name, 'Data');
+    assert.equal(cards[2].header.contract_hours, 5.5);
+    assert.equal(sessionCardNeedsReview(cards[2]), false);
+    const picardSeptember = cards.find(
+      (card) => card.header.employee_name === 'Picard, Jean-Luc' && card.header.date_on_card === '9/30/26'
+    );
+    assert.equal(picardSeptember.header.route_number, 'S1');
+    assert.equal(picardSeptember.front_rows[0].clock_out_raw, 'SEP 21 AM 6:10');
+    assert.equal(sessionCardNeedsReview(picardSeptember), false);
+  });
+
+  it('lists every school-year ending even when that period has no cards', () => {
+    const known = payPeriodsInSchoolYear('2026-2027');
+    const periods = carouselPayPeriods([], known);
+    assert.equal(periods.length, 24);
+    assert.deepEqual(
+      periods.map((period) => period.key),
+      known.map((period) => period.iso)
+    );
+    assert.equal(periods[0].label, 'Jul 15, 2026');
+    assert.equal(periods.at(-1).key, '2027-06-30');
+    assert.equal(defaultPayPeriodIso(periods, new Date(2026, 10, 15)), '2026-11-15');
+    assert.equal(cardsInCarouselPeriod([], '2026-12-15').length, 0);
+    const withOutside = carouselPayPeriods(
+      [{ extraction: { header: { date_on_card: '6/15/26' } } }],
+      known
+    );
+    assert.equal(withOutside.length, 25);
+    assert.equal(withOutside[0].key, '2026-06-15');
+  });
+});
+
+describe('driver pay-period card steps', () => {
+  it('lists one step when a driver has a single front and back', () => {
+    const cards = [
+      {
+        id: 'picard',
+        extraction: { header: { employee_name: 'Picard, Jean-Luc', date_on_card: '11/15/26' } },
+      },
+    ];
+    assert.deepEqual(physicalCardNumbers(cards[0].extraction), [1]);
+    assert.deepEqual(driverPayPeriodCardSteps(cards, 'picard'), [{ id: 'picard', cardNumber: 1 }]);
+  });
+
+  it('pages extra physical cards and other cards for the same driver and pay period', () => {
+    const cards = [
+      {
+        id: 'picard',
+        extraction: {
+          header: { employee_name: 'Picard, Jean-Luc', date_on_card: '11/15/26' },
+          extra_sides: [
+            { card: 2, side: 'front', rows: [] },
+            { card: 2, side: 'back', rows: [] },
+          ],
+        },
+      },
+      {
+        id: 'picard-again',
+        extraction: { header: { employee_name: 'picard, jean-luc', date_on_card: '11/15/26' } },
+      },
+      {
+        id: 'riker',
+        extraction: { header: { employee_name: 'Riker, William', date_on_card: '11/15/26' } },
+      },
+      {
+        id: 'picard-october',
+        extraction: { header: { employee_name: 'Picard, Jean-Luc', date_on_card: '10/31/26' } },
+      },
+    ];
+    assert.deepEqual(physicalCardNumbers(cards[0].extraction), [1, 2]);
+    assert.deepEqual(driverPayPeriodCardSteps(cards, 'picard'), [
+      { id: 'picard', cardNumber: 1 },
+      { id: 'picard', cardNumber: 2 },
+      { id: 'picard-again', cardNumber: 1 },
+    ]);
+    assert.deepEqual(driverPayPeriodCardSteps(cards, 'riker'), [{ id: 'riker', cardNumber: 1 }]);
+    assert.deepEqual(driverPayPeriodCardSteps(cards, 'picard-october'), [
+      { id: 'picard-october', cardNumber: 1 },
+    ]);
+  });
+
+  it('counts only the queued squares in the open pay period, in the order they were added', () => {
+    const cards = [
+      {
+        id: 'later',
+        printQueued: true,
+        printQueuedAt: 20,
+        extraction: { header: { employee_name: 'Data', date_on_card: '11/15/26' } },
+      },
+      {
+        id: 'first',
+        printQueued: true,
+        printQueuedAt: 10,
+        extraction: { header: { employee_name: 'Picard, Jean-Luc', date_on_card: '11/15/26' } },
+      },
+      {
+        id: 'skipped',
+        printQueued: false,
+        extraction: { header: { employee_name: 'Riker, William', date_on_card: '11/15/26' } },
+      },
+      {
+        id: 'october',
+        printQueued: true,
+        printQueuedAt: 5,
+        extraction: { header: { employee_name: 'Worf', date_on_card: '10/31/26' } },
+      },
+    ];
+    assert.deepEqual(
+      queuedCardsInPeriod(cards, '2026-11-15').map((card) => card.id),
+      ['first', 'later']
+    );
+    assert.deepEqual(
+      queuedCardsInPeriod(cards, carouselPeriodKeyForCard(cards[3])).map((card) => card.id),
+      ['october']
+    );
+  });
+});
+
+describe('deleting a constructed timecard side', () => {
+  const extraction = () => ({
+    header: { employee_name: 'Picard, Jean-Luc' },
+    front_rows: [{ row_index: 1, clock_out_raw: 'NOV 2 AM 6:00' }],
+    back_rows: [{ row_index: 1, clock_out_raw: 'NOV 2 PM 2:00' }],
+    extra_sides: [{ card: 2, side: 'front', rows: [{ row_index: 1 }] }],
+  });
+
+  it('removes the front and leaves the back', () => {
+    const card = extraction();
+    const removed = deleteConstructedSide(card, { side: 'front', extraIndex: -1 });
+    assert.equal(removed.empty, false);
+    assert.deepEqual(card.front_rows, []);
+    assert.equal(card.sides_present.front, false);
+    assert.equal(card.sides_present.back, true);
+    assert.equal(card.back_rows.length, 1);
+    assert.equal(card.extra_sides.length, 1);
+    assert.match(deleteSideWarning(card, { side: 'back', extraIndex: -1 }), /other side stays/);
+  });
+
+  it('removes one extra card side without touching card 1', () => {
+    const card = extraction();
+    const removed = deleteConstructedSide(card, { side: 'front', extraIndex: 0 });
+    assert.equal(removed.empty, false);
+    assert.equal(card.extra_sides.length, 0);
+    assert.equal(card.front_rows.length, 1);
+    assert.equal(constructedCardSides(card).some((side) => side.card === 2), false);
+  });
+
+  it('warns that the last side removes the whole card', () => {
+    const card = {
+      header: { employee_name: 'Data' },
+      front_rows: [{ row_index: 1 }],
+      back_rows: [],
+      sides_present: { front: true, back: false },
+    };
+    assert.match(deleteSideWarning(card, { side: 'front', extraIndex: -1 }), /whole constructed card/);
+    assert.equal(deleteConstructedSide(card, { side: 'front', extraIndex: -1 }).empty, true);
   });
 });

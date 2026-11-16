@@ -82,8 +82,11 @@ describe('public route history', () => {
   it('shares the live link and keeps the password out of that link', () => {
     const payload = sharePayload();
     assert.equal(payload.url, undefined);
-    assert.match(payload.text, new RegExp(PAGE_PASSWORD));
-    assert.match(payload.text, new RegExp(PUBLISHED_SHARE_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.equal(payload.title, undefined);
+    assert.equal(
+      payload.text,
+      `Teamster Tools\nBy Rhys- Get your real route change history, use an AI to scan your timecards, and more!\n${PUBLISHED_SHARE_URL}\nPassword: ${PAGE_PASSWORD}`
+    );
     assert.doesNotMatch(PUBLISHED_SHARE_URL, new RegExp(PAGE_PASSWORD));
     const mail = shareMailHref();
     assert.match(mail, /^mailto:\?subject=/);

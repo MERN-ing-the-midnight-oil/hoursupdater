@@ -65,13 +65,44 @@ function coerceStampLine(value) {
 }
 
 /**
- * Pair flat Clock Record lines into Out/In slots for the app.
- * Accepts already-paired slots (objects / 2-stamp arrays) unchanged.
+ * One sideways Out or In line stays one record. Already-paired slots are left as given.
  * @param {unknown} raw
  * @returns {unknown[]}
  */
+function labeledStampPair(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+  if (!Object.prototype.hasOwnProperty.call(item, 'out') && !Object.prototype.hasOwnProperty.call(item, 'in')) {
+    return null;
+  }
+  return [coerceStampLine(item.out), coerceStampLine(item.in)];
+}
+
+function sideStampLine(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+  if (!Object.prototype.hasOwnProperty.call(item, 'side') || !Object.prototype.hasOwnProperty.call(item, 'stamp')) {
+    return null;
+  }
+  const side = String(item.side ?? '').trim().toLowerCase();
+  if (side !== 'out' && side !== 'in') return null;
+  return { side, stamp: coerceStampLine(item.stamp) };
+}
+
+/**
+ * One AI line stays one clock record. The sideways word chooses Out or In.
+ * Neighboring lines are not joined. Stamp times are not used to reorder the list.
+ * @param {{ side: string, stamp: string | null }[]} lines
+ */
+function slotsFromSideLines(lines) {
+  return lines.map((line) => (line.side === 'in' ? [null, line.stamp] : [line.stamp, null]));
+}
+
 export function pairStampLines(raw) {
   if (!Array.isArray(raw) || raw.length === 0) return Array.isArray(raw) ? raw : [];
+  const sideLines = raw.map(sideStampLine);
+  if (sideLines.every(Boolean)) return slotsFromSideLines(sideLines);
+  if (raw.some((item) => labeledStampPair(item))) {
+    return raw.map((item) => labeledStampPair(item) || item);
+  }
   const looksFlat = raw.every(
     (item) =>
       item == null ||
@@ -549,13 +580,9 @@ export function rowFromClockStamps(stamps, rowIndex, defaultYear) {
   if (outRaw && inRaw && isHandwritingToken(outRaw) && isHandwritingToken(inRaw)) {
     return handwritingRow(rowIndex);
   }
-  if (outRaw && !inRaw && isHandwritingToken(outRaw)) return handwritingRow(rowIndex);
-  if (!outRaw && inRaw && isHandwritingToken(inRaw)) return handwritingRow(rowIndex);
   if (outRaw && inRaw && isIllegibleToken(outRaw) && isIllegibleToken(inRaw)) {
     return illegibleRow(rowIndex);
   }
-  if (outRaw && !inRaw && isIllegibleToken(outRaw)) return illegibleRow(rowIndex);
-  if (!outRaw && inRaw && isIllegibleToken(inRaw)) return illegibleRow(rowIndex);
   const outBlocked = normalizeBlockedStamp(outRaw);
   const inBlocked = normalizeBlockedStamp(inRaw);
   const outIso =

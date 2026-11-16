@@ -309,7 +309,7 @@ export function stateFromClockRows(rawRows, options = {}) {
           routing_adjustment: null,
           reason_category: 'OTHER',
           note: 'Starting schedule',
-          entered_by: group.driver || group.route,
+          entered_by: '',
         };
       });
 
@@ -349,7 +349,7 @@ export function stateFromClockRows(rawRows, options = {}) {
         routing_adjustment: null,
         reason_category: 'OTHER',
         note: row.note,
-        entered_by: group.driver || group.route,
+        entered_by: '',
         force_oct1_contract: Boolean(row.forceOct1),
       });
     });

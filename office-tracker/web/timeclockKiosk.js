@@ -25,7 +25,6 @@ import {
   routesCoveredBySubstitute,
 } from '../../src/logic/routeCoverage.js';
 import { extraPunchIndex, localDateKey, normalizePunchRun, punchRunLabel, replacedClockPunchIds, segmentForClock } from '../../src/logic/timesheets.js';
-import { mountRouteCoverageDesk } from './routeCoverageDesk.js';
 import {
   applyLeaveRequests,
   dropLeaveForClockIn,
@@ -550,7 +549,7 @@ export function kioskRosterLayout({ count, width, height, gap = ROSTER_GAP_PX, s
   return { columns, rows: Math.ceil(count / columns), scroll: true, buttonHeight, rowGap: gap };
 }
 
-export function mountTimeclock({ readState, writeState, listPeople, listRoutes, listSubstitutes, contractedMinutes }) {
+export function mountTimeclock({ readState, writeState, listPeople, contractedMinutes }) {
   const startButton = document.querySelector('#start-timeclock');
   const screenButton = document.querySelector('#start-timeclock-screen');
   const screenChoices = document.querySelector('#timeclock-screen-choices');
@@ -590,7 +589,6 @@ export function mountTimeclock({ readState, writeState, listPeople, listRoutes, 
   const kioskSubstituteEmpty = document.querySelector('#kiosk-substitute-empty');
   const kioskCovering = document.querySelector('#kiosk-covering');
   const kioskSubstituteWho = document.querySelector('#kiosk-substitute-who');
-  const kioskRouteCoverageRoot = document.querySelector('#kiosk-route-coverage');
   const kioskActions = document.querySelector('#kiosk-actions');
   const kioskRunChoice = document.querySelector('#kiosk-run-choice');
   const kioskCard = document.querySelector('#kiosk-card');
@@ -652,21 +650,6 @@ export function mountTimeclock({ readState, writeState, listPeople, listRoutes, 
   let pendingCoverageSub = null;
   let substituteRoster = [];
   let unlocked = false;
-  const coverageDesk = mountRouteCoverageDesk({
-    root: kioskRouteCoverageRoot,
-    readState,
-    writeState,
-    listRoutes: () => (typeof listRoutes === 'function' ? listRoutes() : []),
-    listSubstitutes: () => {
-      const local = substituteDrivers();
-      if (local.length) return local;
-      return typeof listSubstitutes === 'function' ? listSubstitutes() : [];
-    },
-    onChange() {
-      renderRoster();
-      renderSubstituteChoices();
-    },
-  });
   // Extra periods revealed from above the card. Starts with those rows out of view.
   let extraPeriodsRevealed = 0;
   // Clock in whose regular route is being marked as other work.
@@ -3423,7 +3406,6 @@ export function mountTimeclock({ readState, writeState, listPeople, listRoutes, 
   function renderRoster() {
     rosterDate = localDateString();
     applyNameSize();
-    coverageDesk.refresh();
     const roster = people();
     const coverageRows = todayCoverage();
     kioskRoster.replaceChildren();
@@ -3896,7 +3878,6 @@ export function mountTimeclock({ readState, writeState, listPeople, listRoutes, 
         route_id: covered[0].route_id,
       });
       writeState(next);
-      coverageDesk.refresh();
       hideCoverageCertify();
       openCoveredRoute(person, routesCoveredBySubstitute(next.routeCoverage, localDateString(), person.name));
     } catch (error) {
@@ -5970,7 +5951,6 @@ export function mountTimeclock({ readState, writeState, listPeople, listRoutes, 
     void loadSubstitutes()
       .then(() => {
         renderSubstituteList();
-        coverageDesk.refresh();
         if (!kiosk.hidden && kioskList && !kioskList.hidden) renderSubstituteChoices();
       })
       .catch((error) => {
@@ -5980,8 +5960,6 @@ export function mountTimeclock({ readState, writeState, listPeople, listRoutes, 
     fillKioskReasons();
     if (!kiosk.hidden && kioskDetail.hidden && (!kioskCoverageCertify || kioskCoverageCertify.hidden)) {
       renderRoster();
-    } else {
-      coverageDesk.refresh();
     }
   }
 

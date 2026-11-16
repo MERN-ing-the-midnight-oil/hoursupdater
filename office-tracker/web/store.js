@@ -21,7 +21,10 @@ import { normalizeSchoolYear } from '../../src/logic/schoolYear.js';
 import { normalizeLateFlashMinutes } from '../../src/logic/lateClockFlash.js';
 import { normalizeOfficeEdits } from '../src/officePunches.js';
 import { normalizePunchRun } from '../../src/logic/timesheets.js';
-import { normalizeRouteCoverage } from '../../src/logic/routeCoverage.js';
+import {
+  normalizeRouteCoverage,
+  normalizeRouteCoverageNeeds,
+} from '../../src/logic/routeCoverage.js';
 import { normalizeStoredWorkPortions, normalizeTripTicket, normalizeWorkType } from '../../src/logic/workTypes.js';
 import { normalizeTimecardEntries } from '../src/timecardEntries.js';
 import { applyLeaveRequests, normalizeLeaveRequests, officeLeaveRequests } from '../src/leaveRequests.js';
@@ -46,6 +49,7 @@ export function emptyState() {
     punches: [],
     leaveRequests: [],
     routeCoverage: [],
+    routeCoverageNeeds: [],
     clockPins: {},
     clockLockCode: '',
     clockReasonCodes: defaultReasonCodes(),
@@ -452,6 +456,7 @@ export function loadState(storage = globalThis.localStorage) {
       punches: normalizeOfficePunches(parsed.punches),
       leaveRequests,
       routeCoverage: normalizeRouteCoverage(parsed.routeCoverage),
+      routeCoverageNeeds: normalizeRouteCoverageNeeds(parsed.routeCoverageNeeds),
       clockPins: normalizeClockPins(parsed.clockPins),
       clockLockCode: normalizeClockLockCode(parsed.clockLockCode),
       clockReasonCodes: officeReasonCodes(parsed.clockReasonCodes),
@@ -813,6 +818,14 @@ export function mergeSharedDriverList(remoteState, localState) {
     coverage.set(`${row.date}|${row.route_id}|${row.run}`, row);
   }
   remote.routeCoverage = [...coverage.values()];
+  const coverageNeeds = new Map();
+  for (const row of [
+    ...normalizeRouteCoverageNeeds(remote.routeCoverageNeeds),
+    ...normalizeRouteCoverageNeeds(localState?.routeCoverageNeeds),
+  ]) {
+    coverageNeeds.set(`${row.date}|${row.route_id}`, row);
+  }
+  remote.routeCoverageNeeds = [...coverageNeeds.values()];
   remote.clockPins = {
     ...normalizeClockPins(remote.clockPins),
     ...normalizeClockPins(localState?.clockPins),
@@ -1163,6 +1176,7 @@ export function importState(json, storage = globalThis.localStorage) {
     punches: normalizeOfficePunches(parsed.punches),
     leaveRequests,
     routeCoverage: normalizeRouteCoverage(parsed.routeCoverage),
+    routeCoverageNeeds: normalizeRouteCoverageNeeds(parsed.routeCoverageNeeds),
     clockPins: normalizeClockPins(parsed.clockPins),
     clockLockCode: normalizeClockLockCode(parsed.clockLockCode),
     clockReasonCodes: officeReasonCodes(parsed.clockReasonCodes),

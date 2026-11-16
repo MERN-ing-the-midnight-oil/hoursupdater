@@ -904,9 +904,9 @@ test('daily rounding rounds the day once, and separate rounding rounds each cloc
     });
     return summary.periods[0].lines.find((line) => line.id === 'reg-driver').cells.find((cell) => cell.day === 8).value;
   };
-  assert.equal(reg('snap'), '3.00');
-  assert.equal(reg('separate'), '3.00');
-  assert.equal(reg('daily'), '3.25');
+  assert.equal(reg('snap'), '-2.50');
+  assert.equal(reg('separate'), '-2.50');
+  assert.equal(reg('daily'), '-2.25');
 
   const math = buildMonthlySummaryMath({
     driverName: 'Goofy Goof',
@@ -978,7 +978,7 @@ test('time under the contract, or clocks with no contract, leave EX DRIVER blank
   const cell = (id) => october.lines.find((line) => line.id === id).cells.find((item) => item.day === 8);
   assert.equal(cell('ot-trainer').value, '2.00');
   assert.equal(cell('ex-driver').value, '');
-  assert.equal(cell('reg-driver').value, '');
+  assert.equal(cell('reg-driver').value, '-3.50');
 
   const math = buildMonthlySummaryMath({
     driverName: 'Goofy Goof',

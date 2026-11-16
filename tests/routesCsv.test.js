@@ -27,6 +27,7 @@ describe('transportation timechange CSV', () => {
       routes[0].changeLog.filter((row) => row.delta_minutes !== 0).length,
       1
     );
+    assert.ok(routes[0].changeLog.every((row) => row.entered_by === ''));
     assert.equal(state.profiles[state.currentProfileId].name, 'P32');
 
     const roundTrip = stateFromRoutesCsv(buildRoutesCsv(state));

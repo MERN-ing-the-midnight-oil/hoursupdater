@@ -15,9 +15,9 @@ export const PAGE_PASSWORD = '6111';
 export const PUBLISHED_SHARE_URL = 'https://mern-ing-the-midnight-oil.github.io/hoursupdater/';
 
 export function sharePayload() {
+  // No title field: some phones prepend title onto text and would repeat "Teamster Tools".
   return {
-    title: 'Teamster Tools',
-    text: `Teamster Tools\n${PUBLISHED_SHARE_URL}\nPassword: ${PAGE_PASSWORD}`,
+    text: `Teamster Tools\nBy Rhys- Get your real route change history, use an AI to scan your timecards, and more!\n${PUBLISHED_SHARE_URL}\nPassword: ${PAGE_PASSWORD}`,
   };
 }
 

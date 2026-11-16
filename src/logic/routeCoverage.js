@@ -68,6 +68,69 @@ export function normalizeRouteCoverage(raw) {
   });
 }
 
+// Routes marked today as needing a substitute before assignment menus appear.
+export function normalizeRouteCoverageNeeds(raw) {
+  if (!Array.isArray(raw)) return [];
+  const rows = [];
+  const seen = new Set();
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const date = trimName(item.date);
+    const route_id = trimName(item.route_id);
+    const route_name = trimName(item.route_name);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !route_id) continue;
+    const key = `${date}|${route_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({
+      date,
+      route_id,
+      ...(route_name ? { route_name } : {}),
+    });
+  }
+  return rows.sort((a, b) => {
+    const byDate = a.date.localeCompare(b.date);
+    if (byDate) return byDate;
+    return String(a.route_name || a.route_id).localeCompare(String(b.route_name || b.route_id), undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+  });
+}
+
+export function coverageNeedsForDate(list, date) {
+  const day = trimName(date);
+  return normalizeRouteCoverageNeeds(list).filter((row) => row.date === day);
+}
+
+export function routeNeedsSubstitute(list, date, routeId) {
+  const day = trimName(date);
+  const route = trimName(routeId);
+  if (!day || !route) return false;
+  return coverageNeedsForDate(list, day).some((row) => row.route_id === route);
+}
+
+export function toggleRouteCoverageNeed(list, { date, route_id, route_name, needed } = {}) {
+  const day = trimName(date);
+  const route = trimName(route_id);
+  const name = trimName(route_name);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !route) {
+    throw new Error('Choose a route that needs a substitute.');
+  }
+  const next = normalizeRouteCoverageNeeds(list).filter(
+    (row) => !(row.date === day && row.route_id === route)
+  );
+  const mark = needed == null ? true : Boolean(needed);
+  if (mark) {
+    next.push({
+      date: day,
+      route_id: route,
+      ...(name ? { route_name: name } : {}),
+    });
+  }
+  return normalizeRouteCoverageNeeds(next);
+}
+
 export function coverageForDate(list, date) {
   const day = trimName(date);
   return normalizeRouteCoverage(list).filter((row) => row.date === day);

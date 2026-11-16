@@ -140,7 +140,7 @@ export function quarterHoursBetweenCardStamps(outDate, inDate) {
  */
 function blockedStampLabel(parts) {
   if (parts.handwriting) return 'HANDWRITING';
-  if (parts.illegible) return 'illegible';
+  if (parts.illegible) return 'unknown';
   return null;
 }
 

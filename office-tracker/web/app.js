@@ -7015,6 +7015,7 @@ async function adoptStarterOffice() {
     punches: Array.isArray(current.punches) ? current.punches : [],
     leaveRequests: Array.isArray(current.leaveRequests) ? current.leaveRequests : [],
     routeCoverage: Array.isArray(current.routeCoverage) ? current.routeCoverage : [],
+    routeCoverageNeeds: Array.isArray(current.routeCoverageNeeds) ? current.routeCoverageNeeds : [],
     clockPins: current.clockPins && typeof current.clockPins === 'object' ? current.clockPins : {},
     clockLockCode: current.clockLockCode || '',
     ...(Object.prototype.hasOwnProperty.call(current, 'clockLateMinutes')
@@ -7186,6 +7187,26 @@ function routeClocksByRun(profile, today, earlyReleaseTimes) {
   }
 }
 
+// Full in–out ranges for the coverage Gantt. Same early-release PM rule as above.
+function routeSegmentsByRun(profile, today, earlyReleaseTimes) {
+  try {
+    const schedule = buildSnapshot(profile, today)?.schedule || {};
+    const segments = {};
+    for (const segment of ['AM', 'MIDDAY', 'PM']) {
+      let clockIn = schedule[segment]?.clock_in ? String(schedule[segment].clock_in) : '';
+      const clockOut = schedule[segment]?.clock_out ? String(schedule[segment].clock_out) : '';
+      if (segment === 'PM' && clockIn && earlyReleaseTimes !== null) {
+        const next = earlyReleaseClock(profile?.note, earlyReleaseTimes);
+        if (next) clockIn = String(next);
+      }
+      if (clockIn && clockOut) segments[segment] = `${clockIn}-${clockOut}`;
+    }
+    return segments;
+  } catch {
+    return {};
+  }
+}
+
 function earlyReleaseTimesForToday(state, today) {
   try {
     syncSchoolYearCalendar();
@@ -7208,12 +7229,14 @@ function listCoverageRoutes() {
       const name = String(profile?.name || '').trim();
       if (!id || !name) return null;
       const clocks = routeClocksByRun(profile, today, earlyReleaseTimes);
+      const segments = routeSegmentsByRun(profile, today, earlyReleaseTimes);
       return {
         id,
         name,
         regular_driver_name: driverForDate(profile, today),
         clockIns: ['AM', 'MIDDAY', 'PM'].flatMap((run) => (clocks[run] ? [clocks[run]] : [])),
-        clockRuns: ['AM', 'MIDDAY', 'PM'].filter((run) => clocks[run]),
+        clockRuns: ['AM', 'MIDDAY', 'PM'].filter((run) => clocks[run] || segments[run]),
+        segments,
       };
     })
     .filter(Boolean)
@@ -7319,8 +7342,6 @@ function ensureTimeclock() {
       };
     });
   },
-  listRoutes: listCoverageRoutes,
-  listSubstitutes: () => coverageSubstituteRoster,
   contractedMinutes(driverName, dateKey) {
     return contractedRunMinutes(loadState().profiles, driverName, dateKey, (profile, date) => {
       try {

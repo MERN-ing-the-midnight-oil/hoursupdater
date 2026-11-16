@@ -84,10 +84,58 @@ app.post('/api/timesheet-capture', (_req, res) => {
 app.get('/api/timesheet-capture/:token', (req, res) => {
   const session = timesheetCapture.read(req.params.token);
   if (!session) {
-    res.status(404).json({ error: 'This photo link is not valid or has expired.' });
+    res.status(404).json({ error: 'This photo link is not valid. Scan the QR code on the desk again.' });
     return;
   }
   res.json(session);
+});
+app.put('/api/timesheet-capture/:token/cards', express.json({ limit: '256kb' }), (req, res) => {
+  try {
+    const updated = timesheetCapture.putCards(req.params.token, req.body?.cards);
+    if (!updated) {
+      res.status(404).json({ error: 'This photo link is not valid. Scan the QR code on the desk again.' });
+      return;
+    }
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Could not update the scanned cards.' });
+  }
+});
+app.post('/api/timesheet-capture/:token/skip', express.json({ limit: '16kb' }), (req, res) => {
+  try {
+    const updated = timesheetCapture.skipSide(req.params.token, req.body?.side);
+    if (!updated) {
+      res.status(404).json({ error: 'This photo link is not valid. Scan the QR code on the desk again.' });
+      return;
+    }
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Could not skip that side.' });
+  }
+});
+app.post('/api/timesheet-capture/:token/same-driver', express.json({ limit: '16kb' }), (req, res) => {
+  try {
+    const updated = timesheetCapture.setSameDriver(req.params.token, req.body?.sameDriver === true);
+    if (!updated) {
+      res.status(404).json({ error: 'This photo link is not valid. Scan the QR code on the desk again.' });
+      return;
+    }
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Could not mark that card.' });
+  }
+});
+app.post('/api/timesheet-capture/:token/retake', express.json({ limit: '64kb' }), (req, res) => {
+  try {
+    const updated = timesheetCapture.putRetake(req.params.token, req.body ?? {});
+    if (!updated) {
+      res.status(404).json({ error: 'This photo link is not valid. Scan the QR code on the desk again.' });
+      return;
+    }
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Could not start that rescan.' });
+  }
 });
 app.put(
   '/api/timesheet-capture/:token/:side',
@@ -96,7 +144,7 @@ app.put(
     try {
       const saved = timesheetCapture.putPhoto(req.params.token, req.params.side, req.body ?? {});
       if (!saved) {
-        res.status(404).json({ error: 'This photo link is not valid or has expired.' });
+        res.status(404).json({ error: 'This photo link is not valid. Scan the QR code on the desk again.' });
         return;
       }
       res.json(saved);
@@ -151,7 +199,7 @@ app.post('/api/timesheet-capture-upload/:token/:side', async (req, res) => {
     }
     const saved = timesheetCapture.putPhotoFile(token, side, parsed);
     if (!saved) {
-      captureRedirect(res, token, { err: 'This photo link is not valid or has expired.' });
+      captureRedirect(res, token, { err: 'This photo link is not valid. Scan the QR code on the desk again.' });
       return;
     }
     captureRedirect(res, token, { saved: side });
@@ -182,7 +230,7 @@ app.delete('/api/timesheet-capture/:token', (req, res) => {
 app.post('/api/timesheet-capture/:token/restart', (req, res) => {
   const restarted = timesheetCapture.restart(req.params.token);
   if (!restarted) {
-    res.status(404).json({ error: 'This photo link is not valid or has expired.' });
+    res.status(404).json({ error: 'This photo link is not valid. Scan the QR code on the desk again.' });
     return;
   }
   res.json(restarted);

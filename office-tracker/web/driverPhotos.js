@@ -76,14 +76,28 @@ const DRIVER_PHOTOS = {
   'scott-wright': 'scott-wright.jpg',
 };
 
-// Portrait for a driver on the PIN screen. Blank when this name has no photo.
-export function driverPhotoSrc(name) {
+function photoFileForName(name) {
   const key = String(name ?? '')
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  const file = key ? DRIVER_PHOTOS[key] : '';
+  return key ? DRIVER_PHOTOS[key] || '' : '';
+}
+
+// Portrait for a driver. Accepts "First Last" or a timecard sticker "Last, First".
+// Blank when this name has no photo.
+export function driverPhotoSrc(name) {
+  const text = String(name ?? '').trim();
+  let file = photoFileForName(text);
+  if (!file) {
+    const comma = text.indexOf(',');
+    if (comma > 0) {
+      const last = text.slice(0, comma).trim();
+      const first = text.slice(comma + 1).trim();
+      if (first && last) file = photoFileForName(`${first} ${last}`);
+    }
+  }
   return file ? `driver-photos/${file}` : '';
 }
 

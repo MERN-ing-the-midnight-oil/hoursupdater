@@ -66,6 +66,15 @@ export function exDriverDayHours(clocked, contractText) {
   return difference;
 }
 
+// REG DRIVER on the Monthly Time Summary: hours short of that day's contract,
+// written as a negative. Blank when the clocks are at or over the contract.
+// Blank when the contract is missing — the caller keeps punch hours then.
+export function regDriverDeductHours(clocked, contractText) {
+  const difference = exHoursDifference(clocked, contractText);
+  if (!difference.startsWith('-')) return '';
+  return difference;
+}
+
 // REG + OT for one day on a Timecard Genie summary: that day's contracted
 // hours minus the sum of Tot. Hrs. Null when the contract is missing.
 // Zero when they match. Negative when Tot. Hrs. ran past the contract.

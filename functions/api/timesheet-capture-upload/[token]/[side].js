@@ -1,4 +1,5 @@
 import {
+  CAPTURE_LINK_INVALID,
   captureRedirect,
   normalizeSide,
   putPhotoFile,
@@ -27,7 +28,7 @@ export async function onRequestPost(context) {
     });
     if (!saved) {
       return captureRedirect(requestUrl, token, {
-        err: 'This photo link is not valid or has expired.',
+        err: CAPTURE_LINK_INVALID,
       });
     }
     return captureRedirect(requestUrl, token, { saved: side });

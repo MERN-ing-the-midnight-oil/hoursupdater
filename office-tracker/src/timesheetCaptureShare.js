@@ -1,4 +1,3 @@
-const TTL_MS = 15 * 60 * 1000;
 const MAX_BYTES = 12 * 1024 * 1024;
 const SIDES = new Set(['front', 'back']);
 const ALLOWED_MIME = new Set([
@@ -33,64 +32,117 @@ export function normalizeCaptureSide(value) {
 }
 
 /**
- * Short-lived Front/Back photo drop for Timecard Genie phone capture.
- * Photos live in memory on the office server until the session expires.
- * @param {{ now?: () => number, token?: () => string, ttlMs?: number }} [options]
+ * A card can be sent with one side skipped. Ready means each side was either
+ * photographed or skipped, and at least one photo is actually on the link.
+ * @param {{ front?: unknown, back?: unknown, skipFront?: unknown, skipBack?: unknown }} session
+ */
+export function captureCardReady(session) {
+  const front = Boolean(session?.front);
+  const back = Boolean(session?.back);
+  const skipFront = Boolean(session?.skipFront);
+  const skipBack = Boolean(session?.skipBack);
+  return (front || skipFront) && (back || skipBack) && (front || back);
+}
+
+/**
+ * @param {unknown} list
+ */
+function captureCardNumber(value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 20) return 1;
+  return n;
+}
+
+export function normalizeCaptureCards(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const item of list.slice(0, 80)) {
+    if (!item || typeof item !== 'object') continue;
+    const id = String(item.id || '').trim();
+    if (!id) continue;
+    const name = String(item.name || '').trim() || 'Card';
+    const employee = String(item.employee || name).trim() || name;
+    const status = String(item.status || '').trim();
+    out.push({
+      id,
+      name: name.slice(0, 80),
+      employee: employee.slice(0, 80),
+      periodKey: String(item.periodKey || '').trim().slice(0, 40),
+      periodLabel: String(item.periodLabel || '').trim().slice(0, 40),
+      card: captureCardNumber(item.card),
+      front: Boolean(item.front),
+      back: Boolean(item.back),
+      status:
+        status === 'reading' || status === 'needs_review' || status === 'ready'
+          ? status
+          : 'ready',
+    });
+  }
+  return out;
+}
+
+/**
+ * @param {unknown} value
+ */
+export function normalizeCaptureRetake(value) {
+  if (!value || typeof value !== 'object') return null;
+  const cardId = String(value.cardId || '').trim();
+  const side = normalizeCaptureSide(value.side);
+  if (!cardId || !side) return null;
+  return { cardId: cardId.slice(0, 80), side, card: captureCardNumber(value.card) };
+}
+
+/**
+ * Front/Back photo drop for Timecard Genie phone capture.
+ * The link stays valid until the desk closes it. Photos stay in memory until then.
+ * @param {{ token?: () => string }} [options]
  */
 export function createTimesheetCaptureShare(options = {}) {
-  const now = typeof options.now === 'function' ? options.now : () => Date.now();
   const tokenFn = typeof options.token === 'function' ? options.token : randomToken;
-  const ttlMs = Number(options.ttlMs) > 0 ? Number(options.ttlMs) : TTL_MS;
   /** @type {Map<string, {
    *   token: string,
-   *   createdAt: number,
-   *   expiresAt: number,
    *   front: { mime: string, bytes: Buffer, name: string } | null,
    *   back: { mime: string, bytes: Buffer, name: string } | null,
+   *   skipFront: boolean,
+   *   skipBack: boolean,
+   *   sameDriver: boolean,
+   *   cards: ReturnType<typeof normalizeCaptureCards>,
+   *   retake: ReturnType<typeof normalizeCaptureRetake>,
    * }>} */
   const sessions = new Map();
 
-  function purge() {
-    const stamp = now();
-    for (const [key, session] of sessions) {
-      if (session.expiresAt <= stamp) sessions.delete(key);
-    }
-  }
-
   function getLive(token) {
-    purge();
     const key = String(token || '').trim();
     if (!key) return null;
-    const session = sessions.get(key);
-    if (!session) return null;
-    if (session.expiresAt <= now()) {
-      sessions.delete(key);
-      return null;
-    }
-    return session;
+    return sessions.get(key) || null;
   }
 
   function summary(session) {
     return {
       token: session.token,
-      expiresAt: new Date(session.expiresAt).toISOString(),
       front: Boolean(session.front),
       back: Boolean(session.back),
-      ready: Boolean(session.front && session.back),
+      skipFront: Boolean(session.skipFront),
+      skipBack: Boolean(session.skipBack),
+      sameDriver: Boolean(session.sameDriver),
+      ready: captureCardReady(session),
+      cards: normalizeCaptureCards(session.cards),
+      retake: normalizeCaptureRetake(session.retake),
     };
   }
 
   return {
     open() {
-      purge();
       const token = tokenFn();
-      const createdAt = now();
       const session = {
         token,
-        createdAt,
-        expiresAt: createdAt + ttlMs,
         front: null,
         back: null,
+        skipFront: false,
+        skipBack: false,
+        sameDriver: false,
+        cards: [],
+        retake: null,
       };
       sessions.set(token, session);
       return summary(session);
@@ -126,6 +178,8 @@ export function createTimesheetCaptureShare(options = {}) {
       const name =
         String(file.name || `${which}-timecard.jpg`).trim().slice(0, 80) || `${which}-timecard.jpg`;
       session[which] = { mime: storedMime, bytes, name };
+      if (which === 'front') session.skipFront = false;
+      else session.skipBack = false;
       return summary(session);
     },
 
@@ -158,6 +212,74 @@ export function createTimesheetCaptureShare(options = {}) {
       return session[which] || null;
     },
 
+    /**
+     * @param {string} token
+     * @param {unknown} cards
+     */
+    putCards(token, cards) {
+      const session = getLive(token);
+      if (!session) return null;
+      session.cards = normalizeCaptureCards(cards);
+      return summary(session);
+    },
+
+    /**
+     * @param {string} token
+     * @param {unknown} body
+     */
+    putRetake(token, body) {
+      const session = getLive(token);
+      if (!session) return null;
+      const retake = normalizeCaptureRetake(body);
+      if (!retake) throw new Error('Choose a card and Front or Back to rescan.');
+      const known = normalizeCaptureCards(session.cards).some(
+        (card) => card.id === retake.cardId && card.card === retake.card
+      );
+      if (!known) throw new Error('That card is not on this photo link yet.');
+      session.front = null;
+      session.back = null;
+      session.skipFront = false;
+      session.skipBack = false;
+      session.sameDriver = false;
+      session.retake = retake;
+      return summary(session);
+    },
+
+    /**
+     * Mark one side as intentionally not photographed.
+     * @param {string} token
+     * @param {string} side
+     */
+    skipSide(token, side) {
+      const session = getLive(token);
+      if (!session) return null;
+      const which = normalizeCaptureSide(side);
+      if (!which) throw new Error('Choose front or back.');
+      if (session[which]) {
+        throw new Error(`The ${which} photo is already in. Skip is for a side you are not sending.`);
+      }
+      const nextSkipFront = which === 'front' ? true : session.skipFront;
+      const nextSkipBack = which === 'back' ? true : session.skipBack;
+      if (!session.front && !session.back && nextSkipFront && nextSkipBack) {
+        throw new Error('Take a photo of the front or the back.');
+      }
+      session.skipFront = nextSkipFront;
+      session.skipBack = nextSkipBack;
+      return summary(session);
+    },
+
+    /**
+     * The next card on this link belongs to the driver already on the desk.
+     * @param {string} token
+     * @param {boolean} sameDriver
+     */
+    setSameDriver(token, sameDriver) {
+      const session = getLive(token);
+      if (!session) return null;
+      session.sameDriver = sameDriver === true;
+      return summary(session);
+    },
+
     close(token) {
       const key = String(token || '').trim();
       if (!key) return false;
@@ -169,6 +291,10 @@ export function createTimesheetCaptureShare(options = {}) {
       if (!session) return null;
       session.front = null;
       session.back = null;
+      session.skipFront = false;
+      session.skipBack = false;
+      session.sameDriver = false;
+      session.retake = null;
       return summary(session);
     },
   };

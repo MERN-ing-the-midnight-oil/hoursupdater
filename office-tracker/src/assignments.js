@@ -187,7 +187,7 @@ export function slicesForDriver(profile, driverName) {
           routing_adjustment: null,
           reason_category: 'OTHER',
           note: 'Starting schedule',
-          entered_by: stint.driver_name,
+          entered_by: '',
         }));
       changeLog = [...seeds, ...during.filter((event) => !isSeed(event))];
       startDate = stint.from;

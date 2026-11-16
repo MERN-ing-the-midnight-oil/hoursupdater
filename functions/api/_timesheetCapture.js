@@ -1,4 +1,3 @@
-const TTL_SECONDS = 15 * 60;
 const MAX_BYTES = 12 * 1024 * 1024;
 const SIDES = new Set(['front', 'back']);
 const ALLOWED_MIME = new Set([
@@ -28,6 +27,19 @@ export function normalizeSide(value) {
   return SIDES.has(side) ? side : '';
 }
 
+/**
+ * A card can be sent with one side skipped. Ready means each side was either
+ * photographed or skipped, and at least one photo is actually on the link.
+ * @param {{ front?: unknown, back?: unknown, skipFront?: unknown, skipBack?: unknown }} session
+ */
+export function captureCardReady(session) {
+  const front = Boolean(session?.front);
+  const back = Boolean(session?.back);
+  const skipFront = Boolean(session?.skipFront);
+  const skipBack = Boolean(session?.skipBack);
+  return (front || skipFront) && (back || skipBack) && (front || back);
+}
+
 function randomToken() {
   const bytes = new Uint8Array(24);
   crypto.getRandomValues(bytes);
@@ -42,13 +54,68 @@ function photoKey(token, side) {
   return `photo:${token}:${side}`;
 }
 
+/**
+ * @param {unknown} list
+ */
+function captureCardNumber(value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 20) return 1;
+  return n;
+}
+
+export function normalizeCaptureCards(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const item of list.slice(0, 80)) {
+    if (!item || typeof item !== 'object') continue;
+    const id = String(item.id || '').trim();
+    if (!id) continue;
+    const name = String(item.name || '').trim() || 'Card';
+    const employee = String(item.employee || name).trim() || name;
+    const status = String(item.status || '').trim();
+    out.push({
+      id,
+      name: name.slice(0, 80),
+      employee: employee.slice(0, 80),
+      periodKey: String(item.periodKey || '').trim().slice(0, 40),
+      periodLabel: String(item.periodLabel || '').trim().slice(0, 40),
+      card: captureCardNumber(item.card),
+      front: Boolean(item.front),
+      back: Boolean(item.back),
+      status:
+        status === 'reading' || status === 'needs_review' || status === 'ready'
+          ? status
+          : 'ready',
+    });
+  }
+  return out;
+}
+
+/**
+ * @param {unknown} value
+ */
+export function normalizeCaptureRetake(value) {
+  if (!value || typeof value !== 'object') return null;
+  const cardId = String(value.cardId || '').trim();
+  const side = normalizeSide(value.side);
+  if (!cardId || !side) return null;
+  return { cardId: cardId.slice(0, 80), side, card: captureCardNumber(value.card) };
+}
+
+export const CAPTURE_LINK_INVALID =
+  'This photo link is not valid. Scan the QR code on the desk again.';
+
 function summary(meta) {
   return {
     token: meta.token,
-    expiresAt: meta.expiresAt,
     front: Boolean(meta.front),
     back: Boolean(meta.back),
-    ready: Boolean(meta.front && meta.back),
+    skipFront: Boolean(meta.skipFront),
+    skipBack: Boolean(meta.skipBack),
+    sameDriver: Boolean(meta.sameDriver),
+    ready: captureCardReady(meta),
+    cards: normalizeCaptureCards(meta.cards),
+    retake: normalizeCaptureRetake(meta.retake),
   };
 }
 
@@ -57,17 +124,22 @@ async function readMeta(env, token) {
   if (!key || !env.TIMECARD_CAPTURE) return null;
   const raw = await env.TIMECARD_CAPTURE.get(sessionKey(key), 'json');
   if (!raw || typeof raw !== 'object') return null;
-  const expiresAt = Date.parse(String(raw.expiresAt || ''));
-  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-    await closeSession(env, key);
-    return null;
-  }
-  return {
+  const meta = {
     token: key,
-    expiresAt: new Date(expiresAt).toISOString(),
     front: Boolean(raw.front),
     back: Boolean(raw.back),
+    skipFront: Boolean(raw.skipFront),
+    skipBack: Boolean(raw.skipBack),
+    sameDriver: Boolean(raw.sameDriver),
+    cards: normalizeCaptureCards(raw.cards),
+    retake: normalizeCaptureRetake(raw.retake),
   };
+  // Older links were stored with a 15-minute Cloudflare expiration. Rewriting
+  // once, with no expiration, keeps a QR that is still on the desk.
+  if (raw.expiresAt) {
+    await env.TIMECARD_CAPTURE.put(sessionKey(key), JSON.stringify(meta));
+  }
+  return meta;
 }
 
 export async function openSession(env) {
@@ -75,11 +147,17 @@ export async function openSession(env) {
     throw new Error('Phone photo storage is not configured on this site.');
   }
   const token = randomToken();
-  const expiresAt = new Date(Date.now() + TTL_SECONDS * 1000).toISOString();
-  const meta = { token, expiresAt, front: false, back: false };
-  await env.TIMECARD_CAPTURE.put(sessionKey(token), JSON.stringify(meta), {
-    expirationTtl: TTL_SECONDS,
-  });
+  const meta = {
+    token,
+    front: false,
+    back: false,
+    skipFront: false,
+    skipBack: false,
+    sameDriver: false,
+    cards: [],
+    retake: null,
+  };
+  await env.TIMECARD_CAPTURE.put(sessionKey(token), JSON.stringify(meta));
   return summary(meta);
 }
 
@@ -102,23 +180,116 @@ export async function closeSession(env, token) {
 export async function restartSession(env, token) {
   const meta = await readMeta(env, token);
   if (!meta || !env.TIMECARD_CAPTURE) return null;
-  const ttlLeft = Math.max(
-    60,
-    Math.floor((Date.parse(meta.expiresAt) - Date.now()) / 1000)
-  );
   await Promise.all([
     env.TIMECARD_CAPTURE.delete(photoKey(meta.token, 'front')),
     env.TIMECARD_CAPTURE.delete(photoKey(meta.token, 'back')),
   ]);
   const next = {
     token: meta.token,
-    expiresAt: meta.expiresAt,
     front: false,
     back: false,
+    skipFront: false,
+    skipBack: false,
+    sameDriver: false,
+    cards: normalizeCaptureCards(meta.cards),
+    retake: null,
   };
-  await env.TIMECARD_CAPTURE.put(sessionKey(meta.token), JSON.stringify(next), {
-    expirationTtl: ttlLeft,
-  });
+  await env.TIMECARD_CAPTURE.put(sessionKey(meta.token), JSON.stringify(next));
+  return summary(next);
+}
+
+/**
+ * Mark one side as intentionally not photographed.
+ * @param {any} env
+ * @param {string} token
+ * @param {unknown} side
+ */
+export async function skipSessionSide(env, token, side) {
+  const meta = await readMeta(env, token);
+  if (!meta || !env.TIMECARD_CAPTURE) return null;
+  const which = normalizeSide(side);
+  if (!which) throw new Error('Choose front or back.');
+  if (meta[which]) {
+    throw new Error(`The ${which} photo is already in. Skip is for a side you are not sending.`);
+  }
+  const skipFront = which === 'front' ? true : Boolean(meta.skipFront);
+  const skipBack = which === 'back' ? true : Boolean(meta.skipBack);
+  if (!meta.front && !meta.back && skipFront && skipBack) {
+    throw new Error('Take a photo of the front or the back.');
+  }
+  const next = {
+    ...meta,
+    skipFront,
+    skipBack,
+  };
+  await env.TIMECARD_CAPTURE.put(sessionKey(meta.token), JSON.stringify(next));
+  return summary(next);
+}
+
+/**
+ * The next card on this link belongs to the driver already on the desk.
+ * @param {any} env
+ * @param {string} token
+ * @param {boolean} sameDriver
+ */
+export async function setSessionSameDriver(env, token, sameDriver) {
+  const meta = await readMeta(env, token);
+  if (!meta || !env.TIMECARD_CAPTURE) return null;
+  const next = {
+    ...meta,
+    sameDriver: sameDriver === true,
+  };
+  await env.TIMECARD_CAPTURE.put(sessionKey(meta.token), JSON.stringify(next));
+  return summary(next);
+}
+
+/**
+ * Desk publishes the session carousel (names + which sides are on file).
+ * @param {any} env
+ * @param {string} token
+ * @param {unknown} cards
+ */
+export async function putSessionCards(env, token, cards) {
+  const meta = await readMeta(env, token);
+  if (!meta || !env.TIMECARD_CAPTURE) return null;
+  const next = {
+    ...meta,
+    cards: normalizeCaptureCards(cards),
+  };
+  await env.TIMECARD_CAPTURE.put(sessionKey(meta.token), JSON.stringify(next));
+  return summary(next);
+}
+
+/**
+ * Phone asks to replace one side of a named card already on the desk.
+ * @param {any} env
+ * @param {string} token
+ * @param {unknown} body
+ */
+export async function putSessionRetake(env, token, body) {
+  const meta = await readMeta(env, token);
+  if (!meta || !env.TIMECARD_CAPTURE) return null;
+  const retake = normalizeCaptureRetake(body);
+  if (!retake) throw new Error('Choose a card and Front or Back to rescan.');
+  const known = normalizeCaptureCards(meta.cards).some(
+    (card) => card.id === retake.cardId && card.card === retake.card
+  );
+  if (!known) throw new Error('That card is not on this photo link yet.');
+  const next = {
+    token: meta.token,
+    front: false,
+    back: false,
+    skipFront: false,
+    skipBack: false,
+    sameDriver: false,
+    cards: normalizeCaptureCards(meta.cards),
+    retake,
+  };
+  await Promise.all([
+    env.TIMECARD_CAPTURE.delete(photoKey(meta.token, 'front')),
+    env.TIMECARD_CAPTURE.delete(photoKey(meta.token, 'back')),
+  ]);
+  await env.TIMECARD_CAPTURE.put(sessionKey(meta.token), JSON.stringify(next));
   return summary(next);
 }
 
@@ -164,24 +335,21 @@ export async function putPhotoFile(env, token, side, file) {
       .trim()
       .slice(0, 80) || `${which}-timecard.jpg`;
 
-  const ttlLeft = Math.max(
-    60,
-    Math.floor((Date.parse(meta.expiresAt) - Date.now()) / 1000)
-  );
   await env.TIMECARD_CAPTURE.put(photoKey(meta.token, which), bytes, {
-    expirationTtl: ttlLeft,
     metadata: { mime: storedMime, name },
   });
 
   const next = {
     token: meta.token,
-    expiresAt: meta.expiresAt,
-    front: which === 'front' ? true : meta.front,
-    back: which === 'back' ? true : meta.back,
+    front: which === 'front' ? true : Boolean(meta.front),
+    back: which === 'back' ? true : Boolean(meta.back),
+    skipFront: which === 'front' ? false : Boolean(meta.skipFront),
+    skipBack: which === 'back' ? false : Boolean(meta.skipBack),
+    sameDriver: Boolean(meta.sameDriver),
+    cards: normalizeCaptureCards(meta.cards),
+    retake: normalizeCaptureRetake(meta.retake),
   };
-  await env.TIMECARD_CAPTURE.put(sessionKey(meta.token), JSON.stringify(next), {
-    expirationTtl: ttlLeft,
-  });
+  await env.TIMECARD_CAPTURE.put(sessionKey(meta.token), JSON.stringify(next));
   return summary(next);
 }
 

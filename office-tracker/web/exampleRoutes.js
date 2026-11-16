@@ -64,7 +64,7 @@ function change(routeId, driver, input) {
     routing_adjustment: null,
     reason_category: 'OTHER',
     note: input.note,
-    entered_by: driver,
+    entered_by: 'Office',
   };
 }
 

@@ -9,7 +9,10 @@ import {
   coverageForSubstitute,
   isRegularAbsentToday,
   normalizeRouteCoverage,
+  normalizeRouteCoverageNeeds,
+  routeNeedsSubstitute,
   routesCoveredBySubstitute,
+  toggleRouteCoverageNeed,
 } from '../src/logic/routeCoverage.js';
 
 const day = '2026-11-12';
@@ -159,6 +162,34 @@ test('board marks uncovered, substitute, and regular-in pills', () => {
   assert.equal(pills.find((row) => row.route_name === '18' && row.run === 'AM').status, 'uncovered');
   assert.equal(isRegularAbsentToday('Alex Driver', coverage), true);
   assert.equal(isRegularAbsentToday('Sam Driver', coverage), false);
+});
+
+test('route coverage needs can be marked and cleared for a day', () => {
+  let needs = toggleRouteCoverageNeed([], {
+    date: day,
+    route_id: 'r12',
+    route_name: '12',
+    needed: true,
+  });
+  needs = toggleRouteCoverageNeed(needs, {
+    date: day,
+    route_id: 'r15',
+    route_name: '15',
+    needed: true,
+  });
+  assert.equal(routeNeedsSubstitute(needs, day, 'r12'), true);
+  assert.equal(routeNeedsSubstitute(needs, day, 'r18'), false);
+  needs = toggleRouteCoverageNeed(needs, {
+    date: day,
+    route_id: 'r12',
+    route_name: '12',
+    needed: false,
+  });
+  assert.equal(routeNeedsSubstitute(needs, day, 'r12'), false);
+  assert.deepEqual(
+    normalizeRouteCoverageNeeds(needs).map((row) => row.route_id),
+    ['r15']
+  );
 });
 
 test('active cover locks a substitute already clocked in on another route', () => {

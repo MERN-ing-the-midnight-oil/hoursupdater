@@ -63,13 +63,44 @@ export async function fetchCapturePhoto(token, side) {
   return new File([blob], `${side}-timecard.jpg`, { type });
 }
 
-export async function closeCaptureSession(token) {
+const CAPTURE_TOKEN_KEYS = {
+  genie: 'timesheet-capture-token',
+  audit: 'audit-capture-token',
+};
+
+function captureTokenKey(desk) {
+  return CAPTURE_TOKEN_KEYS[desk] || CAPTURE_TOKEN_KEYS.genie;
+}
+
+/** Remember this tab's link so a refresh can close it if the page is torn down first. */
+export function rememberCaptureToken(desk, token) {
+  try {
+    const link = String(token || '').trim();
+    if (link) sessionStorage.setItem(captureTokenKey(desk), link);
+    else sessionStorage.removeItem(captureTokenKey(desk));
+  } catch {
+    /* Private browsing can block storage. The open link still works. */
+  }
+}
+
+export function rememberedCaptureToken(desk) {
+  try {
+    return sessionStorage.getItem(captureTokenKey(desk)) || '';
+  } catch {
+    return '';
+  }
+}
+
+export async function closeCaptureSession(token, { keepalive = false } = {}) {
   const link = String(token || '').trim();
   if (!link) return;
   try {
-    await fetch(`/api/timesheet-capture/${encodeURIComponent(link)}`, { method: 'DELETE' });
+    await fetch(`/api/timesheet-capture/${encodeURIComponent(link)}`, {
+      method: 'DELETE',
+      keepalive,
+    });
   } catch {
-    /* Closing is best-effort; expiry also clears the session. */
+    /* Closing is best-effort. */
   }
 }
 
@@ -88,6 +119,86 @@ export async function restartCaptureSession(token) {
   const body = await readJson(response);
   if (!response.ok) {
     throw new Error(body?.error || 'Could not reset the phone photo link.');
+  }
+  return body;
+}
+
+/**
+ * Publish the desk session carousel onto the shared phone link.
+ * @param {string} token
+ * @param {Array<{ id: string, name: string, front?: boolean, back?: boolean, status?: string }>} cards
+ */
+export async function publishCaptureCards(token, cards) {
+  const link = String(token || '').trim();
+  if (!link) return null;
+  const response = await fetch(`/api/timesheet-capture/${encodeURIComponent(link)}/cards`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ cards: Array.isArray(cards) ? cards : [] }),
+  });
+  const body = await readJson(response);
+  if (!response.ok) {
+    throw new Error(body?.error || 'Could not update the phone card list.');
+  }
+  return body;
+}
+
+/**
+ * Ask the shared link to accept a replacement Front or Back for one card.
+ * @param {string} token
+ * @param {{ cardId: string, side: 'front' | 'back' }} retake
+ */
+/**
+ * Tell the desk this side will not be photographed.
+ * @param {string} token
+ * @param {'front' | 'back'} side
+ */
+export async function skipCaptureSide(token, side) {
+  const link = String(token || '').trim();
+  if (!link) return null;
+  const response = await fetch(`/api/timesheet-capture/${encodeURIComponent(link)}/skip`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ side }),
+  });
+  const body = await readJson(response);
+  if (!response.ok) {
+    throw new Error(body?.error || 'Could not skip that side.');
+  }
+  return body;
+}
+
+/**
+ * The card being photographed now belongs to the driver already on the desk.
+ * @param {string} token
+ * @param {boolean} sameDriver
+ */
+export async function setCaptureSameDriver(token, sameDriver) {
+  const link = String(token || '').trim();
+  if (!link) return null;
+  const response = await fetch(`/api/timesheet-capture/${encodeURIComponent(link)}/same-driver`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sameDriver: sameDriver === true }),
+  });
+  const body = await readJson(response);
+  if (!response.ok) {
+    throw new Error(body?.error || 'Could not mark that card for the same driver.');
+  }
+  return body;
+}
+
+export async function requestCaptureRetake(token, retake) {
+  const link = String(token || '').trim();
+  if (!link) return null;
+  const response = await fetch(`/api/timesheet-capture/${encodeURIComponent(link)}/retake`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(retake || {}),
+  });
+  const body = await readJson(response);
+  if (!response.ok) {
+    throw new Error(body?.error || 'Could not start that rescan.');
   }
   return body;
 }

@@ -3,11 +3,14 @@
 // of the month. The office can set different calendar days, including
 // one sheet for the whole month. Completed clock pairs fill the pay
 // status recorded on the clock in. A part of that period can use another
-// pay status. A pair with no status fills REG DRIVER.
-// EX DRIVER is the clocked quarter hours beyond that day's contract hours.
-// Other pay-status rows keep their existing calculation.
-// Timecard Genie fills REG/OT from punch pay status. EX DRIVER stays the
-// hours past that day's contract — no shortfall fill onto REG/OT.
+// pay status. A pair with no status fills REG DRIVER when that day has
+// no contract hours.
+// REG DRIVER on this sheet is not timecard REG. Timecard REG is extra
+// time past contract that is not overtime. REG DRIVER is a deduct: the
+// hours short of that day's contract, as a negative, and only on a day
+// the driver clocked. At or over contract it stays blank.
+// EX DRIVER is the clocked quarter hours beyond that day's contract.
+// Other pay-status rows keep the hours sliced to them.
 // Each day column shows the regular contracted hours in effect that day.
 // Those hours come from Time Changes and change when a contracted date
 // falls inside the pay period.
@@ -22,7 +25,7 @@ import { normalizeClockPayDefaults, normalizeDriverPay, normalizeTimeSummaryEdit
 import { payrollDriverRows, payrollRowsForDriver, quarterHoursFromDailyMinutes, sumRoundedQuarterHours } from './payrollTimes.js';
 import { holidayListForState } from '../../src/logic/schoolYear.js';
 import { holidayLabelForDate, overtimeForPairs, pairOvertimeKey } from './overtimeRules.js';
-import { clockQuarterStep, exDriverDayHours, exHoursDifference, formatQuarterHourText } from './summaryMath.js';
+import { clockQuarterStep, exDriverDayHours, exHoursDifference, formatQuarterHourText, regDriverDeductHours } from './summaryMath.js';
 import { CLOCK_ROUNDING_DAILY, CLOCK_ROUNDING_SNAP, normalizeClockRounding } from '../web/store.js';
 
 function escapeHtml(value) {
@@ -506,10 +509,23 @@ export function buildMonthlyTimeSummary(options) {
       const calculated = {};
       for (const date of period.dates) {
         const key = localDateKey(date);
-        const text =
-          line.id === 'ex-driver'
-            ? exDriverDayHours(dayHours(clockedByDay.get(key) || [], rounding), contractedByDay.get(key) || '')
-            : formatCalculated(dayHours(byDay?.get(key) || [], rounding));
+        const runExtras = options.exDriverHoursByDay;
+        const runDeducts = options.regDriverHoursByDay;
+        const clocked = dayHours(clockedByDay.get(key) || [], rounding);
+        const contractText = contractedByDay.get(key) || '';
+        let text;
+        if (line.id === 'ex-driver') {
+          text =
+            runExtras && typeof runExtras.get === 'function'
+              ? formatCalculated(runExtras.get(key))
+              : exDriverDayHours(clocked, contractText);
+        } else if (line.id === 'reg-driver' && runDeducts && typeof runDeducts.get === 'function') {
+          text = formatCalculated(runDeducts.get(key));
+        } else if (line.id === 'reg-driver' && String(contractText).trim() && clocked > 0) {
+          text = regDriverDeductHours(clocked, contractText);
+        } else {
+          text = formatCalculated(dayHours(byDay?.get(key) || [], rounding));
+        }
         if (text) calculated[date.getDate()] = text;
       }
       const cells = period.days.map((day) => {
@@ -1049,7 +1065,7 @@ export function renderMonthlyTimeSummaryHtml(summary) {
     });
     function snap(raw) {
       const number = Number(String(raw).trim());
-      if (!Number.isFinite(number) || number < 0 || number > 24) return '';
+      if (!Number.isFinite(number) || number < -24 || number > 24) return '';
       return (Math.round(number * 4) / 4).toFixed(2);
     }
     function post(payload) {

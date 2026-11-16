@@ -28,19 +28,21 @@ export function clampPrintCrop(rect) {
 }
 
 /**
- * Compact Reg/OT snapshot for one card side (null when blank).
+ * Compact Reg / OT / Tot. Hrs. snapshot for one card side (null when blank or zero).
  * @param {object[] | null | undefined} rows
- * @returns {{ reg: number | null, ot: number | null }[]}
+ * @returns {{ reg: number | null, ot: number | null, tot: number | null }[]}
  */
 export function hoursFromCardRows(rows) {
-  return (Array.isArray(rows) ? rows : []).map((row) => {
-    const reg = Number(row?.hours_regular ?? row?.written_regular);
-    const ot = Number(row?.hours_overtime ?? row?.written_overtime);
-    return {
-      reg: Number.isFinite(reg) && reg !== 0 ? reg : null,
-      ot: Number.isFinite(ot) && ot !== 0 ? ot : null,
-    };
-  });
+  return (Array.isArray(rows) ? rows : []).map((row) => ({
+    reg: finitePrintHour(row?.hours_regular ?? row?.written_regular),
+    ot: finitePrintHour(row?.hours_overtime ?? row?.written_overtime),
+    tot: finitePrintHour(row?.total_hours),
+  }));
+}
+
+function finitePrintHour(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number !== 0 ? number : null;
 }
 
 function openDb() {
@@ -132,8 +134,8 @@ export async function cropJpegBlob(blob, crop) {
 
 /**
  * @param {string} id
- * @param {Blob} front
- * @param {Blob} back
+ * @param {Blob | null | undefined} front
+ * @param {Blob | null | undefined} back
  */
 export async function upsertPrintCard(id, front, back) {
   const key = String(id || '').trim();
@@ -144,13 +146,14 @@ export async function upsertPrintCard(id, front, back) {
     const record = {
       id: key,
       createdAt: existing?.createdAt || Date.now(),
-      front,
-      back,
+      front: front || existing?.front || null,
+      back: back || existing?.back || null,
       frontCrop: existing?.frontCrop ? clampPrintCrop(existing.frontCrop) : { ...FULL_PRINT_CROP },
       backCrop: existing?.backCrop ? clampPrintCrop(existing.backCrop) : { ...FULL_PRINT_CROP },
       frontHours: Array.isArray(existing?.frontHours) ? existing.frontHours : null,
       backHours: Array.isArray(existing?.backHours) ? existing.backHours : null,
     };
+    if (!record.front && !record.back) throw new Error('That print copy has no photo.');
     await requestToPromise(db.transaction(STORE, 'readwrite').objectStore(STORE).put(record, key));
     return record;
   } finally {
@@ -189,7 +192,7 @@ export async function listPrintCards() {
   try {
     const all = await requestToPromise(db.transaction(STORE, 'readonly').objectStore(STORE).getAll());
     return (Array.isArray(all) ? all : [])
-      .filter((item) => item?.front && item?.back)
+      .filter((item) => item?.front || item?.back)
       .sort((a, b) => Number(a.createdAt) - Number(b.createdAt));
   } finally {
     db.close();
@@ -238,7 +241,10 @@ function blobToDataUrl(blob) {
 }
 
 function sideHasHours(hours) {
-  return Array.isArray(hours) && hours.some((slot) => slot && (slot.reg != null || slot.ot != null));
+  return (
+    Array.isArray(hours) &&
+    hours.some((slot) => slot && (slot.reg != null || slot.ot != null || slot.tot != null))
+  );
 }
 
 /**
@@ -248,6 +254,7 @@ function sideHasHours(hours) {
  */
 export async function prepareAnnotatedSide(card, side) {
   const blob = side === 'back' ? card.back : card.front;
+  if (!blob) return null;
   const crop = side === 'back' ? card.backCrop : card.frontCrop;
   const hours = side === 'back' ? card.backHours : card.frontHours;
   const cropped = await cropJpegBlob(blob, crop || FULL_PRINT_CROP);
@@ -285,18 +292,19 @@ export async function buildPrintPdfBlob(cards) {
   for (const card of cards) {
     index += 1;
     const label = `Card ${index}`;
-    const front = await prepareAnnotatedSide(card, 'front');
-    const back = await prepareAnnotatedSide(card, 'back');
-    if (front.missingHours && back.missingHours) {
-      warnings.push(`${label}: no Genie Reg/OT linked yet — photo only.`);
-    } else if (front.missingHours) {
-      warnings.push(`${label} front: no Reg/OT linked — photo only.`);
-    } else if (back.missingHours) {
-      warnings.push(`${label} back: no Reg/OT linked — photo only.`);
+    const front = card.front ? await prepareAnnotatedSide(card, 'front') : null;
+    const back = card.back ? await prepareAnnotatedSide(card, 'back') : null;
+    const pages = [front, back].filter(Boolean);
+    if (!pages.length) continue;
+    if (pages.every((side) => side.missingHours)) {
+      warnings.push(`${label}: no calculated Reg, OT, or Tot. Hrs. linked yet — photo only.`);
+    } else {
+      if (front?.missingHours) warnings.push(`${label} front: no calculated hours linked — photo only.`);
+      if (back?.missingHours) warnings.push(`${label} back: no calculated hours linked — photo only.`);
     }
-    if (front.warning) warnings.push(`${label} front: ${front.warning}`);
-    if (back.warning) warnings.push(`${label} back: ${back.warning}`);
-    for (const side of [front, back]) {
+    if (front?.warning) warnings.push(`${label} front: ${front.warning}`);
+    if (back?.warning) warnings.push(`${label} back: ${back.warning}`);
+    for (const side of pages) {
       if (started) doc.addPage();
       started = true;
       const url = await blobToDataUrl(side.blob);

@@ -181,6 +181,12 @@ export function punchesFromCardExtraction(
     ['front', extraction?.front_rows],
     ['back', extraction?.back_rows],
   ];
+  const extras = Array.isArray(extraction?.extra_sides) ? extraction.extra_sides : [];
+  extras.forEach((extra, index) => {
+    const which = extra?.side === 'back' ? 'back' : 'front';
+    const cardNo = Number(extra?.card) || index + 2;
+    sides.push([`${which}-${cardNo}`, extra?.rows]);
+  });
   for (const [side, rows] of sides) {
     if (!Array.isArray(rows)) continue;
     for (let index = 0; index < rows.length; index += 1) {

@@ -110,17 +110,21 @@ export function auditPayPeriodRules(state) {
 }
 
 /**
- * Default selected pay-period end: the next ending on or after today, else the latest past.
+ * Default selected pay-period end: the latest ending on or before today.
+ * Before the first ending in the list, that first ending is the default.
  * @param {Array<{ iso: string }> | null | undefined} periods
  * @param {Date} [today]
  */
 export function defaultPayPeriodIso(periods, today = new Date()) {
-  const list = Array.isArray(periods) ? periods : [];
+  const list = (Array.isArray(periods) ? periods : [])
+    .map((period) => String(period?.iso || ''))
+    .filter((iso) => /^\d{4}-\d{2}-\d{2}$/.test(iso))
+    .sort();
   if (!list.length) return '';
   const todayIso = isoFromDate(today);
-  const upcoming = list.find((period) => String(period?.iso || '') >= todayIso);
-  if (upcoming?.iso) return upcoming.iso;
-  return String(list.at(-1)?.iso || '');
+  const recent = list.filter((iso) => iso <= todayIso);
+  if (recent.length) return recent[recent.length - 1];
+  return list[0];
 }
 
 /**

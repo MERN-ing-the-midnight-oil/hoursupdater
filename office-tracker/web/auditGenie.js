@@ -16,10 +16,13 @@ import { contractSnapBreaksFromState } from './store.js';
 import {
   captureShareUrl,
   closeCaptureSession,
+  rememberCaptureToken,
+  rememberedCaptureToken,
   fetchCapturePhoto,
   loadCaptureShareOrigin,
   openCaptureSession,
   readCaptureSession,
+  restartCaptureSession,
 } from './timesheetCaptureClient.js';
 
 const MAX_BYTES = 12 * 1024 * 1024;
@@ -924,6 +927,8 @@ function mountAuditPhone({ setSideFile, setStatus }) {
   /** @type {ReturnType<typeof setInterval> | null} */
   let pollTimer = null;
   let starting = false;
+  let pollInFlight = false;
+  let pairClaimed = false;
   const seen = { front: false, back: false };
 
   function setPhoneStatus(message, kind = '') {
@@ -942,10 +947,12 @@ function mountAuditPhone({ setSideFile, setStatus }) {
 
   async function endSession() {
     stopPolling();
-    const prior = token;
+    const prior = token || rememberedCaptureToken('audit');
     token = '';
+    rememberCaptureToken('audit', '');
     seen.front = false;
     seen.back = false;
+    pairClaimed = false;
     if (prior) await closeCaptureSession(prior);
   }
 
@@ -963,37 +970,66 @@ function mountAuditPhone({ setSideFile, setStatus }) {
     return desk instanceof HTMLElement && !desk.hidden;
   }
 
-  async function pollOnce() {
-    if (!token || source !== 'phone') return;
-    const session = await readCaptureSession(token);
-    if (!session) {
-      setPhoneStatus('That photo link expired. Make a new QR code.', 'error');
-      stopPolling();
-      return;
-    }
-    // Phone resets the same link for the next card after both sides land.
-    if (!session.front && !session.back && (seen.front || seen.back)) {
+  async function claimPairForNextCard() {
+    if (pairClaimed || !token) return;
+    pairClaimed = true;
+    try {
+      await restartCaptureSession(token);
       seen.front = false;
       seen.back = false;
-      setPhoneStatus('Ready for the next card…', '');
-      return;
-    }
-    if (session.front && !seen.front) {
-      setSideFile('front', await fetchCapturePhoto(token, 'front'));
-      seen.front = true;
-    }
-    if (session.back && !seen.back) {
-      setSideFile('back', await fetchCapturePhoto(token, 'back'));
-      seen.back = true;
-    }
-    if (session.ready || (seen.front && seen.back)) {
+      pairClaimed = false;
       setPhoneStatus('Front and back arrived. Ready for the next card.', 'ok');
       setStatus('Front and back arrived from your phone. Ready to check.', 'ok');
-      return;
+    } catch (error) {
+      pairClaimed = false;
+      setPhoneStatus(error?.message || 'Could not reset the phone link for the next card.', 'error');
     }
-    if (seen.front) setPhoneStatus('Front is in. Waiting for the back…', '');
-    else if (seen.back) setPhoneStatus('Back is in. Waiting for the front…', '');
-    else setPhoneStatus('Waiting for photos from your phone…', '');
+  }
+
+  async function pollOnce() {
+    if (!token || source !== 'phone' || pollInFlight) return;
+    pollInFlight = true;
+    try {
+      const session = await readCaptureSession(token);
+      if (!session) {
+        setPhoneStatus('That photo link is closed. Make a new QR code.', 'error');
+        stopPolling();
+        return;
+      }
+      if (!session.front && !session.back && (seen.front || seen.back) && !pairClaimed) {
+        if (seen.front && seen.back) {
+          seen.front = false;
+          seen.back = false;
+          setPhoneStatus('Ready for the next card…', '');
+          return;
+        }
+        const missing = seen.front ? 'back' : 'front';
+        seen.front = false;
+        seen.back = false;
+        setPhoneStatus(
+          `The ${missing} photo disappeared before it arrived here. Take both sides again.`,
+          'error'
+        );
+        return;
+      }
+      if (session.front && !seen.front) {
+        setSideFile('front', await fetchCapturePhoto(token, 'front'));
+        seen.front = true;
+      }
+      if (session.back && !seen.back) {
+        setSideFile('back', await fetchCapturePhoto(token, 'back'));
+        seen.back = true;
+      }
+      if (seen.front && seen.back) {
+        await claimPairForNextCard();
+        return;
+      }
+      if (seen.front) setPhoneStatus('Front is in. Waiting for the back…', '');
+      else if (seen.back) setPhoneStatus('Back is in. Waiting for the front…', '');
+      else setPhoneStatus('Waiting for photos from your phone…', '');
+    } finally {
+      pollInFlight = false;
+    }
   }
 
   async function startSession() {
@@ -1011,6 +1047,7 @@ function mountAuditPhone({ setSideFile, setStatus }) {
         );
       }
       token = opened.token;
+      rememberCaptureToken('audit', token);
       await QRCode.toCanvas(canvas, url, {
         width: 288,
         margin: 1,
@@ -1050,6 +1087,11 @@ function mountAuditPhone({ setSideFile, setStatus }) {
   }
   refreshBtn?.addEventListener('click', () => {
     startSession().catch((error) => setPhoneStatus(error?.message || 'Could not make a new QR code.', 'error'));
+  });
+
+  window.addEventListener('pagehide', (event) => {
+    if (event.persisted || !token) return;
+    closeCaptureSession(token, { keepalive: true });
   });
 
   paintSource();

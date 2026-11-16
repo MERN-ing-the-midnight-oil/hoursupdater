@@ -25,7 +25,11 @@ import { punchesFromCardExtraction } from '../src/timesheetRegOt.js';
 import { formatAuditHours, parseAuditHours } from '../src/timesheetAudit.js';
 import {
   applyContractRegOtRows,
+  applyRunExtraTotals,
+  contractRunParts,
+  extractionRowLists,
   markContractHourRows,
+  mergeSameDriverExtraction,
   parseStickerContractHours,
 } from '../src/timesheetGenieCard.js';
 import {
@@ -35,13 +39,17 @@ import {
   TIMESHEET_HOURS_MODE_SNAP,
 } from '../src/timesheetSnap.js';
 import { DEFAULT_CONTRACT_SNAP_BREAKS } from '../../src/logic/timeUtils.js';
+import { driverPhotoSrc } from './driverPhotos.js';
 import QRCode from 'qrcode';
 import {
   captureShareUrl,
   closeCaptureSession,
+  rememberCaptureToken,
+  rememberedCaptureToken,
   fetchCapturePhoto,
   loadCaptureShareOrigin,
   openCaptureSession,
+  publishCaptureCards,
   readCaptureSession,
   restartCaptureSession,
 } from './timesheetCaptureClient.js';
@@ -57,6 +65,12 @@ import {
   savePrintCrops,
   upsertPrintCard,
 } from './timesheetPrintStore.js';
+import { noticeMailto } from '../src/noticeMail.js';
+import {
+  driverForTimecardName,
+  isTimecardEmail,
+  timecardCopyMail,
+} from '../src/timesheetCopyMail.js';
 import {
   clockRoundingMode,
   compareRouteNumbers,
@@ -67,17 +81,26 @@ import {
   auditPayPeriodRules,
   auditSchoolYearLabel,
   defaultPayPeriodIso,
+  parseCardPeriodEnd,
   payPeriodMismatchWarning,
   payPeriodsInSchoolYear,
 } from '../src/auditPayPeriods.js';
+import { isLocalGenieHost, localExampleGenieExtractions } from '../src/exampleGenieCards.js';
+import {
+  archiveCardsFromSession,
+  emptyGenieCardArchive,
+  genieScanBackupFilename,
+  genieScanBackupHtml,
+  loadGenieCardArchive,
+  payPeriodSummarySnapshot,
+  saveGenieCardArchive,
+} from '../src/genieCardArchive.js';
 
 const MAX_BYTES = 12 * 1024 * 1024;
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 const CAMERA_KEY = 'teamster-timesheet-camera';
 const ROW_HEIGHT_KEY = 'teamster-timesheet-row-height';
 const HOURS_MODE_KEY = 'teamster-timesheet-hours-mode';
-const PRINT_SAVE_KEY = 'teamster-timesheet-save-for-print';
-const PAY_PERIOD_KEY = 'teamster-timesheet-pay-period';
 const ROW_HEIGHT_MIN = 28;
 const ROW_HEIGHT_MAX = 120;
 const ROW_HEIGHT_DEFAULT = 52;
@@ -88,16 +111,18 @@ const HOURS_MODE_LABELS = {
 // Live view and shutter crop match the blue paper cards: about 5 wide by 8 tall.
 const CARD_ASPECT_WIDTH = 5;
 const CARD_ASPECT_HEIGHT = 8;
-const FRONT_SLOT_COUNT = 13;
-const BACK_SLOT_COUNT = 15;
+function shownSlotCount(rows) {
+  return Array.isArray(rows) ? rows.length : 0;
+}
 
 /**
  * @param {{
  *   onCapture: (side: 'front' | 'back', file: File) => void,
+ *   onSkip?: (side: 'front' | 'back') => void,
  *   onDismiss?: () => void,
  * }} options
  */
-function mountTimesheetCamera({ onCapture, onDismiss }) {
+function mountTimesheetCamera({ onCapture, onSkip, onDismiss }) {
   const dialog = document.querySelector('#timesheet-camera');
   const video = document.querySelector('#timesheet-camera-video');
   const picker = document.querySelector('#timesheet-camera-picker');
@@ -107,6 +132,7 @@ function mountTimesheetCamera({ onCapture, onDismiss }) {
   const review = document.querySelector('#timesheet-camera-review');
   const retake = document.querySelector('#timesheet-camera-retake');
   const usePhoto = document.querySelector('#timesheet-camera-use');
+  const skipSideBtn = document.querySelector('#timesheet-camera-skip');
   const canReview = review instanceof HTMLImageElement && retake instanceof HTMLButtonElement && usePhoto instanceof HTMLButtonElement;
   if (!dialog || !video || !picker || !deviceSelect || !cameraStatus || !shutter) {
     return {
@@ -140,6 +166,7 @@ function mountTimesheetCamera({ onCapture, onDismiss }) {
   shutter.addEventListener('click', takePhoto);
   retake?.addEventListener('click', retakePhoto);
   usePhoto?.addEventListener('click', acceptPhoto);
+  skipSideBtn?.addEventListener('click', skipCurrentSide);
   document.querySelector('#timesheet-camera-cancel')?.addEventListener('click', () => dialog.close());
   dialog.addEventListener('close', () => {
     stopStream();
@@ -323,6 +350,18 @@ function mountTimesheetCamera({ onCapture, onDismiss }) {
       usePhoto.hidden = !reviewing;
       usePhoto.textContent =
         side === 'front' && !singleSide ? 'Take the back photo' : 'Use this photo';
+      usePhoto.title =
+        side === 'front' && !singleSide
+          ? 'Keep this front photo and photograph the back.'
+          : 'Keep this photo and add it to the card.';
+    }
+    if (skipSideBtn instanceof HTMLButtonElement) {
+      skipSideBtn.hidden = singleSide;
+      skipSideBtn.textContent = side === 'front' ? 'Skip front' : 'Skip back';
+      skipSideBtn.title =
+        side === 'front'
+          ? 'Leave the front blank and photograph the back.'
+          : 'Leave the back blank and finish with the front only.';
     }
     shutter.disabled = reviewing || !stream;
   }
@@ -344,6 +383,23 @@ function mountTimesheetCamera({ onCapture, onDismiss }) {
     paintStep('live');
     video.play().catch(() => {});
     if (!shutter.disabled) shutter.focus();
+  }
+
+  function skipCurrentSide() {
+    if (!dialog.open || singleSide) return;
+    const skipped = side;
+    pendingFile = null;
+    clearReviewImage();
+    if (skipped === 'front') {
+      onSkip?.('front');
+      side = 'back';
+      paintStep('live');
+      video.play().catch(() => {});
+      if (!shutter.disabled) shutter.focus();
+      return;
+    }
+    onSkip?.('back');
+    dialog.close();
   }
 
   function acceptPhoto() {
@@ -493,6 +549,24 @@ export function mountTimesheetReader(options = {}) {
   let sessionCards = [];
   /** @type {string} */
   let activeSessionId = '';
+  /** Which face of the open card is on screen. */
+  /** @type {'front' | 'back'} */
+  let cardFace = 'front';
+  /** Session card the face belongs to, so switching drivers starts on the front. */
+  let cardFaceForId = '';
+  /** Face for each extra physical card, keyed by card number. */
+  /** @type {Record<string, 'front' | 'back'>} */
+  let extraFaces = {};
+  /** Which physical card (1 = front/back pair) is on screen for the open driver. */
+  let physicalCardNumber = 1;
+  /** Session card that physicalCardNumber belongs to. */
+  let physicalCardForId = '';
+  /** Pay period currently shown in the card carousel. */
+  let carouselPeriodKey = '';
+  /** When true, the carousel stays on the open card’s pay period. */
+  let carouselFollowsActive = false;
+  /** Session card whose timecard image is being prepared for email. */
+  let mailingCardId = '';
   /** Print id for photos currently being collected (unique per card, not the phone QR token). */
   let activePrintId = '';
   /** Print id linked to the extraction on screen. */
@@ -501,52 +575,57 @@ export function mountTimesheetReader(options = {}) {
   let lastSavedPrintId = '';
   /** Block auto-read of the next card until the desk continues. */
   let awaitingReview = false;
-  /** @type {'front' | 'back' | null} */
-  let retakingSide = null;
+  /** Desk camera skipped the front, so the back photo can be read alone. */
+  let skippedFrontForThisCard = false;
+  /** Read as soon as one side is present. Set when the other side was skipped. */
+  let singleSideReady = false;
+  /** Fold the next read into the driver card already on screen. */
+  let pendingSameDriver = false;
   /** @type {Array<{ iso: string, label: string, key: string, id: string }>} */
   let payPeriodOptions = [];
+  /** Avoid switching the open card again while a period change is already doing that. */
+  let aligningDeskToPeriod = false;
 
   const camera = mountTimesheetCamera({
     onCapture: (side, file) => {
+      if (side === 'back' && skippedFrontForThisCard) {
+        skippedFrontForThisCard = false;
+        singleSideReady = true;
+      }
       setSideFile(side, file);
       setStatus('');
     },
+    onSkip(side) {
+      clearSideFile(side);
+      if (side === 'front') {
+        skippedFrontForThisCard = true;
+        setStatus('Front skipped. Photograph the back, or skip that too if you already took a front.', '');
+        return;
+      }
+      skippedFrontForThisCard = false;
+      singleSideReady = true;
+      maybeAutoRead();
+    },
     onDismiss() {
-      retakingSide = null;
+      if (reading) return;
+      const front = document.querySelector('#timesheet-front');
+      const back = document.querySelector('#timesheet-back');
+      const hasFront = front instanceof HTMLInputElement && Boolean(front.files?.[0]);
+      const hasBack = back instanceof HTMLInputElement && Boolean(back.files?.[0]);
+      if (!hasFront && !hasBack) pendingSameDriver = false;
     },
   });
 
-  const payPeriodSelect = document.querySelector('#timesheet-pay-period-select');
   refreshPayPeriodOptions();
-  payPeriodSelect?.addEventListener('change', () => {
-    const value = payPeriodSelect instanceof HTMLSelectElement ? payPeriodSelect.value : '';
-    try {
-      if (value) localStorage.setItem(PAY_PERIOD_KEY, value);
-      else localStorage.removeItem(PAY_PERIOD_KEY);
-    } catch {
-      /* ignore */
-    }
-    paintPeriodMismatch(extraction);
-    paintCaveats(extraction);
-  });
-  document.querySelector('#timesheet-retake-front')?.addEventListener('click', () => {
-    startRetake('front').catch((error) => setStatus(error?.message || 'Could not retake the front.', 'error'));
-  });
-  document.querySelector('#timesheet-retake-back')?.addEventListener('click', () => {
-    startRetake('back').catch((error) => setStatus(error?.message || 'Could not retake the back.', 'error'));
-  });
-
   const descDialog = mountDescriptionDialog({
-    getRows(side) {
-      if (!extraction) return null;
-      return side === 'back' ? extraction.back_rows : extraction.front_rows;
+    getRows(side, extraIndex = -1) {
+      return rowsForSide(side, extraIndex);
     },
   });
 
   const sliceDialog = mountSliceDialog({
-    getRows(side) {
-      if (!extraction) return null;
-      return side === 'back' ? extraction.back_rows : extraction.front_rows;
+    getRows(side, extraIndex = -1) {
+      return rowsForSide(side, extraIndex);
     },
     readState: () => {
       try {
@@ -564,16 +643,16 @@ export function mountTimesheetReader(options = {}) {
     onClose() {
       if (!extraction) return;
       refreshDerivedFromExtraction();
-      paintCardSheet(frontCard, extraction.front_rows ?? [], FRONT_SLOT_COUNT, hoursMode);
-      paintCardSheet(backCard, extraction.back_rows ?? [], BACK_SLOT_COUNT, hoursMode);
-      bindCardEditors(frontCard, extraction.front_rows, FRONT_SLOT_COUNT, {
+      paintCardSheet(frontCard, extraction.front_rows ?? [], shownSlotCount(extraction.front_rows), hoursMode);
+      paintCardSheet(backCard, extraction.back_rows ?? [], shownSlotCount(extraction.back_rows), hoursMode);
+      bindCardEditors(frontCard, extraction.front_rows, shownSlotCount(extraction.front_rows), {
         snapBody: frontSnap,
         breaks: snapBreaks(),
         getMode: () => hoursMode,
         onStampChange: refreshDerivedFromExtraction,
         onHoursChange: markAndPaintHourRows,
       });
-      bindCardEditors(backCard, extraction.back_rows, BACK_SLOT_COUNT, {
+      bindCardEditors(backCard, extraction.back_rows, shownSlotCount(extraction.back_rows), {
         snapBody: backSnap,
         breaks: snapBreaks(),
         getMode: () => hoursMode,
@@ -582,6 +661,7 @@ export function mountTimesheetReader(options = {}) {
       });
       alignSnapRows(frontCard, frontSnap);
       alignSnapRows(backCard, backSnap);
+      paintExtraSides();
       markAndPaintHourRows();
     },
   });
@@ -591,8 +671,91 @@ export function mountTimesheetReader(options = {}) {
     readCard().catch((error) => setStatus(error.message || 'Could not read that card.', 'error'));
   });
   document.querySelector('#timesheet-clear')?.addEventListener('click', clearLiveCard);
-  document.querySelector('#timesheet-session-next')?.addEventListener('click', continueAfterReview);
   document.querySelector('#timesheet-session-clear')?.addEventListener('click', clearSession);
+  document.querySelector('#timesheet-print-queue')?.addEventListener('click', openPrintQueue);
+  document.querySelector('#timesheet-queue-close')?.addEventListener('click', () => {
+    document.querySelector('#timesheet-queue-dialog')?.close();
+  });
+  document.querySelector('#timesheet-queue-print-range')?.addEventListener('click', () => {
+    printQueuedRange().catch((error) => setQueueStatus(error?.message || 'Could not print that range.', 'error'));
+  });
+  document.querySelector('#timesheet-queue-print-selected')?.addEventListener('click', () => {
+    printQueuedSelection().catch((error) => setQueueStatus(error?.message || 'Could not print that selection.', 'error'));
+  });
+  document.querySelector('#timesheet-queue-all')?.addEventListener('change', (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement)) return;
+    for (const box of document.querySelectorAll('#timesheet-queue-list input[data-queue-id]')) {
+      if (box instanceof HTMLInputElement) box.checked = input.checked;
+    }
+  });
+  document.querySelector('#timesheet-queue-list')?.addEventListener('change', () => {
+    const boxes = [...document.querySelectorAll('#timesheet-queue-list input[data-queue-id]')];
+    const selectAll = document.querySelector('#timesheet-queue-all');
+    if (!(selectAll instanceof HTMLInputElement)) return;
+    selectAll.checked =
+      boxes.length > 0 && boxes.every((box) => box instanceof HTMLInputElement && box.checked);
+  });
+  const queueDialog = document.querySelector('#timesheet-queue-dialog');
+  if (queueDialog instanceof HTMLDialogElement) {
+    queueDialog.addEventListener('click', (event) => {
+      if (event.target === queueDialog) queueDialog.close();
+    });
+  }
+  document.querySelector('#timesheet-session-backup')?.addEventListener('click', backupAllScans);
+  document.querySelector('#timesheet-carousel-period')?.addEventListener('change', (event) => {
+    const select = event.target;
+    if (!(select instanceof HTMLSelectElement)) return;
+    carouselFollowsActive = false;
+    carouselPeriodKey = select.value;
+    paintSessionChips();
+  });
+  document.querySelector('#timesheet-carousel-prev')?.addEventListener('click', () => {
+    scrollSessionCarousel(-1);
+  });
+  document.querySelector('#timesheet-carousel-next')?.addEventListener('click', () => {
+    scrollSessionCarousel(1);
+  });
+  document.querySelector('#timesheet-driver-card-prev')?.addEventListener('click', () => {
+    stepDriverCard(-1);
+  });
+  document.querySelector('#timesheet-driver-card-next')?.addEventListener('click', () => {
+    stepDriverCard(1);
+  });
+  document.querySelector('#timesheet-session-chips')?.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    const chip = target.closest('.timesheet-session-chip');
+    if (!(chip instanceof HTMLElement)) return;
+    const id = chip.dataset.sessionId || '';
+    if (!id) return;
+    if (target.closest('[data-chip-queue]')) {
+      event.preventDefault();
+      toggleChipQueue(id);
+      return;
+    }
+    if (target.closest('[data-chip-print-single]')) {
+      event.preventDefault();
+      printSingleChip(id).catch((error) => {
+        setStatus(error?.message || 'Could not print that card.', 'error');
+      });
+      return;
+    }
+    if (target.closest('[data-chip-email]')) {
+      event.preventDefault();
+      emailChipCopy(id).catch((error) => {
+        setStatus(error?.message || 'Could not email that timecard.', 'error');
+      });
+      return;
+    }
+    if (target.closest('.timesheet-session-chip-open')) {
+      selectSessionCard(id).catch((error) => {
+        setStatus(error?.message || 'Could not open that card.', 'error');
+      });
+    }
+  });
+  document.querySelector('#timesheet-session-chips')?.addEventListener('scroll', syncCarouselNav, { passive: true });
+  window.addEventListener('resize', syncCarouselNav);
   document.querySelector('#timesheet-front')?.addEventListener('change', (event) => {
     const file = event.target.files?.[0];
     if (file) setSideFile('front', file);
@@ -627,7 +790,15 @@ export function mountTimesheetReader(options = {}) {
       if (activePrintId === id) activePrintId = '';
     },
     getSessionPrintIds() {
-      return sessionCards.map((card) => card.printId).filter(Boolean);
+      const ids = [];
+      for (const card of sessionCards) {
+        if (card.printId) ids.push(card.printId);
+        const extras = Array.isArray(card.extraction?.extra_sides) ? card.extraction.extra_sides : [];
+        for (const side of extras) {
+          if (side?.printId && !ids.includes(side.printId)) ids.push(side.printId);
+        }
+      }
+      return ids;
     },
   });
   phoneCapture = mountPhoneCapture({
@@ -639,7 +810,115 @@ export function mountTimesheetReader(options = {}) {
         setStatus(error?.message || 'Could not save that print copy.', 'error');
       });
     },
+    onRetakePhoto(cardId, side, file, cardNumber) {
+      applyPhoneRetake(cardId, side, file, cardNumber).catch((error) => {
+        setStatus(error?.message || 'Could not apply that phone rescan.', 'error');
+      });
+    },
+    getCarouselCards: phoneCarouselCards,
+    onLink() {
+      publishPhoneCarousel();
+    },
+    onCardReady(card) {
+      acceptPhoneCard(card).catch((error) => {
+        setStatus(error?.message || 'Could not read that phone card.', 'error');
+      });
+    },
   });
+
+  /**
+   * Phone rescan of one side for a card already on the desk.
+   * Card 1 is the constructed card's own front and back. Later numbers are extra cards for that driver.
+   * @param {string} cardId
+   * @param {'front' | 'back'} side
+   * @param {File} file
+   * @param {number} [cardNumber]
+   */
+  async function applyPhoneRetake(cardId, side, file, cardNumber = 1) {
+    const card = sessionCards.find((item) => item.id === cardId);
+    if (!card) throw new Error('That scanned card is no longer in this session.');
+    const physical = Number(cardNumber) > 1 ? Number(cardNumber) : 1;
+    if (physical > 1) {
+      await applyExtraCardRetake(card, side, file, physical);
+      return;
+    }
+    const other = side === 'front' ? 'back' : 'front';
+    const otherFile = other === 'front' ? card.frontFile : card.backFile;
+    flushActiveSessionCard();
+    activeSessionId = card.id;
+    extraction = card.extraction;
+    linkedPrintId = card.printId || '';
+    awaitingReview = card.status === 'needs_review';
+    if (otherFile) putSideFile(other, otherFile);
+    else clearSideFile(other);
+    putSideFile(side, file);
+    if (!otherFile) singleSideReady = true;
+    if (side === 'front') card.frontFile = file;
+    else card.backFile = file;
+    renderResult();
+    paintSessionChips();
+    await readCard({ replaceActive: true });
+  }
+
+  /**
+   * Replace one side of an extra physical card and read that pair again.
+   * @param {object} card
+   * @param {'front' | 'back'} side
+   * @param {File} file
+   * @param {number} cardNumber
+   */
+  async function applyExtraCardRetake(card, side, file, cardNumber) {
+    if (!card.extraction || typeof card.extraction !== 'object') {
+      card.extraction = { header: blankCardHeader(), front_rows: [], back_rows: [], caveats: [], extra_sides: [] };
+    }
+    const extras = Array.isArray(card.extraction.extra_sides) ? card.extraction.extra_sides : [];
+    card.extraction.extra_sides = extras;
+    let target = extras.find((item) => Number(item?.card) === cardNumber && item?.side === side);
+    if (!target) {
+      target = { id: `extra-${cardNumber}-${side}`, card: cardNumber, side, rows: [] };
+      extras.push(target);
+    }
+    target.file = file;
+    const otherSide = side === 'front' ? 'back' : 'front';
+    const other = extras.find((item) => Number(item?.card) === cardNumber && item?.side === otherSide);
+    flushActiveSessionCard();
+    activeSessionId = card.id;
+    extraction = card.extraction;
+    linkedPrintId = card.printId || '';
+    focusCarouselOn(card);
+    setStatus(`Re-reading card ${cardNumber} ${side}…`, '');
+    const frontFile = side === 'front' ? file : other?.file || null;
+    const backFile = side === 'back' ? file : other?.file || null;
+    const response = await fetch('/api/timesheet-extract', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        front: frontFile ? await filePayload(frontFile) : null,
+        back: backFile ? await filePayload(backFile) : null,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'Could not read that card.');
+    const next = payload.extraction;
+    if (frontFile) {
+      const frontExtra =
+        extras.find((item) => Number(item?.card) === cardNumber && item?.side === 'front') || target;
+      frontExtra.rows = Array.isArray(next?.front_rows) ? next.front_rows : frontExtra.rows || [];
+      frontExtra.file = frontFile;
+    }
+    if (backFile && other) {
+      other.rows = Array.isArray(next?.back_rows) ? next.back_rows : other.rows || [];
+      other.file = backFile;
+    }
+    card.status = sessionCardNeedsReview(card.extraction) ? 'needs_review' : 'ready';
+    card.updatedAt = Date.now();
+    extraction = card.extraction;
+    awaitingReview = card.status === 'needs_review';
+    renderResult();
+    paintCaveats(extraction);
+    paintSessionChips();
+    schedulePersistConstructedCards();
+  }
 
   function printIdForCapture() {
     if (!activePrintId) activePrintId = mintPrintCardId();
@@ -651,15 +930,11 @@ export function mountTimesheetReader(options = {}) {
   }
 
   async function ensurePrintCardFromFiles() {
-    const toggle = document.querySelector('#timesheet-save-for-print');
-    if (!(toggle instanceof HTMLInputElement) || !toggle.checked) {
-      return activeSessionCard()?.printId || linkedPrintId || lastSavedPrintId;
-    }
     const front = document.querySelector('#timesheet-front');
     const back = document.querySelector('#timesheet-back');
     const frontFile = front instanceof HTMLInputElement ? front.files?.[0] : null;
     const backFile = back instanceof HTMLInputElement ? back.files?.[0] : null;
-    if (!frontFile || !backFile) {
+    if (!frontFile && !backFile) {
       return activeSessionCard()?.printId || linkedPrintId || lastSavedPrintId;
     }
     // Pair already saved for these photos — do not mint a second print id.
@@ -668,8 +943,7 @@ export function mountTimesheetReader(options = {}) {
       return linkedPrintId;
     }
     const id = printIdForCapture();
-    await printCopies.notePhoto(id, 'front', frontFile);
-    await printCopies.notePhoto(id, 'back', backFile);
+    await printCopies.saveSides(id, frontFile, backFile);
     linkedPrintId = id;
     lastSavedPrintId = id;
     if (activePrintId === id) activePrintId = '';
@@ -690,43 +964,566 @@ export function mountTimesheetReader(options = {}) {
     return printCopies.syncHours(id, extraction);
   }
 
+  function downloadBlobFile(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
+  function openCardMailto(mail) {
+    const link = document.createElement('a');
+    link.href = noticeMailto(mail);
+    link.hidden = true;
+    document.body.append(link);
+    link.click();
+    link.remove();
+  }
+
+  function explainTimecardDownload(filename) {
+    const dialog = document.querySelector('#notice-download-dialog');
+    const message = document.querySelector('#notice-download-message');
+    const title = document.querySelector('#notice-download-title');
+    if (!(dialog instanceof HTMLDialogElement) || !(message instanceof HTMLElement)) return;
+    if (title instanceof HTMLElement) title.textContent = 'Attach the timecard';
+    message.textContent = `Please look for ${filename} in your downloads folder and attach it.`;
+    if (!dialog.open) dialog.showModal();
+  }
+
+  async function printRecordsForCard(card) {
+    /** @type {{ id: string, extraction: object }[]} */
+    const jobs = [];
+    const seen = new Set();
+    const header = card?.extraction?.header || null;
+    const add = (id, extraction) => {
+      const key = String(id || '').trim();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      jobs.push({ id: key, extraction });
+    };
+    add(card?.printId, {
+      header,
+      front_rows: card?.extraction?.front_rows,
+      back_rows: card?.extraction?.back_rows,
+    });
+    /** @type {Map<string, object>} */
+    const extras = new Map();
+    for (const side of Array.isArray(card?.extraction?.extra_sides) ? card.extraction.extra_sides : []) {
+      const id = String(side?.printId || '').trim();
+      if (!id) continue;
+      const bucket = extras.get(id) || { header, front_rows: null, back_rows: null };
+      if (side?.side === 'back') bucket.back_rows = side.rows;
+      else bucket.front_rows = side.rows;
+      extras.set(id, bucket);
+    }
+    for (const [id, extraction] of extras) add(id, extraction);
+    if (!jobs.length) {
+      const wanted = String(header?.employee_name || '').trim().toLowerCase();
+      if (wanted) {
+        const all = await listPrintCards();
+        const match = all.filter((item) => String(item?.driverName || '').trim().toLowerCase() === wanted).at(-1);
+        if (match?.id) {
+          card.printId = match.id;
+          add(match.id, {
+            header,
+            front_rows: card?.extraction?.front_rows,
+            back_rows: card?.extraction?.back_rows,
+          });
+        }
+      }
+    }
+    /** @type {object[]} */
+    const records = [];
+    for (const job of jobs) {
+      const saved = await attachPrintHours(job.id, job.extraction);
+      if (saved?.front || saved?.back) records.push(saved);
+    }
+    return records;
+  }
+
+  async function emailChipCopy(id) {
+    const card = sessionCards.find((item) => item.id === id);
+    if (!card || mailingCardId) return false;
+    if (card.status === 'reading') {
+      setStatus('That card is still being read.', 'error');
+      return false;
+    }
+    if (card.id === activeSessionId) flushActiveSessionCard();
+    const name = sessionCardDriverName(card.extraction, Math.max(0, sessionCards.indexOf(card)));
+    const driver = driverForTimecardName(driversFromState(officeState()), card.extraction?.header?.employee_name);
+    const email = String(driver?.email || '').trim();
+    if (!isTimecardEmail(email)) {
+      setStatus(`Add an email for ${name} on the Driver Name List before sending a timecard.`, 'error');
+      return false;
+    }
+    mailingCardId = card.id;
+    paintSessionChips();
+    try {
+      const records = await printRecordsForCard(card);
+      if (!records.length) {
+        setStatus(`There is no scan photo for ${name} in this browser, so there is no timecard image to send.`, 'error');
+        return false;
+      }
+      setBusyStatus('Preparing the timecard image…');
+      const result = await buildPrintPdfBlob(records);
+      const mail = timecardCopyMail({ to: email, driverName: driver?.name || name });
+      downloadBlobFile(result.blob, mail.filename);
+      openCardMailto(mail);
+      explainTimecardDownload(mail.filename);
+      const warning = Array.isArray(result?.warnings) && result.warnings[0] ? ` ${result.warnings[0]}` : '';
+      setStatus(`Email is open for ${name}. Attach ${mail.filename} from your downloads.${warning}`, 'ok');
+      return true;
+    } catch (error) {
+      setStatus(error?.message || 'Could not email that timecard.', 'error');
+      return false;
+    } finally {
+      mailingCardId = '';
+      paintSessionChips();
+    }
+  }
+
+  function toggleChipQueue(id) {
+    const card = sessionCards.find((item) => item.id === id);
+    if (!card || card.status === 'reading') return;
+    const name = sessionCardDriverName(card.extraction, Math.max(0, sessionCards.indexOf(card)));
+    if (card.printQueued === true) {
+      card.printQueued = false;
+      card.printQueuedAt = 0;
+      setStatus(`${name} removed from the print queue.`, 'ok');
+    } else {
+      card.printQueued = true;
+      card.printQueuedAt = Date.now();
+      setStatus(`${name} added to the print queue.`, 'ok');
+    }
+    schedulePersistConstructedCards();
+    paintSessionChips();
+    const dialog = document.querySelector('#timesheet-queue-dialog');
+    if (dialog instanceof HTMLDialogElement && dialog.open) paintPrintQueue();
+  }
+
+  /**
+   * @param {object[]} cards
+   */
+  async function printCopiesForSessionCards(cards) {
+    /** @type {object[]} */
+    const records = [];
+    /** @type {string[]} */
+    const missing = [];
+    for (const card of cards) {
+      if (card?.id === activeSessionId) flushActiveSessionCard();
+      const name = sessionCardDriverName(card?.extraction, Math.max(0, sessionCards.indexOf(card)));
+      const found = await printRecordsForCard(card);
+      if (!found.length) missing.push(name);
+      else records.push(...found);
+    }
+    return { records, missing };
+  }
+
+  /**
+   * @param {object[]} cards
+   * @param {(message: string, kind?: string) => void} report
+   */
+  async function printSessionCardCopies(cards, report) {
+    if (!cards.length) {
+      report('Choose at least one employee square.', 'error');
+      return;
+    }
+    report('Preparing the print job…', '');
+    const { records, missing } = await printCopiesForSessionCards(cards);
+    if (!records.length) {
+      report(
+        missing.length === 1
+          ? `There is no scan photo for ${missing[0]} in this browser, so there is no card copy to print.`
+          : 'None of those squares have a scan photo in this browser yet.',
+        'error'
+      );
+      return;
+    }
+    const result = await buildPrintPdfBlob(records);
+    printPdfBlob(result.blob || result);
+    const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
+    const skipped = missing.length
+      ? ` ${missing.length === 1 ? `${missing[0]} has no scan photo.` : `${missing.length} squares have no scan photo.`}`
+      : '';
+    const extra = warnings[0] ? ` ${warnings[0]}` : '';
+    report(
+      `${records.length === 1 ? 'Printing 1 card copy.' : `Printing ${records.length} card copies.`}${skipped}${extra}`,
+      missing.length || warnings.length ? 'error' : 'ok'
+    );
+  }
+
+  async function printSingleChip(id) {
+    const card = sessionCards.find((item) => item.id === id);
+    if (!card || mailingCardId) return;
+    if (card.status === 'reading') {
+      setStatus('That card is still being read.', 'error');
+      return;
+    }
+    mailingCardId = card.id;
+    paintSessionChips();
+    try {
+      await printSessionCardCopies([card], setStatus);
+    } finally {
+      mailingCardId = '';
+      paintSessionChips();
+    }
+  }
+
+  function queuedForOpenPeriod() {
+    return queuedCardsInPeriod(sessionCards, carouselPeriodKey);
+  }
+
+  function setQueueStatus(message, kind = '') {
+    const status = document.querySelector('#timesheet-queue-status');
+    if (!(status instanceof HTMLElement)) return;
+    status.hidden = !message;
+    status.textContent = message || '';
+    status.className = kind ? `status is-${kind}` : 'status';
+  }
+
+  function paintPrintQueue() {
+    const lead = document.querySelector('#timesheet-queue-lead');
+    const list = document.querySelector('#timesheet-queue-list');
+    const fromInput = document.querySelector('#timesheet-queue-from');
+    const toInput = document.querySelector('#timesheet-queue-to');
+    const selectAll = document.querySelector('#timesheet-queue-all');
+    if (!(list instanceof HTMLElement)) return;
+    const queued = queuedForOpenPeriod();
+    const periodLabel =
+      document.querySelector('#timesheet-carousel-period') instanceof HTMLSelectElement
+        ? document.querySelector('#timesheet-carousel-period').selectedOptions[0]?.textContent || 'this pay period'
+        : 'this pay period';
+    if (lead instanceof HTMLElement) {
+      lead.textContent = queued.length
+        ? `${queued.length} employee square${queued.length === 1 ? '' : 's'} for ${periodLabel}. Print a numbered range, or check the ones you want.`
+        : `No employee squares are in the queue for ${periodLabel}. Use + queue on a square to add one.`;
+    }
+    list.replaceChildren();
+    if (!queued.length) return;
+    const ol = document.createElement('ol');
+    ol.className = 'timesheet-queue-cards';
+    queued.forEach((card, index) => {
+      const item = document.createElement('li');
+      const check = document.createElement('input');
+      check.type = 'checkbox';
+      check.dataset.queueId = card.id;
+      check.checked = true;
+      check.setAttribute('aria-label', `Select ${sessionCardDriverName(card.extraction, index)}`);
+      const name = sessionCardDriverName(card.extraction, Math.max(0, sessionCards.indexOf(card)));
+      const label = document.createElement('span');
+      label.textContent = `${index + 1}. ${name}`;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'secondary timesheet-queue-remove';
+      remove.innerHTML =
+        '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg><span>Remove</span>';
+      remove.title = 'Take this employee square out of the print queue.';
+      remove.addEventListener('click', () => toggleChipQueue(card.id));
+      item.append(check, label, remove);
+      ol.append(item);
+    });
+    list.append(ol);
+    if (fromInput instanceof HTMLInputElement) fromInput.value = '1';
+    if (toInput instanceof HTMLInputElement) {
+      toInput.value = String(queued.length);
+      toInput.max = String(queued.length);
+    }
+    if (fromInput instanceof HTMLInputElement) fromInput.max = String(queued.length);
+    if (selectAll instanceof HTMLInputElement) selectAll.checked = true;
+  }
+
+  function openPrintQueue() {
+    const dialog = document.querySelector('#timesheet-queue-dialog');
+    if (!(dialog instanceof HTMLDialogElement)) return;
+    setQueueStatus('');
+    paintPrintQueue();
+    if (!dialog.open) dialog.showModal();
+  }
+
+  async function printQueuedRange() {
+    const queued = queuedForOpenPeriod();
+    const fromInput = document.querySelector('#timesheet-queue-from');
+    const toInput = document.querySelector('#timesheet-queue-to');
+    const from = Math.max(1, Number(fromInput instanceof HTMLInputElement ? fromInput.value : 1) || 1);
+    const to = Math.min(
+      queued.length,
+      Math.max(from, Number(toInput instanceof HTMLInputElement ? toInput.value : from) || from)
+    );
+    await printSessionCardCopies(queued.slice(from - 1, to), setQueueStatus);
+  }
+
+  async function printQueuedSelection() {
+    const queued = queuedForOpenPeriod();
+    const chosen = new Set(
+      [...document.querySelectorAll('#timesheet-queue-list input[data-queue-id]:checked')].map((box) =>
+        box instanceof HTMLInputElement ? box.dataset.queueId : ''
+      )
+    );
+    await printSessionCardCopies(
+      queued.filter((card) => chosen.has(card.id)),
+      setQueueStatus
+    );
+  }
+
+  function phoneCarouselCards() {
+    const periods = carouselPayPeriods(sessionCards, payPeriodOptions);
+    const labels = new Map(periods.map((period) => [period.key, period.label]));
+    /** @type {object[]} */
+    const out = [];
+    sessionCards.forEach((card, index) => {
+      const employee = sessionCardDriverName(card.extraction, index);
+      const periodKey = carouselPeriodKeyForCard(card);
+      const present = card.extraction?.sides_present;
+      const base = {
+        id: card.id,
+        name: employee,
+        employee,
+        periodKey,
+        periodLabel: labels.get(periodKey) || periodKey,
+        status: card.status,
+      };
+      out.push({
+        ...base,
+        card: 1,
+        front: present ? present.front !== false : Boolean(card.frontFile) || card.example === true,
+        back: present ? present.back !== false : Boolean(card.backFile) || card.example === true,
+      });
+      const extras = Array.isArray(card.extraction?.extra_sides) ? card.extraction.extra_sides : [];
+      /** @type {Map<number, { front: boolean, back: boolean }>} */
+      const byCard = new Map();
+      for (const extra of extras) {
+        const number = Number(extra?.card) || 0;
+        if (number < 2) continue;
+        const sides = byCard.get(number) || { front: false, back: false };
+        if (extra?.side === 'back') sides.back = true;
+        else sides.front = true;
+        byCard.set(number, sides);
+      }
+      for (const [number, sides] of [...byCard.entries()].sort((a, b) => a[0] - b[0])) {
+        out.push({ ...base, card: number, front: sides.front, back: sides.back });
+      }
+    });
+    return out;
+  }
+
+  function publishPhoneCarousel() {
+    const link = phoneCapture?.currentToken?.() || '';
+    if (!link) return;
+    publishCaptureCards(link, phoneCarouselCards()).catch(() => null);
+  }
+
+  function focusCarouselOn(card) {
+    carouselFollowsActive = true;
+    const key = carouselPeriodKeyForCard(card);
+    if (key) carouselPeriodKey = key;
+  }
+
+  function paintCarouselPeriodSelect(periods) {
+    const select = document.querySelector('#timesheet-carousel-period');
+    if (!(select instanceof HTMLSelectElement)) return;
+    const same =
+      select.options.length === periods.length &&
+      periods.every(
+        (period, index) =>
+          select.options[index]?.value === period.key && select.options[index]?.textContent === period.label
+      );
+    if (!same) {
+      select.replaceChildren(
+        ...periods.map((period) => {
+          const option = document.createElement('option');
+          option.value = period.key;
+          option.textContent = period.label;
+          return option;
+        })
+      );
+    }
+    if (carouselPeriodKey && periods.some((period) => period.key === carouselPeriodKey)) {
+      select.value = carouselPeriodKey;
+    }
+  }
+
+  function scrollSessionCarousel(direction) {
+    const chips = document.querySelector('#timesheet-session-chips');
+    if (!(chips instanceof HTMLElement)) return;
+    const first = chips.querySelector('.timesheet-session-chip');
+    const chipWidth = first instanceof HTMLElement ? first.getBoundingClientRect().width : 0;
+    const gap = chipWidth ? Math.max(0, (chips.scrollWidth - chipWidth * chips.childElementCount) / Math.max(1, chips.childElementCount - 1)) : 0;
+    const page = Math.max(chipWidth + gap, chips.clientWidth - chipWidth);
+    chips.scrollBy({ left: direction * page, behavior: 'smooth' });
+  }
+
+  function revealActiveChip(chips) {
+    const active = chips.querySelector('.timesheet-session-chip.is-active');
+    if (!(active instanceof HTMLElement)) return;
+    const chipsRect = chips.getBoundingClientRect();
+    const rect = active.getBoundingClientRect();
+    if (rect.left < chipsRect.left) chips.scrollLeft -= chipsRect.left - rect.left;
+    else if (rect.right > chipsRect.right) chips.scrollLeft += rect.right - chipsRect.right;
+  }
+
+  function syncCarouselNav() {
+    const chips = document.querySelector('#timesheet-session-chips');
+    const prev = document.querySelector('#timesheet-carousel-prev');
+    const next = document.querySelector('#timesheet-carousel-next');
+    if (!(chips instanceof HTMLElement)) return;
+    const max = chips.scrollWidth - chips.clientWidth;
+    const atStart = chips.scrollLeft <= 1;
+    const atEnd = chips.scrollLeft >= max - 1;
+    if (prev instanceof HTMLButtonElement) prev.disabled = max <= 1 || atStart;
+    if (next instanceof HTMLButtonElement) next.disabled = max <= 1 || atEnd;
+  }
+
   function paintSessionChips() {
     const root = document.querySelector('#timesheet-session');
     const chips = document.querySelector('#timesheet-session-chips');
-    const nextBtn = document.querySelector('#timesheet-session-next');
     const label = document.querySelector('#timesheet-session-label');
     if (!(root instanceof HTMLElement) || !(chips instanceof HTMLElement)) return;
-    root.hidden = sessionCards.length === 0;
-    if (label instanceof HTMLElement) {
-      label.textContent = 'This session';
+    const periods = carouselPayPeriods(sessionCards, payPeriodOptions);
+    root.hidden = periods.length === 0;
+    if (label instanceof HTMLElement) label.textContent = 'All pay periods';
+    if (carouselFollowsActive) {
+      const activeKey = carouselPeriodKeyForCard(activeSessionCard());
+      if (activeKey && periods.some((period) => period.key === activeKey)) carouselPeriodKey = activeKey;
     }
-    if (nextBtn instanceof HTMLButtonElement) {
-      nextBtn.hidden = !awaitingReview;
-      nextBtn.textContent = 'Next card';
+    if (!periods.some((period) => period.key === carouselPeriodKey)) {
+      const iso = defaultPayPeriodIso(periods);
+      carouselPeriodKey = periods.find((period) => period.key === iso)?.key || '';
+    }
+    paintCarouselPeriodSelect(periods);
+    const visible = cardsInCarouselPeriod(sessionCards, carouselPeriodKey);
+    if (
+      !aligningDeskToPeriod &&
+      visible.length &&
+      activeSessionId &&
+      !visible.some((card) => card.id === activeSessionId)
+    ) {
+      aligningDeskToPeriod = true;
+      try {
+        selectSessionCard(visible[0].id);
+      } finally {
+        aligningDeskToPeriod = false;
+      }
+      return;
+    }
+    const queueCount = queuedCardsInPeriod(visible, carouselPeriodKey).length;
+    const queueCountEl = document.querySelector('#timesheet-print-queue-count');
+    const queueBtn = document.querySelector('#timesheet-print-queue');
+    if (queueCountEl) queueCountEl.textContent = String(queueCount);
+    if (queueBtn instanceof HTMLButtonElement) {
+      queueBtn.classList.toggle('has-queued', queueCount > 0);
+      queueBtn.setAttribute(
+        'aria-label',
+        `Print queue, ${queueCount} employee square${queueCount === 1 ? '' : 's'} in this pay period`
+      );
+      queueBtn.title = `Open the employee squares marked for printing. ${queueCount} ${queueCount === 1 ? 'is' : 'are'} in this pay period.`;
     }
     chips.replaceChildren();
-    sessionCards.forEach((card, index) => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'timesheet-session-chip';
-      button.setAttribute('role', 'listitem');
-      button.dataset.sessionId = card.id;
-      if (card.id === activeSessionId) button.classList.add('is-active');
-      if (card.status === 'needs_review') button.classList.add('is-needs-review');
-      if (card.status === 'reading') button.classList.add('is-reading');
+    visible.forEach((card, index) => {
+      const chip = document.createElement('div');
+      chip.className = 'timesheet-session-chip';
+      chip.dataset.sessionId = card.id;
+      if (card.id === activeSessionId) {
+        chip.classList.add('is-active');
+        chip.setAttribute('aria-current', 'true');
+      }
+      if (card.status === 'needs_review') {
+        chip.classList.add('is-needs-review');
+        const alert = document.createElement('span');
+        alert.className = 'timesheet-session-chip-alert';
+        alert.title = 'Needs review';
+        alert.setAttribute('aria-hidden', 'true');
+        alert.innerHTML =
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#d31b1b"/><path d="M12 6.4v7.2" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="17.3" r="1.35" fill="#fff"/></svg>';
+        chip.append(alert);
+      }
+      if (card.status === 'reading') chip.classList.add('is-reading');
+      if (card.id === mailingCardId) chip.setAttribute('aria-busy', 'true');
       const statusLabel =
         card.status === 'needs_review'
           ? 'Needs review'
           : card.status === 'reading'
             ? 'Reading…'
             : 'Ready';
-      button.textContent = `${index + 1} · ${sessionCardChipLabel(card.extraction, index)} · ${statusLabel}`;
-      button.addEventListener('click', () => {
-        selectSessionCard(card.id).catch((error) => {
-          setStatus(error?.message || 'Could not open that card.', 'error');
+      const name = sessionCardDriverName(card.extraction, index);
+      const parts = driverNameParts(name);
+      const side = sessionSideNote(card);
+      const queued = card.printQueued === true;
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'timesheet-session-chip-open';
+      open.title = `Open this constructed card. ${name}${side}. ${statusLabel}.`;
+      open.setAttribute('aria-label', `${name}${side}. ${statusLabel}.`);
+      const nameEl = document.createElement('span');
+      nameEl.className = 'timesheet-session-chip-name';
+      const last = document.createElement('span');
+      last.className = 'timesheet-session-chip-last';
+      last.textContent = parts.last;
+      nameEl.append(last);
+      if (parts.first) {
+        const first = document.createElement('span');
+        first.className = 'timesheet-session-chip-first';
+        first.textContent = parts.first;
+        nameEl.append(first);
+      }
+      const photoSrc = driverPhotoSrc(name);
+      if (photoSrc) {
+        const photo = document.createElement('img');
+        photo.className = 'timesheet-session-chip-photo';
+        photo.alt = '';
+        photo.src = photoSrc;
+        photo.addEventListener('error', () => {
+          photo.remove();
+          open.classList.remove('has-photo');
         });
-      });
-      chips.append(button);
+        open.classList.add('has-photo');
+        open.append(photo);
+      }
+      open.append(nameEl);
+      const actions = document.createElement('div');
+      actions.className = 'timesheet-session-chip-actions';
+      const queueBtn = document.createElement('button');
+      queueBtn.type = 'button';
+      queueBtn.className = 'timesheet-chip-action timesheet-chip-queue';
+      queueBtn.dataset.chipQueue = 'true';
+      queueBtn.textContent = queued ? 'In queue' : '+ queue';
+      queueBtn.setAttribute('aria-pressed', queued ? 'true' : 'false');
+      queueBtn.title = queued
+        ? `Take ${name} out of the print queue for this pay period.`
+        : `Add ${name} to the print queue for this pay period.`;
+      queueBtn.setAttribute('aria-label', queued ? `Remove ${name} from the print queue` : `Add ${name} to the print queue`);
+      const printBtn = document.createElement('button');
+      printBtn.type = 'button';
+      printBtn.className = 'timesheet-chip-action timesheet-chip-print';
+      printBtn.dataset.chipPrintSingle = 'true';
+      printBtn.textContent = 'Print single';
+      printBtn.title = `Print ${name}'s card by itself, front and back as separate pages.`;
+      printBtn.setAttribute('aria-label', `Print single card for ${name}`);
+      const emailBtn = document.createElement('button');
+      emailBtn.type = 'button';
+      emailBtn.className = 'timesheet-chip-action timesheet-chip-email';
+      emailBtn.dataset.chipEmail = 'true';
+      emailBtn.textContent = 'Email copies';
+      emailBtn.title = `Email ${name} the pay-period copies for this card.`;
+      emailBtn.setAttribute('aria-label', `Email copies to ${name}`);
+      const busy = card.id === mailingCardId || card.status === 'reading';
+      queueBtn.disabled = busy;
+      printBtn.disabled = busy;
+      emailBtn.disabled = busy;
+      const printRow = document.createElement('div');
+      printRow.className = 'timesheet-chip-print-row';
+      printRow.append(queueBtn, printBtn);
+      actions.append(printRow, emailBtn);
+      chip.append(open, actions);
+      chips.append(chip);
+    });
+    publishPhoneCarousel();
+    requestAnimationFrame(() => {
+      revealActiveChip(chips);
+      syncCarouselNav();
     });
   }
 
@@ -738,6 +1535,8 @@ export function mountTimesheetReader(options = {}) {
     card.printId = card.printId || linkedPrintId || lastSavedPrintId || '';
     card.status = sessionCardNeedsReview(extraction) ? 'needs_review' : 'ready';
     card.updatedAt = Date.now();
+    rememberCardSummary(card);
+    schedulePersistConstructedCards();
     syncPrintHoursFromExtraction().catch(() => null);
   }
 
@@ -749,48 +1548,20 @@ export function mountTimesheetReader(options = {}) {
     activePrintId = '';
   }
 
-  function continueAfterReview() {
-    flushActiveSessionCard();
-    awaitingReview = false;
-    paintSessionChips();
-    const card = activeSessionCard();
-    const front = document.querySelector('#timesheet-front');
-    const back = document.querySelector('#timesheet-back');
-    const hasFront = front instanceof HTMLInputElement && Boolean(front.files?.[0]);
-    const hasBack = back instanceof HTMLInputElement && Boolean(back.files?.[0]);
-    const nextPairReady =
-      Boolean(lastSavedPrintId) &&
-      Boolean(card?.printId) &&
-      lastSavedPrintId !== card.printId &&
-      hasFront &&
-      hasBack;
-    if (nextPairReady) {
-      setStatus('Next card photos are ready — reading…', 'ok');
-      maybeAutoRead();
-      return;
-    }
-    clearCaptureFilesOnly();
-    setStatus('Ready for the next card. Scan the next front and back.', 'ok');
-  }
-
   async function selectSessionCard(sessionId) {
     const target = sessionCards.find((card) => card.id === sessionId);
     if (!target) return;
     if (target.id === activeSessionId) return;
     flushActiveSessionCard();
     activeSessionId = target.id;
+    focusCarouselOn(target);
     extraction = target.extraction;
     linkedPrintId = target.printId || '';
     awaitingReview = target.status === 'needs_review';
     renderResult();
     paintSessionChips();
     paintCaveats(extraction);
-    setStatus(
-      awaitingReview
-        ? 'Review this card, then press Next card when you are ready to continue.'
-        : `Showing ${sessionCardChipLabel(extraction, sessionCards.indexOf(target))}.`,
-      awaitingReview ? 'error' : 'ok'
-    );
+    setStatus(awaitingReview ? 'This card needs a look before you rely on the hours.' : '', awaitingReview ? 'error' : '');
   }
 
   function upsertSessionFromExtraction(nextExtraction, printId) {
@@ -815,39 +1586,33 @@ export function mountTimesheetReader(options = {}) {
     activeSessionId = card.id;
     linkedPrintId = card.printId || linkedPrintId;
     awaitingReview = needsReview;
+    focusCarouselOn(card);
+    rememberCardSummary(card);
+    schedulePersistConstructedCards();
     paintSessionChips();
     return card;
   }
 
   function selectedPayPeriodIso() {
-    return payPeriodSelect instanceof HTMLSelectElement ? payPeriodSelect.value.trim() : '';
+    const key = String(carouselPeriodKey || '').trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(key) ? key : '';
   }
 
   function refreshPayPeriodOptions() {
-    if (!(payPeriodSelect instanceof HTMLSelectElement)) return;
     const state = officeState();
-    payPeriodOptions = payPeriodsInSchoolYear(auditSchoolYearLabel(state), auditPayPeriodRules(state));
-    const previous = payPeriodSelect.value.trim();
-    let saved = '';
-    try {
-      saved = String(localStorage.getItem(PAY_PERIOD_KEY) || '').trim();
-    } catch {
-      saved = '';
+    const label = auditSchoolYearLabel(state);
+    payPeriodOptions = payPeriodsInSchoolYear(label, auditPayPeriodRules(state));
+    const yearSelect = document.querySelector('#timesheet-school-year');
+    if (yearSelect instanceof HTMLSelectElement && label) {
+      let option = yearSelect.options[0];
+      if (!(option instanceof HTMLOptionElement)) {
+        option = document.createElement('option');
+        yearSelect.append(option);
+      }
+      option.value = label;
+      option.textContent = label;
+      yearSelect.value = label;
     }
-    const fallback = defaultPayPeriodIso(payPeriodOptions);
-    const preferred =
-      (previous && payPeriodOptions.some((period) => period.iso === previous) && previous) ||
-      (saved && payPeriodOptions.some((period) => period.iso === saved) && saved) ||
-      fallback;
-    payPeriodSelect.replaceChildren(
-      ...payPeriodOptions.map((period) => {
-        const option = document.createElement('option');
-        option.value = period.iso;
-        option.textContent = period.label;
-        return option;
-      })
-    );
-    if (preferred) payPeriodSelect.value = preferred;
   }
 
   function paintPeriodMismatch(nextExtraction) {
@@ -878,7 +1643,7 @@ export function mountTimesheetReader(options = {}) {
     if (parseStickerContractHours(nextExtraction?.header?.contract_hours) == null) {
       lines.push('Contract hours are missing — type the sticker contract if you know it.');
     }
-    const rows = [...(nextExtraction?.front_rows ?? []), ...(nextExtraction?.back_rows ?? [])];
+    const rows = extractionRowLists(nextExtraction).flat();
     if (rows.some((row) => row?.hours_add_up === false)) {
       lines.push('Red rows are hours that do not add up for that sticker contract.');
     }
@@ -898,13 +1663,16 @@ export function mountTimesheetReader(options = {}) {
       clearLiveCard();
       return;
     }
-    const ok = window.confirm('Clear every card in this Genie session? Print copies in this browser stay until you remove them.');
+    const ok = window.confirm(
+      'Clear every constructed card saved in this browser? Pay period summaries are removed too. Print copies stay until you remove them.'
+    );
     if (!ok) return;
     sessionCards = [];
     activeSessionId = '';
     awaitingReview = false;
     clearLiveCard();
-    paintSessionChips();
+    persistConstructedCards();
+    seedLocalExampleCards();
   }
 
   new MutationObserver(() => {
@@ -912,6 +1680,7 @@ export function mountTimesheetReader(options = {}) {
       camera.close();
       descDialog.close();
       sliceDialog.close();
+      document.querySelector('#timesheet-delete-side-dialog')?.close();
       printCopies.close();
       phoneCapture.pause();
       return;
@@ -922,17 +1691,34 @@ export function mountTimesheetReader(options = {}) {
   document.querySelector('#timesheet-cards')?.addEventListener('click', (event) => {
     const target = event.target instanceof Element ? event.target : null;
     if (!target) return;
+    const faceButton = target.closest('.timesheet-face-toggle-btn');
+    if (faceButton instanceof HTMLButtonElement) {
+      const want = faceButton.dataset.face === 'back' ? 'back' : 'front';
+      showConstructedFace(faceButton.closest('.timesheet-card-pair'), want);
+      return;
+    }
+    const deleteSideButton = target.closest('.timesheet-delete-side');
+    if (deleteSideButton instanceof HTMLButtonElement) {
+      openDeleteSideDialog(deleteSideButton.closest('.timesheet-card-pair'));
+      return;
+    }
     const pair = target.closest('.timesheet-card-pair');
     const tr = target.closest('tr[data-row-index]');
     if (!pair || !tr) return;
     const side = pair.getAttribute('data-side') === 'back' ? 'back' : 'front';
+    const extraIndex = pair.hasAttribute('data-extra-index') ? Number(pair.dataset.extraIndex) : -1;
     const index = Number(tr.dataset.rowIndex) || 0;
-    const rows = side === 'back' ? extraction?.back_rows : extraction?.front_rows;
+    const rows =
+      extraIndex >= 0
+        ? extraction?.extra_sides?.[extraIndex]?.rows
+        : side === 'back'
+          ? extraction?.back_rows
+          : extraction?.front_rows;
     const row = Array.isArray(rows) ? rows[index - 1] : null;
 
     const descButton = target.closest('.timesheet-desc-open');
     if (descButton instanceof HTMLButtonElement) {
-      descDialog.open(side, index, descButton);
+      descDialog.open(side, index, descButton, extraIndex);
       return;
     }
 
@@ -947,20 +1733,22 @@ export function mountTimesheetReader(options = {}) {
     const sliceButton = target.closest('.timesheet-row-slice');
     if (sliceButton instanceof HTMLButtonElement) {
       if (!row || !extraction) return;
-      sliceDialog.open(side, index);
+      sliceDialog.open(side, index, extraIndex);
     }
   });
 
   mountRowHeightControl({
     cards: document.querySelector('#timesheet-cards'),
-    input: document.querySelector('#timesheet-row-height'),
-    down: document.querySelector('#timesheet-row-height-down'),
-    up: document.querySelector('#timesheet-row-height-up'),
-    valueOut: document.querySelector('#timesheet-row-height-value'),
     realign() {
       if (result.hidden) return;
       alignSnapRows(frontCard, frontSnap);
       alignSnapRows(backCard, backSnap);
+      eachExtraSide((pair) => {
+        alignSnapRows(
+          pair.querySelector('.timesheet-card-sheet tbody'),
+          pair.querySelector('.timesheet-snap-sheet tbody')
+        );
+      });
     },
   });
 
@@ -1052,6 +1840,7 @@ export function mountTimesheetReader(options = {}) {
 
   function refresh() {
     refreshPayPeriodOptions();
+    paintSessionChips();
     if (extraction) {
       renderResult();
       paintCaveats(extraction);
@@ -1068,6 +1857,10 @@ export function mountTimesheetReader(options = {}) {
       holidays: holidayListForState(state),
       defaultYear: inferDefaultYear(extraction?.header?.date_on_card),
       mode: hoursMode,
+      moreRows: (Array.isArray(extraction?.extra_sides) ? extraction.extra_sides : [])
+        .map((side) => side?.rows)
+        .filter(Array.isArray),
+      contractRuns: extraction?.header || null,
     };
   }
 
@@ -1079,8 +1872,16 @@ export function mountTimesheetReader(options = {}) {
       extraction.header?.contract_hours,
       contractHourOptions()
     );
+    const runExtras = Boolean(contractRunParts(extraction.header));
     paintRegOtFields(frontCard, extraction.front_rows);
     paintRegOtFields(backCard, extraction.back_rows);
+    paintTotHourFields(frontCard, extraction.front_rows, runExtras);
+    paintTotHourFields(backCard, extraction.back_rows, runExtras);
+    eachExtraSide((pair, extra) => {
+      const body = pair.querySelector('.timesheet-card-sheet tbody');
+      paintRegOtFields(body, extra.rows);
+      paintTotHourFields(body, extra.rows, runExtras);
+    });
     syncPrintHoursFromExtraction().catch(() => {
       /* Print copy may not exist yet for this session. */
     });
@@ -1096,10 +1897,14 @@ export function mountTimesheetReader(options = {}) {
     );
     paintHourFlags(frontCard, extraction.front_rows);
     paintHourFlags(backCard, extraction.back_rows);
+    eachExtraSide((pair, extra) => {
+      paintHourFlags(pair.querySelector('.timesheet-card-sheet tbody'), extra.rows);
+    });
     const card = activeSessionCard();
     if (card && card.extraction === extraction) {
       card.status = sessionCardNeedsReview(extraction) ? 'needs_review' : 'ready';
       card.updatedAt = Date.now();
+      schedulePersistConstructedCards();
       paintCaveats(extraction);
       paintSessionChips();
     }
@@ -1110,14 +1915,35 @@ export function mountTimesheetReader(options = {}) {
     const breaks = snapBreaks();
     const mode = hoursMode;
     hoursModeControl.setMode(mode);
-    applySnapDerivedFields(extraction.front_rows, FRONT_SLOT_COUNT, breaks, frontCard, mode);
-    applySnapDerivedFields(extraction.back_rows, BACK_SLOT_COUNT, breaks, backCard, mode);
+    applySnapDerivedFields(extraction.front_rows, shownSlotCount(extraction.front_rows), breaks, frontCard, mode);
+    applySnapDerivedFields(extraction.back_rows, shownSlotCount(extraction.back_rows), breaks, backCard, mode);
     applyContractDerivedFields();
     markAndPaintHourRows();
-    paintSnapSheet(frontSnap, extraction.front_rows ?? [], FRONT_SLOT_COUNT, breaks, mode);
-    paintSnapSheet(backSnap, extraction.back_rows ?? [], BACK_SLOT_COUNT, breaks, mode);
+    paintSnapSheet(frontSnap, extraction.front_rows ?? [], shownSlotCount(extraction.front_rows), breaks, mode);
+    paintSnapSheet(backSnap, extraction.back_rows ?? [], shownSlotCount(extraction.back_rows), breaks, mode);
     alignSnapRows(frontCard, frontSnap);
     alignSnapRows(backCard, backSnap);
+    eachExtraSide((pair, extra) => {
+      const slotCount = shownSlotCount(extra.rows);
+      applySnapDerivedFields(
+        extra.rows,
+        slotCount,
+        breaks,
+        pair.querySelector('.timesheet-card-sheet tbody'),
+        mode
+      );
+      paintSnapSheet(
+        pair.querySelector('.timesheet-snap-sheet tbody'),
+        extra.rows,
+        slotCount,
+        breaks,
+        mode
+      );
+      alignSnapRows(
+        pair.querySelector('.timesheet-card-sheet tbody'),
+        pair.querySelector('.timesheet-snap-sheet tbody')
+      );
+    });
     refreshPayPeriodInfo(extraction, breaks, officeState(), mode);
   }
 
@@ -1134,22 +1960,22 @@ export function mountTimesheetReader(options = {}) {
     const breaks = snapBreaks();
     const mode = hoursMode;
     hoursModeControl.setMode(mode);
-    paintCardSheet(frontCard, extraction.front_rows ?? [], FRONT_SLOT_COUNT, mode);
-    paintCardSheet(backCard, extraction.back_rows ?? [], BACK_SLOT_COUNT, mode);
-    applySnapDerivedFields(extraction.front_rows, FRONT_SLOT_COUNT, breaks, frontCard, mode);
-    applySnapDerivedFields(extraction.back_rows, BACK_SLOT_COUNT, breaks, backCard, mode);
+    paintCardSheet(frontCard, extraction.front_rows ?? [], shownSlotCount(extraction.front_rows), mode);
+    paintCardSheet(backCard, extraction.back_rows ?? [], shownSlotCount(extraction.back_rows), mode);
+    applySnapDerivedFields(extraction.front_rows, shownSlotCount(extraction.front_rows), breaks, frontCard, mode);
+    applySnapDerivedFields(extraction.back_rows, shownSlotCount(extraction.back_rows), breaks, backCard, mode);
     applyContractDerivedFields();
     markAndPaintHourRows();
-    paintSnapSheet(frontSnap, extraction.front_rows ?? [], FRONT_SLOT_COUNT, breaks, mode);
-    paintSnapSheet(backSnap, extraction.back_rows ?? [], BACK_SLOT_COUNT, breaks, mode);
-    bindCardEditors(frontCard, extraction.front_rows, FRONT_SLOT_COUNT, {
+    paintSnapSheet(frontSnap, extraction.front_rows ?? [], shownSlotCount(extraction.front_rows), breaks, mode);
+    paintSnapSheet(backSnap, extraction.back_rows ?? [], shownSlotCount(extraction.back_rows), breaks, mode);
+    bindCardEditors(frontCard, extraction.front_rows, shownSlotCount(extraction.front_rows), {
       snapBody: frontSnap,
       breaks,
       getMode: () => hoursMode,
       onStampChange: refreshDerivedFromExtraction,
       onHoursChange: markAndPaintHourRows,
     });
-    bindCardEditors(backCard, extraction.back_rows, BACK_SLOT_COUNT, {
+    bindCardEditors(backCard, extraction.back_rows, shownSlotCount(extraction.back_rows), {
       snapBody: backSnap,
       breaks,
       getMode: () => hoursMode,
@@ -1158,6 +1984,8 @@ export function mountTimesheetReader(options = {}) {
     });
     alignSnapRows(frontCard, frontSnap);
     alignSnapRows(backCard, backSnap);
+    paintExtraSides();
+    paintSideVisibility();
     refreshPayPeriodInfo(extraction, breaks, officeState(), mode);
   }
 
@@ -1167,22 +1995,19 @@ export function mountTimesheetReader(options = {}) {
   async function readCard(options = {}) {
     const replaceActive = options.replaceActive === true;
     if (reading) return;
-    if (awaitingReview && !replaceActive) {
-      setStatus('Finish reviewing this card, then press Next card before reading another.', 'error');
-      return;
-    }
     const front = document.querySelector('#timesheet-front').files?.[0] ?? null;
     const back = document.querySelector('#timesheet-back').files?.[0] ?? null;
     if (!front && !back) {
       setStatus('Take a photo of the front, the back, or both.', 'error');
       return;
     }
-    if (!front || !back) {
-      setStatus('Front and back photos both submit together. Capture the missing side.', 'error');
-      return;
-    }
-    validateFile(front, 'Front');
-    validateFile(back, 'Back');
+    if (front) validateFile(front, 'Front');
+    if (back) validateFile(back, 'Back');
+    const attach = pendingSameDriver;
+    const attachToId = attach ? activeSessionId : '';
+    pendingSameDriver = false;
+    singleSideReady = false;
+    const previousExtraction = replaceActive ? activeSessionCard()?.extraction || null : null;
     const button = document.querySelector('#timesheet-read');
     const clearButton = document.querySelector('#timesheet-clear');
     let readingCard = replaceActive ? activeSessionCard() : null;
@@ -1210,9 +2035,9 @@ export function mountTimesheetReader(options = {}) {
     if (button instanceof HTMLButtonElement) button.disabled = true;
     if (clearButton instanceof HTMLButtonElement) clearButton.disabled = true;
     try {
-      setBusyStatus('Preparing the front and back photos…');
-      const frontPayload = await filePayload(front);
-      const backPayload = await filePayload(back);
+      setBusyStatus(front && back ? 'Preparing the front and back photos…' : 'Preparing the photo…');
+      const frontPayload = front ? await filePayload(front) : null;
+      const backPayload = back ? await filePayload(back) : null;
 
       setBusyStatus('Sending photos for analysis…');
       const waiting = [
@@ -1233,17 +2058,76 @@ export function mountTimesheetReader(options = {}) {
         }),
       });
       stopProgressMessages();
-      setBusyStatus('Building the Front and Back card tables…');
+      setBusyStatus(front && back ? 'Building the Front and Back card tables…' : 'Building the card table…');
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(payload.error || 'Could not read that card.');
       }
       extraction = payload.extraction;
+      if (!extraction || typeof extraction !== 'object') {
+        throw new Error('Could not read that card.');
+      }
+      const previousCard = attachToId
+        ? sessionCards.find((card) => card.id === attachToId && card.id !== readingCard.id)
+        : null;
+      if (previousCard?.extraction) {
+        const merged = mergeSameDriverExtraction(previousCard.extraction, extraction, {
+          front: Boolean(front),
+          back: Boolean(back),
+        });
+        const extraPrintId = mintPrintCardId();
+        if (front || back) {
+          await printCopies.saveSides(extraPrintId, front, back).catch(() => null);
+        }
+        const newest = merged.extra_sides.reduce((max, side) => Math.max(max, Number(side.card) || 0), 0);
+        for (const side of merged.extra_sides) {
+          if (Number(side.card) !== newest) continue;
+          side.printId = extraPrintId;
+          if (side.side === 'front' && front) side.file = front;
+          if (side.side === 'back' && back) side.file = back;
+        }
+        if (!previousCard.groupId) previousCard.groupId = mintGroupId();
+        previousCard.extraction = merged;
+        previousCard.status = sessionCardNeedsReview(merged) ? 'needs_review' : 'ready';
+        previousCard.updatedAt = Date.now();
+        sessionCards = sessionCards.filter((card) => card.id !== readingCard.id);
+        activeSessionId = previousCard.id;
+        extraction = merged;
+        physicalCardForId = previousCard.id;
+        physicalCardNumber = newest || 2;
+        linkedPrintId = previousCard.printId || linkedPrintId;
+        awaitingReview = previousCard.status === 'needs_review';
+        renderResult();
+        paintCaveats(extraction);
+        await syncPrintHoursFromExtraction().catch(() => null);
+        clearCaptureFilesOnly();
+        const label = sessionCardChipLabel(extraction, sessionCards.indexOf(previousCard));
+        const periodWarning = payPeriodMismatchWarning(
+          selectedPayPeriodIso(),
+          extraction?.header?.date_on_card,
+          payPeriodOptions
+        );
+        if (awaitingReview) {
+          setStatus(
+            periodWarning
+              ? `${periodWarning} Needs review before the next card.`
+              : `${label} updated with another card. Needs review before the next driver.`,
+            'error'
+          );
+        } else if (periodWarning) {
+          setStatus(`${label} updated with another card. ${periodWarning}`, 'error');
+        } else {
+          setStatus(`${label} updated with another card for this pay period.`, 'ok');
+        }
+        return;
+      }
+      rememberUnsentSides(extraction, previousExtraction, { front: Boolean(front), back: Boolean(back) });
       const printId = (await ensurePrintCardFromFiles().catch(() => null)) || lastSavedPrintId || linkedPrintId || '';
       linkedPrintId = printId;
       const card = upsertSessionFromExtraction(extraction, printId);
-      card.frontFile = front;
-      card.backFile = back;
+      if (!card.groupId) card.groupId = mintGroupId();
+      card.frontFile = front || card.frontFile || null;
+      card.backFile = back || card.backFile || null;
       renderResult();
       paintCaveats(extraction);
       await syncPrintHoursFromExtraction().catch(() => null);
@@ -1258,16 +2142,13 @@ export function mountTimesheetReader(options = {}) {
         setStatus(
           periodWarning
             ? `${periodWarning} Needs review before the next card.`
-            : 'Needs review before the next card. Fix what you can, then press Next card.',
+            : 'This card needs a look. Fix what you can, then scan the next one.',
           'error'
         );
+      } else if (periodWarning) {
+        setStatus(`${label} ready. ${periodWarning}`, 'error');
       } else {
-        setStatus(
-          periodWarning
-            ? `${label} ready. ${periodWarning}`
-            : `${label} ready. Scan the next card, or open Print copies to print a range.`,
-          periodWarning ? 'error' : 'ok'
-        );
+        setStatus('');
       }
     } catch (error) {
       stopProgressMessages();
@@ -1299,8 +2180,30 @@ export function mountTimesheetReader(options = {}) {
     const back = document.querySelector('#timesheet-back');
     const hasFront = front instanceof HTMLInputElement && Boolean(front.files?.[0]);
     const hasBack = back instanceof HTMLInputElement && Boolean(back.files?.[0]);
-    if (!hasFront || !hasBack || reading || awaitingReview) return;
-    readCard().catch((error) => setStatus(error.message || 'Could not read that card.', 'error'));
+    if (reading) return;
+    if (hasFront && hasBack) {
+      readCard().catch((error) => setStatus(error.message || 'Could not read that card.', 'error'));
+      return;
+    }
+    if (singleSideReady && (hasFront || hasBack)) {
+      readCard().catch((error) => setStatus(error.message || 'Could not read that card.', 'error'));
+    }
+  }
+
+  /**
+   * @param {{ front?: File | null, back?: File | null, sameDriver?: boolean, single?: boolean }} card
+   */
+  async function acceptPhoneCard(card) {
+    if (card?.sameDriver) pendingSameDriver = true;
+    if (card?.single || Boolean(card?.front) !== Boolean(card?.back)) singleSideReady = true;
+    if (card?.front) putSideFile('front', card.front);
+    else clearSideFile('front');
+    if (card?.back) putSideFile('back', card.back);
+    else clearSideFile('back');
+    const label = card?.front && card?.back ? 'Front and back' : card?.front ? 'Front' : 'Back';
+    const extra = card?.sameDriver ? ' Same driver, another card.' : '';
+    setStatus(`${label} arrived from your phone.${extra}`, 'ok');
+    maybeAutoRead();
   }
 
   /**
@@ -1316,56 +2219,14 @@ export function mountTimesheetReader(options = {}) {
     input.files = transfer.files;
   }
 
-  function setSideFile(side, file) {
-    putSideFile(side, file);
-    if (retakingSide) {
-      const card = activeSessionCard();
-      const other = side === 'front' ? 'back' : 'front';
-      const otherFile = other === 'front' ? card?.frontFile : card?.backFile;
-      if (otherFile) putSideFile(other, otherFile);
-      if (card) {
-        if (side === 'front') card.frontFile = file;
-        else card.backFile = file;
-      }
-      retakingSide = null;
-      readCard({ replaceActive: true }).catch((error) =>
-        setStatus(error?.message || 'Could not read that card.', 'error')
-      );
-      return;
-    }
-    maybeAutoRead();
+  function clearSideFile(side) {
+    const input = document.querySelector(side === 'front' ? '#timesheet-front' : '#timesheet-back');
+    if (input instanceof HTMLInputElement) input.value = '';
   }
 
-  /**
-   * @param {'front' | 'back'} side
-   */
-  async function startRetake(side) {
-    const card = activeSessionCard();
-    if (!card || !extraction) {
-      setStatus('Read a card first, then retake a side.', 'error');
-      return;
-    }
-    const other = side === 'front' ? 'back' : 'front';
-    const otherFile = other === 'front' ? card.frontFile : card.backFile;
-    if (!otherFile) {
-      setStatus(
-        `The ${other} photo is not kept for this card. Scan front and back again, or open Print copies if you saved them.`,
-        'error'
-      );
-      return;
-    }
-    retakingSide = side;
-    putSideFile(other, otherFile);
-    const kept = side === 'front' ? card.frontFile : card.backFile;
-    if (kept) putSideFile(side, kept);
-    setStatus(`Retake the ${side}. The other side stays as-is until both submit again.`, '');
-    try {
-      await camera.open(side, { single: true });
-    } catch {
-      const input = document.querySelector(side === 'front' ? '#timesheet-front' : '#timesheet-back');
-      if (input instanceof HTMLInputElement) input.click();
-      else throw new Error('This browser cannot use a camera.');
-    }
+  function setSideFile(side, file) {
+    putSideFile(side, file);
+    maybeAutoRead();
   }
 
   function clearLiveCard() {
@@ -1380,10 +2241,7 @@ export function mountTimesheetReader(options = {}) {
     sliceDialog.close();
     cardHeader.clear();
     // Keep the phone QR / session chips; only clear the live capture + result.
-    const saveToggle = document.querySelector('#timesheet-save-for-print');
-    const saveOn = saveToggle instanceof HTMLInputElement && saveToggle.checked;
     form.reset();
-    if (saveToggle instanceof HTMLInputElement) saveToggle.checked = saveOn;
     clearCaptureFilesOnly();
     frontCard.replaceChildren();
     backCard.replaceChildren();
@@ -1397,14 +2255,525 @@ export function mountTimesheetReader(options = {}) {
     setStatus(sessionCards.length ? 'Live card cleared. Session chips are still here.' : '');
   }
 
+  function rowsForSide(side, extraIndex = -1) {
+    if (!extraction) return null;
+    if (Number.isFinite(extraIndex) && extraIndex >= 0) {
+      return extraction.extra_sides?.[extraIndex]?.rows || null;
+    }
+    return side === 'back' ? extraction.back_rows : extraction.front_rows;
+  }
+
+  function eachExtraSide(fn) {
+    const host = document.querySelector('#timesheet-extra-sides');
+    if (!(host instanceof HTMLElement) || !extraction) return;
+    const extras = Array.isArray(extraction.extra_sides) ? extraction.extra_sides : [];
+    const pairs = [...host.querySelectorAll('.timesheet-card-pair')];
+    pairs.forEach((pair, index) => {
+      const extra = extras[index];
+      if (extra) fn(pair, extra, index);
+    });
+  }
+
+  /**
+   * @param {'front' | 'back'} face
+   * @returns {'front' | 'back'}
+   */
+  function otherCardFace(face) {
+    return face === 'back' ? 'front' : 'back';
+  }
+
+  /**
+   * @param {'front' | 'back'} which
+   */
+  function sideIsShown(which) {
+    const present = extraction?.sides_present;
+    if (!present || typeof present !== 'object') return true;
+    return present[which] !== false;
+  }
+
+  function rememberCardFace() {
+    if (cardFaceForId === activeSessionId) return;
+    cardFaceForId = activeSessionId;
+    cardFace = 'front';
+    extraFaces = {};
+  }
+
+  function shownPhysicalCardNumber() {
+    if (physicalCardForId !== activeSessionId) {
+      physicalCardForId = activeSessionId;
+      physicalCardNumber = 1;
+    }
+    const numbers = physicalCardNumbers(extraction);
+    if (!numbers.includes(physicalCardNumber)) physicalCardNumber = numbers[0] || 1;
+    return physicalCardNumber;
+  }
+
+  /**
+   * @param {number} delta
+   */
+  function stepDriverCard(delta) {
+    const steps = driverPayPeriodCardSteps(sessionCards, activeSessionId);
+    const currentNumber = shownPhysicalCardNumber();
+    let index = steps.findIndex((step) => step.id === activeSessionId && step.cardNumber === currentNumber);
+    if (index < 0) index = 0;
+    const target = steps[index + delta];
+    if (!target) return;
+    physicalCardForId = target.id;
+    physicalCardNumber = target.cardNumber;
+    if (target.id !== activeSessionId) {
+      selectSessionCard(target.id).catch((error) => {
+        setStatus(error?.message || 'Could not open that card.', 'error');
+      });
+      return;
+    }
+    paintSideVisibility();
+  }
+
+  function paintDriverCardNav() {
+    const prev = document.querySelector('#timesheet-driver-card-prev');
+    const next = document.querySelector('#timesheet-driver-card-next');
+    const label = document.querySelector('#timesheet-driver-card-label');
+    const steps = extraction && !result.hidden ? driverPayPeriodCardSteps(sessionCards, activeSessionId) : [];
+    const multiple = steps.length > 1;
+    const currentNumber = multiple ? shownPhysicalCardNumber() : 1;
+    let index = steps.findIndex((step) => step.id === activeSessionId && step.cardNumber === currentNumber);
+    if (index < 0) index = 0;
+    if (prev instanceof HTMLButtonElement) {
+      prev.hidden = !multiple;
+      prev.disabled = !multiple || index <= 0;
+    }
+    if (next instanceof HTMLButtonElement) {
+      next.hidden = !multiple;
+      next.disabled = !multiple || index >= steps.length - 1;
+    }
+    if (label instanceof HTMLElement) {
+      label.hidden = !multiple;
+      label.textContent = multiple ? `Card ${index + 1} of ${steps.length}` : '';
+    }
+  }
+
+  /**
+   * @param {Element | null} pair
+   */
+  /**
+   * @param {Element | null} pair
+   * @param {'front' | 'back'} want
+   */
+  function showConstructedFace(pair, want) {
+    if (!(pair instanceof HTMLElement)) return;
+    const next = want === 'back' ? 'back' : 'front';
+    rememberCardFace();
+    if (pair.hasAttribute('data-extra-index')) {
+      const cardNo = pair.dataset.card || pair.dataset.extraIndex || '';
+      const current = extraFaces[cardNo] === 'back' ? 'back' : 'front';
+      if (current === next) return;
+      extraFaces[cardNo] = next;
+    } else if ((cardFace === 'back' ? 'back' : 'front') === next) {
+      return;
+    } else {
+      cardFace = next;
+    }
+    paintSideVisibility();
+  }
+
+  /**
+   * @param {HTMLElement} pair
+   * @param {'front' | 'back'} showing
+   * @param {boolean} canFlip
+   */
+  function paintFaceToggle(pair, showing, canFlip) {
+    for (const button of pair.querySelectorAll('.timesheet-face-toggle-btn')) {
+      if (!(button instanceof HTMLButtonElement)) continue;
+      const face = button.dataset.face === 'back' ? 'back' : 'front';
+      const on = face === showing;
+      button.setAttribute('aria-pressed', on ? 'true' : 'false');
+      button.disabled = !on && !canFlip;
+    }
+  }
+
+  function paintSideVisibility() {
+    rememberCardFace();
+    const present = extraction?.sides_present;
+    const frontShown = sideIsShown('front');
+    const backShown = sideIsShown('back');
+    if (cardFace === 'front' && !frontShown && backShown) cardFace = 'back';
+    if (cardFace === 'back' && !backShown && frontShown) cardFace = 'front';
+    const face = cardFace === 'back' ? 'back' : 'front';
+    const physical = shownPhysicalCardNumber();
+
+    for (const pair of document.querySelectorAll('#timesheet-driver-card-frame > .timesheet-card-pair')) {
+      if (!(pair instanceof HTMLElement)) continue;
+      const which = pair.getAttribute('data-side') === 'back' ? 'back' : 'front';
+      const absent = Boolean(present) && present[which] === false;
+      pair.hidden = physical !== 1 || absent || which !== face;
+      paintFaceToggle(pair, which, sideIsShown(otherCardFace(which)));
+    }
+
+    const host = document.querySelector('#timesheet-extra-sides');
+    if (!(host instanceof HTMLElement)) {
+      paintDriverCardNav();
+      return;
+    }
+    /** @type {Map<string, HTMLElement[]>} */
+    const groups = new Map();
+    for (const pair of host.querySelectorAll('.timesheet-card-pair')) {
+      if (!(pair instanceof HTMLElement)) continue;
+      const cardNo = pair.dataset.card || pair.dataset.extraIndex || 'extra';
+      const list = groups.get(cardNo) || [];
+      list.push(pair);
+      groups.set(cardNo, list);
+    }
+    for (const [cardNo, pairs] of groups) {
+      const available = [...new Set(pairs.map((pair) => (pair.getAttribute('data-side') === 'back' ? 'back' : 'front')))];
+      let faceForCard = extraFaces[cardNo] === 'back' ? 'back' : 'front';
+      if (!available.includes(faceForCard)) faceForCard = available[0] === 'back' ? 'back' : 'front';
+      extraFaces[cardNo] = faceForCard;
+      for (const pair of pairs) {
+        const which = pair.getAttribute('data-side') === 'back' ? 'back' : 'front';
+        const cardNumber = Number(pair.dataset.card) || Number(cardNo) || 0;
+        pair.hidden = cardNumber !== physical || which !== faceForCard;
+        paintFaceToggle(pair, which, available.includes(otherCardFace(which)));
+      }
+    }
+    paintDriverCardNav();
+  }
+
+  function sideDeleteButton() {
+    const sample = document.querySelector('#timesheet-driver-card-frame .timesheet-delete-side');
+    if (sample) {
+      const button = sample.cloneNode(true);
+      return button;
+    }
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary timesheet-delete-side';
+    button.setAttribute('aria-label', 'Delete this side');
+    button.title = 'Remove this photographed side. If it is the last side, the whole constructed card is removed.';
+    button.innerHTML = `<svg class="timesheet-delete-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6.5 7l.8 12.2A1 1 0 0 0 8.3 20.2h7.4a1 1 0 0 0 1-.98L17.5 7"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`;
+    return button;
+  }
+
+  /** @type {{ side: 'front' | 'back', extraIndex: number } | null} */
+  let pendingSideDelete = null;
+
+  function openDeleteSideDialog(pair) {
+    const dialog = document.querySelector('#timesheet-delete-side-dialog');
+    const lead = document.querySelector('#timesheet-delete-side-lead');
+    if (!(pair instanceof HTMLElement) || !(dialog instanceof HTMLDialogElement) || !extraction) return;
+    const side = pair.getAttribute('data-side') === 'back' ? 'back' : 'front';
+    const extraIndex = pair.hasAttribute('data-extra-index') ? Number(pair.dataset.extraIndex) : -1;
+    pendingSideDelete = { side, extraIndex };
+    if (lead instanceof HTMLElement) lead.textContent = deleteSideWarning(extraction, pendingSideDelete);
+    if (!dialog.open) dialog.showModal();
+    document.querySelector('#timesheet-delete-side-cancel')?.focus();
+  }
+
+  function closeDeleteSideDialog() {
+    pendingSideDelete = null;
+    document.querySelector('#timesheet-delete-side-dialog')?.close();
+  }
+
+  function confirmDeleteSide() {
+    const pending = pendingSideDelete;
+    pendingSideDelete = null;
+    document.querySelector('#timesheet-delete-side-dialog')?.close();
+    if (!pending || !extraction) return;
+    const card = activeSessionCard();
+    if (!card) return;
+    const removed = deleteConstructedSide(extraction, pending);
+    if (pending.extraIndex < 0 && pending.side === 'front') card.frontFile = null;
+    if (pending.extraIndex < 0 && pending.side === 'back') card.backFile = null;
+    const label = pending.side === 'back' ? 'back' : 'front';
+    if (removed.empty) {
+      const index = sessionCards.findIndex((item) => item.id === card.id);
+      activeSessionId = '';
+      extraction = null;
+      sessionCards = sessionCards.filter((item) => item.id !== card.id);
+      schedulePersistConstructedCards();
+      const next = sessionCards[Math.max(0, Math.min(index, sessionCards.length - 1))] || null;
+      if (next) {
+        selectSessionCard(next.id).catch(() => null);
+      } else {
+        clearLiveCard();
+      }
+      setStatus('Deleted the constructed card.', 'ok');
+      return;
+    }
+    card.status = sessionCardNeedsReview(extraction) ? 'needs_review' : 'ready';
+    card.updatedAt = Date.now();
+    rememberCardSummary(card);
+    schedulePersistConstructedCards();
+    renderResult();
+    paintCaveats(extraction);
+    paintSessionChips();
+    syncPrintHoursFromExtraction().catch(() => null);
+    setStatus(`Deleted the ${label}.`, 'ok');
+  }
+
+  document.querySelector('#timesheet-delete-side-cancel')?.addEventListener('click', closeDeleteSideDialog);
+  document.querySelector('#timesheet-delete-side-confirm')?.addEventListener('click', confirmDeleteSide);
+  document.querySelector('#timesheet-delete-side-dialog')?.addEventListener('click', (event) => {
+    const dialog = document.querySelector('#timesheet-delete-side-dialog');
+    if (event.target === dialog) closeDeleteSideDialog();
+  });
+  document.querySelector('#timesheet-delete-side-dialog')?.addEventListener('close', () => {
+    pendingSideDelete = null;
+  });
+
+  function faceToggle() {
+    const sample = document.querySelector('#timesheet-driver-card-frame .timesheet-face-toggle');
+    if (sample) return sample.cloneNode(true);
+    const group = document.createElement('div');
+    group.className = 'timesheet-face-toggle';
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', 'Card side');
+    group.innerHTML = `<button type="button" class="timesheet-face-toggle-btn" data-face="front" aria-pressed="true" title="Show the front of this card.">Front</button><button type="button" class="timesheet-face-toggle-btn" data-face="back" aria-pressed="false" title="Show the back of this card.">Back</button>`;
+    return group;
+  }
+
+  function paintExtraSides() {
+    const host = document.querySelector('#timesheet-extra-sides');
+    if (!(host instanceof HTMLElement)) return;
+    host.replaceChildren();
+    const extras = Array.isArray(extraction?.extra_sides) ? extraction.extra_sides : [];
+    const breaks = snapBreaks();
+    const mode = hoursMode;
+    extras.forEach((extra, extraIndex) => {
+      const which = extra?.side === 'back' ? 'back' : 'front';
+      const cardNo = Number(extra?.card) || extraIndex + 2;
+      const pair = document.createElement('div');
+      pair.className = 'timesheet-card-pair';
+      pair.dataset.side = which;
+      pair.dataset.extraIndex = String(extraIndex);
+      pair.dataset.card = String(cardNo);
+      const stage = document.createElement('div');
+      stage.className = 'timesheet-card-stage';
+      const face = document.createElement('div');
+      face.className = 'timesheet-card-face';
+      const heading = document.createElement('h3');
+      heading.className = 'visually-hidden';
+      heading.textContent = which === 'back' ? 'Back' : 'Front';
+      face.append(faceToggle(), heading);
+      const article = document.createElement('article');
+      article.className = 'timesheet-card-panel';
+      article.append(sideDeleteButton());
+      const wrap = document.createElement('div');
+      wrap.className = 'table-wrap timesheet-card-wrap';
+      const table = document.createElement('table');
+      table.className = 'timesheet-card-sheet';
+      table.innerHTML = `<thead><tr>
+        <th scope="col" class="timesheet-card-desc"><span class="visually-hidden">Description of Work</span><span class="timesheet-card-desc-label" aria-hidden="true">Desc</span></th>
+        <th scope="col" class="timesheet-card-reg">Reg</th>
+        <th scope="col" class="timesheet-card-ot">OT</th>
+        <th scope="col" class="timesheet-card-tot">Tot. Hrs.</th>
+        <th scope="col" class="timesheet-card-clock">Clock Record</th>
+        <th scope="col" class="timesheet-card-actions"><span class="visually-hidden">Row actions</span></th>
+      </tr></thead>`;
+      const body = document.createElement('tbody');
+      table.append(body);
+      wrap.append(table);
+      article.append(wrap);
+      const aside = document.createElement('aside');
+      aside.className = 'timesheet-snap-panel';
+      const snapWrap = document.createElement('div');
+      snapWrap.className = 'table-wrap timesheet-snap-wrap';
+      const snapTable = document.createElement('table');
+      snapTable.className = 'timesheet-snap-sheet';
+      const snapHead = document.createElement('thead');
+      const snapLabel = document.createElement('th');
+      snapLabel.textContent = HOURS_MODE_LABELS[mode] || 'Snap rounded times';
+      const snapRow = document.createElement('tr');
+      snapRow.append(snapLabel);
+      snapHead.append(snapRow);
+      const snapBody = document.createElement('tbody');
+      snapTable.append(snapHead, snapBody);
+      snapWrap.append(snapTable);
+      aside.append(snapWrap);
+      stage.append(face, article, aside);
+      pair.append(stage);
+      host.append(pair);
+      const rows = Array.isArray(extra.rows) ? extra.rows : [];
+      extra.rows = rows;
+      const slotCount = shownSlotCount(rows);
+      paintCardSheet(body, rows, slotCount, mode);
+      paintSnapSheet(snapBody, rows, slotCount, breaks, mode);
+      bindCardEditors(body, rows, slotCount, {
+        snapBody,
+        breaks,
+        getMode: () => hoursMode,
+        onStampChange: refreshDerivedFromExtraction,
+        onHoursChange: markAndPaintHourRows,
+      });
+      alignSnapRows(body, snapBody);
+    });
+    paintSideVisibility();
+  }
+
+  let archiveReady = false;
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let persistTimer = null;
+  restoreSavedCards();
+  archiveReady = true;
+  seedLocalExampleCards();
+  window.addEventListener('pagehide', persistConstructedCards);
+
   return { refresh };
+
+  function restoreSavedCards() {
+    const archive = loadGenieCardArchive(browserStorage());
+    sessionCards = archive.cards.map((record) => ({
+      id: record.id,
+      printId: record.printId || '',
+      printed: record.printed === true,
+      printQueued: record.printQueued === true,
+      printQueuedAt: Number(record.printQueuedAt) || 0,
+      status: record.status,
+      extraction: record.extraction,
+      updatedAt: record.updatedAt,
+      frontFile: null,
+      backFile: null,
+      example: false,
+      hoursMode: record.hoursMode,
+      summary: record.summary,
+    }));
+  }
+
+  function seedLocalExampleCards() {
+    if (isLocalGenieHost(window.location.hostname)) {
+      const saved = sessionCards.filter((card) => card.example !== true);
+      const examples = localExampleGenieExtractions().map((cardExtraction, index) => ({
+        id: `example-${index + 1}`,
+        printId: '',
+        status: sessionCardNeedsReview(cardExtraction) ? 'needs_review' : 'ready',
+        extraction: cardExtraction,
+        updatedAt: 0,
+        frontFile: null,
+        backFile: null,
+        example: true,
+      }));
+      sessionCards = [...examples, ...saved];
+    }
+    showActiveCard();
+  }
+
+  function showActiveCard() {
+    if (!sessionCards.length) {
+      extraction = null;
+      activeSessionId = '';
+      awaitingReview = false;
+      paintSessionChips();
+      return;
+    }
+    const periods = carouselPayPeriods(sessionCards, payPeriodOptions);
+    if (!periods.some((period) => period.key === carouselPeriodKey)) {
+      const iso = defaultPayPeriodIso(periods);
+      carouselPeriodKey = periods.find((period) => period.key === iso)?.key || '';
+    }
+    const inPeriod = cardsInCarouselPeriod(sessionCards, carouselPeriodKey);
+    const saved = inPeriod.filter((card) => card.example !== true);
+    const newest = saved.reduce(
+      (best, card) => (!best || card.updatedAt > best.updatedAt ? card : best),
+      null
+    );
+    const active = newest || inPeriod.find((card) => card.status === 'ready') || inPeriod[0] || null;
+    if (!active) {
+      extraction = null;
+      activeSessionId = '';
+      awaitingReview = false;
+      paintSessionChips();
+      return;
+    }
+    activeSessionId = active.id;
+    extraction = active.extraction;
+    awaitingReview = active.status === 'needs_review';
+    renderResult();
+    paintCaveats(extraction);
+    paintSessionChips();
+  }
+
+  function rememberCardSummary(card) {
+    if (!card || card.example === true || card.status === 'reading' || !card.extraction) return;
+    card.hoursMode = hoursMode;
+    try {
+      card.summary = payPeriodSummarySnapshot(
+        buildGenieCardMonthlySummary(card.extraction, snapBreaks(), officeState(), hoursMode)
+      );
+    } catch {
+      card.summary = card.summary || null;
+    }
+  }
+
+  function schedulePersistConstructedCards() {
+    if (persistTimer != null) clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      persistConstructedCards();
+    }, 400);
+  }
+
+  function persistConstructedCards() {
+    if (!archiveReady) return;
+    if (persistTimer != null) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+    }
+    try {
+      const active = activeSessionCard();
+      if (active) rememberCardSummary(active);
+      for (const card of sessionCards) {
+        if (card.example === true || card.status === 'reading' || card.summary) continue;
+        rememberCardSummary(card);
+      }
+      const saved = saveGenieCardArchive(
+        { ...emptyGenieCardArchive(), cards: archiveCardsFromSession(sessionCards) },
+        browserStorage()
+      );
+      if (!saved && sessionCards.some((card) => card.example !== true && card.status !== 'reading')) {
+        setStatus('This browser is full, so the latest card could not be saved. Download a backup, then clear older cards.', 'error');
+      }
+    } catch {
+      setStatus('Could not save the constructed cards in this browser.', 'error');
+    }
+  }
+
+  function backupAllScans() {
+    flushActiveSessionCard();
+    persistConstructedCards();
+    const archive = {
+      ...emptyGenieCardArchive(),
+      cards: archiveCardsFromSession(sessionCards),
+    };
+    if (!archive.cards.length) {
+      setStatus('No constructed cards are saved in this browser yet.', 'error');
+      return;
+    }
+    const html = genieScanBackupHtml(archive, new Date());
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = genieScanBackupFilename(new Date());
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    setStatus(`Downloaded ${archive.cards.length} constructed card${archive.cards.length === 1 ? '' : 's'}.`, 'ok');
+  }
+
+  function browserStorage() {
+    try {
+      return window.localStorage;
+    } catch {
+      return null;
+    }
+  }
 }
 
 /**
  * @param {object | null | undefined} extraction
  */
 export function hasIllegibleClockStamps(extraction) {
-  const rows = [...(extraction?.front_rows ?? []), ...(extraction?.back_rows ?? [])];
+  const rows = extractionRowLists(extraction).flat();
   return rows.some(
     (row) =>
       /^illegible$/i.test(String(row?.clock_out_raw ?? '').trim()) ||
@@ -1423,9 +2792,37 @@ export function sessionCardNeedsReview(extraction) {
   if (hasIllegibleClockStamps(extraction)) return true;
   const contract = parseStickerContractHours(extraction.header?.contract_hours);
   if (contract == null) return true;
-  const rows = [...(extraction.front_rows ?? []), ...(extraction.back_rows ?? [])];
+  const rows = extractionRowLists(extraction).flat();
   if (rows.some((row) => row?.hours_add_up === false)) return true;
   return false;
+}
+
+/**
+ * Driver name shown on a carousel card, or "Card N" when the sticker has no name.
+ * @param {object | null | undefined} extraction
+ * @param {number} index
+ */
+export function sessionCardDriverName(extraction, index) {
+  const name = String(extraction?.header?.employee_name || '').trim();
+  if (name) return name;
+  const n = Number(index) + 1;
+  return `Card ${Number.isFinite(n) && n > 0 ? n : 1}`;
+}
+
+/**
+ * Split a "Last, First" sticker name so a square button can stack it.
+ * @param {string | null | undefined} name
+ */
+export function driverNameParts(name) {
+  const text = String(name || '').trim();
+  const comma = text.indexOf(',');
+  if (comma > 0) {
+    return {
+      last: text.slice(0, comma).trim() || text,
+      first: text.slice(comma + 1).trim(),
+    };
+  }
+  return { last: text, first: '' };
 }
 
 /**
@@ -1434,9 +2831,161 @@ export function sessionCardNeedsReview(extraction) {
  * @param {number} index
  */
 export function sessionCardChipLabel(extraction, index) {
-  const name = String(extraction?.header?.employee_name || '').trim();
-  const n = Number(index) + 1;
-  return name || `Card ${Number.isFinite(n) && n > 0 ? n : 1}`;
+  const who = sessionCardDriverName(extraction, index);
+  const date = String(extraction?.header?.date_on_card || '').trim();
+  return date ? `${who} · ${date}` : who;
+}
+
+/**
+ * Stable carousel key for a card: the sticker pay-period end, or a fallback bucket.
+ * @param {object | null | undefined} card
+ */
+export function carouselPeriodKeyForCard(card) {
+  const iso = parseCardPeriodEnd(card?.extraction?.header?.date_on_card);
+  if (iso) return iso;
+  const sticker = String(card?.extraction?.header?.date_on_card || '').trim();
+  return sticker ? `sticker:${sticker}` : 'none';
+}
+
+/**
+ * Every calculated school-year pay period, oldest first, plus a card whose
+ * sticker date is not already one of those endings. An empty period stays in
+ * the list; this does not invent cards for it.
+ * @param {object[] | null | undefined} cards
+ * @param {Array<{ iso?: string, label?: string }> | null | undefined} knownPeriods
+ */
+export function carouselPayPeriods(cards, knownPeriods = []) {
+  /** @type {Map<string, { key: string, iso: string, label: string }>} */
+  const groups = new Map();
+  for (const period of Array.isArray(knownPeriods) ? knownPeriods : []) {
+    const iso = String(period?.iso || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || groups.has(iso)) continue;
+    groups.set(iso, { key: iso, iso, label: String(period?.label || iso) });
+  }
+  for (const card of Array.isArray(cards) ? cards : []) {
+    const key = carouselPeriodKeyForCard(card);
+    if (groups.has(key)) continue;
+    const iso = key === 'none' || key.startsWith('sticker:') ? '' : key;
+    const sticker = String(card?.extraction?.header?.date_on_card || '').trim();
+    const label = key === 'none' ? 'No sticker date' : sticker || iso;
+    groups.set(key, { key, iso, label });
+  }
+  return [...groups.values()].sort((a, b) => {
+    if (a.iso && b.iso) return a.iso.localeCompare(b.iso);
+    if (a.iso) return -1;
+    if (b.iso) return 1;
+    return a.label.localeCompare(b.label);
+  });
+}
+
+/**
+ * Cards whose sticker date belongs to the selected carousel pay period.
+ * @param {object[] | null | undefined} cards
+ * @param {string | null | undefined} periodKey
+ */
+export function cardsInCarouselPeriod(cards, periodKey) {
+  const key = String(periodKey || '');
+  return (Array.isArray(cards) ? cards : []).filter((card) => carouselPeriodKeyForCard(card) === key);
+}
+
+/**
+ * Employee squares added to the print queue for one pay period, oldest first.
+ * @param {object[] | null | undefined} cards
+ * @param {string | null | undefined} periodKey
+ */
+export function queuedCardsInPeriod(cards, periodKey) {
+  return cardsInCarouselPeriod(cards, periodKey)
+    .filter((card) => card?.printQueued === true)
+    .sort((a, b) => (Number(a.printQueuedAt) || 0) - (Number(b.printQueuedAt) || 0));
+}
+
+/**
+ * Physical cards on one constructed record. Card 1 is the front/back pair.
+ * Later numbers are extra cards photographed for that same driver.
+ * @param {object | null | undefined} extraction
+ * @returns {number[]}
+ */
+export function physicalCardNumbers(extraction) {
+  const numbers = new Set([1]);
+  const extras = Array.isArray(extraction?.extra_sides) ? extraction.extra_sides : [];
+  for (const side of extras) {
+    const number = Number(side?.card) || 0;
+    if (number >= 2) numbers.add(number);
+  }
+  return [...numbers].sort((a, b) => a - b);
+}
+
+/**
+ * Front-and-back cards for one driver in one pay period, in desk order.
+ * Separate session cards with the same sticker name and period are included,
+ * as are extra physical cards stored on one extraction.
+ * @param {object[] | null | undefined} cards
+ * @param {string | null | undefined} activeId
+ * @returns {{ id: string, cardNumber: number }[]}
+ */
+export function driverPayPeriodCardSteps(cards, activeId) {
+  const list = Array.isArray(cards) ? cards : [];
+  const active = list.find((card) => card?.id === activeId) || null;
+  if (!active) return [];
+  const period = carouselPeriodKeyForCard(active);
+  const name = String(active.extraction?.header?.employee_name || '').trim().toLowerCase();
+  const pool = name
+    ? list.filter(
+        (card) =>
+          carouselPeriodKeyForCard(card) === period &&
+          String(card.extraction?.header?.employee_name || '').trim().toLowerCase() === name
+      )
+    : [active];
+  /** @type {{ id: string, cardNumber: number }[]} */
+  const steps = [];
+  for (const card of pool) {
+    for (const cardNumber of physicalCardNumbers(card.extraction)) {
+      steps.push({ id: card.id, cardNumber });
+    }
+  }
+  return steps;
+}
+
+function mintGroupId() {
+  return `group-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * @param {object | null | undefined} card
+ */
+function sessionSideNote(card) {
+  const present = card?.extraction?.sides_present;
+  const extras = Array.isArray(card?.extraction?.extra_sides) ? card.extraction.extra_sides.length : 0;
+  let count = extras;
+  if (!present || present.front !== false) count += 1;
+  if (!present || present.back !== false) count += 1;
+  if (count > 2) return ` · ${count} sides`;
+  if (present?.front === false) return ' · back only';
+  if (present?.back === false) return ' · front only';
+  return '';
+}
+
+/**
+ * Keep rows for a side that was not in this read (skipped or already on file).
+ * @param {object} next
+ * @param {object | null | undefined} previous
+ * @param {{ front: boolean, back: boolean }} sent
+ */
+function rememberUnsentSides(next, previous, sent) {
+  if (!next || typeof next !== 'object') return;
+  if (previous && !sent.front) {
+    next.front_rows = Array.isArray(previous.front_rows) ? previous.front_rows : [];
+    if (previous.header) next.header = previous.header;
+  }
+  if (previous && !sent.back) {
+    next.back_rows = Array.isArray(previous.back_rows) ? previous.back_rows : [];
+  }
+  if (Array.isArray(previous?.extra_sides)) next.extra_sides = previous.extra_sides;
+  const prior = previous?.sides_present;
+  next.sides_present = {
+    front: sent.front || prior?.front === true,
+    back: sent.back || prior?.back === true,
+  };
 }
 
 function mintPrintCardId() {
@@ -1476,6 +3025,18 @@ function paintHourFlags(body, rows) {
  * @param {HTMLElement | null} body
  * @param {object[] | null | undefined} rows
  */
+function paintTotHourFields(body, rows, runExtras) {
+  if (!body || !Array.isArray(rows)) return;
+  for (const row of rows) {
+    const index = Number(row?.row_index) || 0;
+    if (!index) continue;
+    const input = body.querySelector(`tr[data-row-index="${index}"] input[data-field="total_hours"]`);
+    if (!(input instanceof HTMLInputElement)) continue;
+    input.value = row?.total_hours == null || row.total_hours === '' ? '' : String(row.total_hours);
+    input.title = runExtras && input.value ? 'Hours worked past this run’s contract' : '';
+  }
+}
+
 function paintRegOtFields(body, rows) {
   if (!body || !Array.isArray(rows)) return;
   for (const row of rows) {
@@ -1535,18 +3096,17 @@ export function paintCardSheet(body, rows, slotCount, mode) {
           aria-label="Tot. Hrs. row ${index} from ${totSource}">
       </td>
       <td class="timesheet-card-clock">
-        ${stampEditorHtml('out', row.clock_out_raw, index)}
-        ${stampEditorHtml('in', row.clock_in_raw, index)}
+        ${clockRecordHtml(row, index)}
       </td>
       <td class="timesheet-card-actions">
         <button type="button" class="timesheet-row-slice${portionCount ? ' has-slices' : ''}"
           ${blank || row.crossed_out ? 'disabled' : ''}
           aria-label="Slice pay status for row ${index}${portionCount ? ` (${portionCount} parts)` : ''}"
-          title="Slice clock time by pay status">✂</button>
+          title="Split this clock period across pay statuses. Hours are taken from the start of the period.">✂</button>
         <button type="button" class="timesheet-row-delete"
           ${blank && !row.description_of_work && !portionCount ? 'disabled' : ''}
           aria-label="Delete row ${index}"
-          title="Delete this line">×</button>
+          title="Remove this clock line and its hours from the card.">×</button>
       </td>`;
     body.append(tr);
   }
@@ -1676,8 +3236,7 @@ function updateRowSnapDerived(tr, row, breaks, mode) {
 function cardDayFigures(extraction, breaks, _state, mode) {
   const year = inferDefaultYear(extraction?.header?.date_on_card);
   const totHoursByDay = new Map();
-  for (const rows of [extraction?.front_rows, extraction?.back_rows]) {
-    if (!Array.isArray(rows)) continue;
+  for (const rows of extractionRowLists(extraction)) {
     for (const row of rows) {
       if (!row || row.crossed_out) continue;
       const snapped = snapRoundedForRow(row, breaks, year, mode);
@@ -1698,6 +3257,42 @@ function cardDayFigures(extraction, breaks, _state, mode) {
 function refreshPayPeriodInfo(extraction, breaks, state, mode) {
   const host = document.querySelector('#timesheet-pay-period');
   if (!(host instanceof HTMLElement)) return;
+  try {
+    const summary = buildGenieCardMonthlySummary(extraction, breaks, state, mode);
+    if (!summary) {
+      host.innerHTML =
+        '<p class="lead timesheet-pay-period-empty">Add readable Clock Record stamps to build the Monthly Time Summary.</p>';
+      return;
+    }
+    const markup = monthlyTimeSummaryEmbedMarkup(summary);
+    host.innerHTML = markup ||
+      '<p class="lead timesheet-pay-period-empty">No pay period days match those stamps yet.</p>';
+    const periodSelect = host.querySelector('[data-timesheet-mts-period]');
+    if (periodSelect instanceof HTMLSelectElement) {
+      periodSelect.addEventListener('change', () => {
+        const key = periodSelect.value;
+        host.querySelectorAll('.period-block').forEach((block) => {
+          if (!(block instanceof HTMLElement)) return;
+          block.hidden = block.dataset.period !== key;
+        });
+      });
+    }
+  } catch (error) {
+    host.innerHTML = `<p class="lead timesheet-pay-period-empty">${escapeHtml(
+      error?.message || 'Could not build the Monthly Time Summary.'
+    )}</p>`;
+  }
+}
+
+/**
+ * Monthly Time Summary for one constructed card. Null when the stamps cannot fill a sheet.
+ * @param {object} extraction
+ * @param {object} breaks
+ * @param {object | null} state
+ * @param {string | null | undefined} [mode]
+ */
+function buildGenieCardMonthlySummary(extraction, breaks, state, mode) {
+  if (!extraction) return null;
   const year = inferDefaultYear(extraction?.header?.date_on_card);
   const driverName = String(extraction?.header?.employee_name || '').trim() || 'Driver';
   const office = state && typeof state === 'object' ? state : {};
@@ -1721,55 +3316,40 @@ function refreshPayPeriodInfo(extraction, breaks, state, mode) {
     mode,
     defaultPayStatus
   );
+  if (!punches.length) return null;
   const { totHoursByDay } = cardDayFigures(extraction, breaks, office, mode);
-  if (!punches.length) {
-    host.innerHTML =
-      '<p class="lead timesheet-pay-period-empty">Add readable Clock Record stamps to build the Monthly Time Summary.</p>';
-    return;
-  }
+  const runExtras = applyRunExtraTotals(extractionRowLists(extraction), extraction?.header, {
+    breaks,
+    defaultYear: year,
+    mode,
+  });
   let cardNow = null;
   for (const punch of punches) {
     const when = new Date(punch?.punched_at);
     if (Number.isNaN(when.getTime())) continue;
     if (!cardNow || when > cardNow) cardNow = when;
   }
-  try {
-    const lineIds = choices.map((line) => line.id);
-    const summary = buildMonthlyTimeSummary({
-      driverName: driver?.name || driverName,
-      driverId: driver?.id || 'genie-card',
-      email: driver?.email || '',
-      pay: driver?.pay,
-      defaults,
-      edits: {},
-      punches,
-      officeState: office,
-      rounding: clockRoundingMode(office),
-      overtimeRules: office.overtimeRules,
-      stickerContractHours: extraction?.header?.contract_hours,
-      now: cardNow || new Date(),
-      focus: lineIds.length ? { lineIds } : undefined,
-      regOtFromContractGap: true,
-      totHoursByDay,
-    });
-    const markup = monthlyTimeSummaryEmbedMarkup(summary);
-    host.innerHTML = markup ||
-      '<p class="lead timesheet-pay-period-empty">No pay period days match those stamps yet.</p>';
-    const periodSelect = host.querySelector('[data-timesheet-mts-period]');
-    if (periodSelect instanceof HTMLSelectElement) {
-      periodSelect.addEventListener('change', () => {
-        const key = periodSelect.value;
-        host.querySelectorAll('.period-block').forEach((block) => {
-          if (!(block instanceof HTMLElement)) return;
-          block.hidden = block.dataset.period !== key;
-        });
-      });
-    }
-  } catch (error) {
-    host.innerHTML = `<p class="lead timesheet-pay-period-empty">${escapeHtml(
-      error?.message || 'Could not build the Monthly Time Summary.'
-    )}</p>`;
-  }
+  const regDriverHoursByDay = runExtras
+    ? new Map([...runExtras.shortByDay].map(([day, hours]) => [day, -hours]))
+    : null;
+  return buildMonthlyTimeSummary({
+    driverName: driver?.name || driverName,
+    driverId: driver?.id || 'genie-card',
+    email: driver?.email || '',
+    pay: driver?.pay,
+    defaults,
+    edits: {},
+    punches,
+    officeState: office,
+    rounding: clockRoundingMode(office),
+    overtimeRules: office.overtimeRules,
+    stickerContractHours: extraction?.header?.contract_hours,
+    now: cardNow || new Date(),
+    regOtFromContractGap: true,
+    totHoursByDay,
+    exDriverHoursByDay: runExtras?.extraByDay || null,
+    regDriverHoursByDay,
+  });
 }
 
 /**
@@ -1782,8 +3362,7 @@ function refreshPayPeriodInfo(extraction, breaks, state, mode) {
 function ensureCardRowPayDefaults(extraction, breaks, year, mode, defaultPayStatus) {
   const status = String(defaultPayStatus || '').trim();
   if (!status) return;
-  for (const rows of [extraction?.front_rows, extraction?.back_rows]) {
-    if (!Array.isArray(rows)) continue;
+  for (const rows of extractionRowLists(extraction)) {
     for (const row of rows) {
       if (!row || row.crossed_out) continue;
       const snapped = snapRoundedForRow(row, breaks, year, mode);
@@ -1801,8 +3380,7 @@ function ensureCardRowPayDefaults(extraction, breaks, year, mode, defaultPayStat
 function applyHeaderDefaultPayStatus(extraction, defaultPayStatus) {
   const status = String(defaultPayStatus || '').trim();
   if (!isPayLineId(status)) return;
-  for (const rows of [extraction?.front_rows, extraction?.back_rows]) {
-    if (!Array.isArray(rows)) continue;
+  for (const rows of extractionRowLists(extraction)) {
     for (const row of rows) {
       if (!row || row.crossed_out) continue;
       if (Array.isArray(row.pay_portions) && row.pay_portions.length) continue;
@@ -1830,14 +3408,7 @@ export function paintSnapSheet(body, rows, slotCount, breaks, mode) {
     if (blank) tr.classList.add('is-quiet');
     tr.innerHTML = `
       <td>
-        <div class="timesheet-snap-stamp">
-          <span class="timesheet-card-label">Out</span>
-          <span class="timesheet-snap-value${snapped.outIllegible ? ' is-illegible' : ''}">${escapeHtml(snapped.outLabel || '—')}</span>
-        </div>
-        <div class="timesheet-snap-stamp">
-          <span class="timesheet-card-label">In</span>
-          <span class="timesheet-snap-value${snapped.inIllegible ? ' is-illegible' : ''}">${escapeHtml(snapped.inLabel || '—')}</span>
-        </div>
+        ${snapRecordHtml(row, snapped)}
       </td>`;
     body.append(tr);
   }
@@ -1857,25 +3428,82 @@ function blankCardHeader() {
 }
 
 /**
- * Printed sticker contract line: total, or "5.25 (2, 3.25)" when run parts exist.
- * @param {object | null | undefined} header
- */
-function formatStickerContractLine(header) {
-  const total = header?.contract_hours;
-  if (total == null || !(Number.isFinite(Number(total)) && Number(total) > 0)) return '';
-  const parts = [header?.contract_am_hours, header?.contract_midday_hours, header?.contract_pm_hours]
-    .map((value) => (value == null ? null : Number(value)))
-    .filter((value) => value != null && Number.isFinite(value) && value > 0);
-  const totalText = formatAuditHours(total);
-  if (!parts.length) return totalText;
-  return `${totalText} (${parts.map((value) => formatAuditHours(value)).join(', ')})`;
-}
-
-/**
  * Clear a front/back card line so it no longer feeds the Monthly Time Summary.
  * Slot stays in place so the paper-card row alignment is unchanged.
  * @param {object | null | undefined} row
  */
+/**
+ * Photographed sides still on a constructed card.
+ * Card 1 counts a side unless sides_present marks it absent.
+ * @param {object | null | undefined} extraction
+ * @returns {{ side: 'front' | 'back', extraIndex: number, card: number }[]}
+ */
+export function constructedCardSides(extraction) {
+  const present = extraction?.sides_present;
+  /** @type {{ side: 'front' | 'back', extraIndex: number, card: number }[]} */
+  const sides = [];
+  if (!present || present.front !== false) sides.push({ side: 'front', extraIndex: -1, card: 1 });
+  if (!present || present.back !== false) sides.push({ side: 'back', extraIndex: -1, card: 1 });
+  const extras = Array.isArray(extraction?.extra_sides) ? extraction.extra_sides : [];
+  extras.forEach((extra, extraIndex) => {
+    sides.push({
+      side: extra?.side === 'back' ? 'back' : 'front',
+      extraIndex,
+      card: Number(extra?.card) || extraIndex + 2,
+    });
+  });
+  return sides;
+}
+
+/**
+ * Warning copy before a constructed side is deleted.
+ * @param {object | null | undefined} extraction
+ * @param {{ side?: string, extraIndex?: number } | null | undefined} target
+ */
+export function deleteSideWarning(extraction, target) {
+  const side = target?.side === 'back' ? 'back' : 'front';
+  const extraIndex = Number(target?.extraIndex);
+  const extras = Array.isArray(extraction?.extra_sides) ? extraction.extra_sides : [];
+  const cardNo = extraIndex >= 0 ? Number(extras[extraIndex]?.card) || extraIndex + 2 : 1;
+  const who = String(extraction?.header?.employee_name || '').trim();
+  const place = cardNo > 1 ? `card ${cardNo} ${side}` : `the ${side}`;
+  const whose = who ? ` for ${who}` : '';
+  if (constructedCardSides(extraction).length <= 1) {
+    return `Delete ${place}${whose}? This is the last side, so the whole constructed card will be removed.`;
+  }
+  return `Delete ${place}${whose}? The hours on this side come off the constructed card. The other side stays.`;
+}
+
+/**
+ * Remove one photographed side from a constructed card. Mutates the extraction.
+ * @param {object | null | undefined} extraction
+ * @param {{ side?: string, extraIndex?: number } | null | undefined} target
+ * @returns {{ empty: boolean }}
+ */
+export function deleteConstructedSide(extraction, target) {
+  if (!extraction || typeof extraction !== 'object') return { empty: true };
+  const side = target?.side === 'back' ? 'back' : 'front';
+  const extraIndex = Number(target?.extraIndex);
+  if (Number.isInteger(extraIndex) && extraIndex >= 0) {
+    const extras = Array.isArray(extraction.extra_sides) ? extraction.extra_sides.slice() : [];
+    if (extraIndex < extras.length) extras.splice(extraIndex, 1);
+    extraction.extra_sides = extras;
+  } else if (side === 'back') {
+    extraction.back_rows = [];
+    extraction.sides_present = {
+      front: extraction.sides_present?.front !== false,
+      back: false,
+    };
+  } else {
+    extraction.front_rows = [];
+    extraction.sides_present = {
+      front: false,
+      back: extraction.sides_present?.back !== false,
+    };
+  }
+  return { empty: constructedCardSides(extraction).length === 0 };
+}
+
 export function clearCardRow(row) {
   if (!row || typeof row !== 'object') return row;
   row.description_of_work = null;
@@ -1976,14 +3604,14 @@ function mountCardHeaderForm(options) {
   const driverInput = document.querySelector('#timesheet-header-driver');
   const routeInput = document.querySelector('#timesheet-header-route');
   const dateInput = document.querySelector('#timesheet-header-date');
-  const amInput = document.querySelector('#timesheet-header-am');
-  const midInput = document.querySelector('#timesheet-header-mid');
-  const pmInput = document.querySelector('#timesheet-header-pm');
   const contractInput = document.querySelector('#timesheet-header-contract');
+  const contractAmInput = document.querySelector('#timesheet-header-contract-am');
+  const contractMidInput = document.querySelector('#timesheet-header-contract-mid');
+  const contractPmInput = document.querySelector('#timesheet-header-contract-pm');
   const payStatusSelect = document.querySelector('#timesheet-header-pay-status');
   const driverList = document.querySelector('#timesheet-driver-options');
   const routeList = document.querySelector('#timesheet-route-options');
-  if (!form || !driverInput || !routeInput || !amInput || !midInput || !pmInput) {
+  if (!form || !driverInput || !routeInput) {
     return {
       syncFromExtraction() {},
       clear() {},
@@ -2088,38 +3716,65 @@ function mountCardHeaderForm(options) {
     refreshPayStatusChoices();
   }
 
-  function readHeaderFromForm({ fromContractLine = false } = {}) {
+  function readContractNumber(input) {
+    if (!(input instanceof HTMLInputElement)) return null;
+    const text = input.value.trim();
+    if (!/^\d+(?:\.\d+)?$/.test(text)) return null;
+    const number = Number(text);
+    if (!Number.isFinite(number) || number <= 0 || number > 24) return null;
+    return Math.round(number * 100) / 100;
+  }
+
+  function contractFieldText(value) {
+    if (value == null || value === '') return '';
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0) return '';
+    return formatAuditHours(number);
+  }
+
+  /**
+   * Total outside the parentheses is the day's contract for Reg / OT.
+   * A pasted line such as "4.25 (2, 2.5)" fills total, AM, and PM, with midday empty.
+   * Editing a run portion rebuilds the total from AM + midday + PM.
+   * @param {'part' | 'line' | ''} [contractFrom]
+   */
+  function readStickerContract(contractFrom = '') {
+    const totalRaw = contractInput instanceof HTMLInputElement ? contractInput.value.trim() : '';
+    const pasted = /\(/.test(totalRaw) ? parseStickerContractHours(totalRaw) : null;
+    if (pasted) return pasted;
+    let am = readContractNumber(contractAmInput);
+    let midday = readContractNumber(contractMidInput);
+    let pm = readContractNumber(contractPmInput);
+    let total = readContractNumber(contractInput);
+    const parts = [am, midday, pm].filter((value) => value != null);
+    if (contractFrom === 'part' && parts.length) {
+      total = Math.round(parts.reduce((sum, value) => sum + value, 0) * 100) / 100;
+    } else if (total == null && parts.length) {
+      total = Math.round(parts.reduce((sum, value) => sum + value, 0) * 100) / 100;
+    }
+    return { total, am, midday, pm };
+  }
+
+  function readHeaderFromForm(contractFrom = '') {
     const extraction = options.getExtraction();
     const previous = extraction?.header && typeof extraction.header === 'object'
       ? extraction.header
       : blankCardHeader();
     const payStatus =
       payStatusSelect instanceof HTMLSelectElement ? payStatusSelect.value.trim() : '';
-    const stickerContract =
-      contractInput instanceof HTMLInputElement
-        ? parseStickerContractHours(contractInput.value)
-        : null;
-    const am = parseHoursInput(amInput.value);
-    const midday = parseHoursInput(midInput.value);
-    const pm = parseHoursInput(pmInput.value);
+    const stickerContract = readStickerContract(contractFrom);
     const dateText =
       dateInput instanceof HTMLInputElement ? dateInput.value.trim() : '';
-    const fromRuns = am != null || midday != null || pm != null;
-    const runTotal = fromRuns
-      ? Math.round(([am, midday, pm].reduce((sum, value) => sum + (value || 0), 0)) * 100) / 100
-      : null;
     return {
       ...blankCardHeader(),
       ...previous,
       employee_name: driverInput.value.trim() || null,
       route_number: routeInput.value.trim() || null,
       date_on_card: dateText || null,
-      contract_am_hours: fromContractLine ? stickerContract?.am ?? null : am,
-      contract_midday_hours: fromContractLine ? stickerContract?.midday ?? null : midday,
-      contract_pm_hours: fromContractLine ? stickerContract?.pm ?? null : pm,
-      contract_hours: fromContractLine
-        ? stickerContract?.total ?? null
-        : runTotal ?? stickerContract?.total ?? previous.contract_hours ?? null,
+      contract_am_hours: stickerContract?.am ?? null,
+      contract_midday_hours: stickerContract?.midday ?? null,
+      contract_pm_hours: stickerContract?.pm ?? null,
+      contract_hours: stickerContract?.total ?? null,
       default_pay_status: isPayLineId(payStatus) ? payStatus : null,
     };
   }
@@ -2131,11 +3786,17 @@ function mountCardHeaderForm(options) {
     if (dateInput instanceof HTMLInputElement) {
       dateInput.value = next.date_on_card ? String(next.date_on_card) : '';
     }
-    amInput.value = hoursFieldText(next.contract_am_hours);
-    midInput.value = hoursFieldText(next.contract_midday_hours);
-    pmInput.value = hoursFieldText(next.contract_pm_hours);
     if (contractInput instanceof HTMLInputElement) {
-      contractInput.value = formatStickerContractLine(next);
+      contractInput.value = contractFieldText(next.contract_hours);
+    }
+    if (contractAmInput instanceof HTMLInputElement) {
+      contractAmInput.value = contractFieldText(next.contract_am_hours);
+    }
+    if (contractMidInput instanceof HTMLInputElement) {
+      contractMidInput.value = contractFieldText(next.contract_midday_hours);
+    }
+    if (contractPmInput instanceof HTMLInputElement) {
+      contractPmInput.value = contractFieldText(next.contract_pm_hours);
     }
     refreshPayStatusChoices(next.default_pay_status);
   }
@@ -2151,36 +3812,37 @@ function mountCardHeaderForm(options) {
       if (fillRoute && !next.route_number && row.route) {
         next.route_number = String(row.route);
       }
-      next.contract_am_hours = contractHoursFromPayroll(row, 'am');
-      next.contract_midday_hours = contractHoursFromPayroll(row, 'midday');
-      next.contract_pm_hours = contractHoursFromPayroll(row, 'pm');
+      if (next.contract_am_hours == null) next.contract_am_hours = contractHoursFromPayroll(row, 'am');
+      if (next.contract_midday_hours == null) next.contract_midday_hours = contractHoursFromPayroll(row, 'midday');
+      if (next.contract_pm_hours == null) next.contract_pm_hours = contractHoursFromPayroll(row, 'pm');
+      const parts = [next.contract_am_hours, next.contract_midday_hours, next.contract_pm_hours]
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      if (parts.length && !(Number(next.contract_hours) > 0)) {
+        next.contract_hours = Math.round(parts.reduce((sum, value) => sum + value, 0) * 100) / 100;
+      }
     }
     const suggested = suggestedPayStatusForDriver(next.employee_name);
     if (suggested) next.default_pay_status = suggested;
     return next;
   }
 
-  function commitForm({ matchFrom, fromContractLine = false } = {}) {
+  function commitForm({ matchFrom = '', contractFrom = '' } = {}) {
     if (!options.getExtraction()) return;
-    let header = readHeaderFromForm({ fromContractLine });
+    let header = readHeaderFromForm(contractFrom);
     if (matchFrom === 'driver' && header.employee_name) {
       header = applyMatchedSuggestions(header, { fillRoute: true });
     } else if (matchFrom === 'route' && header.route_number) {
       header = applyMatchedSuggestions(header, { fillDriver: true });
     }
     options.setExtractionHeader(header);
-    if (matchFrom || fromContractLine) {
+    if (matchFrom || contractFrom === 'line') {
       fillingFromMatch = true;
       writeHeaderToForm(header);
       fillingFromMatch = false;
-    } else if (
-      contractInput instanceof HTMLInputElement &&
-      (amInput === document.activeElement ||
-        midInput === document.activeElement ||
-        pmInput === document.activeElement)
-    ) {
+    } else if (contractFrom === 'part' && contractInput instanceof HTMLInputElement) {
       fillingFromMatch = true;
-      contractInput.value = formatStickerContractLine(header);
+      contractInput.value = contractFieldText(header.contract_hours);
       fillingFromMatch = false;
     }
   }
@@ -2194,11 +3856,25 @@ function mountCardHeaderForm(options) {
     if (fillingFromMatch) return;
     commitForm({ matchFrom: 'route' });
   });
-  for (const input of [driverInput, routeInput, dateInput, amInput, midInput, pmInput, contractInput]) {
+  for (const input of [driverInput, routeInput, dateInput]) {
     if (!input) continue;
     input.addEventListener('input', () => {
       if (fillingFromMatch) return;
-      commitForm({ fromContractLine: input === contractInput });
+      commitForm();
+    });
+  }
+  if (contractInput instanceof HTMLInputElement) {
+    contractInput.addEventListener('input', () => {
+      if (fillingFromMatch) return;
+      const pasted = /\(/.test(contractInput.value);
+      commitForm({ contractFrom: pasted ? 'line' : '' });
+    });
+  }
+  for (const input of [contractAmInput, contractMidInput, contractPmInput]) {
+    if (!(input instanceof HTMLInputElement)) continue;
+    input.addEventListener('input', () => {
+      if (fillingFromMatch) return;
+      commitForm({ contractFrom: 'part' });
     });
   }
   if (payStatusSelect instanceof HTMLSelectElement) {
@@ -2251,7 +3927,7 @@ function mountSliceDialog(options) {
     return { open() {}, close() {} };
   }
 
-  /** @type {{ side: 'front' | 'back', index: number, start: Date, end: Date } | null} */
+  /** @type {{ side: 'front' | 'back', index: number, extraIndex: number, start: Date, end: Date } | null} */
   let editing = null;
 
   function close() {
@@ -2296,7 +3972,7 @@ function mountSliceDialog(options) {
 
   function currentRow() {
     if (!editing) return null;
-    const rows = options.getRows(editing.side);
+    const rows = options.getRows(editing.side, editing.extraIndex);
     return Array.isArray(rows) ? rows[editing.index - 1] || null : null;
   }
 
@@ -2343,6 +4019,7 @@ function mountSliceDialog(options) {
       remove.type = 'button';
       remove.className = 'secondary';
       remove.textContent = 'Remove';
+      remove.title = 'Take these hours off this pay status and return them to the clock period.';
       remove.addEventListener('click', () => {
         const next = portions.filter((_, i) => i !== index);
         if (next.length) row.pay_portions = next;
@@ -2412,9 +4089,10 @@ function mountSliceDialog(options) {
     /**
      * @param {'front' | 'back'} side
      * @param {number} index
+     * @param {number} [extraIndex]
      */
-    open(side, index) {
-      const rows = options.getRows(side);
+    open(side, index, extraIndex = -1) {
+      const rows = options.getRows(side, extraIndex);
       const row = Array.isArray(rows) ? rows[index - 1] : null;
       if (!row) return;
       const year = inferDefaultYear(null);
@@ -2425,6 +4103,7 @@ function mountSliceDialog(options) {
       editing = {
         side,
         index,
+        extraIndex,
         start: snapped.spanStart,
         end: snapped.spanEnd,
       };
@@ -2469,41 +4148,36 @@ function contractHoursFromPayroll(row, run) {
   return null;
 }
 
-function parseHoursInput(value) {
-  const text = String(value ?? '').trim();
-  if (!text) return null;
-  const number = Number(text);
-  return Number.isFinite(number) ? number : text;
-}
-
-function hoursFieldText(value) {
-  if (value == null || value === '') return '';
-  return String(value);
-}
-
 /**
- * Fine row-height dial so a paper card held to the screen can match the on-screen slots.
- * @param {{
- *   cards: Element | null,
- *   input: HTMLInputElement | null,
- *   down: HTMLButtonElement | null,
- *   up: HTMLButtonElement | null,
- *   valueOut: HTMLOutputElement | null,
- *   realign: () => void,
- * }} parts
+ * Header row-height control. Size every constructed card so a paper card can sit next to the screen.
+ * @param {{ cards: Element | null, realign: () => void }} parts
  */
-function mountRowHeightControl({ cards, input, down, up, valueOut, realign }) {
-  if (!cards || !input || !down || !up || !valueOut) return;
+function mountRowHeightControl({ cards, realign }) {
+  if (!(cards instanceof HTMLElement)) return;
+  const host = cards.closest('#timecard-genie-view');
+  const root = host instanceof HTMLElement ? host : cards;
+  let current = savedRowHeight();
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let delay = null;
+  /** @type {ReturnType<typeof setInterval> | null} */
+  let timer = null;
+
+  function clearHold() {
+    if (delay != null) clearTimeout(delay);
+    if (timer != null) clearInterval(timer);
+    delay = null;
+    timer = null;
+  }
 
   function apply(px, { save = true } = {}) {
-    const next = Math.min(ROW_HEIGHT_MAX, Math.max(ROW_HEIGHT_MIN, Math.round(Number(px) || ROW_HEIGHT_DEFAULT)));
-    cards.style.setProperty('--timesheet-row-height', `${next}px`);
-    input.value = String(next);
-    input.setAttribute('aria-valuetext', `${next} pixels`);
-    valueOut.textContent = `${next}px`;
+    current = Math.min(ROW_HEIGHT_MAX, Math.max(ROW_HEIGHT_MIN, Math.round(Number(px) || ROW_HEIGHT_DEFAULT)));
+    cards.style.setProperty('--timesheet-row-height', `${current}px`);
+    for (const out of root.querySelectorAll('.timesheet-row-height-value')) {
+      out.textContent = `${current}px`;
+    }
     if (save) {
       try {
-        localStorage.setItem(ROW_HEIGHT_KEY, String(next));
+        localStorage.setItem(ROW_HEIGHT_KEY, String(current));
       } catch {
         /* Preference can stay for this visit only. */
       }
@@ -2511,13 +4185,43 @@ function mountRowHeightControl({ cards, input, down, up, valueOut, realign }) {
     realign();
   }
 
-  apply(savedRowHeight(), { save: false });
-  input.min = String(ROW_HEIGHT_MIN);
-  input.max = String(ROW_HEIGHT_MAX);
-  input.step = '1';
-  input.addEventListener('input', () => apply(input.value));
-  bindHoldRepeat(down, () => apply(Number(input.value) - 1));
-  bindHoldRepeat(up, () => apply(Number(input.value) + 1));
+  function step(delta) {
+    apply(current + delta);
+  }
+
+  /** Pointer clicks already step on pointerdown; the click listener covers keyboard only. */
+  let fromPointer = false;
+
+  root.addEventListener('pointerdown', (event) => {
+    const button = event.target instanceof Element ? event.target.closest('[data-row-height]') : null;
+    if (!(button instanceof HTMLButtonElement) || event.button !== 0) return;
+    event.preventDefault();
+    fromPointer = true;
+    const delta = Number(button.dataset.rowHeight) || 0;
+    step(delta);
+    delay = setTimeout(() => {
+      timer = setInterval(() => step(delta), 45);
+    }, 320);
+  });
+  root.addEventListener('click', (event) => {
+    if (fromPointer) {
+      fromPointer = false;
+      return;
+    }
+    const button = event.target instanceof Element ? event.target.closest('[data-row-height]') : null;
+    if (!(button instanceof HTMLButtonElement)) return;
+    step(Number(button.dataset.rowHeight) || 0);
+  });
+  root.addEventListener('pointerout', (event) => {
+    const button = event.target instanceof Element ? event.target.closest('[data-row-height]') : null;
+    if (!(button instanceof HTMLButtonElement)) return;
+    const next = event.relatedTarget;
+    if (next instanceof Node && button.contains(next)) return;
+    clearHold();
+  });
+  window.addEventListener('pointerup', clearHold);
+  window.addEventListener('pointercancel', clearHold);
+  apply(current, { save: false });
 }
 
 function savedRowHeight() {
@@ -2539,7 +4243,6 @@ function mountPrintCopies({ setStatus, currentPair, onCardSaved, getSessionPrint
   const cropPanel = document.querySelector('#timesheet-print-crop');
   const rangePanel = document.querySelector('#timesheet-print-range');
   const status = document.querySelector('#timesheet-print-status');
-  const toggle = document.querySelector('#timesheet-save-for-print');
   const openButton = document.querySelector('#timesheet-print-open');
   const fromInput = document.querySelector('#timesheet-print-from');
   const toInput = document.querySelector('#timesheet-print-to');
@@ -2574,10 +4277,6 @@ function mountPrintCopies({ setStatus, currentPair, onCardSaved, getSessionPrint
   /** @type {{ ax: number, ay: number, bx: number, by: number } | null} */
   let drag = null;
   let cropUrl = '';
-
-  function saveEnabled() {
-    return toggle instanceof HTMLInputElement && toggle.checked;
-  }
 
   function setPrintStatus(message, kind = '') {
     if (!(status instanceof HTMLElement)) return;
@@ -2630,7 +4329,7 @@ function mountPrintCopies({ setStatus, currentPair, onCardSaved, getSessionPrint
     if (!cards.length) {
       const empty = document.createElement('p');
       empty.className = 'lead';
-      empty.textContent = 'No print copies yet. Turn on Save for printing, then scan a front and a back.';
+      empty.textContent = 'No print copies yet. Scan a front and a back, and they are kept here.';
       list.append(empty);
       return;
     }
@@ -2639,11 +4338,10 @@ function mountPrintCopies({ setStatus, currentPair, onCardSaved, getSessionPrint
     cards.forEach((card, index) => {
       const item = document.createElement('li');
       const label = document.createElement('span');
-      const hasHours =
-        (Array.isArray(card.frontHours) &&
-          card.frontHours.some((slot) => slot && (slot.reg != null || slot.ot != null))) ||
-        (Array.isArray(card.backHours) &&
-          card.backHours.some((slot) => slot && (slot.reg != null || slot.ot != null)));
+      const hoursReady = (hours) =>
+        Array.isArray(hours) &&
+        hours.some((slot) => slot && (slot.reg != null || slot.ot != null || slot.tot != null));
+      const hasHours = hoursReady(card.frontHours) || hoursReady(card.backHours);
       const driver = String(card.driverName || '').trim();
       label.textContent = `${index + 1}. ${driver ? `${driver} · ` : ''}${formatWhen(card.createdAt)}${
         hasHours ? ' · Reg/OT ready' : ' · photo only'
@@ -2652,11 +4350,13 @@ function mountPrintCopies({ setStatus, currentPair, onCardSaved, getSessionPrint
       cropBtn.type = 'button';
       cropBtn.className = 'secondary';
       cropBtn.textContent = 'Crop';
+      cropBtn.title = 'Choose which part of this photo prints.';
       cropBtn.addEventListener('click', () => openCrop(card));
       const removeBtn = document.createElement('button');
       removeBtn.type = 'button';
       removeBtn.className = 'secondary';
       removeBtn.textContent = 'Remove';
+      removeBtn.title = 'Delete this saved print copy.';
       removeBtn.addEventListener('click', () => {
         deletePrintCard(card.id)
           .then(() => refreshList())
@@ -2683,7 +4383,7 @@ function mountPrintCopies({ setStatus, currentPair, onCardSaved, getSessionPrint
 
   function openCrop(card) {
     cropping = card;
-    cropSide = 'front';
+    cropSide = card.front ? 'front' : 'back';
     draftFront = clampPrintCrop(card.frontCrop || FULL_PRINT_CROP);
     draftBack = clampPrintCrop(card.backCrop || FULL_PRINT_CROP);
     drag = null;
@@ -2699,7 +4399,12 @@ function mountPrintCopies({ setStatus, currentPair, onCardSaved, getSessionPrint
   function showCropSide() {
     if (!(cropImage instanceof HTMLImageElement) || !cropping) return;
     if (cropUrl) URL.revokeObjectURL(cropUrl);
-    const blob = cropSide === 'front' ? cropping.front : cropping.back;
+    let blob = cropSide === 'front' ? cropping.front : cropping.back;
+    if (!blob) {
+      cropSide = cropping.front ? 'front' : 'back';
+      blob = cropSide === 'front' ? cropping.front : cropping.back;
+    }
+    if (!blob) return;
     cropUrl = URL.createObjectURL(blob);
     cropImage.src = cropUrl;
     cropImage.alt = cropSide === 'front' ? 'Front print copy' : 'Back print copy';
@@ -2716,7 +4421,7 @@ function mountPrintCopies({ setStatus, currentPair, onCardSaved, getSessionPrint
 
   async function notePhoto(sessionToken, side, file) {
     const key = String(sessionToken || '').trim();
-    if (!saveEnabled() || !key || (side !== 'front' && side !== 'back')) return;
+    if (!key || (side !== 'front' && side !== 'back')) return;
     const slot = pending.get(key) || {};
     slot[side] = file;
     if (!slot.front || !slot.back) {
@@ -2735,10 +4440,19 @@ function mountPrintCopies({ setStatus, currentPair, onCardSaved, getSessionPrint
     await upsertPrintCard(key, front, back);
     pending.delete(key);
     if (typeof onCardSaved === 'function') onCardSaved(key);
-    if (typeof setStatus === 'function') {
-      setStatus('Front and back saved in this browser for printing.', 'ok');
-    }
     if (dialog.open) await refreshList();
+  }
+
+  async function saveSides(id, frontFile, backFile) {
+    const key = String(id || '').trim();
+    if (!key || (!frontFile && !backFile)) return null;
+    const front = frontFile ? await imageFileToPrintJpeg(frontFile) : null;
+    const back = backFile ? await imageFileToPrintJpeg(backFile) : null;
+    await upsertPrintCard(key, front, back);
+    pending.delete(key);
+    if (typeof onCardSaved === 'function') onCardSaved(key);
+    if (dialog.open) await refreshList();
+    return key;
   }
 
   async function syncHours(id, extraction) {
@@ -2768,31 +4482,6 @@ function mountPrintCopies({ setStatus, currentPair, onCardSaved, getSessionPrint
         'ok'
       );
     }
-  }
-
-  if (toggle instanceof HTMLInputElement) {
-    try {
-      toggle.checked = localStorage.getItem(PRINT_SAVE_KEY) === '1';
-    } catch {
-      toggle.checked = false;
-    }
-    toggle.addEventListener('change', () => {
-      try {
-        localStorage.setItem(PRINT_SAVE_KEY, toggle.checked ? '1' : '0');
-      } catch {
-        /* Preference can stay for this visit only. */
-      }
-      if (!toggle.checked) return;
-      const pair = typeof currentPair === 'function' ? currentPair() : null;
-      if (!pair?.token || !pair.front || !pair.back) return;
-      notePhoto(pair.token, 'front', pair.front)
-        .then(() => notePhoto(pair.token, 'back', pair.back))
-        .catch((error) => {
-          if (typeof setStatus === 'function') {
-            setStatus(error?.message || 'Could not save that print copy.', 'error');
-          }
-        });
-    });
   }
 
   openButton?.addEventListener('click', () => {
@@ -2895,6 +4584,7 @@ function mountPrintCopies({ setStatus, currentPair, onCardSaved, getSessionPrint
 
   return {
     notePhoto,
+    saveSides,
     syncHours,
     close: () => {
       if (dialog.open) dialog.close();
@@ -2916,9 +4606,20 @@ function readStoredHoursMode() {
  *   setSideFile: (side: 'front' | 'back', file: File) => void,
  *   setStatus: (message: string, kind?: string) => void,
  *   onPhonePhoto?: (side: 'front' | 'back', file: File, token: string) => void | Promise<void>,
+ *   onRetakePhoto?: (cardId: string, side: 'front' | 'back', file: File, cardNumber?: number) => void | Promise<void>,
+ *   onCardReady?: (card: { front: File | null, back: File | null, sameDriver: boolean, single: boolean }) => void | Promise<void>,
+ *   getCarouselCards?: () => Array<{ id: string, name: string, front: boolean, back: boolean, status: string }>,
  * }} options
  */
-function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
+function mountPhoneCapture({
+  setSideFile,
+  setStatus,
+  onPhonePhoto,
+  onRetakePhoto,
+  onCardReady,
+  onLink,
+  getCarouselCards,
+}) {
   const phonePanel = document.querySelector('#timesheet-phone-capture');
   const canvas = document.querySelector('#timesheet-phone-qr');
   const phoneStatus = document.querySelector('#timesheet-phone-status');
@@ -2941,6 +4642,7 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
   let pollInFlight = false;
   let pairClaimed = false;
   const seen = { front: false, back: false };
+  const buffered = { front: null, back: null };
 
   function setPhoneStatus(message, kind = '') {
     if (!(phoneStatus instanceof HTMLElement)) return;
@@ -2958,47 +4660,136 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
 
   async function endSession() {
     stopPolling();
-    const prior = token;
+    const prior = token || rememberedCaptureToken('genie');
     token = '';
+    rememberCaptureToken('genie', '');
     seen.front = false;
     seen.back = false;
+    buffered.front = null;
+    buffered.back = null;
     pairClaimed = false;
     if (prior) await closeCaptureSession(prior);
   }
 
-  async function drawQr(url) {
-    await QRCode.toCanvas(canvas, url, {
-      width: 144,
+  let qrUrl = '';
+  let qrPaint = 0;
+
+  function qrPixelSize() {
+    const slot = canvas.parentElement;
+    const css = slot instanceof HTMLElement ? Math.max(slot.clientWidth, slot.clientHeight) : 0;
+    const logical = Math.max(144, Math.round(css || 144));
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    return Math.min(720, Math.round(logical * ratio));
+  }
+
+  async function paintQr() {
+    if (!qrUrl) return;
+    const generation = ++qrPaint;
+    await QRCode.toCanvas(canvas, qrUrl, {
+      width: qrPixelSize(),
       margin: 1,
       color: { dark: '#1f4b66', light: '#ffffff' },
     });
+    if (generation !== qrPaint) return;
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+  }
+
+  async function drawQr(url) {
+    qrUrl = url;
+    await paintQr();
+  }
+
+  if (typeof ResizeObserver !== 'undefined' && canvas.parentElement instanceof HTMLElement) {
+    let lastSize = 0;
+    const observer = new ResizeObserver(() => {
+      const next = qrPixelSize();
+      if (!qrUrl || Math.abs(next - lastSize) < 32) return;
+      lastSize = next;
+      paintQr().catch(() => null);
+    });
+    observer.observe(canvas.parentElement);
   }
 
   async function pullSide(side) {
     if (seen[side]) return;
     const file = await fetchCapturePhoto(token, side);
-    setSideFile(side, file);
+    buffered[side] = file;
     seen[side] = true;
     if (typeof onPhonePhoto === 'function') {
       await onPhonePhoto(side, file, token);
     }
   }
 
-  async function claimPairForNextCard() {
+  function cardSettled(session) {
+    const frontDone = Boolean(session?.front || session?.skipFront);
+    const backDone = Boolean(session?.back || session?.skipBack);
+    return frontDone && backDone && (seen.front || seen.back);
+  }
+
+  async function publishCards() {
+    if (!token || typeof getCarouselCards !== 'function') return;
+    try {
+      await publishCaptureCards(token, getCarouselCards());
+    } catch {
+      /* Phone list is best-effort; scanning can continue. */
+    }
+  }
+
+  async function claimPairForNextCard(session) {
     if (pairClaimed || !token) return;
     pairClaimed = true;
     try {
-      // Desk clears the shared photos only after both downloads succeed, so the
-      // phone never races us and leaves Back stuck on Waiting…
+      const front = buffered.front;
+      const back = buffered.back;
+      const sameDriver = Boolean(session?.sameDriver);
+      const single = Boolean(session?.skipFront || session?.skipBack);
+      // Desk clears the shared photos only after the downloads succeed, so the
+      // phone never races us and leaves a side stuck on Waiting…
       await restartCaptureSession(token);
       seen.front = false;
       seen.back = false;
+      buffered.front = null;
+      buffered.back = null;
       pairClaimed = false;
-      setPhoneStatus('Front and back arrived. Ready for the next card.', 'ok');
-      setStatus('Front and back arrived from your phone. Ready to read.', 'ok');
+      await publishCards();
+      setPhoneStatus('');
+      if (typeof onCardReady === 'function') {
+        await onCardReady({ front, back, sameDriver, single });
+      } else {
+        if (front) setSideFile('front', front);
+        if (back) setSideFile('back', back);
+        const label = front && back ? 'Front and back' : front ? 'Front' : 'Back';
+        setStatus(`${label} arrived from your phone. Ready to read.`, 'ok');
+      }
     } catch (error) {
       pairClaimed = false;
       setPhoneStatus(error?.message || 'Could not reset the phone link for the next card.', 'error');
+    }
+  }
+
+  async function claimRetake(cardId, side, cardNumber = 1) {
+    if (pairClaimed || !token) return;
+    pairClaimed = true;
+    try {
+      const file = await fetchCapturePhoto(token, side);
+      if (typeof onRetakePhoto === 'function') {
+        await onRetakePhoto(cardId, side, file, cardNumber);
+      } else {
+        setSideFile(side, file);
+      }
+      await restartCaptureSession(token);
+      seen.front = false;
+      seen.back = false;
+      buffered.front = null;
+      buffered.back = null;
+      pairClaimed = false;
+      await publishCards();
+      setPhoneStatus(`Rescan ${side} received. Ready for the next card.`, 'ok');
+      setStatus(`Phone rescan for ${side} is in. Re-reading that card…`, 'ok');
+    } catch (error) {
+      pairClaimed = false;
+      setPhoneStatus(error?.message || 'Could not apply that phone rescan.', 'error');
     }
   }
 
@@ -3008,22 +4799,39 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
     try {
       const session = await readCaptureSession(token);
       if (!session) {
-        setPhoneStatus('That photo link expired. Make a new QR code.', 'error');
+        setPhoneStatus('That photo link is closed. Make a new QR code.', 'error');
         stopPolling();
+        return;
+      }
+      if (session.retake?.cardId && session.retake?.side) {
+        const side = session.retake.side === 'back' ? 'back' : 'front';
+        const cardNumber = Number(session.retake.card) > 1 ? Number(session.retake.card) : 1;
+        if (session[side]) {
+          await claimRetake(session.retake.cardId, side, cardNumber);
+          return;
+        }
+        setPhoneStatus(
+          `Waiting for phone rescan of ${side}…`,
+          ''
+        );
         return;
       }
       // After we claim a pair we restart the link; empty + partial seen means a
       // photo vanished before both sides arrived here.
-      if (!session.front && !session.back && (seen.front || seen.back) && !pairClaimed) {
+      if (!session.front && !session.back && !session.skipFront && !session.skipBack && (seen.front || seen.back) && !pairClaimed) {
         if (seen.front && seen.back) {
           seen.front = false;
           seen.back = false;
-          setPhoneStatus('Ready for the next card…', '');
+          buffered.front = null;
+          buffered.back = null;
+          setPhoneStatus('');
           return;
         }
         const missing = seen.front ? 'back' : 'front';
         seen.front = false;
         seen.back = false;
+        buffered.front = null;
+        buffered.back = null;
         setPhoneStatus(
           `The ${missing} photo disappeared before it arrived here. Take both sides again.`,
           'error'
@@ -3032,13 +4840,15 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
       }
       if (session.front && !seen.front) await pullSide('front');
       if (session.back && !seen.back) await pullSide('back');
-      if (seen.front && seen.back) {
-        await claimPairForNextCard();
+      if (cardSettled(session)) {
+        await claimPairForNextCard(session);
         return;
       }
-      if (seen.front) setPhoneStatus('Front is in. Waiting for the back…', '');
-      else if (seen.back) setPhoneStatus('Back is in. Waiting for the front…', '');
-      else setPhoneStatus('Waiting for photos from your phone…', '');
+      if (session.skipFront && !seen.back) setPhoneStatus('Front skipped. Waiting for the back…', '');
+      else if (session.skipBack && !seen.front) setPhoneStatus('Back skipped. Waiting for the front…', '');
+      else if (seen.front && !session.skipBack) setPhoneStatus('Front is in. Waiting for the back…', '');
+      else if (seen.back && !session.skipFront) setPhoneStatus('Back is in. Waiting for the front…', '');
+      else setPhoneStatus('');
     } catch (error) {
       setPhoneStatus(error?.message || 'Could not check for phone photos.', 'error');
     } finally {
@@ -3064,12 +4874,14 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
         );
       }
       token = opened.token;
+      rememberCaptureToken('genie', token);
       await drawQr(url);
-      setPhoneStatus('Scan the QR code with your phone.', '');
+      setPhoneStatus('');
       pollTimer = setInterval(() => {
         pollOnce().catch(() => {});
       }, 1500);
       await pollOnce();
+      if (typeof onLink === 'function') onLink();
     } catch (error) {
       setPhoneStatus(error?.message || 'Could not start phone capture.', 'error');
       canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
@@ -3082,6 +4894,11 @@ function mountPhoneCapture({ setSideFile, setStatus, onPhonePhoto }) {
     startSession().catch((error) => {
       setPhoneStatus(error?.message || 'Could not make a new QR code.', 'error');
     });
+  });
+
+  window.addEventListener('pagehide', (event) => {
+    if (event.persisted || !token) return;
+    closeCaptureSession(token, { keepalive: true });
   });
 
   function genieVisible() {
@@ -3176,34 +4993,6 @@ function mountHoursModeControl({ mode, onChange }) {
 }
 
 /**
- * Keep firing while a nudge button is held, for fine matching against a paper card.
- * @param {HTMLButtonElement} button
- * @param {() => void} action
- */
-function bindHoldRepeat(button, action) {
-  let delay = null;
-  let timer = null;
-  const clear = () => {
-    if (delay != null) clearTimeout(delay);
-    if (timer != null) clearInterval(timer);
-    delay = null;
-    timer = null;
-  };
-  button.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    action();
-    delay = setTimeout(() => {
-      timer = setInterval(action, 45);
-    }, 320);
-  });
-  button.addEventListener('pointerup', clear);
-  button.addEventListener('pointerleave', clear);
-  button.addEventListener('pointercancel', clear);
-  button.addEventListener('blur', clear);
-}
-
-/**
  * Keep snap rows lined up with the blue card rows.
  * @param {HTMLElement} cardBody
  * @param {HTMLElement} snapBody
@@ -3259,15 +5048,18 @@ function applyStampEdits(row, which, stamp, year) {
  */
 function updateStampNote(stamp, raw) {
   if (!(stamp instanceof Element)) return;
+  const parts = parseStampParts(raw);
+  const hints = stampHints(parts.illegible);
+  stamp.classList.toggle('is-illegible', parts.illegible);
+  for (const part of ['month', 'day', 'period', 'time']) {
+    const input = stamp.querySelector(`[data-part="${part}"]`);
+    if (input instanceof HTMLInputElement) input.placeholder = hints[part];
+  }
   const note = stamp.querySelector('.timesheet-stamp-note');
   if (!(note instanceof HTMLElement)) return;
-  const parts = parseStampParts(raw);
   if (parts.handwriting) {
     note.hidden = false;
     note.textContent = 'HANDWRITING';
-  } else if (parts.illegible) {
-    note.hidden = false;
-    note.textContent = 'illegible';
   } else {
     note.hidden = true;
     note.textContent = '';
@@ -3298,7 +5090,7 @@ function descriptionOpenHtml(value, rowIndex) {
     ? `Add Description of Work for row ${rowIndex}`
     : `Edit Description of Work for row ${rowIndex}`;
   return `<button type="button" class="timesheet-desc-open${empty ? ' is-empty' : ''}"
-      aria-label="${escapeAttr(label)}" title="${escapeAttr(text || 'Description of Work')}">
+      aria-label="${escapeAttr(label)}" title="${escapeAttr(text ? `Edit the Description of Work. ${text}` : 'Add the Description of Work for this clock line.')}">
       ${empty ? '+' : '✎'}
     </button>`;
 }
@@ -3322,7 +5114,7 @@ function mountDescriptionDialog({ getRows }) {
     return { open() {}, close() {} };
   }
 
-  /** @type {{ side: 'front' | 'back', index: number, button: HTMLButtonElement } | null} */
+  /** @type {{ side: 'front' | 'back', index: number, extraIndex: number, button: HTMLButtonElement } | null} */
   let editing = null;
 
   function close() {
@@ -3334,7 +5126,9 @@ function mountDescriptionDialog({ getRows }) {
     const empty = !text;
     button.classList.toggle('is-empty', empty);
     button.textContent = empty ? '+' : '✎';
-    button.title = text || 'Description of Work';
+    button.title = text
+      ? `Edit the Description of Work. ${text}`
+      : 'Add the Description of Work for this clock line.';
     const rowIndex = Number(button.closest('tr[data-row-index]')?.dataset.rowIndex) || 0;
     button.setAttribute(
       'aria-label',
@@ -3349,7 +5143,7 @@ function mountDescriptionDialog({ getRows }) {
       close();
       return;
     }
-    const rows = getRows(editing.side);
+    const rows = getRows(editing.side, editing.extraIndex);
     const row = Array.isArray(rows) ? rows[editing.index - 1] : null;
     const text = textarea.value.trim();
     if (row) row.description_of_work = text || null;
@@ -3378,12 +5172,13 @@ function mountDescriptionDialog({ getRows }) {
      * @param {'front' | 'back'} side
      * @param {number} index
      * @param {HTMLButtonElement} button
+     * @param {number} [extraIndex]
      */
-    open(side, index, button) {
-      const rows = getRows(side);
+    open(side, index, button, extraIndex = -1) {
+      const rows = getRows(side, extraIndex);
       const row = Array.isArray(rows) ? rows[index - 1] : null;
       if (!row) return;
-      editing = { side, index, button };
+      editing = { side, index, extraIndex, button };
       const sideLabel = side === 'back' ? 'Back' : 'Front';
       if (title) title.textContent = 'Description of Work';
       if (lead) lead.textContent = `${sideLabel} card, row ${index}.`;
@@ -3395,9 +5190,51 @@ function mountDescriptionDialog({ getRows }) {
   };
 }
 
+const STAMP_HINTS = { month: 'oct', day: '7', period: 'AM', time: '8:50' };
+const ILLEGIBLE_HINTS = { month: '?', day: '?', period: '?', time: '?' };
+
+function stampHints(illegible) {
+  return illegible ? ILLEGIBLE_HINTS : STAMP_HINTS;
+}
+
 /**
- * Always show the four stamp fields. Illegible / HANDWRITING stay as a red note
- * in the cell margin so an admin can type a real stamp over them.
+ * One clock line from the AI list prints as one record. A row that already
+ * holds both an Out and an In still shows both.
+ * @param {object | null | undefined} row
+ * @param {number} rowIndex
+ */
+function clockRecordHtml(row, rowIndex) {
+  const hasOut = Boolean(stampText(row?.clock_out_raw));
+  const hasIn = Boolean(stampText(row?.clock_in_raw));
+  if (hasIn && !hasOut) return stampEditorHtml('in', row.clock_in_raw, rowIndex);
+  if (hasOut && !hasIn) return stampEditorHtml('out', row.clock_out_raw, rowIndex);
+  return `${stampEditorHtml('out', row?.clock_out_raw, rowIndex)}${stampEditorHtml('in', row?.clock_in_raw, rowIndex)}`;
+}
+
+/**
+ * @param {object | null | undefined} row
+ * @param {{ outLabel?: string, inLabel?: string, outIllegible?: boolean, inIllegible?: boolean }} snapped
+ */
+function snapRecordHtml(row, snapped) {
+  const out = `<div class="timesheet-snap-stamp">
+          <span class="timesheet-card-label">Out</span>
+          <span class="timesheet-snap-value${snapped?.outIllegible ? ' is-illegible' : ''}">${escapeHtml(snapped?.outLabel || '—')}</span>
+        </div>`;
+  const inn = `<div class="timesheet-snap-stamp">
+          <span class="timesheet-card-label">In</span>
+          <span class="timesheet-snap-value${snapped?.inIllegible ? ' is-illegible' : ''}">${escapeHtml(snapped?.inLabel || '—')}</span>
+        </div>`;
+  const hasOut = Boolean(stampText(row?.clock_out_raw));
+  const hasIn = Boolean(stampText(row?.clock_in_raw));
+  if (hasIn && !hasOut) return inn;
+  if (hasOut && !hasIn) return out;
+  return `${out}${inn}`;
+}
+
+/**
+ * Always show the four stamp fields. An illegible clock shows question marks
+ * instead of the sample fillers. HANDWRITING stays as a red note so an admin
+ * can type a real stamp over it.
  * @param {'out' | 'in'} which
  * @param {string | null | undefined} raw
  * @param {number} rowIndex
@@ -3406,22 +5243,23 @@ function stampEditorHtml(which, raw, rowIndex) {
   const label = which === 'out' ? 'Out' : 'In';
   const parts = parseStampParts(raw);
   const blocked = parts.handwriting || parts.illegible;
-  const note = parts.handwriting ? 'HANDWRITING' : parts.illegible ? 'illegible' : '';
+  const note = parts.handwriting ? 'HANDWRITING' : '';
+  const hints = stampHints(parts.illegible);
   const month = blocked ? '' : parts.month;
   const day = blocked ? '' : parts.day;
   const period = blocked ? '' : parts.period;
   const time = blocked ? '' : parts.time;
-  return `<div class="timesheet-stamp timesheet-stamp-${which}" data-stamp="${which}">
+  return `<div class="timesheet-stamp timesheet-stamp-${which}${parts.illegible ? ' is-illegible' : ''}" data-stamp="${which}">
     <span class="timesheet-card-label">${label}</span>
     <span class="timesheet-stamp-parts">
       <input class="timesheet-edit" data-part="month" type="text" maxlength="3"
-        value="${escapeAttr(month)}" placeholder="oct" aria-label="${label} month row ${rowIndex}">
+        value="${escapeAttr(month)}" placeholder="${hints.month}" aria-label="${label} month row ${rowIndex}">
       <input class="timesheet-edit" data-part="day" type="text" maxlength="2"
-        value="${escapeAttr(day)}" placeholder="7" aria-label="${label} day row ${rowIndex}">
+        value="${escapeAttr(day)}" placeholder="${hints.day}" aria-label="${label} day row ${rowIndex}">
       <input class="timesheet-edit" data-part="period" type="text" maxlength="2"
-        value="${escapeAttr(period)}" placeholder="AM" aria-label="${label} AM or PM row ${rowIndex}">
+        value="${escapeAttr(period)}" placeholder="${hints.period}" aria-label="${label} AM or PM row ${rowIndex}">
       <input class="timesheet-edit" data-part="time" type="text" maxlength="5"
-        value="${escapeAttr(time)}" placeholder="8:50" aria-label="${label} time row ${rowIndex}">
+        value="${escapeAttr(time)}" placeholder="${hints.time}" aria-label="${label} time row ${rowIndex}">
     </span>
     <span class="timesheet-stamp-note" ${note ? '' : 'hidden'}>${escapeHtml(note)}</span>
   </div>`;

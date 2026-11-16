@@ -1,3 +1,5 @@
+import { driverOwnsRoute, sameDriver } from './assignments.js';
+
 const SEGMENT_LABELS = {
   AM: 'AM',
   MIDDAY: 'Midday',
@@ -12,9 +14,24 @@ function isClockChange(entry) {
   return Boolean(previous && next && previous !== next);
 }
 
-function recordedBy(entry, routeName) {
+// Who recorded a change for the office queues. Driver names and route numbers
+// used to be stored in entered_by by imports and seeds; those are not accounts.
+export function recordedBy(entry, profileOrRouteName) {
   const name = String(entry?.entered_by ?? '').trim();
-  if (!name || name === routeName) return '';
+  if (!name) return '';
+  const profile =
+    typeof profileOrRouteName === 'string'
+      ? { name: profileOrRouteName }
+      : profileOrRouteName && typeof profileOrRouteName === 'object'
+        ? profileOrRouteName
+        : {};
+  const routeName = String(profile.name ?? '').trim();
+  if (routeName && name === routeName) return '';
+  if (sameDriver(name, entry?.driver_name)) return '';
+  if (sameDriver(name, profile.driver_name)) return '';
+  if (profile.id || profile.assignments || profile.driver_name || profile.start_date) {
+    if (driverOwnsRoute(profile, name)) return '';
+  }
   return name;
 }
 
@@ -29,7 +46,7 @@ export function recentRouteChanges(state) {
     const routeId = String(profile.id ?? '').trim();
     for (const entry of profile.changeLog ?? []) {
       if (!isClockChange(entry)) continue;
-      const enteredBy = recordedBy(entry, routeName);
+      const enteredBy = recordedBy(entry, profile);
       const written = String(entry.entered_by ?? '').trim();
       const note = String(entry.note ?? '').trim();
       const segment = String(entry.segment ?? '').trim();

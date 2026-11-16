@@ -157,12 +157,12 @@ export function templateQuad(width = TEMPLATE_WIDTH, height = TEMPLATE_HEIGHT) {
  * @returns {{ index: number, field: 'reg' | 'ot', text: string }[]}
  */
 export function stampLabelsFromHours(hours) {
-  /** @type {{ index: number, field: 'reg' | 'ot', text: string }[]} */
+  /** @type {{ index: number, field: 'reg' | 'ot' | 'tot', text: string }[]} */
   const labels = [];
   if (!Array.isArray(hours)) return labels;
   hours.forEach((slot, index) => {
     if (!slot || typeof slot !== 'object') return;
-    for (const field of /** @type {const} */ (['reg', 'ot'])) {
+    for (const field of /** @type {const} */ (['reg', 'ot', 'tot'])) {
       const value = slot[field];
       if (value == null) continue;
       const number = Number(value);

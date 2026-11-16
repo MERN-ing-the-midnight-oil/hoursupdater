@@ -12,8 +12,6 @@ import {
   normalizeGenieCardExtraction,
 } from './timesheetGenieCard.js';
 import {
-  BACK_LINE_COUNT,
-  FRONT_LINE_COUNT,
   clockRecordTool,
   EXTRACTION_SYSTEM,
   extractionUserPrefix,
@@ -155,6 +153,7 @@ export async function runTimesheetReadBody(body, options = {}) {
         breaks: DEFAULT_CONTRACT_SNAP_BREAKS,
         rules: DEFAULT_OVERTIME_RULES,
         defaultYear: inferDefaultYear(extraction.header?.date_on_card),
+        contractRuns: extraction.header,
       });
     }
     return { status: 200, json: { extraction, model } };
@@ -222,16 +221,14 @@ function auditReadOptions(side) {
 }
 
 /**
- * Genie reads flat Clock Record lines (26 front / 30 back); the app pairs Out/In.
+ * Genie reads one photo. Each Clock Record line comes back with its own Out or In.
  * @param {'front' | 'back'} side
  */
 function genieReadOptions(side) {
-  const lineCount = side === 'front' ? FRONT_LINE_COUNT : BACK_LINE_COUNT;
   return {
     system: GENIE_CARD_SYSTEM,
-    userPrefix: genieCardUserPrefix(side, lineCount),
-    tool: genieCardTool(lineCount, { sticker: side === 'front' }),
-    expectedCount: lineCount,
+    userPrefix: genieCardUserPrefix(side),
+    tool: genieCardTool({ sticker: side === 'front' }),
     maxTokens: 2048,
     captureContract: true,
     captureDateOnCard: true,
@@ -271,10 +268,9 @@ async function readOneSide({
   captureContract = false,
   captureDateOnCard = false,
 }) {
-  const lineCount = side === 'front' ? FRONT_LINE_COUNT : BACK_LINE_COUNT;
-  const count = expectedCount ?? lineCount;
-  const chosenTool = tool || clockRecordTool(lineCount, { sticker: side === 'front' });
-  const prefix = userPrefix || extractionUserPrefix(side, lineCount);
+  const count = Number.isInteger(expectedCount) ? expectedCount : null;
+  const chosenTool = tool || clockRecordTool({ sticker: side === 'front' });
+  const prefix = userPrefix || extractionUserPrefix(side);
   let response;
   try {
     response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -295,7 +291,6 @@ async function readOneSide({
             role: 'user',
             content: [
               { type: 'text', text: prefix },
-              { type: 'text', text: `${side.toUpperCase()} photo:` },
               image,
             ],
           },
@@ -332,7 +327,7 @@ async function readOneSide({
   }
 
   const detected = sideFromSlotCount(slots.length);
-  if (slots.length !== count) {
+  if (count != null && slots.length !== count) {
     const err = new Error(
       detected
         ? `${side} photo returned ${slots.length} values (looks like the ${detected}), expected ${count}.`

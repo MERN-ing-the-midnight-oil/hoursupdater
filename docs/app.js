@@ -27046,25 +27046,6 @@ function regOtGapHours(contractText, clocked) {
   if (!Number.isFinite(contract) || contract <= 0) return null;
   return Math.round((contract - Number(clocked)) * 4) / 4;
 }
-function quarterShares(total, weights) {
-  const units = Math.round(Number(total) * 4);
-  const safe = (Array.isArray(weights) ? weights : []).map((weight) => Math.max(0, Number(weight) || 0));
-  const weightSum = safe.reduce((sum, weight) => sum + weight, 0);
-  if (!safe.length || !(weightSum > 0) || !Number.isFinite(units)) return safe.map(() => 0);
-  const exact = safe.map((weight) => units * weight / weightSum);
-  const bases = exact.map((value) => Math.trunc(value));
-  let left = units - bases.reduce((sum, value) => sum + value, 0);
-  const order = exact.map((value, index) => ({ index, frac: Math.abs(value - bases[index]) })).sort((a, b) => b.frac - a.frac || a.index - b.index);
-  const shares = bases.slice();
-  const step = left >= 0 ? 1 : -1;
-  let cursor = 0;
-  while (left !== 0 && order.length) {
-    shares[order[cursor % order.length].index] += step;
-    left -= step;
-    cursor += 1;
-  }
-  return shares.map((unitsShare) => unitsShare / 4);
-}
 
 // office-tracker/src/timesheetRegOt.js
 function roundHours(value) {
@@ -27139,21 +27120,41 @@ function scaleRegOtToContractGap(ready, contractedByDay) {
     const tot = roundHours(items.reduce((sum, item) => sum + item.totHours, 0));
     const gap = regOtGapHours(contractedHoursOn(contractedByDay, key), tot);
     if (gap == null) continue;
-    const weights = items.map((item) => item.totHours);
-    const shares = quarterShares(gap, weights);
-    items.forEach((item, index) => {
-      const share = Number(shares[index]);
-      if (!Number.isFinite(share) || share === 0) {
+    if (gap >= 0) {
+      for (const item of items) {
         item.row.hours_regular = null;
         item.row.hours_overtime = null;
-        return;
       }
+      continue;
+    }
+    const residual = roundHours(-gap);
+    let regSum = 0;
+    let otSum = 0;
+    for (const item of items) {
       const priorReg = Number(item.row.hours_regular);
-      const regRatio = item.totHours > 0 && Number.isFinite(priorReg) ? priorReg / item.totHours : 1;
-      const reg = roundHours(Math.round(share * regRatio * 4) / 4);
-      const ot = roundHours(Math.round((share - reg) * 4) / 4);
-      item.row.hours_regular = Number.isFinite(reg) && reg !== 0 ? reg : null;
-      item.row.hours_overtime = Number.isFinite(ot) && ot !== 0 ? ot : null;
+      const priorOt = Number(item.row.hours_overtime);
+      if (Number.isFinite(priorReg)) regSum += priorReg;
+      if (Number.isFinite(priorOt)) otSum += priorOt;
+    }
+    const parts = Math.abs(regSum) + Math.abs(otSum);
+    let dayReg;
+    let dayOt;
+    if (parts < 1e-3) {
+      dayReg = residual;
+      dayOt = 0;
+    } else {
+      const regRatio = Math.abs(regSum) / parts;
+      dayReg = roundHours(Math.round(residual * regRatio * 4) / 4);
+      dayOt = roundHours(Math.round((residual - dayReg) * 4) / 4);
+    }
+    items.forEach((item, index) => {
+      if (index === 0) {
+        item.row.hours_regular = Number.isFinite(dayReg) && dayReg !== 0 ? dayReg : null;
+        item.row.hours_overtime = Number.isFinite(dayOt) && dayOt !== 0 ? dayOt : null;
+      } else {
+        item.row.hours_regular = null;
+        item.row.hours_overtime = null;
+      }
     });
   }
 }
@@ -29057,8 +29058,8 @@ var PAGE_PASSWORD = "6111";
 var PUBLISHED_SHARE_URL = "https://mern-ing-the-midnight-oil.github.io/hoursupdater/";
 function sharePayload() {
   return {
-    title: "Teamster Tools",
     text: `Teamster Tools
+By Rhys- Get your real route change history, use an AI to scan your timecards, and more!
 ${PUBLISHED_SHARE_URL}
 Password: ${PAGE_PASSWORD}`
   };

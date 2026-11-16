@@ -31,6 +31,12 @@ describe('timecard print template', () => {
     assert.equal(first.x, REG_X_PIXEL());
     assert.ok(first.y > 0.15 * TEMPLATE_HEIGHT);
     assert.ok(last.y < TEMPLATE_HEIGHT);
+    const tot = templateCellPixel('front', 0, 'tot');
+    const ot = templateCellPixel('front', 0, 'ot');
+    assert.ok(tot);
+    assert.ok(ot);
+    assert.ok(tot.x > ot.x);
+    assert.equal(tot.y, first.y);
   });
 });
 
@@ -84,14 +90,16 @@ describe('Reg/OT stamp labels', () => {
     assert.deepEqual(stampLabelsFromHours(null), []);
     assert.deepEqual(
       stampLabelsFromHours([
-        { reg: 1.75, ot: null },
-        { reg: null, ot: 0 },
-        { reg: 2, ot: 0.5 },
+        { reg: 1.75, ot: null, tot: 1.75 },
+        { reg: null, ot: 0, tot: 0 },
+        { reg: 2, ot: 0.5, tot: 2.5 },
       ]),
       [
         { index: 0, field: 'reg', text: '1.75' },
+        { index: 0, field: 'tot', text: '1.75' },
         { index: 2, field: 'reg', text: '2' },
         { index: 2, field: 'ot', text: '0.50' },
+        { index: 2, field: 'tot', text: '2.50' },
       ]
     );
   });
@@ -99,14 +107,14 @@ describe('Reg/OT stamp labels', () => {
   it('snapshots card rows for IndexedDB attach', () => {
     assert.deepEqual(
       hoursFromCardRows([
-        { hours_regular: 1.75, hours_overtime: null },
-        { written_regular: 0, hours_overtime: 2 },
-        { hours_regular: null, hours_overtime: null },
+        { hours_regular: 1.75, hours_overtime: null, total_hours: 1.75 },
+        { written_regular: 0, hours_overtime: 2, total_hours: 2 },
+        { hours_regular: null, hours_overtime: null, total_hours: 0 },
       ]),
       [
-        { reg: 1.75, ot: null },
-        { reg: null, ot: 2 },
-        { reg: null, ot: null },
+        { reg: 1.75, ot: null, tot: 1.75 },
+        { reg: null, ot: 2, tot: 2 },
+        { reg: null, ot: null, tot: null },
       ]
     );
   });

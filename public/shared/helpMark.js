@@ -191,7 +191,9 @@ function placeGroup(group) {
   button.className = anchor ? 'help-mark' : 'help-mark is-standalone';
   button.dataset.help = box.id;
   button.setAttribute('aria-haspopup', 'dialog');
-  button.setAttribute('aria-label', ariaLabel(anchor, first));
+  const label = ariaLabel(anchor, first);
+  button.setAttribute('aria-label', label);
+  button.title = label;
   button.textContent = '?';
   if (anchor) anchor.append(button);
   else box.before(button);

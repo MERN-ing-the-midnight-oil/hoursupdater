@@ -1,4 +1,5 @@
 import {
+  CAPTURE_LINK_INVALID,
   getPhoto,
   json,
   normalizeSide,
@@ -34,7 +35,7 @@ export async function onRequestPut(context) {
       body ?? {}
     );
     if (!saved) {
-      return json({ error: 'This photo link is not valid or has expired.' }, 404);
+      return json({ error: CAPTURE_LINK_INVALID }, 404);
     }
     return json(saved);
   } catch (error) {

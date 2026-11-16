@@ -16,6 +16,7 @@ const photoDir = path.join(
 describe('driver photos on the PIN screen', () => {
   it('finds a portrait by the driver name', () => {
     assert.equal(driverPhotoSrc('Rhys Smoker'), 'driver-photos/rhys-smoker.jpg');
+    assert.equal(driverPhotoSrc('Smoker, Rhys'), 'driver-photos/rhys-smoker.jpg');
     assert.equal(driverPhotoSrc('  JOHANNA   deVries '), 'driver-photos/johanna-devries.jpg');
     assert.equal(driverPhotoSrc('Rae Anne Thon'), 'driver-photos/rae-anne-thon.jpg');
   });

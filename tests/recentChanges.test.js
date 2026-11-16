@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { recentRouteChanges } from '../office-tracker/src/recentChanges.js';
+import { recentRouteChanges, recordedBy } from '../office-tracker/src/recentChanges.js';
 
 function entry(overrides) {
   return {
@@ -12,6 +12,7 @@ function entry(overrides) {
     new_time: '6:10-8:55',
     delta_minutes: 15,
     note: 'AM traffic',
+    driver_name: 'Loriena Bobb',
     entered_by: 'Rachel Smith',
     entered_by_user_id: 'user-1',
     ...overrides,
@@ -107,5 +108,48 @@ describe('recent route changes', () => {
   it('returns nothing when the office has no profiles', () => {
     assert.deepEqual(recentRouteChanges(null), []);
     assert.deepEqual(recentRouteChanges({ profiles: {} }), []);
+  });
+
+  it('hides driver names that were stored as entered_by by imports', () => {
+    const profile = {
+      id: 'route-s04',
+      name: 'S 04',
+      driver_name: 'Loriena Bobb',
+      start_date: '2026-08-31',
+      assignments: [
+        { driver_name: 'Cydney Tanner', from: '2026-08-31', until: '2026-09-15' },
+        { driver_name: 'Loriena Bobb', from: '2026-09-15', until: null },
+      ],
+    };
+    assert.equal(
+      recordedBy(
+        entry({
+          driver_name: 'Cydney Tanner',
+          entered_by: 'Cydney Tanner',
+          entered_by_user_id: null,
+        }),
+        profile
+      ),
+      ''
+    );
+    assert.equal(
+      recordedBy(entry({ entered_by: 'Rachel Smith', entered_by_user_id: 'user-1' }), profile),
+      'Rachel Smith'
+    );
+    const [change] = recentRouteChanges({
+      profiles: {
+        s04: {
+          ...profile,
+          changeLog: [
+            entry({
+              driver_name: 'Cydney Tanner',
+              entered_by: 'Cydney Tanner',
+              entered_by_user_id: null,
+            }),
+          ],
+        },
+      },
+    });
+    assert.equal(change.enteredBy, '');
   });
 });
