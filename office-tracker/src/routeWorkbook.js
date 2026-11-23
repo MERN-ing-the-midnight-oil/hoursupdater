@@ -9,6 +9,7 @@ import {
 import { isForcedOctober1Contract } from '../../src/logic/contractWindows.js';
 import { parseClockTime } from '../../src/logic/timeUtils.js';
 import { routeAssignments } from './assignments.js';
+import { lockDirectoryEmails } from './staffDirectory.js';
 import { workbookFileBytes } from './downloadName.js';
 import {
   compareDrivers,
@@ -576,7 +577,7 @@ function driversFromWorkbook(workbook) {
       email: emailCol < 0 ? '' : cellText(row.getCell(emailCol + 1).value),
     });
   });
-  return drivers;
+  return lockDirectoryEmails(drivers);
 }
 
 function isEmptyCell(value) {

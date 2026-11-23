@@ -11,9 +11,20 @@ import {
   noticeSentLineForIds,
   memorandumById,
   memorandumMail,
+  memorandumNoticeLength,
+  memorandumSaveStatus,
   normalizeDriverNotice,
   noticeCcAddress,
   noticeMailto,
+  noticeMailFits,
+  compactMemorandumBody,
+  noticeLetterEml,
+  noticeLetterFilename,
+  DEFAULT_OOS_NOTICE_SUBJECT,
+  normalizeOutOfServiceNotice,
+  outOfServiceLetterFilename,
+  outOfServiceNoticeMail,
+  MAILTO_SAFE_LIMIT,
   noticeCalendarFilename,
   noticeFromChange,
   routeHistoryFilename,
@@ -24,7 +35,7 @@ import {
   timeChangeNoticeFilename,
 } from '../office-tracker/src/noticeMail.js';
 import { splitSegmentRange } from '../employee-tracker/src/clockTimes.js';
-import { loadDriverNotice, saveDriverNotice } from '../office-tracker/web/store.js';
+import { loadDriverNotice, loadOutOfServiceNotice, saveDriverNotice, saveOutOfServiceNotice } from '../office-tracker/web/store.js';
 
 function memoryStorage() {
   /** @type {Record<string, string>} */
@@ -51,6 +62,59 @@ function changeRow(driverName, routeName, asOf) {
     .find((item) => item.kind === 'change');
   return { section, row };
 }
+
+test('an out-of-service email names the driver, the bus, and the spare', () => {
+  const mail = outOfServiceNoticeMail({
+    driverName: 'Loriena Example',
+    usualBus: '86',
+    spareBus: '9',
+    routeName: '4',
+    covers: 3,
+    note: 'In the shop',
+    asOf: '2026-11-20',
+  });
+  assert.equal(mail.subject, 'Loriena Example: Bus 86 is out of service');
+  assert.match(mail.body, /route 4/);
+  assert.match(mail.body, /Spare bus 9 covers it for 3 days/);
+  const today = outOfServiceNoticeMail({
+    driverName: 'Loriena Example',
+    usualBus: '86',
+    spareBus: '9',
+    routeName: '4',
+    covers: 'today',
+    asOf: '2026-11-20',
+  });
+  assert.match(today.body, /for today only/);
+  assert.match(mail.body, /In the shop/);
+  const custom = outOfServiceNoticeMail({
+    subject: 'Spare {{spare_bus}} for {{driver_name}}',
+    body: 'Bus {{usual_bus}} only.\n\n{{note}}',
+    driverName: 'Loriena Example',
+    usualBus: '86',
+    spareBus: '9',
+  });
+  assert.equal(custom.subject, 'Spare 9 for Loriena Example');
+  assert.equal(custom.body, 'Bus 86 only.\n');
+  assert.equal(normalizeOutOfServiceNotice({ subject: '  ', body: '' }).subject, DEFAULT_OOS_NOTICE_SUBJECT);
+  assert.equal(outOfServiceLetterFilename('11'), 'Bus11-out-of-service.eml');
+  const mixed = outOfServiceNoticeMail({
+    driverName: 'Loriena Example',
+    usualBus: '11',
+    spares: { AM: '45', MID: '', PM: '9' },
+    days: { '2026-11-21': { AM: '12', MID: '', PM: '9' } },
+    covers: 3,
+    asOf: '2026-11-20',
+  });
+  assert.match(mixed.body, /Spare bus 45 covers AM/);
+  assert.match(mixed.body, /MID has no spare/);
+  assert.match(mixed.body, /Spare bus 9 covers PM/);
+  assert.match(mixed.body, /for 3 days/);
+  assert.match(mixed.body, /Some days use a different spare/);
+  const storage = memoryStorage();
+  saveOutOfServiceNotice({ subject: 'Bus {{usual_bus}}', body: 'Hi {{driver_name}}.' }, storage);
+  assert.equal(loadOutOfServiceNotice(storage).subject, 'Bus {{usual_bus}}');
+  assert.equal(loadOutOfServiceNotice(storage).body, 'Hi {{driver_name}}.');
+});
 
 test('fills the notice with the driver and that one change', () => {
   const text = fillNoticeTemplate('Hi {{driver_name}} on {{ routes }}.\n{{notices}}', {
@@ -215,7 +279,9 @@ test('the email is the student route-time memorandum', () => {
     /Effective Fri, Sep 18, 2026 your route times \(punch-in and punch-out time\) will be: route S1, AM punch-in 6:10 AM, punch-out 8:55 AM; Midday punch-in 10:50 AM, punch-out 12:05 PM; PM punch-in 1:50 PM, punch-out 4:30 PM/
   );
   assert.match(mail.body, /timecard code #1/);
+  assert.match(mail.body, /return your completed form to Jamie/);
   assert.match(mail.body, /Driver Signature:/);
+  assert.match(mail.body, /Date: _+/);
   assert.doesNotMatch(mail.body, /Changes to date/);
   assert.doesNotMatch(mail.body, /Original clock times/);
   assert.doesNotMatch(mail.body, /Hi Jean-Luc Picard/);
@@ -464,4 +530,96 @@ test('a saved secretary address is copied on the driver notice', () => {
   });
   assert.match(samePerson, /^mailto:Jamie%40bps\.org\?subject=/);
   assert.doesNotMatch(samePerson, /[?&]cc=/);
+});
+
+test('the route-time memorandum is saved as an Outlook draft when mailto is too long', () => {
+  const mail = memorandumMail({
+    driverName: 'Athena Panagos',
+    routeName: '42',
+    row: {
+      date: '2026-11-02',
+      schedule: {
+        AM: { clock_in: '6:15', clock_out: '8:30' },
+        MIDDAY: { clock_in: '11:00', clock_out: '12:15' },
+        PM: { clock_in: '14:10', clock_out: '16:40' },
+      },
+    },
+    asOf: '2026-11-20',
+  });
+  const draft = {
+    to: 'athena.panagos@bellinghamschools.org',
+    cc: 'jamie@bellinghamschools.org',
+    subject: mail.subject,
+    body: mail.body,
+  };
+  assert.equal(noticeMailFits(draft), false);
+  assert.ok(noticeMailto(draft).length > MAILTO_SAFE_LIMIT);
+  const eml = noticeLetterEml(draft);
+  assert.match(eml, /^To: athena\.panagos@bellinghamschools\.org\r\n/);
+  assert.match(eml, /Cc: jamie@bellinghamschools\.org\r\n/);
+  assert.match(eml, /X-Unsent: 1\r\n/);
+  assert.match(eml, /Effective .+ your route times/);
+  assert.match(eml, /return your completed form to Jamie/);
+  assert.match(eml, /Driver Signature/);
+  assert.equal(noticeLetterFilename('Athena Panagos'), 'AthenaPanagos-route-notice.eml');
+  assert.equal(
+    noticeMailFits({ to: 'ada@bps.org', subject: 'Hi', body: 'There' }),
+    true
+  );
+
+  const longMail = memorandumMail({
+    driverName: 'Mary-Elizabeth Montgomery',
+    routeName: '142',
+    row: {
+      date: '2026-11-02',
+      schedule: {
+        AM: { clock_in: '6:15', clock_out: '8:30' },
+        MIDDAY: { clock_in: '11:00', clock_out: '12:15' },
+        PM: { clock_in: '14:10', clock_out: '16:40' },
+      },
+    },
+    asOf: '2026-11-20',
+  });
+  const compact = compactMemorandumBody(longMail.body);
+  const fitted = {
+    to: 'mary.elizabeth.montgomery@bellinghamschools.org',
+    cc: 'jamie.porter.transportation@bellinghamschools.org',
+    subject: longMail.subject,
+    body: compact,
+  };
+  assert.match(compact, /^FROM: Rachel Hrutfiord/);
+  assert.match(compact, /Effective .+ your route times/);
+  assert.match(compact, /timecard code #1/);
+  assert.match(compact, /decrease is 30 minutes or more/);
+  assert.match(compact, /return your completed form to Jamie/);
+  assert.match(compact, /Driver Signature/);
+  assert.match(compact, /Date: _+/);
+  assert.doesNotMatch(compact, /Action Required|MEMORANDUM|\nTO:|\nDATE:|\nSUBJECT:/);
+  assert.equal(noticeMailFits(fitted), false);
+  assert.ok(noticeMailto(fitted).length > MAILTO_SAFE_LIMIT);
+});
+
+test('saving the memorandum states the letter length and warns when Outlook cannot open it', () => {
+  const secretaryCc = 'jamie.porter.transportation@bellinghamschools.org';
+  const usual = memorandumNoticeLength({ secretaryCc });
+  const usualNote = memorandumSaveStatus(usual);
+  assert.equal(usual.limit, MAILTO_SAFE_LIMIT);
+  assert.equal(usualNote.kind, usual.length <= MAILTO_SAFE_LIMIT ? 'ok' : 'warn');
+  assert.match(usualNote.message, new RegExp(`This letter is ${usual.length} characters`));
+
+  const huge = memorandumNoticeLength({
+    secretaryCc,
+    templates: {
+      'student-route-time': {
+        subject: 'A long subject for {{driver_name}}',
+        body: `${'Please read this extra sentence about the route change. '.repeat(40)}\n`,
+      },
+    },
+  });
+  const warn = memorandumSaveStatus(huge);
+  assert.ok(huge.length > MAILTO_SAFE_LIMIT);
+  assert.equal(warn.kind, 'warn');
+  assert.match(warn.message, new RegExp(`This letter is ${huge.length} characters`));
+  assert.match(warn.message, new RegExp(`${huge.length - MAILTO_SAFE_LIMIT} over the ${MAILTO_SAFE_LIMIT}`));
+  assert.match(warn.message, /Shorten the template and save again/);
 });

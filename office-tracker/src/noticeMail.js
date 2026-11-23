@@ -11,6 +11,15 @@ export const DEFAULT_DRIVER_NOTICE_SUBJECT = 'Clock-time notice for {{driver_nam
 
 export const DEFAULT_DRIVER_NOTICE_BODY = 'Hi {{driver_name}},\n\n{{notices}}';
 
+export const DEFAULT_OOS_NOTICE_SUBJECT = '{{driver_name}}: Bus {{usual_bus}} is out of service';
+
+export const DEFAULT_OOS_NOTICE_BODY = `Hi {{driver_name}},
+
+Bus {{usual_bus}} on route {{route_name}} is out of service as of {{date}}. {{spare_plan}}
+
+{{note}}
+`;
+
 // The memorandum used as the email until another one is chosen.
 export const DEFAULT_MEMORANDUM_ID = 'student-route-time';
 
@@ -123,14 +132,111 @@ export function noticeCcAddress(to, cc) {
   return copy;
 }
 
+// Chrome navigates to an error page instead of opening Outlook when a mailto
+// link is longer than this. The route-time memorandum is longer.
+export const MAILTO_SAFE_LIMIT = 1800;
+
+// Outlook shows a "+" in the letter when a space is written that way, so a
+// space stays "%20".
+function mailtoPart(value) {
+  return encodeURIComponent(String(value ?? ''));
+}
+
 // mailto draft for one driver notice. A secretary address is the Cc line.
 export function noticeMailto({ to, cc, subject, body }) {
   const parts = [];
   const copy = noticeCcAddress(to, cc);
-  if (copy) parts.push(`cc=${encodeURIComponent(copy)}`);
-  parts.push(`subject=${encodeURIComponent(subject ?? '')}`);
-  parts.push(`body=${encodeURIComponent(body ?? '')}`);
-  return `mailto:${encodeURIComponent(String(to || '').trim())}?${parts.join('&')}`;
+  if (copy) parts.push(`cc=${mailtoPart(copy)}`);
+  parts.push(`subject=${mailtoPart(subject)}`);
+  parts.push(`body=${mailtoPart(body)}`);
+  return `mailto:${mailtoPart(String(to || '').trim())}?${parts.join('&')}`;
+}
+
+// Outlook already shows To, the subject, and the date. Those repeated lines
+// are left out of the draft so the instructions still fit in a mailto link.
+export function compactMemorandumBody(body) {
+  const kept = String(body ?? '')
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(
+      (paragraph) =>
+        paragraph &&
+        !/^(Action Required|MEMORANDUM)$/.test(paragraph) &&
+        !/^(TO|DATE|SUBJECT):/.test(paragraph)
+    );
+  return kept.length ? `${kept.join('\n\n')}\n` : '';
+}
+
+export function noticeMailFits(mail) {
+  return noticeMailto(mail).length <= MAILTO_SAFE_LIMIT;
+}
+
+// A long name and all three runs, so the save warning counts a full letter.
+const NOTICE_LENGTH_SAMPLE = {
+  driverName: 'Mary-Elizabeth Montgomery',
+  to: 'mary.elizabeth.montgomery@bellinghamschools.org',
+  routeName: '142',
+  row: {
+    date: '2026-11-02',
+    schedule: {
+      AM: { clock_in: '6:15', clock_out: '8:30' },
+      MIDDAY: { clock_in: '11:00', clock_out: '12:15' },
+      PM: { clock_in: '14:10', clock_out: '16:40' },
+    },
+  },
+  asOf: '2026-11-20',
+};
+
+// How long the Outlook link is for the letter that Save will send.
+export function memorandumNoticeLength({ memorandumId, templates, secretaryCc } = {}) {
+  const mail = memorandumMail({
+    memorandumId,
+    templates,
+    driverName: NOTICE_LENGTH_SAMPLE.driverName,
+    routeName: NOTICE_LENGTH_SAMPLE.routeName,
+    row: NOTICE_LENGTH_SAMPLE.row,
+    asOf: NOTICE_LENGTH_SAMPLE.asOf,
+  });
+  const length = noticeMailto({
+    to: NOTICE_LENGTH_SAMPLE.to,
+    cc: secretaryCc,
+    subject: mail.subject,
+    body: compactMemorandumBody(mail.body),
+  }).length;
+  return { length, limit: MAILTO_SAFE_LIMIT };
+}
+
+// The save confirmation. It always states the length, and warns when Outlook cannot open it.
+export function memorandumSaveStatus({ length, limit = MAILTO_SAFE_LIMIT }) {
+  const saved = `Driver time-change notice saved. This letter is ${length} characters.`;
+  if (length <= limit) {
+    return { kind: 'ok', message: `${saved} Outlook opens it up to ${limit}.` };
+  }
+  const over = length - limit;
+  return {
+    kind: 'warn',
+    message: `${saved} That is ${over} over the ${limit} Outlook can open. Shorten the template and save again.`,
+  };
+}
+
+export function noticeLetterFilename(driverName) {
+  const compact = String(driverName ?? '').replace(/[^A-Za-z0-9]+/g, '');
+  return `${compact || 'Driver'}-route-notice.eml`;
+}
+
+// Outlook opens this as an unsent draft, so the full memorandum can be the letter
+// when a mailto link would be too long.
+export function noticeLetterEml({ to, cc, subject, body }) {
+  const header = [`To: ${String(to || '').trim()}`];
+  const copy = noticeCcAddress(to, cc);
+  if (copy) header.push(`Cc: ${copy}`);
+  header.push(`Subject: ${String(subject ?? '').replace(/[\r\n]+/g, ' ').trim()}`);
+  header.push('X-Unsent: 1');
+  header.push('MIME-Version: 1.0');
+  header.push('Content-Type: text/plain; charset=utf-8');
+  header.push('Content-Transfer-Encoding: 8bit');
+  const text = String(body ?? '').replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+  return `${header.join('\r\n')}\r\n\r\n${text}`;
 }
 
 const TYPE_FROM_STATUS = {
@@ -238,6 +344,102 @@ export function formatNoticeLine(notice) {
   const delta = notice.deltaLabel ? ` (${notice.deltaLabel})` : '';
   const status = notice.statusLabel ? ` ${notice.statusLabel}.` : '';
   return `${route}${times}${delta}.${status}`;
+}
+
+// The letter saved for an out-of-service bus. A blank template stays on the usual text.
+export function normalizeOutOfServiceNotice(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const subject = String(source.subject ?? '').trim();
+  const body = String(source.body ?? '').trim();
+  return {
+    subject: subject || DEFAULT_OOS_NOTICE_SUBJECT,
+    body: body || DEFAULT_OOS_NOTICE_BODY,
+  };
+}
+
+export function outOfServiceCoversPhrase(covers) {
+  if (covers === 'indefinitely') return 'until further notice';
+  if (covers === 'today') return 'for today only';
+  const days = Number(covers);
+  if (Number.isInteger(days) && days >= 1) return days === 1 ? 'for 1 day' : `for ${days} days`;
+  return 'for today';
+}
+
+const OOS_PORTIONS = ['AM', 'MID', 'PM'];
+
+function oosPortionMap(spares) {
+  if (!spares || typeof spares !== 'object' || Array.isArray(spares)) return null;
+  return {
+    AM: String(spares.AM ?? '').trim(),
+    MID: String(spares.MID ?? '').trim(),
+    PM: String(spares.PM ?? '').trim(),
+  };
+}
+
+function oosBusKey(bus) {
+  return String(bus ?? '').trim().toLowerCase().replace(/^0+(?=\d)/, '');
+}
+
+// One spare all day keeps the usual sentence. Mixed spares name each part of the day.
+export function outOfServiceSparePlan({ spareBus, spares, days, covers } = {}) {
+  const phrase = outOfServiceCoversPhrase(covers);
+  const map = oosPortionMap(spares);
+  const dayCount = days && typeof days === 'object' ? Object.keys(days).filter((day) => /^\d{4}-\d{2}-\d{2}$/.test(day)).length : 0;
+  const dayNote = dayCount ? ' Some days use a different spare.' : '';
+  const uniform = !map || OOS_PORTIONS.every((run) => oosBusKey(map[run]) === oosBusKey(map.AM));
+  if (uniform) {
+    const bus = map ? map.AM : String(spareBus || '').trim();
+    const sentence = bus ? `Spare bus ${bus} covers it ${phrase}.` : `No spare is assigned ${phrase}.`;
+    return { spareBus: bus, sparePlan: `${sentence}${dayNote}` };
+  }
+  const sentences = OOS_PORTIONS.map((run) => (map[run] ? `Spare bus ${map[run]} covers ${run}.` : `${run} has no spare.`));
+  const compact = OOS_PORTIONS.map((run) => (map[run] ? `${map[run]} for ${run}` : `none for ${run}`));
+  const listed = compact.length === 1 ? compact[0] : `${compact.slice(0, -1).join(', ')} and ${compact.at(-1)}`;
+  return {
+    spareBus: listed,
+    sparePlan: `${sentences.join(' ')} This lasts ${phrase}.${dayNote}`,
+  };
+}
+
+// The Outlook draft for the driver of a bus that was just marked out of service.
+export function outOfServiceNoticeMail({
+  subject,
+  body,
+  driverName,
+  usualBus,
+  spareBus,
+  spares,
+  days,
+  routeName,
+  covers,
+  note,
+  asOf,
+}) {
+  const settings = normalizeOutOfServiceNotice({ subject, body });
+  const plan = outOfServiceSparePlan({ spareBus, spares, days, covers });
+  const values = {
+    driver_name: String(driverName || '').trim(),
+    usual_bus: String(usualBus || '').trim(),
+    spare_bus: plan.spareBus,
+    spare_plan: plan.sparePlan,
+    route_name: String(routeName || '').trim() || 'your route',
+    date: prettyDate(asOf),
+    covers: outOfServiceCoversPhrase(covers),
+    note: String(note || '').trim(),
+  };
+  const text = fillNoticeTemplate(settings.body, values)
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trimEnd();
+  return {
+    subject: fillNoticeTemplate(settings.subject, values),
+    body: `${text}\n`,
+  };
+}
+
+export function outOfServiceLetterFilename(usualBus) {
+  const compact = String(usualBus ?? '').replace(/[^A-Za-z0-9]+/g, '');
+  return `Bus${compact || 'Out'}-out-of-service.eml`;
 }
 
 export function fillNoticeTemplate(template, values) {

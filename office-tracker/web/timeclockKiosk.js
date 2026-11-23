@@ -2,9 +2,11 @@ import QRCode from 'qrcode';
 import { formatClockAmPm, formatDurationLabel, localDateString, toTimeInputValue } from '../../employee-tracker/src/clockTimes.js';
 import { addReasonCode, assertNote, DEFAULT_KIOSK_CODE, driverClockPin, NOTE_MAX, removeReasonCode } from '../../src/logic/clockKiosk.js';
 import {
-  EARLY_RELEASE_DEFAULT_CLOCK,
+  earlyReleaseDefaultClock,
+  firstHeadedSchool,
   knownSchoolCodes,
   normalizeEarlyReleaseTimes,
+  schoolDestinationLabel,
 } from '../../src/logic/earlyRelease.js';
 import {
   blankSchoolYear,
@@ -704,9 +706,6 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   let schoolYearSourceKey = '';
   let schoolYearEditing = false;
   let schoolYearOpen = false;
-  const earlyReleaseForm = document.querySelector('#early-release-form');
-  const earlyReleaseSchools = document.querySelector('#early-release-schools');
-  const earlyReleaseEmpty = document.querySelector('#early-release-empty');
   const nameSizeForm = document.querySelector('#name-size-form');
   const nameSizeInput = document.querySelector('#name-size');
   const punchSoundForm = document.querySelector('#punch-sound-form');
@@ -750,7 +749,9 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   schoolYearBack?.addEventListener('click', onSchoolYearBack);
   schoolYearBuiltin?.addEventListener('click', onUseBuiltinSchoolYear);
   schoolYearCalendar?.addEventListener('click', onSchoolYearDay);
-  earlyReleaseForm?.addEventListener('submit', onSaveEarlyRelease);
+  document.querySelectorAll('form.early-release-form').forEach((form) => {
+    form.addEventListener('submit', onSaveEarlyRelease);
+  });
   quarterClockForms.forEach((form) => form.addEventListener('submit', onSaveQuarterClocks));
   document.querySelector('#contract-snap-form')?.addEventListener('submit', onSaveContractSnap);
   document
@@ -1223,43 +1224,65 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     setOfficeStatus(describeSchoolYear(builtinSchoolYear(), { saved: false }), 'ok');
   }
 
+  function earlyReleaseSchoolCodes() {
+    const profiles = state().profiles;
+    const list = profiles && typeof profiles === 'object' ? Object.values(profiles) : [];
+    const first = new Set(list.map((profile) => firstHeadedSchool(profile?.note)).filter(Boolean));
+    return knownSchoolCodes(profiles).filter((code) => schoolDestinationLabel(code) !== code || first.has(code));
+  }
+
   function fillEarlyRelease() {
-    if (!earlyReleaseSchools) return;
-    if (earlyReleaseForm?.contains(document.activeElement)) return;
-    const codes = knownSchoolCodes(state().profiles);
+    const codes = earlyReleaseSchoolCodes();
     const saved = normalizeEarlyReleaseTimes(state().clockEarlyReleaseTimes);
-    earlyReleaseSchools.replaceChildren();
-    if (earlyReleaseEmpty) earlyReleaseEmpty.hidden = codes.length > 0;
-    for (const code of codes) {
-      const field = document.createElement('div');
-      field.className = 'early-release-school';
-      const label = document.createElement('label');
-      const inputId = `early-release-${code}`;
-      label.htmlFor = inputId;
-      label.textContent = code;
-      const input = document.createElement('input');
-      input.id = inputId;
-      input.type = 'time';
-      input.step = '60';
-      input.required = true;
-      input.dataset.schoolCode = code;
-      input.value = toTimeInputValue(saved[code] || EARLY_RELEASE_DEFAULT_CLOCK);
-      field.append(label, input);
-      earlyReleaseSchools.append(field);
+    for (const container of document.querySelectorAll('.early-release-schools')) {
+      const form = container.closest('form');
+      if (form?.contains(document.activeElement)) continue;
+      container.replaceChildren();
+      const empty = form?.querySelector('.early-release-empty');
+      if (empty) empty.hidden = codes.length > 0;
+      for (const code of codes) {
+        const field = document.createElement('div');
+        field.className = 'early-release-school';
+        const label = document.createElement('label');
+        const inputId = `${form?.id || 'early-release'}-${code}`;
+        label.htmlFor = inputId;
+        const name = schoolDestinationLabel(code);
+        const title = document.createElement('span');
+        title.className = 'early-release-name';
+        title.textContent = name;
+        label.append(title);
+        if (name !== code) {
+          const mark = document.createElement('span');
+          mark.className = 'early-release-code';
+          mark.textContent = code;
+          label.append(mark);
+        }
+        const input = document.createElement('input');
+        input.id = inputId;
+        input.type = 'time';
+        input.step = '60';
+        input.required = true;
+        input.dataset.schoolCode = code;
+        input.setAttribute('aria-label', `${name} early release clock-in`);
+        input.value = toTimeInputValue(saved[code] || earlyReleaseDefaultClock(code));
+        field.append(label, input);
+        container.append(field);
+      }
     }
   }
 
   function onSaveEarlyRelease(event) {
     event.preventDefault();
     const times = {};
-    const inputs = earlyReleaseSchools?.querySelectorAll('[data-school-code]') ?? [];
+    const inputs = event.currentTarget?.querySelectorAll('[data-school-code]') ?? [];
     for (const input of inputs) {
       if (!(input instanceof HTMLInputElement)) continue;
       const code = input.dataset.schoolCode || '';
       const raw = input.value.trim();
-      const saved = normalizeEarlyReleaseTimes({ [code]: raw || EARLY_RELEASE_DEFAULT_CLOCK });
+      const saved = normalizeEarlyReleaseTimes({ [code]: raw || earlyReleaseDefaultClock(code) });
+      const name = schoolDestinationLabel(code);
       if (!saved[code]) {
-        setOfficeStatus(`Enter a clock time for ${code}.`, 'error');
+        setOfficeStatus(`Enter a clock time for ${name}.`, 'error');
         return;
       }
       times[code] = saved[code];
@@ -1270,8 +1293,8 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     const count = Object.keys(times).length;
     setOfficeStatus(
       count
-        ? `Early release times saved for ${count} schools. On those days, PM names flash from the first school on the route.`
-        : 'Early release times saved.',
+        ? `Early release clock-in saved for ${count} schools. On those days, a PM route uses the time for its first school.`
+        : 'Early release clock-in saved.',
       'ok'
     );
     refresh();

@@ -42,6 +42,8 @@ import {
 import { parseMultipartPhoto } from './multipartPhoto.js';
 import extraWorkRouter from '../../src/routes/extraWorkRouter.js';
 import { startDailyAwardClock } from '../../src/logic/dailyWorkClock.js';
+import { currentBusZones, inspectionsToday, powerEventsForBuses } from './zonarBoard.js';
+import { yardEventsForDate } from './yardDay.js';
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -236,8 +238,74 @@ app.post('/api/timesheet-capture/:token/restart', (req, res) => {
   res.json(restarted);
 });
 
+let busZoneCache = { at: 0, buses: [] };
+
+app.get('/api/the-board/availability', async (_req, res) => {
+  try {
+    if (Date.now() - busZoneCache.at < 20_000) {
+      res.json({ buses: busZoneCache.buses });
+      return;
+    }
+    const buses = await currentBusZones();
+    busZoneCache = { at: Date.now(), buses };
+    res.json({ buses });
+  } catch {
+    res.status(502).json({ error: 'Yard status is not available right now.' });
+  }
+});
+
+app.get('/api/driver-habits/yard', async (req, res) => {
+  const buses = String(req.query.buses || '')
+    .split(',')
+    .map((bus) => bus.trim())
+    .filter(Boolean);
+  try {
+    const result = await yardEventsForDate(req.query.date, buses);
+    res.json(result);
+  } catch (error) {
+    const badDate = error?.message === 'Choose a date.';
+    res.status(badDate ? 400 : 502).json({
+      error: error?.message || 'Yard times are not available right now.',
+    });
+  }
+});
+
+app.get('/api/the-board/inspections', async (_req, res) => {
+  try {
+    const inspections = await inspectionsToday();
+    res.json({ inspections });
+  } catch {
+    res.status(502).json({ error: 'Student Checks are not available right now.' });
+  }
+});
+
+app.get('/api/the-board/power', async (req, res) => {
+  const buses = String(req.query.buses || '')
+    .split(',')
+    .map((bus) => bus.trim())
+    .filter(Boolean);
+  try {
+    const events = await powerEventsForBuses(buses);
+    res.json({ events });
+  } catch {
+    res.status(502).json({ error: 'Power On times are not available right now.' });
+  }
+});
+
 app.use(express.json({ limit: '2mb' }));
-app.use(express.static(distDir));
+app.get(
+  ['/the-board', '/the-board/', '/the-board/darkbus', '/the-board/darkbus/', '/the-board/studentcheck', '/the-board/studentcheck/', '/the-board.html'],
+  (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.sendFile(path.join(distDir, 'the-board', 'index.html'));
+});
+app.use(express.static(distDir, {
+  setHeaders(res, filePath) {
+    if (/\.(?:html|js|css)$/.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
+  },
+}));
 app.get('/board', (_req, res) => {
   res.sendFile(path.join(publicDir, 'board', 'index.html'));
 });

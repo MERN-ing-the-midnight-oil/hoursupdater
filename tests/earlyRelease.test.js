@@ -5,12 +5,17 @@ import { getSchoolDays } from '../src/logic/calendar.js';
 import {
   EARLY_RELEASE_DEFAULT_CLOCK,
   earlyReleaseClock,
+  earlyReleaseDefaultClock,
+  earlyReleaseScreenClock,
   firstHeadedSchool,
+  schoolDestinationLabel,
   isEarlyReleaseDate,
   knownSchoolCodes,
   normalizeEarlyReleaseTimes,
   pmClockForDate,
   schoolCodesFromNote,
+  schoolsForSegment,
+  lastSchoolForSegment,
 } from '../src/logic/earlyRelease.js';
 import { clockInKey, flashingClockInKeys } from '../src/logic/lateClockFlash.js';
 import { importState, loadState, mergeSharedDriverList, saveState } from '../office-tracker/web/store.js';
@@ -31,8 +36,20 @@ function memoryStorage() {
   };
 }
 
-test('route S10 heads to LOW first, and every school code on the note is known', () => {
+test('the last school on a segment is the final code in that part of the note', () => {
+  assert.deepEqual(schoolsForSegment(s10, 'AM'), ['LOW', 'SHS']);
+  assert.deepEqual(schoolsForSegment(s10, 'PM'), ['BHS', 'LOW']);
+  assert.equal(lastSchoolForSegment(s10, 'AM'), 'SHS');
+  assert.equal(lastSchoolForSegment(s10, 'PM'), 'LOW');
+  assert.equal(lastSchoolForSegment('NH, SMS,SQHS/NH, SMS, MD BW', 'PM'), 'SMS');
+  assert.equal(lastSchoolForSegment('NH, SMS,SQHS/NH, SMS, MD BW', 'MID'), 'BW');
+  assert.equal(lastSchoolForSegment('6 hrs MWF(CT) - CC, KMS, SQHS/CC, KMS', 'AM'), 'SQHS');
+});
+
+test('route S10 heads to Lowell first, and every school code on the note is known', () => {
   assert.equal(firstHeadedSchool(s10), 'LOW');
+  assert.equal(schoolDestinationLabel('LOW'), 'Lowell');
+  assert.equal(schoolDestinationLabel('low'), 'Lowell');
   assert.deepEqual(schoolCodesFromNote(s10), ['LOW', 'SHS', 'BHS']);
   assert.deepEqual(schoolCodesFromNote('GEN-WK-BHS, WMS/GEN-WK'), ['GEN', 'WK', 'BHS', 'WMS']);
   assert.equal(firstHeadedSchool('BHS-OPT, COR, CT/BHS-OPT, COR'), 'BHS');
@@ -61,8 +78,22 @@ test('early dismissal is Thursday when school is in session, and the last day Ju
   assert.equal(isEarlyReleaseDate('2026-12-24', schoolDays), false);
 });
 
-test('early release PM clock-in follows the first school and starts at 11:55 AM', () => {
+test('early release PM clock-in follows the posted time for the first school', () => {
   assert.equal(EARLY_RELEASE_DEFAULT_CLOCK, '11:55');
+  assert.equal(earlyReleaseDefaultClock('AW'), '11:50');
+  assert.equal(earlyReleaseDefaultClock('BW'), '11:50');
+  assert.equal(earlyReleaseDefaultClock('CC'), '12:00');
+  assert.equal(earlyReleaseDefaultClock('COR'), '11:50');
+  assert.equal(earlyReleaseDefaultClock('CORD'), '11:50');
+  assert.equal(earlyReleaseDefaultClock('NH'), '11:50');
+  assert.equal(earlyReleaseDefaultClock('SB'), '11:50');
+  assert.equal(earlyReleaseDefaultClock('LOW'), '11:55');
+  assert.equal(earlyReleaseDefaultClock('SL'), '11:55');
+  assert.equal(earlyReleaseDefaultClock('SUN'), '11:55');
+  assert.equal(earlyReleaseDefaultClock('ROO'), '11:55');
+  assert.equal(earlyReleaseDefaultClock('WK'), '11:55');
+  assert.equal(earlyReleaseDefaultClock('BHS'), '11:55');
+  assert.equal(earlyReleaseScreenClock({}), '11:50');
   assert.equal(
     pmClockForDate({
       regularClock: '14:05',
@@ -72,6 +103,36 @@ test('early release PM clock-in follows the first school and starts at 11:55 AM'
       times: {},
     }),
     '11:55'
+  );
+  assert.equal(
+    pmClockForDate({
+      regularClock: '14:05',
+      note: 'AW, SQHS/AW, SQHS',
+      date: '2026-10-08',
+      schoolDays,
+      times: {},
+    }),
+    '11:50'
+  );
+  assert.equal(
+    pmClockForDate({
+      regularClock: '14:05',
+      note: 'CC, SHS/CC, SHS',
+      date: '2026-10-08',
+      schoolDays,
+      times: {},
+    }),
+    '12:00'
+  );
+  assert.equal(
+    pmClockForDate({
+      regularClock: '14:05',
+      note: 'AW, SQHS/AW, SQHS',
+      date: '2026-10-09',
+      schoolDays,
+      times: {},
+    }),
+    '14:05'
   );
   assert.equal(
     pmClockForDate({

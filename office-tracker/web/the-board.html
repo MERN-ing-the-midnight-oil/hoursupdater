@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <base href="/" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Board</title>
+    <link rel="icon" href="./favicon.ico" sizes="48x48" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./office.css?v=calendar-color-1" />
+  </head>
+  <body class="the-board-page">
+    <header class="the-board-bar">
+      <div>
+        <p class="app-name">Teamster Tracker</p>
+        <h1>The Board</h1>
+      </div>
+      <p id="board-now" class="the-board-now"></p>
+      <div class="the-board-tools">
+        <button
+          type="button"
+          class="board-settings-btn board-settings-dark"
+          id="dark-bus-open"
+          title="A route alerts after its clock-in wait if the bus still has no Power On. Click a flashing route to stop that alarm. A Power On turns the route green."
+          aria-label="Dark Bus Alerts"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="2.5" y="6" width="16" height="8.5" rx="1.6" />
+            <path d="M18.5 9.2h1.4c.7 0 1.1.6 1.1 1.3v1.6c0 .7-.4 1.3-1.1 1.3h-1.4" />
+            <rect x="4.4" y="7.7" width="3.2" height="3.1" />
+            <rect x="8.6" y="7.7" width="3.2" height="3.1" />
+            <rect x="12.8" y="7.7" width="3.2" height="3.1" />
+            <circle cx="7.2" cy="16.6" r="1.5" />
+            <circle cx="14.2" cy="16.6" r="1.5" />
+          </svg>
+          Dark Bus Alerts
+          <span id="dark-bus-count" class="board-alert-count" hidden>0</span>
+        </button>
+        <button
+          type="button"
+          class="board-settings-btn board-settings-student"
+          id="student-check-open"
+          title="A Mid Day or PM route alerts after it is back in the yard if Zonar has no Student Check. The wait is a setting. Click a flashing route to stop that alarm."
+          aria-label="Student Check Alerts"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="6" y="3.5" width="12" height="17" rx="1.6" />
+            <path d="M9 3.5h6v2.2H9z" />
+            <path d="M8.5 12.2l2.1 2.1 4.2-4.4" />
+          </svg>
+          Student Check
+          <span id="student-check-count" class="board-alert-count" hidden>0</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="the-board-columns">
+      <section class="the-board-column the-board-oos" aria-labelledby="oos-heading">
+        <div class="board-oos-head">
+          <h2 id="oos-heading">Out of Service</h2>
+          <button type="button" class="board-oos-manage" id="oos-manager-open">Manage</button>
+        </div>
+        <p id="oos-status" class="status" role="status" hidden></p>
+        <div id="oos-list"></div>
+      </section>
+      <section class="the-board-column the-board-absent" aria-labelledby="absent-heading">
+        <div class="board-absent-head">
+          <h2 id="absent-heading">Absent students</h2>
+          <div class="board-absent-tools">
+            <button type="button" class="board-absent-switch" id="absent-edit-open" aria-label="Edit absent students" title="Edit absent students">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5z" />
+              </svg>
+            </button>
+            <button type="button" class="board-absent-add" id="absent-add" aria-label="Add an absent student">+</button>
+          </div>
+        </div>
+        <div id="absent-list"></div>
+      </section>
+      <section class="the-board-column the-board-clear" aria-labelledby="available-heading">
+        <div class="board-absent-head">
+          <h2 id="available-heading">Available Drivers</h2>
+          <button type="button" class="board-absent-switch" id="available-settings" aria-label="Available driver settings" title="Available driver settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 3.2v2.1M12 18.7v2.1M4.9 4.9l1.5 1.5M17.6 17.6l1.5 1.5M3.2 12h2.1M18.7 12h2.1M4.9 19.1l1.5-1.5M17.6 6.4l1.5-1.5" />
+            </svg>
+          </button>
+        </div>
+        <div id="available-list"></div>
+      </section>
+    </div>
+
+    <div id="dark-bus-page" class="board-dark-page" hidden>
+      <div class="board-child-top">
+        <button type="button" class="board-home" data-board-home>The Board</button>
+        <h1 id="dark-bus-title" class="board-dark-title">Dark Bus Alerts</h1>
+        <button type="button" class="board-mute" id="dark-bus-mute" aria-pressed="false">Mute Alerts</button>
+      </div>
+      <div class="board-dark-bar">
+        <div class="board-dark-tabs" role="tablist" aria-label="Dark Bus run">
+          <button type="button" role="tab" id="dark-tab-am" data-dark-tab="AM" aria-controls="dark-bus-pills">AM</button>
+          <button type="button" role="tab" id="dark-tab-mid" data-dark-tab="MID" aria-controls="dark-bus-pills">MID</button>
+          <button type="button" role="tab" id="dark-tab-pm" data-dark-tab="PM" aria-controls="dark-bus-pills">PM</button>
+        </div>
+        <p id="dark-bus-switch-note" class="board-dark-note"></p>
+        <div class="board-absent-tools">
+          <button type="button" class="secondary" id="dark-bus-close">Done</button>
+        </div>
+      </div>
+      <div class="board-dark-stage">
+        <div id="dark-bus-pills" class="board-dark-board" role="tabpanel"></div>
+        <form id="dark-bus-config-form" class="board-dark-settings">
+          <h2>Settings</h2>
+          <label>
+            Minutes to wait after clock-in
+            <input id="dark-bus-grace" type="number" min="0" max="60" step="1" inputmode="numeric" />
+          </label>
+          <label>
+            Show the MID tab starting at
+            <input id="dark-bus-mid-at" type="time" required />
+          </label>
+          <label>
+            Show the PM tab starting at
+            <input id="dark-bus-pm-at" type="time" required />
+          </label>
+          <label class="board-check">
+            <input id="dark-bus-cover" type="checkbox" />
+            Keep Dark Bus open while a route is alarming. Each route flashes and beeps on its own until that route's pill is clicked or the bus powers on.
+          </label>
+          <label class="board-check">
+            <input id="dark-bus-flash" type="checkbox" />
+            Flash the screen when a dark bus is discovered
+          </label>
+          <label class="board-check">
+            <input id="dark-bus-sound" type="checkbox" />
+            Play each route's alarm until that route's pill is clicked
+          </label>
+          <p id="dark-bus-config-status" class="status" role="status" hidden></p>
+        </form>
+      </div>
+      <p id="dark-bus-spare-status" class="status" role="status" hidden></p>
+    </div>
+
+    <div id="student-check-page" class="board-dark-page" hidden>
+      <div class="board-child-top">
+        <button type="button" class="board-home" data-board-home>The Board</button>
+        <h1 id="student-check-title" class="board-dark-title">Student Check Alerts</h1>
+        <button type="button" class="board-mute" id="student-check-mute" aria-pressed="false">Mute Alerts</button>
+      </div>
+      <div class="board-dark-bar">
+        <div class="board-dark-tabs" role="tablist" aria-label="Student Check run">
+          <button type="button" role="tab" id="student-tab-mid" data-student-tab="MID" aria-controls="student-check-pills">MID</button>
+          <button type="button" role="tab" id="student-tab-pm" data-student-tab="PM" aria-controls="student-check-pills">PM</button>
+        </div>
+        <p id="student-check-switch-note" class="board-dark-note"></p>
+        <div class="board-absent-tools">
+          <button type="button" class="secondary" id="student-check-close">Done</button>
+        </div>
+      </div>
+      <div class="board-dark-stage">
+        <div id="student-check-pills" class="board-dark-board" role="tabpanel"></div>
+        <form id="student-check-config-form" class="board-dark-settings">
+          <h2>Settings</h2>
+          <p class="board-cal-note">A Mid Day or PM bus is watched after it visits a school and comes back to the yard. A standalone Student Check counts, and so does a Post Trip whose Student Check zone was completed. AM routes are not watched.</p>
+          <label>
+            Minutes to wait after the bus is back
+            <input id="student-check-grace" type="number" min="0" max="60" step="1" inputmode="numeric" />
+          </label>
+          <label class="board-check">
+            <input id="student-check-cover" type="checkbox" />
+            Keep Student Check open while a route is alarming. Each route flashes and beeps on its own until that route's pill is clicked or the Student Check comes in.
+          </label>
+          <label class="board-check">
+            <input id="student-check-flash" type="checkbox" />
+            Flash the screen when a Student Check is missing
+          </label>
+          <label class="board-check">
+            <input id="student-check-sound" type="checkbox" />
+            Play each route's alarm until that route's pill is clicked
+          </label>
+          <p id="student-check-config-status" class="status" role="status" hidden></p>
+        </form>
+      </div>
+      <p id="student-check-status" class="status" role="status" hidden></p>
+    </div>
+
+    <div id="oos-manager" class="board-editor board-oos-manager" hidden>
+      <div class="board-editor-bar">
+        <div class="board-child-top">
+          <button type="button" class="board-home" data-board-home>The Board</button>
+          <h2 id="oos-manager-title" tabindex="-1">Out of Service Manager</h2>
+        </div>
+        <button type="button" class="secondary" id="oos-manager-close">Done</button>
+      </div>
+      <p class="board-cal-note">Each out-of-service bus is listed with the spare covering it. Change a spare to switch assignments. A sped route takes a sped spare, and a regular-ed route takes a regular-ed spare, when one is available.</p>
+      <p id="oos-manager-status" class="status" role="status" hidden></p>
+      <p id="oos-manager-summary" class="board-oos-summary"></p>
+      <div id="oos-manager-suggestions"></div>
+      <div class="board-editor-boards">
+        <section class="board-editor-panel" aria-labelledby="oos-buses-heading">
+          <h2 id="oos-buses-heading">Out of service</h2>
+          <button type="button" class="board-oos-add" id="oos-add">+ Mark a Bus as Out of Service</button>
+          <div id="oos-manager-list" class="board-editor-list"></div>
+        </section>
+        <section class="board-editor-panel" aria-labelledby="oos-spares-heading">
+          <div class="board-panel-head">
+            <h2 id="oos-spares-heading">Spares</h2>
+            <button type="button" class="secondary" id="spare-lists-open">Edit lists</button>
+          </div>
+          <div id="oos-manager-spares" class="board-editor-list"></div>
+        </section>
+      </div>
+    </div>
+
+    <div id="absent-editor" class="board-editor" hidden>
+      <div class="board-editor-bar">
+        <div class="board-child-top">
+          <button type="button" class="board-home" data-board-home>The Board</button>
+          <h2>Edit absent students</h2>
+        </div>
+        <button type="button" class="secondary" id="absent-editor-close">Done</button>
+      </div>
+      <div id="absent-editor-list" class="board-editor-list"></div>
+    </div>
+
+    <dialog id="oos-dialog" class="board-dialog board-oos-dialog" aria-labelledby="oos-dialog-title">
+      <form id="oos-form">
+        <h2 id="oos-dialog-title">Out of Service</h2>
+        <div class="board-oos-fields">
+        <p>The usual bus that is unavailable, and the spare for each part of the day.</p>
+        <label>Usual bus <input id="oos-usual" type="text" required inputmode="numeric" autocomplete="off" /></label>
+        <fieldset class="board-oos-portions">
+          <legend>Spare buses</legend>
+          <label>All <select id="oos-spare-all" aria-label="Spare for the whole day"></select></label>
+          <label>AM <select id="oos-spare-am" data-oos-portion="AM" aria-label="AM spare"></select></label>
+          <label>MID <select id="oos-spare-mid" data-oos-portion="MID" aria-label="MID spare"></select></label>
+          <label>PM <select id="oos-spare-pm" data-oos-portion="PM" aria-label="PM spare"></select></label>
+        </fieldset>
+        <fieldset class="board-spare-pools">
+          <legend>Pick a spare</legend>
+          <div class="board-spare-columns">
+            <section class="board-spare-pool is-sped">
+              <h3>
+                <span>Sped spare buses</span>
+                <button type="button" class="board-spare-pencil" data-spare-edit="sped" aria-pressed="false" aria-label="Edit sped spare buses" title="Edit sped spare buses">
+                  <svg class="is-pencil" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5z" />
+                  </svg>
+                  <svg class="is-check" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M5 12.5 9.5 17 19 7" />
+                  </svg>
+                </button>
+              </h3>
+              <div id="oos-sped-spares" class="board-spare-choices"></div>
+            </section>
+            <section class="board-spare-pool is-reg">
+              <h3>
+                <span>Reg ed spares</span>
+                <button type="button" class="board-spare-pencil" data-spare-edit="reg" aria-pressed="false" aria-label="Edit regular-ed spares" title="Edit regular-ed spares">
+                  <svg class="is-pencil" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5z" />
+                  </svg>
+                  <svg class="is-check" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M5 12.5 9.5 17 19 7" />
+                  </svg>
+                </button>
+              </h3>
+              <div id="oos-reg-spares" class="board-spare-choices"></div>
+            </section>
+          </div>
+          <details id="oos-main-fleet" class="board-main-fleet">
+            <summary>Main Fleet</summary>
+            <p class="board-cal-note">Buses already on a route. A warning shows when that bus already runs the part of the day you pick.</p>
+            <div id="oos-fleet-spares" class="board-spare-choices"></div>
+          </details>
+        </fieldset>
+        <fieldset class="board-spare-duration">
+          <legend>How long</legend>
+          <label><input name="oos-span" type="radio" value="today" /> Today only</label>
+          <label><input name="oos-span" type="radio" value="days" /> Days <input id="oos-days" name="oos-days" type="number" min="1" max="366" step="1" inputmode="numeric" disabled /></label>
+          <label><input name="oos-span" type="radio" value="indefinitely" /> Indefinitely</label>
+        </fieldset>
+        <fieldset class="board-span">
+          <legend>Which days</legend>
+          <label><input name="oos-days-mode" type="radio" value="same" checked /> Same spares each day</label>
+          <label><input name="oos-days-mode" type="radio" value="calendar" /> Change some days</label>
+        </fieldset>
+        <label>Note <input id="oos-note" type="text" placeholder="In the shop" /></label>
+        <fieldset class="board-oos-email">
+          <legend>Email the driver</legend>
+          <div class="board-oos-email-choice">
+            <label><input name="oos-email" type="radio" value="no" checked /> No</label>
+            <label><input name="oos-email" type="radio" value="yes" /> Yes</label>
+          </div>
+          <p class="board-cal-note">Yes opens an Outlook draft to the driver of this bus.</p>
+          <details id="oos-email-template">
+            <summary>Edit the email</summary>
+            <label>Subject <input id="oos-email-subject" type="text" autocomplete="off" /></label>
+            <label>Message <textarea id="oos-email-body" rows="8"></textarea></label>
+            <p class="board-cal-note">You can use {{driver_name}}, {{usual_bus}}, {{spare_bus}}, {{spare_plan}}, {{route_name}}, {{date}}, {{covers}}, and {{note}}.</p>
+            <div class="board-oos-email-actions">
+              <button type="button" id="oos-email-save">Save the email</button>
+              <button type="button" class="secondary" id="oos-email-reset">Use the usual wording</button>
+            </div>
+            <p id="oos-email-status" class="status" role="status" hidden></p>
+          </details>
+        </fieldset>
+        <p id="oos-confirm" class="board-oos-confirm">Assign Spare Bus __ to replace Bus __?</p>
+        <p id="oos-spare-warning" class="board-spare-warning" role="status" hidden></p>
+        </div>
+        <div id="oos-calendar-panel" class="board-days" hidden>
+          <div class="board-cal-nav">
+            <button type="button" class="secondary" id="oos-cal-back">Back</button>
+            <div class="board-cal-month">
+              <button type="button" id="oos-cal-prev" aria-label="Previous month">‹</button>
+              <span id="oos-cal-title"></span>
+              <button type="button" id="oos-cal-next" aria-label="Next month">›</button>
+            </div>
+          </div>
+          <p class="board-cal-note">A day you have not changed uses the spares above. Usual puts that day back.</p>
+          <div id="oos-cal" class="board-cal board-oos-cal"></div>
+        </div>
+        <p id="oos-form-status" class="status" role="status" hidden></p>
+        <div class="board-dialog-actions">
+          <button type="button" class="secondary" id="oos-cancel">Close</button>
+          <button type="submit" id="oos-submit">Yes</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="spare-lists-dialog" class="board-dialog board-oos-dialog" aria-labelledby="spare-lists-title">
+      <form id="spare-lists-form">
+        <h2 id="spare-lists-title" tabindex="-1">Spare bus lists</h2>
+        <p>Add, remove, or rename the buses the green Use button can assign.</p>
+        <fieldset class="board-spare-pools">
+          <legend>Spare buses</legend>
+          <div class="board-spare-columns">
+            <section class="board-spare-pool is-sped">
+              <h3>Sped spare buses</h3>
+              <div id="spare-list-sped" class="board-spare-choices"></div>
+            </section>
+            <section class="board-spare-pool is-reg">
+              <h3>Reg ed spares</h3>
+              <div id="spare-list-reg" class="board-spare-choices"></div>
+            </section>
+          </div>
+        </fieldset>
+        <p id="spare-lists-status" class="status" role="status" hidden></p>
+        <div class="board-dialog-actions">
+          <button type="button" class="secondary" id="spare-lists-close">Done</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="absent-dialog" class="board-dialog" aria-labelledby="absent-dialog-title">
+      <form id="absent-form">
+        <h2 id="absent-dialog-title">Absent student</h2>
+        <div class="board-absent-fields">
+          <div class="board-portion-routes" id="absent-portions">
+            <p id="absent-route-bus-note" class="board-route-bus-note">Each part of the day needs a bus or a route. Only one is needed. The other fills in when it matches.</p>
+            <div class="board-portion-row" data-absence-portion="AM">
+              <span class="board-portion-name">AM</span>
+              <label>
+                Bus
+                <input data-absence-field="bus" type="text" inputmode="numeric" autocomplete="off" aria-label="AM bus" aria-describedby="absent-route-bus-note" />
+              </label>
+              <span class="board-route-bus-or">or</span>
+              <label>
+                Route
+                <input data-absence-field="route" type="text" autocomplete="off" aria-label="AM route" aria-describedby="absent-route-bus-note" />
+              </label>
+              <span></span>
+            </div>
+            <div class="board-portion-row" data-absence-portion="MID">
+              <span class="board-portion-name">MID</span>
+              <label>
+                Bus
+                <input data-absence-field="bus" type="text" inputmode="numeric" autocomplete="off" aria-label="MID bus" aria-describedby="absent-route-bus-note" />
+              </label>
+              <span class="board-route-bus-or">or</span>
+              <label>
+                Route
+                <input data-absence-field="route" type="text" autocomplete="off" aria-label="MID route" aria-describedby="absent-route-bus-note" />
+              </label>
+              <button type="button" class="board-same-am" data-same-as-am>Same as AM</button>
+            </div>
+            <div class="board-portion-row" data-absence-portion="PM">
+              <span class="board-portion-name">PM</span>
+              <label>
+                Bus
+                <input data-absence-field="bus" type="text" inputmode="numeric" autocomplete="off" aria-label="PM bus" aria-describedby="absent-route-bus-note" />
+              </label>
+              <span class="board-route-bus-or">or</span>
+              <label>
+                Route
+                <input data-absence-field="route" type="text" autocomplete="off" aria-label="PM route" aria-describedby="absent-route-bus-note" />
+              </label>
+              <button type="button" class="board-same-am" data-same-as-am>Same as AM</button>
+            </div>
+          </div>
+          <fieldset class="board-span board-entry">
+            <legend>Add</legend>
+            <label><input type="radio" name="absent-entry" value="student" checked /> Student</label>
+            <label><input type="radio" name="absent-entry" value="note" /> Note</label>
+          </fieldset>
+          <label id="absent-name-label">
+            <span id="absent-name-caption">Student</span>
+            <input id="absent-name" type="text" list="absent-names" required autocomplete="off" />
+          </label>
+          <datalist id="absent-names"></datalist>
+          <fieldset class="board-span">
+            <legend>Which days</legend>
+            <label><input type="radio" name="absent-span" value="today" checked /> Today only</label>
+            <label><input type="radio" name="absent-span" value="calendar" /> Pick on calendar</label>
+          </fieldset>
+        </div>
+        <div id="absent-calendar-panel" class="board-days" hidden>
+          <div class="board-cal-nav">
+            <button type="button" id="absent-cal-prev" aria-label="Previous month">‹</button>
+            <span id="absent-cal-title"></span>
+            <button type="button" id="absent-cal-next" aria-label="Next month">›</button>
+          </div>
+          <p id="absent-day-count" class="board-cal-note">1 day</p>
+          <p class="board-cal-note">Check AM, MID, or PM on each day. Each one uses that part's bus or route.</p>
+          <div id="absent-cal" class="board-cal"></div>
+        </div>
+        <p id="absent-form-status" class="status" role="status" hidden></p>
+        <div class="board-dialog-actions">
+          <button type="button" class="secondary" id="absent-cancel">Close</button>
+          <button type="submit" id="absent-submit">Put on the board</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="available-settings-dialog" class="board-dialog board-available-dialog" aria-labelledby="available-settings-title">
+      <form id="available-settings-form">
+        <h2 id="available-settings-title">Available drivers</h2>
+        <p>
+          Empty means the bus is at the last school for this part of the day.
+          Back Early means it then got back to the yard more than this many minutes before clock-out.
+        </p>
+        <label>
+          Minutes before clock-out
+          <input id="available-early-minutes" type="number" min="0" max="180" step="1" inputmode="numeric" required />
+        </label>
+        <h3>Bus on each route</h3>
+        <p>
+          Zonar watches the bus number and reports where that bus is.
+          The route and clock-out come from Time Changes.
+          Change a bus number to watch a different bus for that route.
+        </p>
+        <div id="available-bus-sheet"></div>
+        <p id="available-settings-status" class="status" role="status" hidden></p>
+        <div class="board-dialog-actions">
+          <button type="button" class="secondary" id="available-settings-cancel">Close</button>
+          <button type="submit">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="./the-board.js?v=calendar-color-1"></script>
+  </body>
+</html>

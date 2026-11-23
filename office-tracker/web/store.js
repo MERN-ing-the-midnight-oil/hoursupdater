@@ -29,7 +29,8 @@ import { normalizeStoredWorkPortions, normalizeTripTicket, normalizeWorkType } f
 import { normalizeTimecardEntries } from '../src/timecardEntries.js';
 import { applyLeaveRequests, normalizeLeaveRequests, officeLeaveRequests } from '../src/leaveRequests.js';
 import { normalizeContractNotice } from '../src/contractNotice.js';
-import { normalizeDriverNotice } from '../src/noticeMail.js';
+import { normalizeDriverNotice, normalizeOutOfServiceNotice } from '../src/noticeMail.js';
+import { directoryEmail, lockDirectoryEmails } from '../src/staffDirectory.js';
 import { normalizeOvertimeRules } from '../src/overtimeRules.js';
 import { mergePaperBackup, normalizePaperBackup } from '../src/paperClockBackup.js';
 import { mergeRouteDataBackup, normalizeRouteDataBackup } from '../src/routeDataBackup.js';
@@ -452,7 +453,7 @@ export function loadState(storage = globalThis.localStorage) {
       version: 1,
       currentProfileId: parsed.currentProfileId ?? null,
       profiles: parsed.profiles ?? {},
-      drivers: applyLeaveRequests(parsed.drivers, leaveRequests),
+      drivers: lockDirectoryEmails(applyLeaveRequests(parsed.drivers, leaveRequests)),
       punches: normalizeOfficePunches(parsed.punches),
       leaveRequests,
       routeCoverage: normalizeRouteCoverage(parsed.routeCoverage),
@@ -476,6 +477,7 @@ export function loadState(storage = globalThis.localStorage) {
       exampleVersion: parsed.exampleVersion ?? 0,
       ...(parsed.contractReminder ? { contractReminder: parsed.contractReminder } : {}),
       ...(parsed.driverNotice ? { driverNotice: parsed.driverNotice } : {}),
+      ...(parsed.outOfServiceNotice ? { outOfServiceNotice: parsed.outOfServiceNotice } : {}),
       ...(parsed.contractNotice ? { contractNotice: parsed.contractNotice } : {}),
       ...(parsed.contractReminderCreated && typeof parsed.contractReminderCreated === 'object'
         ? { contractReminderCreated: parsed.contractReminderCreated }
@@ -511,6 +513,7 @@ export function writeStateLocal(state, storage = globalThis.localStorage) {
 }
 
 export function saveState(state, storage = globalThis.localStorage) {
+  if (state && Array.isArray(state.drivers)) state.drivers = lockDirectoryEmails(state.drivers);
   storage.setItem(STORAGE_KEY, JSON.stringify(state));
   if (!suppressSync) afterSave?.(state);
   return state;
@@ -644,7 +647,7 @@ export function driversFromState(state) {
       email: '',
     });
   }
-  return [...byName.values()].sort(compareDrivers);
+  return lockDirectoryEmails([...byName.values()].sort(compareDrivers));
 }
 
 export function listDrivers(storage = globalThis.localStorage) {
@@ -696,7 +699,7 @@ export function saveDriver(driver, storage = globalThis.localStorage) {
     firstName: parts.firstName,
     lastName: parts.lastName,
     phone: driver.phone != null ? String(driver.phone).trim() : String(existing?.phone ?? ''),
-    email: String(driver.email ?? '').trim(),
+    email: directoryEmail(name) || String(driver.email ?? '').trim(),
     ...(hireDate ? { hire_date: String(hireDate).trim() } : {}),
     ...(tieBreak != null && String(tieBreak).trim() !== '' ? { tie_break: tieBreak } : {}),
     ...(seniorityNumber != null && String(seniorityNumber).trim() !== ''
@@ -909,6 +912,7 @@ export function mergeSharedDriverList(remoteState, localState) {
   }
   if (omitted.size) remote.omittedDrivers = [...omitted];
   else delete remote.omittedDrivers;
+  remote.drivers = lockDirectoryEmails(remote.drivers);
   return remote;
 }
 
@@ -934,6 +938,18 @@ export function saveDriverNotice(settings, storage = globalThis.localStorage) {
   const state = loadState(storage);
   const next = normalizeDriverNotice(settings);
   state.driverNotice = next;
+  saveState(state, storage);
+  return next;
+}
+
+export function loadOutOfServiceNotice(storage = globalThis.localStorage) {
+  return normalizeOutOfServiceNotice(loadState(storage).outOfServiceNotice);
+}
+
+export function saveOutOfServiceNotice(settings, storage = globalThis.localStorage) {
+  const state = loadState(storage);
+  const next = normalizeOutOfServiceNotice(settings);
+  state.outOfServiceNotice = next;
   saveState(state, storage);
   return next;
 }
@@ -1197,6 +1213,7 @@ export function importState(json, storage = globalThis.localStorage) {
       : {}),
     ...(parsed.contractReminder ? { contractReminder: parsed.contractReminder } : {}),
     ...(parsed.driverNotice ? { driverNotice: parsed.driverNotice } : {}),
+    ...(parsed.outOfServiceNotice ? { outOfServiceNotice: parsed.outOfServiceNotice } : {}),
     ...(parsed.contractNotice ? { contractNotice: parsed.contractNotice } : {}),
     ...(parsed.contractReminderCreated && typeof parsed.contractReminderCreated === 'object'
       ? { contractReminderCreated: parsed.contractReminderCreated }

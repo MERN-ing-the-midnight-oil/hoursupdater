@@ -48,6 +48,13 @@
   --daily-ink: #3a2a10;
   --daily-case: #fff8ee;
   --daily-shadow: #3a2a10;
+  --board: #9b2c1f;
+  --board-deep: #6f1d14;
+  --board-clear: #176b45;
+  --board-ink: #24120f;
+  --board-case: #fff6f3;
+  --board-hot: #ffd0c6;
+  --board-shadow: #24120f;
   --roster: #8b3a4a;
   --roster-deep: #6a2434;
   --roster-signal: #e07a2f;
@@ -222,6 +229,14 @@ body {
 .px-daily-ink { fill: var(--daily-ink); }
 .px-daily-signal { fill: var(--daily-signal); }
 .px-daily-hot { fill: var(--daily-hot); }
+.px-board-shadow { fill: var(--board-shadow); }
+.px-board-frame { fill: var(--board); }
+.px-board-case { fill: var(--board-case); }
+.px-board-paper { fill: #ffffff; }
+.px-board-ink { fill: var(--board-ink); }
+.px-board-alert { fill: var(--board); }
+.px-board-clear { fill: var(--board-clear); }
+.px-board-hot { fill: var(--board-hot); }
 .px-roster-shadow { fill: var(--roster-shadow); }
 .px-roster-frame { fill: var(--roster); }
 .px-roster-case { fill: var(--roster-case); }
@@ -849,6 +864,10 @@ button.app-launch-roster:focus-visible {
   outline-color: var(--roster);
 }
 
+button.app-launch-board:focus-visible {
+  outline-color: var(--board);
+}
+
 button.secondary {
   background: #fff;
   color: var(--ink);
@@ -1030,6 +1049,7 @@ button:disabled:hover {
 
 .schedule-date-mail {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
   width: 1.6rem;
@@ -1201,6 +1221,12 @@ button:disabled:hover {
   border-color: #e3c0c0;
   background: #f8ecec;
   color: var(--danger);
+}
+
+.status.is-warn {
+  border-color: #e4d2a4;
+  background: #fbf6e8;
+  color: #6d5420;
 }
 
 .status.is-ok {

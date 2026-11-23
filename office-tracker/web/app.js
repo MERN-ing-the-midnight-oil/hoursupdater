@@ -50,6 +50,7 @@ import {
   STORAGE_KEY,
   beginSessionRouteTracking,
 } from './store.js';
+import { startDriverHabits } from './driverHabitsPage.js';
 import { createId } from '../../src/logic/createId.js';
 import { computeDeltaMinutes } from '../../src/logic/timeUtils.js';
 import {
@@ -138,6 +139,7 @@ import { DEFAULT_DRIVER_PIN, driverClockPin } from '../../src/logic/clockKiosk.j
 import { earlyReleaseClock, isEarlyReleaseDate } from '../../src/logic/earlyRelease.js';
 import { earlyReleaseRulesForState, savedSchoolYear } from '../../src/logic/schoolYear.js';
 import { assignRouteDriver, assignmentOnDate, dayBefore, driverForDate, driverOwnsRoute, routeAssignments, sameDriver } from '../src/assignments.js';
+import { directoryEmail } from '../src/staffDirectory.js';
 import { duplicateRunRoutes, joinRunLabels, runClocksFromOriginalRoute, runTypeLabel } from '../src/duplicateRuns.js';
 import { sectionsForDriver } from '../src/driverPacket.js';
 import {
@@ -159,11 +161,17 @@ import {
   loadSentChangeIds,
   loadSentChangeRecords,
   memorandumMail,
+  memorandumNoticeLength,
+  memorandumSaveStatus,
   memorandumTemplate,
   noticeSentLineForIds,
   noticeCcAddress,
   noticeCalendarFilename,
   noticeCoveredIds,
+  compactMemorandumBody,
+  noticeLetterEml,
+  noticeLetterFilename,
+  noticeMailFits,
   noticeMailto,
   forgetChangeNoticesSent,
   rememberChangeNoticesSent,
@@ -251,7 +259,10 @@ const scheduleHistory = document.querySelector('#schedule-history');
 const calendarMonths = document.querySelector('#calendar-months');
 const historyLegend = document.querySelector('#history-legend');
 const routeTabs = document.querySelector('#route-tabs');
-const driversTab = document.querySelector('#drivers-tab');
+const driverRouteInfoOpen = document.querySelector('#driver-route-info-open');
+const driverRouteInfoNav = document.querySelector('#driver-route-info-nav');
+const allRoutesInfoTab = document.querySelector('#all-routes-info-tab');
+const driversInfoTab = document.querySelector('#drivers-info-tab');
 const dashboardApp = document.querySelector('#dashboard-app');
 const payrollTab = document.querySelector('#payroll-tab');
 const clockingTab = document.querySelector('#clocking-tab');
@@ -273,10 +284,12 @@ const adminReminderTab = document.querySelector('#admin-reminder-tab');
 const driverNoticeTab = document.querySelector('#driver-notice-tab');
 const contractNoticeTab = document.querySelector('#contract-notice-tab');
 const biddingTab = document.querySelector('#bidding-tab');
+const driverHabitsTab = document.querySelector('#driver-habits-tab');
 const adminReminderView = document.querySelector('#admin-reminder-view');
 const driverNoticeView = document.querySelector('#driver-notice-view');
 const contractNoticeView = document.querySelector('#contract-notice-view');
 const biddingView = document.querySelector('#bidding-view');
+const driverHabitsView = document.querySelector('#driver-habits-view');
 const eomBiddingMonth = document.querySelector('#eom-bidding-month');
 const eomBiddingMonthHint = document.querySelector('#eom-bidding-month-hint');
 const eomBiddingSeasonNote = document.querySelector('#eom-bidding-season-note');
@@ -313,20 +326,59 @@ if (driversWindow) {
   document.body.classList.add('is-drivers-window');
   document.body.dataset.driversApp = driversApp;
 }
+function savedRouteSheet() {
+  return getCurrentProfile()?.id || '';
+}
 let activeSheet =
-  officeSheetParam === 'contract-time-changes' || officeSheetParam === 'contract-notice'
-    ? 'contract-notice'
-    : driversApp === 'clocking'
-      ? 'clocking'
-      : driversApp === 'payroll'
-        ? 'payroll'
-        : 'drivers';
+  officeSheetParam === 'driver-habits'
+    ? 'driver-habits'
+    : officeSheetParam === 'contract-time-changes' || officeSheetParam === 'contract-notice'
+      ? 'contract-notice'
+      : driversApp === 'clocking'
+        ? 'clocking'
+        : driversApp === 'payroll'
+          ? 'payroll'
+          : savedRouteSheet() || 'all';
 let viewingDriver = '';
-let sheetBeforeOffice = 'drivers';
+let sheetBeforeOffice = savedRouteSheet() || 'all';
 let pendingAcceptDeepLink = String(officeAcceptParam || '').trim();
 
 function isTripBoard(sheet = activeSheet) {
   return sheet === 'weekly-work' || sheet === 'daily-work' || sheet === 'roster-trips';
+}
+
+function isDriverRouteInfoSheet(sheet = activeSheet) {
+  return sheet === 'drivers' || sheet === 'all' || sheet === 'driver-history';
+}
+
+// Route number buttons belong on a route's Time Changes page. Every other
+// sheet in Teamster Tracker keeps that row hidden.
+function showingRouteButtons(sheet = activeSheet) {
+  if (driversWindow || addingPerson) return addingPerson && !driversWindow;
+  if (isDriverRouteInfoSheet(sheet) || isOfficeSheet(sheet) || isTripBoard(sheet)) return false;
+  return ![
+    'settings',
+    'admin-reminder',
+    'driver-notice',
+    'contract-notice',
+    'bidding',
+    'driver-habits',
+    'route',
+  ].includes(sheet);
+}
+
+function showTimeChangesRoute() {
+  const current = getCurrentProfile();
+  if (current?.id) {
+    chooseRoute(current.id);
+    return;
+  }
+  const first = peopleList()[0];
+  if (first?.id) {
+    chooseRoute(first.id);
+    return;
+  }
+  beginAddRoute();
 }
 
 function isOfficeSheet(sheet = activeSheet) {
@@ -402,9 +454,11 @@ function markSectionChrome() {
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
   const onContractNotice = activeSheet === 'contract-notice' && !addingPerson;
   const onBidding = activeSheet === 'bidding' && !addingPerson;
-  driversTab.classList.toggle('is-active', onDrivers);
-  driversTab.setAttribute('aria-selected', onDrivers ? 'true' : 'false');
-  dashboardApp?.classList.toggle('is-active', !onOfficeApp && !onSettings);
+  const onDriverHabits = activeSheet === 'driver-habits' && !addingPerson;
+  const onAllRoutes = activeSheet === 'all' && !addingPerson;
+  const onDriverHistory = activeSheet === 'driver-history' && !addingPerson;
+  const onDriverRouteInfo = onDrivers || onAllRoutes || onDriverHistory;
+  dashboardApp?.classList.toggle('is-active', !onOfficeApp && !onSettings && !onDriverRouteInfo);
   payrollTab?.classList.toggle('is-active', onPayroll);
   clockingTab?.classList.toggle('is-active', onClocking || onClockSettings || onPaperBackup);
   timecardGenieTab?.classList.toggle('is-active', onTimecardGenie);
@@ -424,10 +478,19 @@ function markSectionChrome() {
   else if (onWeekly) weeklyWorkTab?.setAttribute('aria-current', 'page');
   else if (onDaily) dailyWorkTab?.setAttribute('aria-current', 'page');
   else if (onRoster) rosterTripsTab?.setAttribute('aria-current', 'page');
-  else if (!onSettings) dashboardApp?.setAttribute('aria-current', 'page');
+  else if (!onSettings && !onDriverRouteInfo) dashboardApp?.setAttribute('aria-current', 'page');
   trackerSettingsOpen?.classList.toggle('is-active', onSettings);
   if (onSettings) trackerSettingsOpen?.setAttribute('aria-current', 'page');
   else trackerSettingsOpen?.removeAttribute('aria-current');
+  driverRouteInfoOpen?.classList.toggle('is-active', onDriverRouteInfo);
+  if (onDriverRouteInfo) driverRouteInfoOpen?.setAttribute('aria-current', 'page');
+  else driverRouteInfoOpen?.removeAttribute('aria-current');
+  if (driverRouteInfoNav) driverRouteInfoNav.hidden = !onDriverRouteInfo;
+  const onAllRoutesTab = onAllRoutes || onDriverHistory;
+  allRoutesInfoTab?.classList.toggle('is-active', onAllRoutesTab);
+  allRoutesInfoTab?.setAttribute('aria-selected', onAllRoutesTab ? 'true' : 'false');
+  driversInfoTab?.classList.toggle('is-active', onDrivers);
+  driversInfoTab?.setAttribute('aria-selected', onDrivers ? 'true' : 'false');
   adminReminderTab?.classList.toggle('is-active', onAdminReminder);
   adminReminderTab?.setAttribute('aria-selected', onAdminReminder ? 'true' : 'false');
   driverNoticeTab?.classList.toggle('is-active', onDriverNotice);
@@ -436,6 +499,8 @@ function markSectionChrome() {
   contractNoticeTab?.setAttribute('aria-selected', onContractNotice ? 'true' : 'false');
   biddingTab?.classList.toggle('is-active', onBidding);
   biddingTab?.setAttribute('aria-selected', onBidding ? 'true' : 'false');
+  driverHabitsTab?.classList.toggle('is-active', onDriverHabits);
+  driverHabitsTab?.setAttribute('aria-selected', onDriverHabits ? 'true' : 'false');
 }
 
 function renderRouteTabs() {
@@ -465,6 +530,7 @@ function renderRouteTabs() {
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
   const onContractNotice = activeSheet === 'contract-notice' && !addingPerson;
   const onBidding = activeSheet === 'bidding' && !addingPerson;
+  const onDriverHabits = activeSheet === 'driver-habits' && !addingPerson;
   const onRoute =
     !addingPerson &&
     !onDrivers &&
@@ -475,7 +541,8 @@ function renderRouteTabs() {
     !onAdminReminder &&
     !onDriverNotice &&
     !onContractNotice &&
-    !onBidding;
+    !onBidding &&
+    !onDriverHabits;
   const currentId = onRoute ? getCurrentProfile()?.id : null;
   const routes = [...peopleList()].sort((a, b) => compareRouteNumbers(a.name, b.name));
   routeTabs.innerHTML = '';
@@ -528,6 +595,7 @@ function chooseRoute(id) {
     activeSheet !== 'driver-notice' &&
     activeSheet !== 'contract-notice' &&
     activeSheet !== 'bidding' &&
+    activeSheet !== 'driver-habits' &&
     current?.id === id
   ) {
     return;
@@ -1020,7 +1088,7 @@ async function showPaperBackup() {
 
 async function showTrackerSettings() {
   if (activeSheet === 'settings') {
-    showDrivers();
+    showTimeChangesRoute();
     return;
   }
   addingPerson = false;
@@ -1036,16 +1104,21 @@ async function showTrackerSettings() {
 }
 
 function showDashboardApp() {
-  if (activeSheet === 'settings') {
-    showDrivers();
+  if (activeSheet === 'settings' || isDriverRouteInfoSheet()) {
+    showTimeChangesRoute();
     return;
   }
   if (!isOfficeSheet()) {
+    if (!showingRouteButtons()) showTimeChangesRoute();
     return;
   }
   const back = sheetBeforeOffice;
   if (back === 'all') {
     showAllRoutes();
+    return;
+  }
+  if (back === 'drivers') {
+    showDrivers();
     return;
   }
   if (back === 'admin-reminder' || back === 'reminders') {
@@ -1064,9 +1137,12 @@ function showDashboardApp() {
     showBidding();
     return;
   }
+  if (back === 'driver-habits') {
+    showDriverHabits();
+    return;
+  }
   if (
     back &&
-    back !== 'drivers' &&
     back !== 'payroll' &&
     back !== 'clocking' &&
     back !== 'clock-settings' &&
@@ -1077,7 +1153,7 @@ function showDashboardApp() {
     chooseRoute(back);
     return;
   }
-  showDrivers();
+  showTimeChangesRoute();
 }
 
 function showAdminReminder() {
@@ -1119,7 +1195,21 @@ function showBidding() {
   renderEomBidding();
 }
 
-driversTab.addEventListener('click', showDrivers);
+function showDriverHabits() {
+  addingPerson = false;
+  viewingDriver = '';
+  activeSheet = 'driver-habits';
+  loadAll();
+}
+
+function showDriverRouteInfo() {
+  if (isDriverRouteInfoSheet()) return;
+  showAllRoutes();
+}
+
+driversInfoTab?.addEventListener('click', showDrivers);
+allRoutesInfoTab?.addEventListener('click', showAllRoutes);
+driverRouteInfoOpen?.addEventListener('click', showDriverRouteInfo);
 dashboardApp?.addEventListener('click', showDashboardApp);
 trackerSettingsOpen?.addEventListener('click', showTrackerSettings);
 
@@ -1158,6 +1248,9 @@ termsDialog?.addEventListener('close', rememberTermsSeen);
 if (!termsAlreadySeen()) openTermsDialog();
 payrollTab?.addEventListener('click', showPayroll);
 clockingTab?.addEventListener('click', showClocking);
+document.querySelector('#the-board-tab')?.addEventListener('click', () => {
+  location.href = '/the-board';
+});
 timecardGenieTab?.addEventListener('click', showTimecardGenie);
 weeklyWorkTab?.addEventListener('click', showWeeklyWork);
 dailyWorkTab?.addEventListener('click', showDailyWork);
@@ -1176,6 +1269,7 @@ adminReminderTab?.addEventListener('click', showAdminReminder);
 driverNoticeTab?.addEventListener('click', showDriverNotice);
 contractNoticeTab?.addEventListener('click', showContractNotice);
 biddingTab?.addEventListener('click', showBidding);
+driverHabitsTab?.addEventListener('click', showDriverHabits);
 eomBiddingMonth?.addEventListener('change', () => {
   renderEomBidding({ preserveMonth: true });
 });
@@ -1376,7 +1470,33 @@ function paintDriverMemoSample(memoId) {
 }
 
 function paintDriverNoticePreview() {
-  for (const memo of DRIVER_MEMORANDA) paintDriverMemoSample(memo.id);
+  for (const memo of DRIVER_MEMORANDA) {
+    paintDriverMemoSample(memo.id);
+    paintMemorandumLength(memo.id);
+  }
+}
+
+function paintMemorandumLength(memoId) {
+  const note = document.querySelector(`#driver-notice-memoranda [data-length="${memoId}"]`);
+  if (!note) return;
+  const { length, limit } = memorandumNoticeLength({
+    memorandumId: memoId,
+    templates: collectMemorandumTemplates(),
+    secretaryCc: document.querySelector('#driver-notice-secretary')?.value ?? '',
+  });
+  const over = Math.max(0, length - limit);
+  const spare = Math.max(0, limit - length);
+  note.classList.toggle('is-over', over > 0);
+  const count = note.querySelector('.template-length-count');
+  const cap = note.querySelector('.template-length-limit');
+  const detail = note.querySelector('.template-length-note');
+  if (count) count.textContent = length.toLocaleString('en-US');
+  if (cap) cap.textContent = `of ${limit.toLocaleString('en-US')}`;
+  if (detail) {
+    detail.textContent = over
+      ? `${over.toLocaleString('en-US')} over the limit`
+      : `${spare.toLocaleString('en-US')} under the limit`;
+  }
 }
 
 function appendTemplateField(editor, labelText, controlId, control) {
@@ -1432,6 +1552,19 @@ function renderEmailContentOptions(selectedId, templates) {
 
     const editor = document.createElement('div');
     editor.className = 'email-content-editor';
+    const length = document.createElement('p');
+    length.className = 'template-length';
+    length.dataset.length = memo.id;
+    length.setAttribute('role', 'status');
+    length.setAttribute('aria-live', 'polite');
+    const count = document.createElement('span');
+    count.className = 'template-length-count';
+    const cap = document.createElement('span');
+    cap.className = 'template-length-limit';
+    const detail = document.createElement('span');
+    detail.className = 'template-length-note';
+    length.append(count, cap, detail);
+    editor.append(length);
     const subject = document.createElement('input');
     subject.type = 'text';
     subject.className = 'js-memo-subject';
@@ -1457,6 +1590,7 @@ function renderEmailContentOptions(selectedId, templates) {
     details.append(summary, sample);
     root.append(details);
     paintDriverMemoSample(memo.id);
+    paintMemorandumLength(memo.id);
   }
 }
 
@@ -1583,16 +1717,21 @@ document.querySelector('#driver-notice-form')?.addEventListener('submit', async 
     return;
   }
   try {
+    const memorandumId = selectedMemorandumId();
+    const memorandumTemplates = collectMemorandumTemplates();
     saveDriverNotice({
-      memorandumId: selectedMemorandumId(),
-      memorandumTemplates: collectMemorandumTemplates(),
+      memorandumId,
+      memorandumTemplates,
       attachTimeChangeNotice: checkedChoice('notice_attach'),
       secretaryCc,
       subject: document.querySelector('#driver-notice-subject')?.value,
       body: document.querySelector('#driver-notice-body')?.value,
     });
     fillDriverNoticeSettings();
-    if (status) setStatus(status, 'Driver time-change notice saved.', 'ok');
+    const note = memorandumSaveStatus(
+      memorandumNoticeLength({ memorandumId, templates: memorandumTemplates, secretaryCc })
+    );
+    if (status) setStatus(status, note.message, note.kind);
   } catch (error) {
     if (status) setStatus(status, error.message, 'error');
   }
@@ -1914,6 +2053,7 @@ function beginAddRoute() {
   if (driverNoticeView) driverNoticeView.hidden = true;
   if (contractNoticeView) contractNoticeView.hidden = true;
   if (biddingView) biddingView.hidden = true;
+  if (driverHabitsView) driverHabitsView.hidden = true;
   if (routeTabs) routeTabs.hidden = false;
   showSetup(true);
   renderRouteTabs();
@@ -2230,7 +2370,7 @@ function renderScheduleHistory() {
   const start = snapshot.employee?.start_date;
   const rows = snapshot.schedule_history || [];
   const noticeHint =
-    ' The mail icon on a change sends the notice. If that notice was already sent, you will be warned first. The email uses the chosen memorandum and downloads a calendar PDF. Attach that PDF if you want the driver to see the calendar. The complete time change history can be downloaded too, when that attachment is turned on.';
+    ' Send notice on a change sends the notice. The Time Changes Queue can send that same notice. Both share one sent record, so a notice sent from either place shows as sent in the queue and on this row. If that notice was already sent, you will be warned first. The email uses the chosen memorandum and downloads a calendar PDF. Attach that PDF if you want the driver to see the calendar. The complete time change history can be downloaded too, when that attachment is turned on.';
   const hoursHint =
     ' New Schedule Started is the date only. Change holds the minute change, cumulative change, and countdown lines. Scheduled Hours is the rounded total of the clock times on that row. When “Use quarter hour snapping for contract times” is on, Change (including Countdown lines) uses that same snapped schedule instead of exact minutes. When “Bid/bump windows use snapped contract times” is also on, the 15-school-day countdown and 30-minute bid/bump line use those snapped totals too. Calculated Contract Date is the date the contract rules would use for that schedule. A predicted bid or bump appears on a second line as "Predicted Up for Bid: mm/dd" or "Predicted Up for Bump: mm/dd". Hover a value for what it means. The app does not know when an admin or payroll actually creates a new contract.';
   scheduleLead.textContent = start
@@ -2248,10 +2388,11 @@ function renderScheduleHistory() {
   const body = scheduleHistory.querySelector('tbody');
   if (!rows.length) {
     body.innerHTML =
-      '<tr><td colspan="11" class="empty">No clock times recorded yet.</td></tr>';
+      '<tr><td colspan="12" class="empty">No clock times recorded yet.</td></tr>';
     return;
   }
 
+  refreshCoveredClockNotices();
   const columns = contractColumnsForHistory(rows, undefined, contractSnapOptions(loadState()));
   body.innerHTML =
     rows
@@ -2269,10 +2410,7 @@ function renderScheduleHistory() {
           row.change_ids?.length ? ` data-change-ids="${escapeHtml(row.change_ids.join(','))}"` : ''
         }${row.segment ? ` data-segment="${escapeHtml(row.segment)}"` : ''}>
         <th scope="row">
-          ${scheduleDateField(row.date, {
-            allowNull: false,
-            sendNotice: row.kind === 'change',
-          })}
+          ${scheduleDateField(row.date, { allowNull: false })}
         </th>
         ${RUNS.map((run) => {
           const item = row.schedule?.[run.id];
@@ -2297,6 +2435,7 @@ function renderScheduleHistory() {
             ${contractedInfoControl(row)}
           </div>
         </td>
+        ${noticeSentCell(row)}
         <td>${actions}</td>
       </tr>`;
       })
@@ -2472,14 +2611,15 @@ function entryRowMarkup(rows) {
     <td class="change-figure"><span class="row-kind">New time change</span></td>
     <td></td>
     <td></td>
+    <td class="notice-sent"></td>
     <td class="is-editor">
-      <label class="entry-editor" for="entry_editor">
-        Comment
-        <input id="entry_editor" class="entry-input" type="text" placeholder="Optional" />
-      </label>
-    </td>
-    <td>
-      <button type="button" id="add-change-row">Add this change</button>
+      <div class="entry-actions">
+        <label class="entry-editor" for="entry_editor">
+          Comment
+          <input id="entry_editor" class="entry-input" type="text" placeholder="Optional" />
+        </label>
+        <button type="button" id="add-change-row">Add this change</button>
+      </div>
     </td>
   </tr>`;
 }
@@ -2557,10 +2697,20 @@ async function deliverChangeNotice(located) {
     row,
     asOf: getAsOfDate(),
   });
-  const downloads = [noticeCalendarFilename(driverName)];
+  const cc = noticeCcAddress(email, noticeSettings.secretaryCc);
+  const letterFile = noticeLetterFilename(driverName);
+  const opened = openNoticeMail({
+    to: email,
+    cc,
+    subject: mail.subject,
+    body: compactMemorandumBody(mail.body),
+    filename: letterFile,
+  });
+  const downloads = [];
+  if (opened === 'eml') downloads.push(letterFile);
+  downloads.push(noticeCalendarFilename(driverName));
   try {
-    const cc = noticeCcAddress(email, noticeSettings.secretaryCc);
-    await withRouteCalendar(profile, history, () => downloadCalendarPdf(downloads[0]));
+    await withRouteCalendar(profile, history, () => downloadCalendarPdf(downloads.at(-1)));
     if (noticeSettings.attachTimeChangeNotice) {
       const notice = timeChangeNoticeDocument({
         driverName,
@@ -2574,8 +2724,7 @@ async function deliverChangeNotice(located) {
       downloadTextPdf(notice.filename, notice.text);
       downloads.push(notice.filename);
     }
-    openNoticeMail({ to: email, cc, subject: mail.subject, body: mail.body });
-    explainNoticeDownloads(downloads);
+    explainNoticeDownloads(downloads, { letter: opened === 'eml' });
     const sentIds = row.change_ids?.length ? row.change_ids : [changeId];
     rememberChangeNoticesSent(sentIds, undefined, noticeSender());
     if ((snapshot?.schedule_history || []).some((item) => item.change_id === changeId)) {
@@ -2584,16 +2733,22 @@ async function deliverChangeNotice(located) {
     renderDriverNoticeQueue();
     paintNoticeTabFlags();
     paintRecentNoticeFlags();
-    const listed = downloads.join(' and ');
-    const noun = downloads.length > 1 ? 'them' : 'it';
+    const listed = downloads.filter((name) => opened !== 'eml' || name !== letterFile).join(' and ');
+    const noun = listed.includes(' and ') ? 'them' : 'it';
     const copied = cc ? ` ${cc} is copied.` : '';
     const stamp = sentColumnText(true, sentIds, loadSentChangeRecords());
+    const letterNote = opened === 'eml' ? `Open ${letterFile} and Outlook shows the letter. ` : '';
+    const attachNote = listed ? `Please look for ${listed} in your downloads folder and attach ${noun}.` : '';
     return {
       ok: true,
-      message: `Please look for ${listed} in your downloads folder and attach ${noun}.${copied} ${stamp}.`,
+      message: `${letterNote}${attachNote}${copied} ${stamp}.`.replace(/\s+/g, ' ').trim(),
     };
   } catch (error) {
-    return { ok: false, message: error.message || 'Could not create that notice.' };
+    const openedNote =
+      opened === 'eml'
+        ? ` Open ${letterFile} and Outlook shows the letter.`
+        : ' The email was still opened.';
+    return { ok: false, message: `${error.message || 'Could not create that notice.'}${openedNote}` };
   }
 }
 
@@ -2628,6 +2783,16 @@ async function sendChangeNotice(button) {
     return;
   }
   await runChangeNotice(changeId, button);
+}
+
+function noticeSentCell(row) {
+  if (row.kind !== 'change' || !row.change_id) return '<td class="notice-sent"></td>';
+  const ids = row.change_ids?.length ? row.change_ids : [row.change_id];
+  const sent = ids.some((id) => changeNoticeAlreadySent(id));
+  return `<td class="notice-sent">
+    <span class="notice-sent-value">${sent ? 'Yes' : 'No'}</span>
+    <button type="button" class="secondary js-send-notice">${iconHtml('mail')} Send notice</button>
+  </td>`;
 }
 
 function noticeFlagHtml() {
@@ -4404,25 +4569,45 @@ function fillContractNoticeSettings() {
 }
 
 function openNoticeMail(mail) {
-  const href = noticeMailto(mail);
-  const link = document.createElement('a');
-  link.href = href;
-  link.hidden = true;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
+  if (noticeMailFits(mail)) {
+    const link = document.createElement('a');
+    link.href = noticeMailto(mail);
+    link.style.position = 'fixed';
+    link.style.left = '-1000px';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    return 'mailto';
+  }
+  downloadNamedFile(
+    noticeLetterEml(mail),
+    mail.filename || noticeLetterFilename('Driver'),
+    'message/rfc822'
+  );
+  return 'eml';
 }
 
-function explainNoticeDownloads(filenames) {
+function explainNoticeDownloads(filenames, { letter = false } = {}) {
   const dialog = document.querySelector('#notice-download-dialog');
   const message = document.querySelector('#notice-download-message');
   const title = document.querySelector('#notice-download-title');
   if (!dialog || !message) return;
   const names = filenames.filter(Boolean);
-  if (title) title.textContent = names.length > 1 ? 'Attach the downloads' : 'Attach the calendar';
-  const listed = names.join(' and ');
-  const noun = names.length > 1 ? 'them' : 'it';
-  message.textContent = `Please look for ${listed} in your downloads folder and attach ${noun}.`;
+  if (letter) {
+    const [letterName, ...rest] = names;
+    if (title) title.textContent = 'Open the letter';
+    const calendar = rest.filter(Boolean);
+    const listed = calendar.join(' and ');
+    const attach = calendar.length
+      ? ` Please look for ${listed} in your downloads folder and attach ${calendar.length > 1 ? 'them' : 'it'}.`
+      : '';
+    message.textContent = `Open ${letterName}. Outlook shows the letter as a message you can send.${attach}`;
+  } else {
+    if (title) title.textContent = names.length > 1 ? 'Attach the downloads' : 'Attach the calendar';
+    const listed = names.join(' and ');
+    const noun = names.length > 1 ? 'them' : 'it';
+    message.textContent = `Please look for ${listed} in your downloads folder and attach ${noun}.`;
+  }
   if (!dialog.open) dialog.showModal();
 }
 
@@ -4444,13 +4629,19 @@ function predictedContractDate(changeId, source = snapshot) {
 }
 
 function downloadTextFile(text, filename) {
-  const blob = new Blob([text], { type: 'text/calendar;charset=utf-8' });
+  downloadNamedFile(text, filename, 'text/calendar;charset=utf-8');
+}
+
+function downloadNamedFile(text, filename, type) {
+  const blob = new Blob([text], { type });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function reminderInviteStamp(settings = loadContractReminder()) {
@@ -5066,7 +5257,12 @@ function renderDriverDetail() {
   if (driverDetailTitle) driverDetailTitle.textContent = who;
   if (driverDetailRemove) driverDetailRemove.hidden = !driver?.id;
   const pin = driver?.id ? driverClockPin(loadState().clockPins, driver.id) : DEFAULT_DRIVER_PIN;
-  const email = driver?.email ? escapeHtml(driver.email) : 'No email';
+  const officialEmail = directoryEmail(driver?.name);
+  const email = officialEmail
+    ? `${escapeHtml(officialEmail)} <span class="field-hint">Published transportation staff address.</span>`
+    : driver?.email
+      ? escapeHtml(driver.email)
+      : 'No email';
   const current = driver?.name ? currentRouteNames(driver.name) : [];
   const earlier = driver?.name ? earlierRouteNames(driver.name) : [];
   if (driverDetailFields) {
@@ -5170,6 +5366,21 @@ function infoInput(driver, field, value, type, label, extra = '') {
   return `<input class="entry-input" data-info-field="${field}" type="${type}" value="${escapeHtml(value)}" aria-label="${escapeHtml(label)} for ${escapeHtml(driver.name)}" ${extra} />`;
 }
 
+function infoEmailMarkup(driver) {
+  const official = directoryEmail(driver.name);
+  if (official) {
+    return `<span class="driver-info-email" title="Published on the transportation staff directory">${escapeHtml(official)}</span>`;
+  }
+  return infoInput(
+    driver,
+    'email',
+    driver.email,
+    'text',
+    'Email',
+    'autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="email" placeholder="name@example.com"'
+  );
+}
+
 function driverInfoRunMarkup(driver, choices) {
   if (choices.length < 2) {
     return `<p class="field-hint">Every clock-in uses ${escapeHtml(choices[0]?.label || 'that pay status')}.</p>`;
@@ -5230,7 +5441,7 @@ function renderDriverInfo(force = false) {
       (driver) => `<tr data-driver-id="${escapeHtml(driver.id)}">
         <td>${infoInput(driver, 'firstName', driver.firstName, 'text', 'First name', 'autocomplete="given-name"')}</td>
         <td>${infoInput(driver, 'lastName', driver.lastName, 'text', 'Last name', 'autocomplete="family-name"')}</td>
-        <td>${infoInput(driver, 'email', driver.email, 'email', 'Email', 'autocomplete="email" placeholder="name@example.com"')}</td>
+        <td>${infoEmailMarkup(driver)}</td>
         <td>${infoInput(driver, 'phone', driver.phone, 'tel', 'Phone', 'autocomplete="tel"')}</td>
         <td class="driver-info-routes">${escapeHtml(routeLabelForDriver(driver.name))}</td>
         <td>${infoInput(driver, 'serial', driver.pay?.serial || '', 'text', 'Serial number', 'autocomplete="off"')}</td>
@@ -5275,6 +5486,10 @@ async function commitDriverInfoField(input) {
   const driver = driverFromInfoControl(input);
   const field = input.dataset.infoField || '';
   if (!driver || !field) return;
+  if (field === 'email' && directoryEmail(driver.name)) {
+    input.value = directoryEmail(driver.name);
+    return;
+  }
   if (field === 'rate') {
     if (input.validity?.badInput) {
       input.value = driver.pay?.rate || '';
@@ -5584,12 +5799,14 @@ function renderApp() {
   const onDriverNotice = activeSheet === 'driver-notice' && !addingPerson;
   const onContractNotice = activeSheet === 'contract-notice' && !addingPerson;
   const onBidding = activeSheet === 'bidding' && !addingPerson;
+  const onDriverHabits = activeSheet === 'driver-habits' && !addingPerson;
   const payrollWindow = driversWindow && driversApp === 'payroll';
   document.body.classList.toggle('is-payroll-app', onPayroll || (payrollWindow && onDriverHistory));
   document.body.classList.toggle('is-clocking-app', onClocking || onClockSettings || onPaperBackup);
   document.body.classList.toggle('is-genie-app', onTimecardGenie);
   document.body.classList.toggle('is-daily-app', onDaily || onWeekly);
   document.body.classList.toggle('is-roster-app', onRoster);
+  document.body.classList.toggle('is-habit-sheet', onDriverHabits);
   document.body.classList.toggle('is-paper-backup', onPaperBackup);
   document.body.classList.toggle('is-tracker-settings', onSettings);
   const themeColor = onWeekly
@@ -5606,7 +5823,7 @@ function renderApp() {
             ? '#1a4f8b'
             : '#6428f0';
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor);
-  const hideRouteTabs = onOfficeApp || onSettings || driversWindow;
+  const hideRouteTabs = !showingRouteButtons();
   if (routeTabs) routeTabs.hidden = hideRouteTabs;
   if (hideRouteTabs) markSectionChrome();
   else renderRouteTabs();
@@ -5623,6 +5840,7 @@ function renderApp() {
   if (driverNoticeView) driverNoticeView.hidden = !onDriverNotice;
   if (contractNoticeView) contractNoticeView.hidden = !onContractNotice;
   if (biddingView) biddingView.hidden = !onBidding;
+  if (driverHabitsView) driverHabitsView.hidden = !onDriverHabits;
   paintNoticeTabFlags();
   if (onDriverNotice) renderDriverNoticeQueue();
   if (onContractNotice) {
@@ -5732,6 +5950,16 @@ function renderApp() {
     document.title = openDriver ? `${openDriver} · ${appName} · ${APP_TITLE}` : `${appName} · ${APP_TITLE}`;
     return;
   }
+  if (onDriverHabits) {
+    driversView.hidden = true;
+    allRoutesView.hidden = true;
+    driverHistoryView.hidden = true;
+    setupView.hidden = true;
+    appView.hidden = true;
+    startDriverHabits();
+    document.title = `Driver Habits · ${APP_TITLE}`;
+    return;
+  }
   if (onAdminReminder || onDriverNotice || onContractNotice || onBidding) {
     driversView.hidden = true;
     allRoutesView.hidden = true;
@@ -5752,6 +5980,7 @@ function renderApp() {
   allRoutesView.hidden = !onAll;
   driverHistoryView.hidden = !onDriverHistory;
   if (onDrivers) {
+    document.title = `Driver Name List · ${APP_TITLE}`;
     setupView.hidden = true;
     appView.hidden = true;
     renderDrivers();
@@ -5760,7 +5989,7 @@ function renderApp() {
   if (onAll) {
     setupView.hidden = true;
     appView.hidden = true;
-    document.title = PAGE_TITLE;
+    document.title = `All routes · ${APP_TITLE}`;
     renderAllRoutes();
     return;
   }
@@ -7066,6 +7295,11 @@ async function adoptStarterOffice() {
       : current.driverNotice
         ? { driverNotice: current.driverNotice }
         : {}),
+    ...(next.outOfServiceNotice
+      ? { outOfServiceNotice: next.outOfServiceNotice }
+      : current.outOfServiceNotice
+        ? { outOfServiceNotice: current.outOfServiceNotice }
+        : {}),
     ...(next.contractNotice
       ? { contractNotice: next.contractNotice }
       : current.contractNotice
@@ -7563,6 +7797,10 @@ startAccounts({
       try {
         ensureExampleRoutes();
         await adoptStarterOffice();
+        if (!driversWindow && !officeSheetParam && (activeSheet === 'all' || activeSheet === 'drivers')) {
+          const routeId = getCurrentProfile()?.id;
+          if (routeId) activeSheet = routeId;
+        }
         beginSessionRouteTracking();
         if (!isEditingRouteClockTimes()) loadAll();
         else pendingSharedUiRefresh = true;

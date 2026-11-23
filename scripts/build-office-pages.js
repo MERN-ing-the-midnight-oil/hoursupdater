@@ -65,6 +65,7 @@ const appBuild = await build({
     'driver-note': path.join(webDir, 'driverNotePage.js'),
     'timesheet-capture': path.join(webDir, 'timesheetCapturePage.js'),
     'audit-genie': path.join(webDir, 'auditGeniePage.js'),
+    'the-board': path.join(webDir, 'theBoardPage.js'),
   },
   outdir: distDir,
   bundle: true,
@@ -98,6 +99,7 @@ const staticAssets = [
   'driver-note.html',
   'timesheet-capture.html',
   'audit-genie.html',
+  'the-board.html',
   'favicon.ico',
   'favicon.svg',
   'apple-touch-icon.png',
@@ -112,9 +114,13 @@ for (const name of staticAssets) {
   if (name.endsWith('.html')) {
     let html = contents.toString('utf8');
     if (html.includes('type="module"') && !html.includes('type="importmap"')) {
-      html = html.includes('<head>')
-        ? html.replace('<head>', `<head>\n    ${importMapTag}`)
-        : `${importMapTag}${html}`;
+      if (html.includes('<base href="/" />')) {
+        html = html.replace('<base href="/" />', `<base href="/" />\n    ${importMapTag}`);
+      } else if (html.includes('<head>')) {
+        html = html.replace('<head>', `<head>\n    ${importMapTag}`);
+      } else {
+        html = `${importMapTag}${html}`;
+      }
     }
     contents = Buffer.from(html);
   }
@@ -156,6 +162,19 @@ const shipped = Object.keys(appBuild.metafile.inputs)
 await fs.writeFile(
   path.join(os.tmpdir(), 'office-pages-sources.txt'),
   `${shipped.join('\n')}\n`
+);
+
+const boardHtmlPath = path.join(distDir, 'the-board.html');
+const boardHtml = await fs.readFile(boardHtmlPath);
+await fs.mkdir(path.join(distDir, 'the-board', 'darkbus'), { recursive: true });
+await fs.mkdir(path.join(distDir, 'the-board', 'studentcheck'), { recursive: true });
+await fs.writeFile(path.join(distDir, 'the-board', 'index.html'), boardHtml);
+await fs.writeFile(path.join(distDir, 'the-board', 'darkbus', 'index.html'), boardHtml);
+await fs.writeFile(path.join(distDir, 'the-board', 'studentcheck', 'index.html'), boardHtml);
+await fs.unlink(boardHtmlPath);
+await fs.writeFile(
+  path.join(distDir, '_redirects'),
+  ['/the-board.html /the-board 308', ''].join('\n')
 );
 
 console.log(`Wrote the Teamster Time Changes Dashboard to ${distDir}`);

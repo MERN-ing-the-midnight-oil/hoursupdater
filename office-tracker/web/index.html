@@ -83,6 +83,27 @@
             </svg>
             <span class="brand">Clocking</span>
           </button>
+          <button type="button" class="brand-block app-launch app-launch-board" id="the-board-tab" title="Staff display for buses out of service, absent students, and drivers who are clear. Dark Bus Alert pops up when a bus has not powered on. Student Check Alert pops up when a bus is back from a school without a Student Check.">
+            <svg class="brand-mark" viewBox="0 0 21 21" shape-rendering="crispEdges" aria-hidden="true">
+              <g class="px-board-shadow">
+                <rect x="4" y="2" width="14" height="18" />
+                <rect x="2" y="4" width="18" height="14" />
+              </g>
+              <rect class="px-board-frame" x="3" y="1" width="14" height="18" />
+              <rect class="px-board-frame" x="1" y="3" width="18" height="14" />
+              <rect class="px-board-case" x="3" y="3" width="14" height="14" />
+              <rect class="px-board-paper" x="5" y="5" width="10" height="10" />
+              <rect class="px-board-case" x="5" y="5" width="1" height="1" />
+              <rect class="px-board-case" x="14" y="5" width="1" height="1" />
+              <rect class="px-board-case" x="5" y="14" width="1" height="1" />
+              <rect class="px-board-case" x="14" y="14" width="1" height="1" />
+              <rect class="px-board-alert" x="6" y="7" width="2" height="6" />
+              <rect class="px-board-ink" x="9" y="7" width="2" height="6" />
+              <rect class="px-board-clear" x="12" y="7" width="2" height="6" />
+              <rect class="px-board-hot" x="14" y="3" width="1" height="1" />
+            </svg>
+            <span class="brand">The Board</span>
+          </button>
           <button type="button" class="brand-block app-launch app-launch-genie" id="timecard-genie-tab" title="Photograph paper timecards, then build the constructed cards and the monthly time summary.">
             <svg class="brand-mark" viewBox="0 0 21 21" shape-rendering="crispEdges" aria-hidden="true">
               <g class="px-genie-shadow">
@@ -217,6 +238,15 @@
         </div>
         <div class="topbar-side">
           <div class="tracker-header-tools">
+          <button type="button" class="tracker-info-launch" id="driver-route-info-open">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+            <span>View and Edit Driver and Route info</span>
+          </button>
           <button type="button" class="tracker-settings-launch" id="tracker-settings-open">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="12" cy="12" r="3" />
@@ -318,15 +348,6 @@
 
       <div class="sheet-bar">
         <nav class="office-sheets" role="tablist" aria-label="Office lists">
-          <button type="button" class="office-sheet is-active" id="drivers-tab" role="tab" aria-selected="true">
-            <svg class="office-sheet-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
-              <circle cx="9" cy="7" r="4"/>
-              <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
-              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-            </svg>
-            Driver Name List
-          </button>
           <button type="button" class="office-sheet" id="admin-reminder-tab" role="tab" aria-selected="false">
             <svg class="office-sheet-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M6 8a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9"/>
@@ -380,6 +401,13 @@
               <span class="visually-hidden">routes up for bid</span>
             </span>
           </button>
+          <button type="button" class="office-sheet" id="driver-habits-tab" role="tab" aria-selected="false">
+            <svg class="office-sheet-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="8"/>
+              <path d="M12 8v4l2 2"/>
+            </svg>
+            Driver Habits
+          </button>
         </nav>
         <div class="sheet-actions">
           <button type="button" class="secondary route-backup-launch" id="export-btn">
@@ -396,6 +424,26 @@
       </div>
 
       <div class="route-tabs" id="route-tabs" role="tablist" aria-label="Routes"></div>
+      <nav id="driver-route-info-nav" class="driver-route-info-nav" hidden aria-label="Driver and route info">
+        <button type="button" class="office-sheet" id="all-routes-info-tab" aria-selected="false">
+          <svg class="office-sheet-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="3" width="7" height="7" rx="1" />
+            <rect x="14" y="3" width="7" height="7" rx="1" />
+            <rect x="3" y="14" width="7" height="7" rx="1" />
+            <rect x="14" y="14" width="7" height="7" rx="1" />
+          </svg>
+          All routes
+        </button>
+        <button type="button" class="office-sheet" id="drivers-info-tab" aria-selected="false">
+          <svg class="office-sheet-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+          </svg>
+          Driver Name List
+        </button>
+      </nav>
 
       <section id="payroll-view" class="panel" hidden>
         <div id="clock-hub" class="payroll-clock-layout">
@@ -470,7 +518,8 @@
             <div id="driver-info-tool" class="payroll-tool-panel" hidden>
               <h2 class="payroll-summary-heading">update driver info</h2>
               <p class="field-hint">
-                Each driver is one row. First name, last name, email, phone, serial number, hourly rate, payroll account, and pay status can be changed in the table.
+                Each driver is one row. First name, last name, phone, serial number, hourly rate, payroll account, and pay status can be changed in the table.
+                An email from the transportation staff directory stays the published address.
                 A driver with one pay status uses it for every clock-in. With more than one, choose which clock-in uses each pay status.
                 Routes stay with the route assignments. A driver keeps at least one pay status.
               </p>
@@ -1747,6 +1796,36 @@
               </div>
             </form>
           </section>
+          <section class="settings-card tone-set">
+            <h2>
+              <span class="settings-ico" aria-hidden="true">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <path d="M3 20h18" />
+                  <path d="M5 20V10l7-5 7 5v10" />
+                  <path d="M10 20v-6h4v6" />
+                </svg>
+              </span>
+              Early Release Clock-in
+            </h2>
+            <p class="field-hint">
+              On an early release day, a PM route clocks in at the time for the first school that route heads to.
+              Morning clock-ins stay the same.
+              Route 10 heads to Lowell first, so Lowell's time is route 10's PM clock-in.
+              Alderwood, Birchwood, Cordata, Northern Heights, and Silver Beach start at 11:50 AM.
+              Carl Cozier starts at 12:00 PM.
+              Geneva, Happy Valley, Lowell, Parkview, Roosevelt, Sunnyland, and Wade King start at 11:55 AM.
+              A school that is not on that list starts at 11:55 AM until you change it.
+            </p>
+            <form id="tracker-early-release-form" class="clock-form early-release-form" novalidate>
+              <div class="early-release-schools"></div>
+              <p class="field-hint early-release-empty" hidden>
+                No school destinations are on the routes yet. A route note such as LOW, SHS/BHS, LOW adds Lowell, Sehome, and Bellingham High here.
+              </p>
+              <div class="actions">
+                <button type="submit" class="secondary">Save early release times</button>
+              </div>
+            </form>
+          </section>
         </div>
       </section>
 
@@ -1898,15 +1977,19 @@
             Early release clock-in
           </h2>
           <p class="field-hint">
-            On an early release day from the school year, a driver's PM clock-in
-            is the early release time for the first school that route heads to. Route S10 heads to LOW first,
-            so that name flashes from LOW's time. School codes come from the route note, and the first code
-            before the slash is the school they head to first. Each school starts at 11:55 AM.
+            On an early release day, a PM route clocks in at the time for the first school that route heads to.
+            Morning clock-ins stay the same.
+            Route 10 heads to Lowell first, so Lowell's time is route 10's PM clock-in.
+            The same times are in Teamster Tracker settings.
+            Alderwood, Birchwood, Cordata, Northern Heights, and Silver Beach start at 11:50 AM.
+            Carl Cozier starts at 12:00 PM.
+            Geneva, Happy Valley, Lowell, Parkview, Roosevelt, Sunnyland, and Wade King start at 11:55 AM.
+            A school that is not on that list starts at 11:55 AM until you change it.
           </p>
           <form id="early-release-form" class="clock-form early-release-form" novalidate>
             <div id="early-release-schools" class="early-release-schools"></div>
-            <p id="early-release-empty" class="field-hint" hidden>
-              No school codes are on the routes yet. A route note such as LOW, SHS/BHS, LOW adds LOW, SHS, and BHS here.
+            <p id="early-release-empty" class="field-hint early-release-empty" hidden>
+              No school destinations are on the routes yet. A route note such as LOW, SHS/BHS, LOW adds Lowell, Sehome, and Bellingham High here.
             </p>
             <div class="actions">
               <button type="submit" class="secondary">Save early release times</button>
@@ -2417,7 +2500,8 @@
           select below. Click a memorandum to edit its wording. The address comes
           from the Driver Name List. A secretary email saved here is copied on
           every notice. Saving a clock-time change still offers to send that
-          email. Send again warns you if a notice was already sent. A calendar
+          email. Send notice on a route’s change row uses this same sent record,
+          so a notice sent there shows as sent here. Send again warns you if a notice was already sent. A calendar
           PDF is downloaded to attach. The complete time change history can be
           downloaded too, when that attachment is turned on. Mark Sent records
           who marked it and the date, without opening an email. Unmark clears that. Check the rows
@@ -3102,6 +3186,34 @@
         </div>
       </section>
 
+      <section id="driver-habits-view" class="panel" hidden>
+        <h1 class="panel-title">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="8" />
+            <path d="M12 8v4l2 2" />
+          </svg>
+          Driver Habits
+        </h1>
+        <p class="lead">
+          Published clock-in and clock-out times for each route segment, compared with the time
+          that route's bus usually leaves the yard or comes back. This uses the last 20 weekdays.
+          A row appears when the usual yard time and the published time differ by at least the number of minutes you choose.
+        </p>
+        <div class="habit-controls">
+          <div class="habit-threshold" role="group" aria-label="Smallest gap to show">
+            <button type="button" data-habit-threshold="10" aria-pressed="false">10 min</button>
+            <button type="button" data-habit-threshold="20" aria-pressed="true">20 min</button>
+            <button type="button" data-habit-threshold="30" aria-pressed="false">30 min</button>
+          </div>
+          <label class="habit-unsettled">
+            <input type="checkbox" id="driver-habits-unsettled" />
+            Show unsettled habits
+          </label>
+        </div>
+        <p id="driver-habits-status" class="status" role="status"></p>
+        <div id="driver-habits-body"></div>
+      </section>
+
       <section id="drivers-view" class="panel" hidden>
         <h1 class="panel-title">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -3190,8 +3302,11 @@
             bid or bump appears on a second line as “Predicted Up for Bid:
             mm/dd” or “Predicted Up for Bump: mm/dd”. Hover a value for what
             it means. The app does not know when an admin or payroll actually
-            creates a new contract. The mail icon on a change sends the
-            notice. If that notice was already sent, you will be warned first.
+            creates a new contract. Send notice on a change sends the
+            notice. The Time Changes Queue can send that same notice. Both
+            share one sent record, so a notice sent from either place shows
+            as sent in the queue and on this row. If that notice was already
+            sent, you will be warned first.
             The email uses the chosen memorandum and downloads a calendar PDF.
             Attach that PDF if you want the driver to see the calendar. The
             complete time change history can be downloaded too, when that
@@ -3211,6 +3326,12 @@
                   <th scope="col">Change</th>
                   <th scope="col">Scheduled Hours</th>
                   <th scope="col">Calculated Contract Date</th>
+                  <th
+                    scope="col"
+                    title="Whether this clock-time notice was sent. Send notice here and Send in the Time Changes Queue share the same sent record."
+                  >
+                    Notice sent?
+                  </th>
                   <th scope="col"><span class="visually-hidden">Actions</span></th>
                 </tr>
               </thead>
