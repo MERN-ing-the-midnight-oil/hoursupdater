@@ -10,6 +10,8 @@
 // hours short of that day's contract, as a negative, and only on a day
 // the driver clocked. At or over contract it stays blank.
 // EX DRIVER is the clocked quarter hours beyond that day's contract.
+// Timecard Genie splits that extra the same way the card splits Reg and OT.
+// The overtime share is OT DRIVER. EX DRIVER keeps the rest.
 // Other pay-status rows keep the hours sliced to them.
 // Each day column shows the regular contracted hours in effect that day.
 // Those hours come from Time Changes and change when a contracted date
@@ -24,7 +26,7 @@ import { assignmentOnDate, routeAssignments, sameDriver } from './assignments.js
 import { normalizeClockPayDefaults, normalizeDriverPay, normalizeTimeSummaryEdits, paySlicesForPair } from './driverPay.js';
 import { payrollDriverRows, payrollRowsForDriver, quarterHoursFromDailyMinutes, sumRoundedQuarterHours } from './payrollTimes.js';
 import { holidayListForState } from '../../src/logic/schoolYear.js';
-import { holidayLabelForDate, overtimeForPairs, pairOvertimeKey } from './overtimeRules.js';
+import { holidayLabelForDate, normalizeOvertimeRules, overtimeForPairs, pairOvertimeKey } from './overtimeRules.js';
 import { clockQuarterStep, exDriverDayHours, exHoursDifference, formatQuarterHourText, regDriverDeductHours } from './summaryMath.js';
 import { CLOCK_ROUNDING_DAILY, CLOCK_ROUNDING_SNAP, normalizeClockRounding } from '../web/store.js';
 
@@ -478,7 +480,21 @@ export function buildMonthlyTimeSummary(options) {
   const focus = options.focus;
   const wantedLines = Array.isArray(focus?.lineIds) ? new Set(focus.lineIds.map((id) => String(id))) : null;
   const catalog = defaults.lines.filter((line) => !wantedLines || wantedLines.has(line.id));
-  const chosenLines = catalog.length ? catalog : defaults.lines;
+  const chosenLines = (catalog.length ? catalog : defaults.lines).slice();
+  const otHoursByDay = options.otHoursByDay;
+  if (otHoursByDay && typeof otHoursByDay.get === 'function' && (!wantedLines || wantedLines.has('ot-driver'))) {
+    if (!chosenLines.some((line) => line.id === 'ot-driver')) {
+      const otLine = {
+        id: 'ot-driver',
+        label: 'OT DRIVER',
+        otFactor: normalizeOvertimeRules(options.overtimeRules).multiplier,
+        fillsFromClock: false,
+      };
+      const exIndex = chosenLines.findIndex((line) => line.id === 'ex-driver');
+      if (exIndex >= 0) chosenLines.splice(exIndex, 0, otLine);
+      else chosenLines.push(otLine);
+    }
+  }
   let covered = [];
   if (focus && Number.isInteger(focus.year) && Number.isInteger(focus.monthIndex)) {
     const range = ranges.find((period) => period.id === String(focus.periodId || '')) || ranges[0];
@@ -519,6 +535,8 @@ export function buildMonthlyTimeSummary(options) {
             runExtras && typeof runExtras.get === 'function'
               ? formatCalculated(runExtras.get(key))
               : exDriverDayHours(clocked, contractText);
+        } else if (line.id === 'ot-driver' && otHoursByDay && typeof otHoursByDay.get === 'function') {
+          text = formatCalculated(otHoursByDay.get(key));
         } else if (line.id === 'reg-driver' && runDeducts && typeof runDeducts.get === 'function') {
           text = formatCalculated(runDeducts.get(key));
         } else if (line.id === 'reg-driver' && String(contractText).trim() && clocked > 0) {

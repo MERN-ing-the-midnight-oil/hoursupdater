@@ -363,6 +363,75 @@ export function applyRunExtraTotals(rowLists, contractRuns, options = {}) {
   return { extraByDay, shortByDay, rawByDay };
 }
 
+function addDayHours(map, day, hours) {
+  const number = Number(hours);
+  if (!Number.isFinite(number) || number === 0) return;
+  map.set(day, roundQuarter((map.get(day) || 0) + number));
+}
+
+/**
+ * Extra past contract, split the same way the constructed card splits Reg and OT.
+ * Regular is the extra that is not overtime. Overtime is the card’s OT.
+ * Null when there is no contract to measure the extra against.
+ * Does not change the rows it is given.
+ * @param {object[][]} rowLists
+ * @param {unknown} contractHours
+ * @param {object} [options]
+ * @returns {{ regularByDay: Map<string, number>, overtimeByDay: Map<string, number> } | null}
+ */
+export function contractResidualByDay(rowLists, contractHours, options = {}) {
+  const lists = (Array.isArray(rowLists) ? rowLists : []).filter(Array.isArray);
+  const parts = contractRunParts(options.contractRuns);
+  const daily = Number(contractHours);
+  if (!parts && !(Number.isFinite(daily) && daily > 0)) return null;
+  const clones = lists.map((rows) => rows.map((row) => ({ ...(row || {}) })));
+  applyContractRegOtRows(clones[0] || [], clones[1] || [], contractHours, {
+    ...options,
+    moreRows: clones.slice(2),
+  });
+  const regularByDay = new Map();
+  const overtimeByDay = new Map();
+  const year = options.defaultYear ?? inferDefaultYear(null);
+  for (const rows of clones) {
+    const snaps = rowSnaps(rows, { ...options, defaultYear: year });
+    rows.forEach((row, index) => {
+      const start = snaps[index]?.spanStart;
+      if (!row || !start) return;
+      const day = localDateKey(start);
+      addDayHours(regularByDay, day, row.hours_regular);
+      addDayHours(overtimeByDay, day, row.hours_overtime);
+    });
+  }
+  return { regularByDay, overtimeByDay };
+}
+
+/**
+ * Hours the Monthly Time Summary should take from a constructed card.
+ * EX DRIVER is the extra that is not overtime. OT DRIVER is the card’s OT.
+ * REG DRIVER stays the shortfall, as a negative. With no contract, the extra
+ * maps are unused and the summary keeps its punch totals.
+ * @param {object[][]} rowLists
+ * @param {unknown} contractHours
+ * @param {object} [options]
+ * @returns {{
+ *   exDriverHoursByDay: Map<string, number> | null,
+ *   otHoursByDay: Map<string, number> | null,
+ *   regDriverHoursByDay: Map<string, number> | null,
+ * }}
+ */
+export function summaryHoursFromCard(rowLists, contractHours, options = {}) {
+  const lists = (Array.isArray(rowLists) ? rowLists : []).filter(Array.isArray);
+  const runExtras = applyRunExtraTotals(lists, options.contractRuns, options);
+  const residual = contractResidualByDay(lists, contractHours, options);
+  return {
+    exDriverHoursByDay: residual ? residual.regularByDay : runExtras?.extraByDay || null,
+    otHoursByDay: residual ? residual.overtimeByDay : null,
+    regDriverHoursByDay: runExtras
+      ? new Map([...runExtras.shortByDay].map(([day, hours]) => [day, -hours]))
+      : null,
+  };
+}
+
 /**
  * Contract figure `scaleRegOtToContractGap` subtracts from the day's clock span
  * so the residual equals the extra past the run contracts. A single daily

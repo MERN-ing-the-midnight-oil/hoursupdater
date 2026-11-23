@@ -4,6 +4,7 @@ import { DEFAULT_OVERTIME_RULES } from '../office-tracker/src/overtimeRules.js';
 import {
   applyContractRegOtRows,
   applyRunExtraTotals,
+  contractResidualByDay,
   GENIE_CARD_SYSTEM,
   genieCardTool,
   genieCardUserPrefix,
@@ -11,6 +12,7 @@ import {
   mergeSameDriverExtraction,
   normalizeGenieCardExtraction,
   parseStickerContractHours,
+  summaryHoursFromCard,
 } from '../office-tracker/src/timesheetGenieCard.js';
 import { DEFAULT_CONTRACT_SNAP_BREAKS } from '../src/logic/timeUtils.js';
 
@@ -404,6 +406,40 @@ describe('Genie fills Reg / OT from the contract', () => {
     assert.equal(front[0].total_hours, 3.25);
     assert.equal(front[0].hours_regular, null);
     assert.equal(front[0].hours_overtime, null);
+  });
+
+  it('splits extra hours and OT the same way for the summary sheet', () => {
+    // 4:00–6:00 is 2 hours. Evening overtime starts at 5:30, so the card’s OT is 0.5.
+    // A 1-hour PM contract leaves 1 hour of extra. That extra keeps the same mix:
+    // 0.75 straight time and 0.25 overtime.
+    const front = [row(1, 'NOV 4 PM 4:00', 'NOV 4 PM 6:00', {})];
+    const runs = { ...options, contractRuns: { pm: 1 } };
+    applyContractRegOtRows(front, [], 1, runs);
+    const residual = contractResidualByDay([front], 1, runs);
+    assert.equal(front[0].hours_regular, 0.75);
+    assert.equal(front[0].hours_overtime, 0.25);
+    assert.equal(residual.regularByDay.get('2026-11-04'), front[0].hours_regular);
+    assert.equal(residual.overtimeByDay.get('2026-11-04'), front[0].hours_overtime);
+
+    const hours = summaryHoursFromCard([front], 1, runs);
+    assert.equal(hours.exDriverHoursByDay.get('2026-11-04'), 0.75);
+    assert.equal(hours.otHoursByDay.get('2026-11-04'), 0.25);
+    assert.equal(front[0].hours_regular, 0.75);
+    assert.equal(front[0].hours_overtime, 0.25);
+  });
+
+  it('puts a weekend extra entirely on OT', () => {
+    const front = [row(1, 'NOV 7 AM 6:00', 'NOV 7 AM 9:00', {})];
+    const hours = summaryHoursFromCard([front], 2, { ...options, contractRuns: { am: 2 } });
+    assert.equal(hours.exDriverHoursByDay.has('2026-11-07'), false);
+    assert.equal(hours.otHoursByDay.get('2026-11-07'), 1);
+  });
+
+  it('keeps extra with no overtime off the OT map', () => {
+    const front = [row(1, 'NOV 4 AM 6:00', 'NOV 4 AM 8:00', {})];
+    const hours = summaryHoursFromCard([front], 1, { ...options, contractRuns: { am: 1 } });
+    assert.equal(hours.exDriverHoursByDay.get('2026-11-04'), 1);
+    assert.equal(hours.otHoursByDay.has('2026-11-04'), false);
   });
 
   it('counts midday work with no midday contract as extra', () => {

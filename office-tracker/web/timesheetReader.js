@@ -25,8 +25,8 @@ import { punchesFromCardExtraction } from '../src/timesheetRegOt.js';
 import { formatAuditHours, parseAuditHours } from '../src/timesheetAudit.js';
 import {
   applyContractRegOtRows,
-  applyRunExtraTotals,
   extractionRowLists,
+  summaryHoursFromCard,
   markContractHourRows,
   mergeSameDriverExtraction,
   parseStickerContractHours,
@@ -3678,11 +3678,14 @@ function buildGenieCardMonthlySummary(extraction, breaks, state, mode, windows) 
   );
   if (!punches.length) return null;
   const { totHoursByDay } = cardDayFigures(extraction, breaks, office, mode);
-  const runExtras = applyRunExtraTotals(extractionRowLists(extraction), extraction?.header, {
+  const cardHours = summaryHoursFromCard(extractionRowLists(extraction), extraction?.header?.contract_hours, {
     breaks,
+    rules: office.overtimeRules,
+    holidays: holidayListForState(office),
     defaultYear: year,
     mode,
     windows,
+    contractRuns: extraction?.header,
   });
   let cardNow = null;
   for (const punch of punches) {
@@ -3690,9 +3693,6 @@ function buildGenieCardMonthlySummary(extraction, breaks, state, mode, windows) 
     if (Number.isNaN(when.getTime())) continue;
     if (!cardNow || when > cardNow) cardNow = when;
   }
-  const regDriverHoursByDay = runExtras
-    ? new Map([...runExtras.shortByDay].map(([day, hours]) => [day, -hours]))
-    : null;
   return buildMonthlyTimeSummary({
     driverName: driver?.name || driverName,
     driverId: driver?.id || 'genie-card',
@@ -3708,8 +3708,9 @@ function buildGenieCardMonthlySummary(extraction, breaks, state, mode, windows) 
     now: cardNow || new Date(),
     regOtFromContractGap: true,
     totHoursByDay,
-    exDriverHoursByDay: runExtras?.extraByDay || null,
-    regDriverHoursByDay,
+    exDriverHoursByDay: cardHours.exDriverHoursByDay,
+    otHoursByDay: cardHours.otHoursByDay,
+    regDriverHoursByDay: cardHours.regDriverHoursByDay,
   });
 }
 

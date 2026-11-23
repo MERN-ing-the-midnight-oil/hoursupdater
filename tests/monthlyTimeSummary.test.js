@@ -737,6 +737,7 @@ test('EX DRIVER is the clocked time beyond that day contract hours', () => {
   assert.equal(day('ex-driver').value, '1.25');
   assert.equal(day('reg-driver').value, '');
   assert.equal(day('ot-trainer').value, '');
+  assert.equal(october.lines.find((line) => line.id === 'ot-driver'), undefined);
 
   const math = buildMonthlySummaryMath({
     driverName: 'Goofy Goof',
@@ -829,6 +830,47 @@ test('EX DRIVER is the clocked time beyond that day contract hours', () => {
   assert.match(twoHtml, /data-row="pair-1-in" data-day="8">2:08 PM</);
   assert.match(twoHtml, /data-row="pair-1-out" data-day="8">4:40 PM</);
   assert.doesNotMatch(twoHtml, /AM Route|PM Route|Midday Route/);
+});
+
+test('Timecard Genie puts card OT on OT DRIVER and leaves the rest of the extra on EX DRIVER', () => {
+  const summary = buildMonthlyTimeSummary({
+    driverName: 'Goofy Goof',
+    driverId: 'driver-goofy-goof',
+    defaults: normalizeClockPayDefaults(null),
+    roundClocks: true,
+    now: new Date(2026, 10, 4, 18, 0),
+    punches: [
+      {
+        id: 'in',
+        driver_name: 'Goofy Goof',
+        action: 'in',
+        punched_at: new Date(2026, 10, 4, 16, 0).toISOString(),
+        pay_status: 'ex-driver',
+      },
+      {
+        id: 'out',
+        driver_name: 'Goofy Goof',
+        action: 'out',
+        punched_at: new Date(2026, 10, 4, 18, 0).toISOString(),
+      },
+    ],
+    overtimeRules: { dailyHours: 8, weeklyHours: 40, eveningStart: '17:30', morningEnd: '05:30', weekendOvertime: true, holidayOvertime: true, multiplier: 1.5 },
+    exDriverHoursByDay: new Map([['2026-11-04', 0.75]]),
+    otHoursByDay: new Map([['2026-11-04', 0.25]]),
+  });
+  const november = summary.periods.find((period) => period.key === '2026-11-1');
+  const line = (id) => november.lines.find((item) => item.id === id);
+  const day = (id) => line(id).cells.find((cell) => cell.day === 4);
+  const otIndex = november.lines.findIndex((item) => item.id === 'ot-driver');
+  const exIndex = november.lines.findIndex((item) => item.id === 'ex-driver');
+  assert.ok(otIndex >= 0 && otIndex < exIndex);
+  assert.equal(line('ot-driver').label, 'OT DRIVER');
+  assert.equal(line('ot-driver').otFactor, 1.5);
+  assert.equal(day('ot-driver').value, '0.25');
+  assert.equal(day('ot-driver').calculated, '0.25');
+  assert.equal(day('ex-driver').value, '0.75');
+  assert.equal(line('ot-driver').total, '0.25');
+  assert.equal(line('ex-driver').total, '0.75');
 });
 
 test('a replaced clock in stays struck through in its own pay-period cell', () => {
