@@ -260,6 +260,21 @@ function liveStatus(rows) {
 
 let busZones = [];
 let powerEventsByBus = null;
+const powerKnownBuses = new Set();
+
+function powerBusKey(value) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^0+(?=\d)/, '');
+}
+
+function isPowerPending(bus) {
+  if (!powerKnownBuses.size) return true;
+  const key = powerBusKey(bus);
+  if (!key) return false;
+  return !powerKnownBuses.has(key);
+}
 let studentInspections = null;
 
 function withPostedDrivers(runs) {
@@ -311,6 +326,7 @@ async function loadPowerEvents() {
   const groups = [];
   for (let i = 0; i < names.length; i += POWER_BUS_GROUP) groups.push(names.slice(i, i + POWER_BUS_GROUP));
   let anyOk = false;
+  const known = [];
   const batches = await Promise.all(
     groups.map(async (group) => {
       try {
@@ -318,6 +334,7 @@ async function loadPowerEvents() {
         if (!response.ok) return [];
         const data = await response.json();
         anyOk = true;
+        known.push(...group);
         return Array.isArray(data?.events) ? data.events : [];
       } catch {
         return [];
@@ -325,7 +342,14 @@ async function loadPowerEvents() {
     })
   );
   if (!anyOk) return;
-  powerEventsByBus = indexPowerEvents(batches.flat());
+  const incoming = indexPowerEvents(batches.flat());
+  if (!powerEventsByBus) powerEventsByBus = new Map();
+  for (const bus of known) {
+    const key = powerBusKey(bus);
+    if (!key) continue;
+    powerKnownBuses.add(key);
+    powerEventsByBus.set(key, incoming.get(key) || []);
+  }
   paintBoard();
 }
 
@@ -787,7 +811,7 @@ function rememberDarkWatch(date = new Date()) {
     .filter((run) => !quiet.has(String(run.route || '').trim().toLowerCase()))
     .map((run) => {
       const driver = regularDriverName(run.route) || String(run.driver || '').trim();
-      return { ...run, driver, photo: driverPhotoSrc(driver) };
+      return { ...run, driver, photo: driverPhotoSrc(driver), powerPending: isPowerPending(run.bus) };
     });
   return date;
 }

@@ -506,6 +506,15 @@ describe('dark bus screen', () => {
     const held = darkBusPills([am], 6 * 60 + 56, 5, [darkBusKey(flashing[0])]);
     assert.equal(held[0].tone, 'held');
     assert.equal(darkBusHasFlash([am], 6 * 60 + 56, 5, [darkBusKey(flashing[0])]), false);
+    const checking = { ...am, powerPending: true };
+    assert.equal(darkBusPillTone(checking, 6 * 60 + 56, 5), 'pending');
+    assert.equal(darkBuses([checking], 6 * 60 + 56, 5).length, 0);
+    const pendingMarkup = darkBusPageMarkup([checking], { nowMinutes: 6 * 60 + 56, graceMinutes: 5, tab: 'AM' });
+    assert.match(pendingMarkup, /is-pending/);
+    assert.match(pendingMarkup, /board-dark-spinner/);
+    assert.match(pendingMarkup, /Checking Power On/);
+    assert.doesNotMatch(pendingMarkup, /is-dark/);
+    assert.doesNotMatch(pendingMarkup, /Never powered on/);
   });
 
   it('groups route pills that share a start and shows the driver', () => {

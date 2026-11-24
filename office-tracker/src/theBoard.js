@@ -213,12 +213,14 @@ export function earlyReleaseWatch(runs, clocksByRoute) {
 // A pill stays off the page until that route's start time.
 // neutral: the bus is not powered on, and it is not in the yellow or red window.
 // yellow: the start time has passed, the wait has not, and this run has no Power On.
+// pending: Power On has not been checked yet, so the pill stays quiet.
 // dark: the wait is over and this run still has no Power On, so the alert fires.
 // on: a Power On was counted for this run, shown green, even if the bus is off now.
 export function darkBusPillTone(run, nowMinutes, graceMinutes = 0) {
   const clockIn = minutesOf(run?.clockIn);
   if (clockIn == null) return 'quiet';
   if (nowMinutes < clockIn) return 'waiting';
+  if (run?.powerPending) return 'pending';
   if (minutesOf(run?.poweredOnAt) != null) return 'on';
   const grace = Number.isFinite(Number(graceMinutes)) ? Number(graceMinutes) : 0;
   const due = clockIn + grace;
@@ -323,6 +325,7 @@ export function darkBuses(runs, nowMinutes, graceMinutes = 0, skipped = []) {
   const quiet = new Set((skipped || []).map((item) => routeKey(item?.route)).filter(Boolean));
   const alerts = [];
   for (const run of runs || []) {
+    if (run?.powerPending) continue;
     if (quiet.has(routeKey(run?.route))) continue;
     const clockIn = minutesOf(run?.clockIn);
     if (clockIn == null) continue;
@@ -3366,6 +3369,7 @@ const PILL_TONE_LABEL = {
   waiting: 'has not started',
   neutral: 'not powered on',
   yellow: 'start time passed, not powered on',
+  pending: 'checking Power On',
   dark: 'never powered on',
   held: 'dismissed, never powered on',
   on: 'powered on',
@@ -3378,6 +3382,9 @@ function personIcon() {
 
 function pillFactsMarkup(pill, nowMinutes) {
   if (pill.tone === 'on') return '';
+  if (pill.tone === 'pending') {
+    return `<span class="board-dark-spinner" role="status"><span class="visually-hidden">Checking Power On</span></span><span class="board-dark-facts"><span>Checking Power On</span></span>`;
+  }
   const lines = darkBusPillFacts(pill, nowMinutes).map((line) => `<span>${escapeHtml(line)}</span>`).join('');
   return `<span class="board-dark-facts">${lines}</span>`;
 }

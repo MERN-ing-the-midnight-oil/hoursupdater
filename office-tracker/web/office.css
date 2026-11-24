@@ -12093,6 +12093,41 @@ button.board-dark-pill.is-on:focus-visible {
   animation: none;
 }
 
+.board-dark-pill.is-pending {
+  border-color: #6d4ea8;
+  background: #efe6fb;
+  background-color: #efe6fb;
+  color: #3d2a5c;
+  animation: none;
+}
+
+.board-dark-spinner {
+  display: inline-block;
+  flex: none;
+  width: 0.95rem;
+  height: 0.95rem;
+  margin-right: 0.35rem;
+  border: 2px solid rgba(109, 78, 168, 0.28);
+  border-top-color: #6d4ea8;
+  border-radius: 50%;
+  vertical-align: -0.15rem;
+  animation: board-dark-spin 0.7s linear infinite;
+}
+
+@keyframes board-dark-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-dark-spinner {
+    animation: none;
+    border-top-color: rgba(109, 78, 168, 0.28);
+    border-right-color: #6d4ea8;
+  }
+}
+
 .board-dark-pill.is-dark,
 button.board-dark-pill.is-dark,
 button.board-dark-pill.is-dark:hover,
