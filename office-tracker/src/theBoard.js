@@ -211,23 +211,23 @@ export function earlyReleaseWatch(runs, clocksByRoute) {
 }
 
 // A pill stays off the page until that route's start time.
-// neutral: the bus is not powered on, and it is not in the yellow or red window.
-// yellow: the start time has passed, the wait has not, and this run has no Power On.
+// yellow: the start time has passed, the wait has not, and no Power On yet. Grey.
 // pending: Power On has not been checked yet, so the pill stays quiet.
-// dark: the wait is over and this run still has no Power On, so the alert fires.
-// on: a Power On was counted for this run, shown green, even if the bus is off now.
+// dark: the wait is over, the run is still out, and this run has no Power On.
+// missed: the run is over and no Power On was counted. Solid red, and the alarm stays quiet.
+// on: a Power On was counted for this run. It stays green for the rest of the day.
 export function darkBusPillTone(run, nowMinutes, graceMinutes = 0) {
   const clockIn = minutesOf(run?.clockIn);
   if (clockIn == null) return 'quiet';
   if (nowMinutes < clockIn) return 'waiting';
-  if (run?.powerPending) return 'pending';
   if (minutesOf(run?.poweredOnAt) != null) return 'on';
+  if (run?.powerPending) return 'pending';
   const grace = Number.isFinite(Number(graceMinutes)) ? Number(graceMinutes) : 0;
   const due = clockIn + grace;
   if (nowMinutes < due) return 'yellow';
   const clockOut = minutesOf(run?.clockOut);
   const ends = clockOut != null ? clockOut : due + OPEN_RUN_MINUTES;
-  if (nowMinutes >= ends) return 'neutral';
+  if (nowMinutes >= ends) return 'missed';
   return 'dark';
 }
 
@@ -300,14 +300,16 @@ export function darkBusAlarmStatement(alert, graceMinutes = 0) {
 }
 
 // Two lines for a route with no Power On for this run: minutes since clock-in, and that status.
-// A flashing pill says "Never powered on" because a later key-off does not turn it red again.
+// Grey, still inside the wait, says "Not yet powered on". After the wait, the words are
+// "Never powered on". A later key-off does not turn a counted Power On red again.
 export function darkBusPillFacts(pill, nowMinutes) {
   const clockIn = minutesOf(pill?.clockIn);
   const elapsed = clockIn == null || !Number.isInteger(nowMinutes) ? null : Math.max(0, nowMinutes - clockIn);
   const since =
     elapsed == null ? 'No clock-in' : elapsed === 1 ? '1 minute since clock-in' : `${elapsed} minutes since clock-in`;
   const powered = minutesOf(pill?.poweredOnAt);
-  const missing = pill?.tone === 'dark' || pill?.tone === 'held' ? 'Never powered on' : 'Not powered on';
+  const never = pill?.tone === 'dark' || pill?.tone === 'held' || pill?.tone === 'missed';
+  const missing = never ? 'Never powered on' : 'Not yet powered on';
   const power = powered == null ? missing : `Powered on at ${formatBoardClock(powered)}`;
   return [since, power];
 }
@@ -479,6 +481,48 @@ export function busesInService(runs, nowMinutes) {
     if (bus) buses.add(bus);
   }
   return [...buses];
+}
+
+// Every bus whose clock-in has arrived today, including runs that already ended.
+// A late check still needs those Power On times so a counted start stays green.
+export function busesStarted(runs, nowMinutes) {
+  const buses = new Set();
+  for (const run of runs || []) {
+    const clockIn = minutesOf(run?.clockIn);
+    if (clockIn == null || nowMinutes < clockIn) continue;
+    const bus = busKey(run?.bus);
+    if (bus) buses.add(bus);
+  }
+  return [...buses];
+}
+
+function powerOnMemoryKey(run) {
+  const clockIn = minutesOf(run?.clockIn);
+  if (clockIn == null) return '';
+  return darkBusKey({ bus: run?.bus, route: run?.route, run: run?.run, clockIn });
+}
+
+// A Power On counted today stays on that run until the date changes.
+export function rememberPowerOns(saved, runs, date) {
+  const stored = saved && saved.date === date && saved.ons && typeof saved.ons === 'object' ? saved.ons : {};
+  const ons = { ...stored };
+  for (const run of runs || []) {
+    const at = minutesOf(run?.poweredOnAt);
+    const key = powerOnMemoryKey(run);
+    if (at == null || !key) continue;
+    ons[key] = at;
+  }
+  return { date, ons };
+}
+
+export function withRememberedPowerOns(runs, saved, date) {
+  const ons = saved && saved.date === date && saved.ons && typeof saved.ons === 'object' ? saved.ons : {};
+  return (runs || []).map((run) => {
+    if (minutesOf(run?.poweredOnAt) != null) return run;
+    const at = Number(ons[powerOnMemoryKey(run)]);
+    if (!Number.isInteger(at)) return run;
+    return { ...run, poweredOnAt: at };
+  });
 }
 
 // The first time an alert is shown today. A new day starts over. An alert that
@@ -3367,11 +3411,12 @@ export function outOfServiceMarkup(rows, date = '') {
 
 const PILL_TONE_LABEL = {
   waiting: 'has not started',
-  neutral: 'not powered on',
-  yellow: 'start time passed, not powered on',
+  neutral: 'not yet powered on',
+  yellow: 'not yet powered on',
   pending: 'checking Power On',
   dark: 'never powered on',
   held: 'dismissed, never powered on',
+  missed: 'never powered on',
   on: 'powered on',
   quiet: '',
 };

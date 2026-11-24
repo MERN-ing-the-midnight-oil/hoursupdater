@@ -69,6 +69,10 @@ import {
   powerOnForRun,
   indexPowerEvents,
   applyPowerOns,
+  busesInService,
+  busesStarted,
+  rememberPowerOns,
+  withRememberedPowerOns,
   rememberAlertTimes,
   withAlertedAt,
   formatBoardClock,
@@ -495,7 +499,11 @@ describe('dark bus screen', () => {
     assert.equal(darkBusPillTone(am, 6 * 60 + 52, 5), 'yellow');
     assert.equal(darkBusPillTone(am, 6 * 60 + 56, 5), 'dark');
     assert.equal(darkBusPillTone({ ...am, poweredOnAt: '6:51' }, 6 * 60 + 52, 5), 'on');
-    assert.equal(darkBusPillTone(am, 9 * 60, 5), 'neutral');
+    assert.equal(darkBusPillTone({ ...am, poweredOnAt: '6:51' }, 9 * 60, 5), 'on');
+    assert.equal(darkBusPillTone(am, 9 * 60, 5), 'missed');
+    assert.deepEqual(busesStarted([am], 9 * 60), ['61']);
+    assert.deepEqual(busesInService([am], 9 * 60), []);
+    assert.deepEqual(busesStarted([am], 6 * 60 + 40), []);
     assert.equal(darkBusHasFlash([am], 6 * 60 + 52, 5), false);
     assert.equal(darkBusHasFlash([am, sameStart, earlier], 6 * 60, 5), false);
     assert.equal(darkBusHasFlash([am], 6 * 60 + 56, 5), true);
@@ -533,7 +541,8 @@ describe('dark bus screen', () => {
     assert.match(atStart, /is-yellow/);
     assert.match(atStart, /board-dark-facts/);
     assert.match(atStart, /0 minutes since clock-in/);
-    assert.match(atStart, /Not powered on/);
+    assert.match(atStart, /Not yet powered on/);
+    assert.doesNotMatch(atStart, /Not powered on/);
     assert.doesNotMatch(atStart, /board-dark-info/);
     assert.doesNotMatch(atStart, /data-dark-key/);
     assert.doesNotMatch(atStart, /is-dark/);
@@ -570,7 +579,7 @@ describe('dark bus screen', () => {
     assert.equal(darkBusAlarmStatement({ ...am, clockIn: 6 * 60 + 50 }, 1), 'Route 10, clock-in 6:50 AM, wait 1 minute.');
     assert.deepEqual(darkBusPillFacts({ ...earlier, clockIn: 6 * 60 + 15 }, 6 * 60 + 15), [
       '0 minutes since clock-in',
-      'Not powered on',
+      'Not yet powered on',
     ]);
     assert.deepEqual(darkBusPillFacts({ clockIn: '6:50', poweredOnAt: '6:51' }, 6 * 60 + 51), [
       '1 minute since clock-in',
@@ -579,7 +588,8 @@ describe('dark bus screen', () => {
     assert.match(markup, /37 minutes since clock-in/);
     assert.match(markup, /2 minutes since clock-in/);
     assert.match(markup, /Never powered on/);
-    assert.match(markup, /Not powered on/);
+    assert.match(markup, /Not yet powered on/);
+    assert.doesNotMatch(markup, /Not powered on/);
     assert.doesNotMatch(markup, /Clock-in 6:15 AM/);
     assert.doesNotMatch(markup, /Wait 5 minutes/);
     const poweredLate = darkBusPageMarkup([{ ...earlier, lastPowerOnAt: '6:20' }], {
@@ -614,10 +624,31 @@ describe('dark bus screen', () => {
     assert.doesNotMatch(dismissed, /is-dark/);
     assert.doesNotMatch(dismissed, /data-dark-key/);
     const finished = darkBusPageMarkup([am], { nowMinutes: 9 * 60, graceMinutes: 5, tab: 'AM' });
-    assert.match(finished, /is-neutral/);
-    assert.match(finished, /not powered on/);
+    assert.match(finished, /is-missed/);
+    assert.match(finished, /Never powered on/);
+    assert.doesNotMatch(finished, /Not powered on/);
+    assert.doesNotMatch(finished, /Not yet powered on/);
+    assert.doesNotMatch(finished, /is-neutral/);
     assert.doesNotMatch(finished, /is-dark/);
     assert.doesNotMatch(finished, /is-yellow/);
+    const stayedGreen = darkBusPageMarkup([{ ...am, poweredOnAt: '6:51' }], {
+      nowMinutes: 9 * 60,
+      graceMinutes: 5,
+      tab: 'AM',
+    });
+    assert.match(stayedGreen, /is-on/);
+    assert.match(stayedGreen, /powered on/);
+    assert.doesNotMatch(stayedGreen, /is-missed/);
+    assert.doesNotMatch(stayedGreen, /is-neutral/);
+    const remembered = rememberPowerOns(null, [{ ...am, poweredOnAt: '6:51' }], '2026-11-23');
+    assert.equal(withRememberedPowerOns([{ ...am, poweredOnAt: '' }], remembered, '2026-11-23')[0].poweredOnAt, 6 * 60 + 51);
+    assert.equal(withRememberedPowerOns([{ ...am, poweredOnAt: '' }], remembered, '2026-11-24')[0].poweredOnAt, '');
+    assert.equal(
+      rememberPowerOns(remembered, [{ ...am, poweredOnAt: '' }], '2026-11-23').ons[
+        darkBusKey({ bus: am.bus, route: am.route, run: 'AM', clockIn: 6 * 60 + 50 })
+      ],
+      6 * 60 + 51
+    );
     assert.deepEqual(
       powerOnActivity([
         { ...am, driver: 'Angela Smith', clockIn: '6:50', poweredOnAt: '6:52' },

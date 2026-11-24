@@ -12136,10 +12136,12 @@ button.board-dark-pill.is-dark:focus-visible {
   animation: board-pill-flash 1s ease-in-out infinite;
 }
 
-.board-dark-pill.is-held {
+.board-dark-pill.is-held,
+.board-dark-pill.is-missed {
   border-color: #9b2c1f;
   background: #9b2c1f;
   color: #fff;
+  animation: none;
 }
 
 @keyframes board-pill-flash {

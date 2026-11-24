@@ -22,7 +22,9 @@ import {
   indexPowerEvents,
   applyPowerOns,
   sparePowerLive,
-  busesInService,
+  busesStarted,
+  rememberPowerOns,
+  withRememberedPowerOns,
   rememberAlertTimes,
   withAlertedAt,
   darkBusSkip,
@@ -114,6 +116,7 @@ const ROSTER_KEY = 'the-board-roster';
 const ABSENCE_KEY = 'the-board-absences';
 const RUNS_KEY = 'the-board-runs';
 const ALERTED_KEY = 'the-board-dark-alerted';
+const POWER_ON_KEY = 'the-board-dark-powered-on';
 const OOS_KEY = 'the-board-out-of-service';
 const PAIRING_KEY = 'the-board-pairings';
 const ROUTE_BUS_KEY = 'the-board-route-buses';
@@ -316,7 +319,7 @@ const POWER_BUS_GROUP = 20;
 
 async function loadPowerEvents() {
   const now = minutesNow();
-  const buses = new Set(busesInService(watchedRuns(), now));
+  const buses = new Set(busesStarted(watchedRuns(), now));
   for (const row of outOfService()) {
     const spare = String(row?.spareBus || '').trim().replace(/^0+(?=\d)/, '');
     if (spare) buses.add(spare);
@@ -348,7 +351,10 @@ async function loadPowerEvents() {
     const key = powerBusKey(bus);
     if (!key) continue;
     powerKnownBuses.add(key);
-    powerEventsByBus.set(key, incoming.get(key) || []);
+    const next = incoming.get(key) || [];
+    const prev = powerEventsByBus.get(key);
+    if (!next.length && Array.isArray(prev) && prev.length) continue;
+    powerEventsByBus.set(key, next);
   }
   paintBoard();
 }
@@ -800,18 +806,32 @@ function rememberDarkWatch(date = new Date()) {
   }
   const baseLive = liveStatus(runs());
   const now = minutesNow(date);
+  const today = boardDate(date);
   darkPowered = powerEventsByBus ? applyPowerOns(watched, powerEventsByBus, now) : watched;
   darkLive = powerEventsByBus
-    ? { ...baseLive, ...sparePowerLive(watched, outOfService(), powerEventsByBus, now, boardDate(date)) }
+    ? { ...baseLive, ...sparePowerLive(watched, outOfService(), powerEventsByBus, now, today) }
     : baseLive;
-  const covered = watchOutOfService(darkPowered, outOfService(), darkLive, boardDate(date));
+  const covered = withRememberedPowerOns(
+    watchOutOfService(darkPowered, outOfService(), darkLive, today),
+    readJson(POWER_ON_KEY, null),
+    today
+  );
+  const savedOns = readJson(POWER_ON_KEY, null);
+  const recordedOns = rememberPowerOns(savedOns, covered, today);
+  if (JSON.stringify(savedOns) !== JSON.stringify(recordedOns)) writeJson(POWER_ON_KEY, recordedOns);
   darkSkipped = skippedRoutes();
   const quiet = new Set(darkSkipped.map((item) => String(item.route || '').trim().toLowerCase()));
   darkWatch = covered
     .filter((run) => !quiet.has(String(run.route || '').trim().toLowerCase()))
     .map((run) => {
       const driver = regularDriverName(run.route) || String(run.driver || '').trim();
-      return { ...run, driver, photo: driverPhotoSrc(driver), powerPending: isPowerPending(run.bus) };
+      const knownOn = typeof run.poweredOnAt === 'number' || String(run.poweredOnAt || '').trim();
+      return {
+        ...run,
+        driver,
+        photo: driverPhotoSrc(driver),
+        powerPending: !knownOn && isPowerPending(run.bus),
+      };
     });
   return date;
 }
@@ -2801,7 +2821,7 @@ window.addEventListener('storage', (event) => {
   if (event.key === STORAGE_KEY) refreshScheduleClocks();
   if (event.key === ALERT_KEY && document.activeElement?.closest('#dark-bus-config-form') == null) fillSettingsForm();
   if (event.key === STUDENT_ALERT_KEY && document.activeElement?.closest('#student-check-config-form') == null) fillStudentForm();
-  if ([ROSTER_KEY, ABSENCE_KEY, RUNS_KEY, OOS_KEY, PAIRING_KEY, ROUTE_BUS_KEY, USUAL_KEY, ALERT_KEY, ACK_KEY, ALERTED_KEY, SCHOOL_VISIT_KEY, YARD_RETURN_KEY, EARLY_KEY, STUDENT_ALERT_KEY, STUDENT_ACK_KEY, STUDENT_VISIT_KEY, STUDENT_RETURN_KEY, STORAGE_KEY].includes(event.key)) {
+  if ([ROSTER_KEY, ABSENCE_KEY, RUNS_KEY, OOS_KEY, PAIRING_KEY, ROUTE_BUS_KEY, USUAL_KEY, ALERT_KEY, ACK_KEY, ALERTED_KEY, POWER_ON_KEY, SCHOOL_VISIT_KEY, YARD_RETURN_KEY, EARLY_KEY, STUDENT_ALERT_KEY, STUDENT_ACK_KEY, STUDENT_VISIT_KEY, STUDENT_RETURN_KEY, STORAGE_KEY].includes(event.key)) {
     paintBoard();
   }
 });
