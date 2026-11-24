@@ -392,7 +392,7 @@
               <path d="M3 12h.01"/>
               <path d="M3 18h.01"/>
             </svg>
-            Bidding
+            End of Month Bidding
             <span id="bidding-flag" class="notice-tab-flag" hidden>
               <span class="notice-flag" aria-hidden="true">
                 <svg class="icon" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22V15"/></svg>
@@ -1705,14 +1705,14 @@
               duration rounding. When snapping is on, choose whether Art. 3.08 bid/bump windows
               follow those snapped daily totals, or keep counting exact written minute changes.
             </p>
-            <form id="contract-snap-form" class="clock-form" novalidate>
+            <form id="contract-snap-form" class="clock-form" data-contract-snap-form novalidate>
               <div class="field">
                 <label>
-                  <input id="contract-quarter-hour-snap" type="checkbox" checked />
+                  <input id="contract-quarter-hour-snap" data-contract-quarter-hour-snap type="checkbox" checked />
                   Use quarter hour snapping for contract times
                 </label>
               </div>
-              <div id="contract-snap-bands" class="contract-snap-bands">
+              <div id="contract-snap-bands" class="contract-snap-bands" data-contract-snap-bands>
                 <h3 class="contract-snap-bands-title">Bands</h3>
                 <p class="field-hint">
                   Four cutoffs (0–59). Minutes through each value snap as labeled; from the last
@@ -1721,28 +1721,28 @@
                 <div class="contract-snap-break-grid">
                   <label class="field" for="contract-snap-to-hour">
                     Through :MM → :00
-                    <input id="contract-snap-to-hour" name="toHour" type="number" min="0" max="59" step="1" value="6" />
+                    <input id="contract-snap-to-hour" data-contract-snap="toHour" name="toHour" type="number" min="0" max="59" step="1" value="6" />
                   </label>
                   <label class="field" for="contract-snap-to-quarter">
                     Through :MM → :15
-                    <input id="contract-snap-to-quarter" name="toQuarter" type="number" min="0" max="59" step="1" value="21" />
+                    <input id="contract-snap-to-quarter" data-contract-snap="toQuarter" name="toQuarter" type="number" min="0" max="59" step="1" value="21" />
                   </label>
                   <label class="field" for="contract-snap-to-half">
                     Through :MM → :30
-                    <input id="contract-snap-to-half" name="toHalf" type="number" min="0" max="59" step="1" value="36" />
+                    <input id="contract-snap-to-half" data-contract-snap="toHalf" name="toHalf" type="number" min="0" max="59" step="1" value="36" />
                   </label>
                   <label class="field" for="contract-snap-to-next-hour">
                     From :MM → next hour
-                    <input id="contract-snap-to-next-hour" name="toNextHour" type="number" min="0" max="59" step="1" value="52" />
+                    <input id="contract-snap-to-next-hour" data-contract-snap="toNextHour" name="toNextHour" type="number" min="0" max="59" step="1" value="52" />
                   </label>
                 </div>
               </div>
-              <div class="field" id="bid-bump-snap-field">
+              <div class="field" id="bid-bump-snap-field" data-bid-bump-snap-field>
                 <label>
-                  <input id="bid-bump-use-snapped-times" type="checkbox" checked />
+                  <input id="bid-bump-use-snapped-times" data-bid-bump-use-snapped-times type="checkbox" checked />
                   Bid/bump windows use snapped contract times
                 </label>
-                <p class="field-hint" id="bid-bump-snap-hint">
+                <p class="field-hint" id="bid-bump-snap-hint" data-bid-bump-snap-hint>
                   On: the 15-school-day countdown and 30-minute bid/bump line use snapped contracted
                   hours. Off: they use exact minute changes (written clocks).
                 </p>
@@ -1750,6 +1750,7 @@
               <div class="actions">
                 <button type="submit" class="secondary">Save Settings</button>
               </div>
+              <p class="status" data-form-status role="status" hidden></p>
             </form>
           </section>
           <section class="settings-card tone-calendar">
@@ -1810,7 +1811,7 @@
             <p class="field-hint">
               On an early release day, a PM route clocks in at the time for the first school that route heads to.
               Morning clock-ins stay the same.
-              Route 10 heads to Lowell first, so Lowell's time is route 10's PM clock-in.
+              That school is the first one on the route in Time Changes.
               Alderwood, Birchwood, Cordata, Northern Heights, and Silver Beach start at 11:50 AM.
               Carl Cozier starts at 12:00 PM.
               Geneva, Happy Valley, Lowell, Parkview, Roosevelt, Sunnyland, and Wade King start at 11:55 AM.
@@ -1979,7 +1980,7 @@
           <p class="field-hint">
             On an early release day, a PM route clocks in at the time for the first school that route heads to.
             Morning clock-ins stay the same.
-            Route 10 heads to Lowell first, so Lowell's time is route 10's PM clock-in.
+            That school is the first one on the route in Time Changes.
             The same times are in Teamster Tracker settings.
             Alderwood, Birchwood, Cordata, Northern Heights, and Silver Beach start at 11:50 AM.
             Carl Cozier starts at 12:00 PM.
@@ -2709,6 +2710,73 @@
           contracted times arbitrarily below. Written determination letters for
           drivers stay in Notices below.
         </p>
+        <section class="settings-card tone-contract contract-snap-on-page">
+          <h2>
+            <span class="settings-ico" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 2" />
+              </svg>
+            </span>
+            Snap Contract Times
+          </h2>
+          <p class="field-hint">
+            Official contracted hours can snap each contract start and end with office minute bands
+            before the day is counted. Default: :00–:06 → :00, :07–:21 → :15, :22–:36 → :30,
+            :37–:51 → :45, :52–:59 → next hour. Example: 2:05&nbsp;PM–5:25&nbsp;PM becomes
+            2:00&nbsp;PM–5:30&nbsp;PM (3.5 hours). Turn this off for exact contract clocks, then
+            duration rounding. When snapping is on, choose whether Art. 3.08 bid/bump windows
+            follow those snapped daily totals, or keep counting exact written minute changes.
+            The same choice is in Teamster Tracker Settings.
+          </p>
+          <form class="clock-form" data-contract-snap-form novalidate>
+            <div class="field">
+              <label>
+                <input data-contract-quarter-hour-snap type="checkbox" checked />
+                Use quarter hour snapping for contract times
+              </label>
+            </div>
+            <div class="contract-snap-bands" data-contract-snap-bands>
+              <h3 class="contract-snap-bands-title">Bands</h3>
+              <p class="field-hint">
+                Four cutoffs (0–59). Minutes through each value snap as labeled; from the last
+                value through :59 snap to the next hour.
+              </p>
+              <div class="contract-snap-break-grid">
+                <label class="field">
+                  Through :MM → :00
+                  <input data-contract-snap="toHour" name="toHour" type="number" min="0" max="59" step="1" value="6" />
+                </label>
+                <label class="field">
+                  Through :MM → :15
+                  <input data-contract-snap="toQuarter" name="toQuarter" type="number" min="0" max="59" step="1" value="21" />
+                </label>
+                <label class="field">
+                  Through :MM → :30
+                  <input data-contract-snap="toHalf" name="toHalf" type="number" min="0" max="59" step="1" value="36" />
+                </label>
+                <label class="field">
+                  From :MM → next hour
+                  <input data-contract-snap="toNextHour" name="toNextHour" type="number" min="0" max="59" step="1" value="52" />
+                </label>
+              </div>
+            </div>
+            <div class="field" data-bid-bump-snap-field>
+              <label>
+                <input data-bid-bump-use-snapped-times type="checkbox" checked />
+                Bid/bump windows use snapped contract times
+              </label>
+              <p class="field-hint" data-bid-bump-snap-hint>
+                On: the 15-school-day countdown and 30-minute bid/bump line use snapped contracted
+                hours. Off: they use exact minute changes (written clocks).
+              </p>
+            </div>
+            <div class="actions">
+              <button type="submit" class="secondary">Save Settings</button>
+            </div>
+            <p class="status" data-form-status role="status" hidden></p>
+          </form>
+        </section>
         <div class="contract-reminder-header" aria-label="Payroll reminder settings">
           <fieldset class="yes-no contract-reminder-auto">
             <legend>Queue Payroll reminder after Record</legend>
@@ -3051,30 +3119,18 @@
             <path d="M3 12h.01" />
             <path d="M3 18h.01" />
           </svg>
-          Bidding
+          End of Month Bidding
         </h1>
         <p class="lead">
-          Paper tools for Teamster route bidding. End of Month Bidding lists
-          routes posted in the last five school days (October–April). Print on
-          a route opens that route’s sign-up sheet with a seniority driver list
-          and initial boxes
+          Routes increased 30 minutes or more for 15 school days, posted during
+          the last five school days of October through April
           (<a class="contract-cite-link" data-citation="3.08(b)(1)" href="https://resources.finalsite.net/images/v1786397695/bellinghamschoolsorg/lvay23uw9hvrfirn65td/2024-2027TeamstersCBA.pdf#page=7">Art. 3.08(b)(1)</a>).
+          Print on a route opens its sign-up sheet, with the seniority list and
+          initial boxes. Sign-up closes two school days after posting
+          (Art. 3.08(c)(1)). The incumbent’s written notice is on Contract time-changes.
         </p>
 
-        <nav class="bidding-tools" aria-label="Bidding tools">
-          <button type="button" class="bidding-tool is-active" id="eom-bidding-tool" aria-pressed="true">
-            End of Month Bidding
-          </button>
-        </nav>
-
         <div id="eom-bidding-panel" class="eom-bidding-panel">
-          <h2 class="bidding-tool-title">End of Month Bidding</h2>
-          <p class="field-hint">
-            Print next to a route opens that route’s Open Bid Sign-Up Sheet for
-            the board. Sign-up closes two school days after posting
-            (Art. 3.08(c)(1)). Written determination for the incumbent is tracked
-            on Contract time-changes.
-          </p>
           <div class="field eom-month-field">
             <label for="eom-bidding-month">Posting month</label>
             <select id="eom-bidding-month"></select>
@@ -3106,10 +3162,7 @@
                   <tr>
                     <th scope="col">Route</th>
                     <th scope="col">Incumbent</th>
-                    <th scope="col">Hours</th>
-                    <th scope="col">Increase</th>
-                    <th scope="col">Posting</th>
-                    <th scope="col">Sign-up due</th>
+                    <th scope="col">Why it's up for bid</th>
                     <th scope="col">Written notice</th>
                     <th scope="col">Print</th>
                   </tr>
@@ -3138,9 +3191,7 @@
                   <tr>
                     <th scope="col">Route</th>
                     <th scope="col">Incumbent</th>
-                    <th scope="col">Hours</th>
-                    <th scope="col">Increase</th>
-                    <th scope="col">Originally posted</th>
+                    <th scope="col">Why it's up for bid</th>
                     <th scope="col">Written notice</th>
                     <th scope="col">Print</th>
                   </tr>

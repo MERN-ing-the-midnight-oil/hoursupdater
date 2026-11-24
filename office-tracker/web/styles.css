@@ -1159,6 +1159,118 @@ button:disabled:hover {
   color: var(--muted);
 }
 
+.hero-schools {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0.85rem 0 0;
+}
+
+.hero-schools-text {
+  min-width: 0;
+  padding-top: 0.15rem;
+}
+
+.hero-schools-text.is-empty {
+  font-style: italic;
+}
+
+.hero-schools-edit,
+.hero-schools-edit:hover,
+.hero-schools-edit[aria-pressed='true'] {
+  flex: none;
+  width: 1.7rem;
+  height: 1.7rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--purple);
+  box-shadow: none;
+}
+
+.hero-schools-edit:hover,
+.hero-schools-edit[aria-pressed='true'] {
+  background: var(--accent-wash);
+  color: var(--purple-deep);
+}
+
+.hero-schools-edit:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: 1px;
+}
+
+.hero-school-editor {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+}
+
+.hero-schools-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.hero-school-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.hero-school-run-label {
+  flex: none;
+  min-width: 5.2rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.hero-school-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  border: 1px solid var(--accent-line);
+  background: var(--accent-wash);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 0.05rem 0.1rem 0.05rem 0.5rem;
+  font-family: var(--font-data);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.hero-school-chip button,
+.hero-school-chip button:hover {
+  width: 1.35rem;
+  height: 1.35rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.hero-school-chip button:hover {
+  background: #fff;
+  color: var(--danger);
+}
+
+.hero-school-add {
+  width: auto;
+  min-width: 9.5rem;
+  padding: 0.28rem 0.45rem;
+  font-size: 0.85rem;
+}
+
 .hero-times {
   display: grid;
   gap: 0.85rem;

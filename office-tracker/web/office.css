@@ -2108,36 +2108,6 @@ details.notice-queue[open] > summary .notice-queue-preview {
   white-space: pre-wrap;
 }
 
-.bidding-tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 0 0 1.1rem;
-}
-
-.bidding-tool {
-  appearance: none;
-  border: 1px solid var(--line);
-  background: #fff;
-  color: inherit;
-  border-radius: var(--radius-sm);
-  padding: 0.45rem 0.85rem;
-  font: inherit;
-  cursor: pointer;
-}
-
-.bidding-tool.is-active,
-.bidding-tool[aria-pressed='true'] {
-  border-color: var(--ink, #1b2430);
-  background: color-mix(in srgb, var(--accent, #6428f0) 12%, #fff);
-  font-weight: 600;
-}
-
-.bidding-tool-title {
-  margin: 0 0 0.35rem;
-  font-size: 1.15rem;
-}
-
 .eom-bidding-panel {
   display: grid;
   gap: 0.85rem;
@@ -2147,6 +2117,13 @@ details.notice-queue[open] > summary .notice-queue-preview {
   padding: 0.35rem 0.65rem;
   font-size: 0.85rem;
   white-space: nowrap;
+}
+
+.eom-bidding-panel .bid-why {
+  white-space: normal;
+  min-width: 18rem;
+  max-width: 40rem;
+  line-height: 1.4;
 }
 
 .eom-month-field {
@@ -3794,8 +3771,20 @@ h2.notification-section:first-of-type {
   max-width: 6rem;
 }
 
-#bid-bump-snap-field[hidden] {
+#bid-bump-snap-field[hidden],
+[data-bid-bump-snap-field][hidden] {
   display: none !important;
+}
+
+.contract-snap-on-page {
+  margin: 0.35rem 0 1.1rem;
+}
+
+[data-contract-snap-form] {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
 }
 
 button.clock-driver.is-marked {
@@ -11023,6 +11012,26 @@ body.audit-genie-page .audit-page-head {
   margin-bottom: 0.85rem;
 }
 
+body.audit-genie-page .page-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.65rem;
+  color: var(--audit-ink);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+body.audit-genie-page .page-back:hover,
+body.audit-genie-page .page-back:focus-visible {
+  color: var(--audit-ink);
+  text-decoration: underline;
+}
+
+body.audit-genie-page.is-driver-embed .page-back {
+  display: none;
+}
+
 body.audit-genie-page .audit-page-head .app-name {
   margin: 0 0 0.35rem;
   font-size: 0.85rem;
@@ -11712,6 +11721,48 @@ button.kiosk-name.is-absent .kiosk-status {
   justify-content: space-between;
   gap: 0.75rem 1rem;
   padding: 0.85rem 1.25rem 0.4rem;
+}
+
+.the-board-brand {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.board-back,
+.board-back:hover,
+.board-back:focus-visible {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid #c9c2b6;
+  border-radius: 999px;
+  background: #fff;
+  color: #1c1814;
+  font-weight: 750;
+  line-height: 1;
+  padding: 0.4rem 0.8rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.board-back:hover,
+.board-back:focus-visible {
+  border-color: #1c1814;
+  background: #f4f1ea;
+}
+
+.board-back svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .the-board-bar h1 {
@@ -12807,6 +12858,34 @@ button.board-dark-pill.is-dark:focus-visible {
   border: 1px solid var(--line);
 }
 
+.board-oos-marks {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.board-oos-mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 1.9rem;
+  height: 1.9rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: #9b2c1f;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.board-oos-mark s {
+  text-decoration-thickness: 0.12em;
+}
+
 .board-route-name {
   display: flex;
   flex: 0 0 auto;
@@ -13450,27 +13529,6 @@ button.board-alert-dismiss:hover {
 
 .board-route-sheet input[type='time'] {
   width: 6.4rem;
-}
-
-.board-available-dialog {
-  width: min(40rem, calc(100vw - 2rem));
-}
-
-.board-available-dialog h3 {
-  margin: 0.15rem 0 0;
-  font-size: 1.05rem;
-}
-
-#available-bus-sheet {
-  max-height: min(46vh, 24rem);
-  overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: 0.7rem;
-}
-
-.board-available-sheet th,
-.board-available-sheet td {
-  white-space: nowrap;
 }
 
 .the-board-page.is-flashing::before {

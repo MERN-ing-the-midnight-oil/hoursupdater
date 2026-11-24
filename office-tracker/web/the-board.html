@@ -8,13 +8,22 @@
     <link rel="icon" href="./favicon.ico" sizes="48x48" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./styles.css" />
-    <link rel="stylesheet" href="./office.css?v=darkbus-day-1" />
+    <link rel="stylesheet" href="./office.css?v=board-back-1" />
   </head>
   <body class="the-board-page">
     <header class="the-board-bar">
-      <div>
-        <p class="app-name">Teamster Tracker</p>
-        <h1>The Board</h1>
+      <div class="the-board-brand">
+        <a class="board-back" id="board-back" href="/" aria-label="Back to Teamster Tracker">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19 12H5" />
+            <path d="m11 6-6 6 6 6" />
+          </svg>
+          Back
+        </a>
+        <div>
+          <p class="app-name">Teamster Tracker</p>
+          <h1>The Board</h1>
+        </div>
       </div>
       <p id="board-now" class="the-board-now"></p>
       <div class="the-board-tools">
@@ -85,7 +94,7 @@
           <button type="button" class="board-absent-switch" id="available-settings" aria-label="Available driver settings" title="Available driver settings">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="12" cy="12" r="3" />
-              <path d="M12 3.2v2.1M12 18.7v2.1M4.9 4.9l1.5 1.5M17.6 17.6l1.5 1.5M3.2 12h2.1M18.7 12h2.1M4.9 19.1l1.5-1.5M17.6 6.4l1.5-1.5" />
+              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.84l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.84-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.84.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.84 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.84l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.84.34H9a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.84-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.84V9c.26.6.86 1.02 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1.03z" />
             </svg>
           </button>
         </div>
@@ -95,6 +104,13 @@
 
     <div id="dark-bus-page" class="board-dark-page" hidden>
       <div class="board-child-top">
+        <a class="board-back" href="/" aria-label="Back to Teamster Tracker">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19 12H5" />
+            <path d="m11 6-6 6 6 6" />
+          </svg>
+          Back
+        </a>
         <button type="button" class="board-home" data-board-home>The Board</button>
         <h1 id="dark-bus-title" class="board-dark-title">Dark Bus Alerts</h1>
         <button type="button" class="board-mute" id="dark-bus-mute" aria-pressed="false">Mute Alerts</button>
@@ -146,6 +162,13 @@
 
     <div id="student-check-page" class="board-dark-page" hidden>
       <div class="board-child-top">
+        <a class="board-back" href="/" aria-label="Back to Teamster Tracker">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19 12H5" />
+            <path d="m11 6-6 6 6 6" />
+          </svg>
+          Back
+        </a>
         <button type="button" class="board-home" data-board-home>The Board</button>
         <h1 id="student-check-title" class="board-dark-title">Student Check Alerts</h1>
         <button type="button" class="board-mute" id="student-check-mute" aria-pressed="false">Mute Alerts</button>
@@ -190,6 +213,13 @@
     <div id="oos-manager" class="board-editor board-oos-manager" hidden>
       <div class="board-editor-bar">
         <div class="board-child-top">
+          <a class="board-back" href="/" aria-label="Back to Teamster Tracker">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M19 12H5" />
+              <path d="m11 6-6 6 6 6" />
+            </svg>
+            Back
+          </a>
           <button type="button" class="board-home" data-board-home>The Board</button>
           <h2 id="oos-manager-title" tabindex="-1">Out of Service Manager</h2>
         </div>
@@ -218,6 +248,13 @@
     <div id="absent-editor" class="board-editor" hidden>
       <div class="board-editor-bar">
         <div class="board-child-top">
+          <a class="board-back" href="/" aria-label="Back to Teamster Tracker">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M19 12H5" />
+              <path d="m11 6-6 6 6 6" />
+            </svg>
+            Back
+          </a>
           <button type="button" class="board-home" data-board-home>The Board</button>
           <h2>Edit absent students</h2>
         </div>
@@ -437,25 +474,18 @@
       </form>
     </dialog>
 
-    <dialog id="available-settings-dialog" class="board-dialog board-available-dialog" aria-labelledby="available-settings-title">
+    <dialog id="available-settings-dialog" class="board-dialog" aria-labelledby="available-settings-title">
       <form id="available-settings-form">
         <h2 id="available-settings-title">Available drivers</h2>
         <p>
           Empty means the bus is at the last school for this part of the day.
           Back Early means it then got back to the yard more than this many minutes before clock-out.
+          The bus on the route comes from Out of Service.
         </p>
         <label>
           Minutes before clock-out
           <input id="available-early-minutes" type="number" min="0" max="180" step="1" inputmode="numeric" required />
         </label>
-        <h3>Bus on each route</h3>
-        <p>
-          Zonar watches the bus number and reports where that bus is.
-          The route and clock-out come from Time Changes.
-          Change a bus number to watch a different bus for that route.
-        </p>
-        <div id="available-bus-sheet"></div>
-        <p id="available-settings-status" class="status" role="status" hidden></p>
         <div class="board-dialog-actions">
           <button type="button" class="secondary" id="available-settings-cancel">Close</button>
           <button type="submit">Save</button>
@@ -463,6 +493,6 @@
       </form>
     </dialog>
 
-    <script type="module" src="./the-board.js?v=darkbus-day-1"></script>
+    <script type="module" src="./the-board.js?v=board-back-1"></script>
   </body>
 </html>

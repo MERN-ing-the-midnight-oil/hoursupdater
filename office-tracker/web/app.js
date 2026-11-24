@@ -136,7 +136,14 @@ import {
 } from '../../employee-tracker/src/clockTimes.js';
 import { getSchoolDays } from '../../src/logic/calendar.js';
 import { DEFAULT_DRIVER_PIN, driverClockPin } from '../../src/logic/clockKiosk.js';
-import { earlyReleaseClock, isEarlyReleaseDate } from '../../src/logic/earlyRelease.js';
+import {
+  earlyReleaseClock,
+  isEarlyReleaseDate,
+  noteWithSchoolLists,
+  routeSchoolLists,
+  schoolCodeChoices,
+  schoolDestinationLabel,
+} from '../../src/logic/earlyRelease.js';
 import { earlyReleaseRulesForState, savedSchoolYear } from '../../src/logic/schoolYear.js';
 import { assignRouteDriver, assignmentOnDate, dayBefore, driverForDate, driverOwnsRoute, routeAssignments, sameDriver } from '../src/assignments.js';
 import { directoryEmail } from '../src/staffDirectory.js';
@@ -409,6 +416,7 @@ const ICONS = {
   grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
   user: '<path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="8" r="3.5"/>',
+  pencil: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/>',
   clock: '<circle cx="12" cy="12" r="8"/><path d="M12 8v5l3 2"/>',
   flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22V15"/>',
@@ -1185,6 +1193,15 @@ function showContractNotice(options = {}) {
   if (acceptId) {
     requestAnimationFrame(() => openContractAcceptDialog(acceptId));
   }
+  // Snap Contract Times lives on this page and in Teamster Tracker Settings.
+  // Both copies are wired when the timeclock module loads.
+  void ensureTimeclock()
+    .then((desk) => {
+      if (activeSheet === 'contract-notice') desk.refresh();
+    })
+    .catch((error) => {
+      reportOfficeToolError(error);
+    });
 }
 
 function showBidding() {
@@ -2112,8 +2129,37 @@ function closeAssignDriverDialog() {
 }
 
 hero.addEventListener('click', (event) => {
+  if (event.target.closest('#edit-schools-btn')) {
+    schoolEditorOpen = !schoolEditorOpen;
+    schoolEditorRouteId = getCurrentProfile()?.id || '';
+    if (schoolEditorOpen) focusSchoolEditor = true;
+    renderHero();
+    return;
+  }
+  const remove = event.target.closest('[data-remove-school]');
+  if (remove) {
+    const lists = routeSchoolLists(getCurrentProfile()?.note);
+    const run = remove.dataset.schoolRun;
+    const code = remove.dataset.schoolCode;
+    if (!lists[run]) return;
+    lists[run] = lists[run].filter((item) => item !== code);
+    saveRouteSchools(lists);
+    return;
+  }
   if (!event.target.closest('#assign-driver-btn')) return;
   openAssignDriverDialog();
+});
+
+hero.addEventListener('change', (event) => {
+  const select = event.target.closest('.js-add-school');
+  if (!(select instanceof HTMLSelectElement)) return;
+  const code = select.value;
+  const run = select.dataset.schoolRun;
+  if (!code || !run) return;
+  const lists = routeSchoolLists(getCurrentProfile()?.note);
+  if (!lists[run] || lists[run].includes(code)) return;
+  lists[run] = [...lists[run], code];
+  saveRouteSchools(lists);
 });
 
 assignDriverForm.addEventListener('submit', (event) => {
@@ -2305,10 +2351,69 @@ function establishedLine(date) {
   return `Established ${prettyDate(iso)}`;
 }
 
+let schoolEditorOpen = false;
+let schoolEditorRouteId = '';
+let focusSchoolEditor = false;
+
+function schoolRunName(run) {
+  if (run === 'AM') return 'Morning';
+  if (run === 'MIDDAY') return 'Midday';
+  return 'Afternoon';
+}
+
+function saveRouteSchools(lists) {
+  const profile = getCurrentProfile();
+  if (!profile) return;
+  const note = noteWithSchoolLists(profile.note, lists);
+  if (note === String(profile.note ?? '').trim()) return;
+  profile.note = note;
+  saveProfile(profile);
+  renderHero();
+  timeclockDesk.refresh();
+  routeCoverageDesk.refresh();
+}
+
+function schoolEditorHtml(note) {
+  const lists = routeSchoolLists(note);
+  const choices = schoolCodeChoices(loadState().profiles);
+  return `<div class="hero-school-editor">
+    <p class="hero-schools-hint">The first morning school sets the early-release clock-in. The last school on a run is the one Dark Bus watches.</p>
+    ${['AM', 'MIDDAY', 'PM']
+      .map((run) => {
+        const have = new Set(lists[run]);
+        const chips = lists[run]
+          .map((code) => {
+            const name = schoolDestinationLabel(code);
+            const shown = name === code ? code : name;
+            return `<span class="hero-school-chip"><span title="${escapeHtml(name)}">${escapeHtml(code)}</span><button type="button" data-remove-school data-school-run="${run}" data-school-code="${escapeHtml(code)}" aria-label="Remove ${escapeHtml(shown)} from ${schoolRunName(run).toLowerCase()}">×</button></span>`;
+          })
+          .join('');
+        const options = choices
+          .filter((item) => !have.has(item.code))
+          .map((item) => {
+            const text = item.label === item.code ? item.code : `${item.label} (${item.code})`;
+            return `<option value="${escapeHtml(item.code)}">${escapeHtml(text)}</option>`;
+          })
+          .join('');
+        return `<div class="hero-school-run">
+          <span class="hero-school-run-label">${schoolRunName(run)}</span>
+          ${chips}
+          <select class="js-add-school hero-school-add" data-school-run="${run}" aria-label="Add ${run === 'PM' ? 'an' : 'a'} ${schoolRunName(run).toLowerCase()} school">
+            <option value="">Add a school</option>
+            ${options}
+          </select>
+        </div>`;
+      })
+      .join('')}
+  </div>`;
+}
+
 function renderHero() {
   hero.className = 'hero panel';
 
   const profile = getCurrentProfile();
+  const profileId = profile?.id || '';
+  if (schoolEditorOpen && schoolEditorRouteId && schoolEditorRouteId !== profileId) schoolEditorOpen = false;
   const name = snapshot.employee?.name;
   const driver = profile?.driver_name;
   const officeNote = String(profile?.note ?? '').trim();
@@ -2354,11 +2459,19 @@ function renderHero() {
         <span class="hero-times-when">${escapeHtml(establishedLine(contractEstablished))}</span>
       </li>
     </ul>
-    ${officeNote ? `<p class="hero-detail">${escapeHtml(officeNote)}</p>` : ''}
+    <p class="hero-detail hero-schools">
+      <span class="hero-schools-text${officeNote ? '' : ' is-empty'}">${escapeHtml(officeNote || 'No school codes')}</span>
+      <button type="button" class="hero-schools-edit" id="edit-schools-btn" aria-pressed="${schoolEditorOpen ? 'true' : 'false'}" aria-expanded="${schoolEditorOpen ? 'true' : 'false'}" aria-label="${schoolEditorOpen ? 'Done editing school codes' : 'Edit school codes'}" title="${schoolEditorOpen ? 'Done editing school codes' : 'Edit school codes'}">${iconHtml('pencil')}</button>
+    </p>
+    ${schoolEditorOpen ? schoolEditorHtml(profile?.note) : ''}
     <div class="actions">
       <button type="button" id="assign-driver-btn">${iconHtml('user')} Assign to different driver</button>
     </div>
   `;
+  if (focusSchoolEditor) {
+    focusSchoolEditor = false;
+    hero.querySelector('.js-add-school')?.focus();
+  }
 }
 
 function formatRange(item) {
@@ -3971,16 +4084,13 @@ function renderEomBidding(options = {}) {
           (route) => `<tr>
             <td>${escapeHtml(route.routeName)}</td>
             <td>${escapeHtml(route.driverName || '—')}</td>
-            <td>${escapeHtml(route.previousHours)} → ${escapeHtml(route.contractHours)}</td>
-            <td>${escapeHtml(route.increaseLabel)}</td>
-            <td>${escapeHtml(route.postingWindowText || prettyDate(route.becomesOn))}</td>
-            <td>${escapeHtml(prettyDate(route.signupDue) || '—')}</td>
+            <td class="bid-why">${escapeHtml(route.qualification || '')}</td>
             <td>${route.bidNoticeSent ? 'Sent' : 'Not sent'}</td>
             <td class="notice-row-actions">${eomBiddingPrintButton(route, 'routes')}</td>
           </tr>`
         )
         .join('')
-    : `<tr><td colspan="8">No routes are posted for bid in this window.</td></tr>`;
+    : `<tr><td colspan="5">No routes are posted for bid in this window.</td></tr>`;
 
   if (eomBiddingStillOpenSummary) {
     eomBiddingStillOpenSummary.textContent = data.stillOpen.length
@@ -3994,15 +4104,13 @@ function renderEomBidding(options = {}) {
             (route) => `<tr>
               <td>${escapeHtml(route.routeName)}</td>
               <td>${escapeHtml(route.driverName || '—')}</td>
-              <td>${escapeHtml(route.previousHours)} → ${escapeHtml(route.contractHours)}</td>
-              <td>${escapeHtml(route.increaseLabel)}</td>
-              <td>${escapeHtml(prettyDate(route.becomesOn))}</td>
+              <td class="bid-why">${escapeHtml(route.qualification || '')}</td>
               <td>${route.bidNoticeSent ? 'Sent' : 'Not sent'}</td>
               <td class="notice-row-actions">${eomBiddingPrintButton(route, 'stillOpen')}</td>
             </tr>`
           )
           .join('')
-      : `<tr><td colspan="7">No earlier bids are still open.</td></tr>`;
+      : `<tr><td colspan="5">No earlier bids are still open.</td></tr>`;
   }
 
   if (eomBiddingApproachingSummary) {
@@ -5971,7 +6079,7 @@ function renderApp() {
       : onContractNotice
         ? 'Contract time-change notice'
         : onBidding
-          ? 'Bidding'
+          ? 'End of Month Bidding'
           : 'Driver time-change notice';
     return;
   }
@@ -7718,6 +7826,37 @@ function armPayrollTools() {
 
 // The Start Timeclock button is on the page before its screen has loaded.
 // A click during that gap starts the load, then runs the button once it is ready.
+// Snap Contract Times is on Contract time-changes before its module has loaded.
+// Hold a save until that module can record it, so the form does not reload the page.
+function armContractSnapForms() {
+  let waiting = false;
+  document.querySelectorAll('[data-contract-snap-form]').forEach((form) => {
+    form.addEventListener(
+      'submit',
+      (event) => {
+        if (timeclockMounted) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (waiting) return;
+        waiting = true;
+        const submitter = event.submitter instanceof HTMLElement ? event.submitter : null;
+        void ensureTimeclock()
+          .then(() => {
+            waiting = false;
+            if (!timeclockMounted || !(form instanceof HTMLFormElement)) return;
+            if (submitter) form.requestSubmit(submitter);
+            else form.requestSubmit();
+          })
+          .catch((error) => {
+            waiting = false;
+            reportOfficeToolError(error);
+          });
+      },
+      true
+    );
+  });
+}
+
 function armTimeclockLaunch(selector) {
   const button = document.querySelector(selector);
   if (!button) return;
@@ -7774,6 +7913,7 @@ changeDialog?.addEventListener('close', () => flushPendingSharedOfficeUiRefresh(
 
 renderSetupRuns();
 armPayrollTools();
+armContractSnapForms();
 armTimeclockLaunch('#start-timeclock');
 if (timeclockNeededNow()) document.body.dataset.holdBoot = 'timeclock';
 paintLocalOffice();

@@ -5,9 +5,6 @@ import {
   absencesForDate,
   addOutOfService,
   applyScheduleClocks,
-  assignRouteBuses,
-  availableBusSheet,
-  availableBusSheetMarkup,
   availableDrivers,
   availableMarkup,
   boardDate,
@@ -173,8 +170,6 @@ const studentConfigStatus = document.querySelector('#student-check-config-status
 const studentStatus = document.querySelector('#student-check-status');
 const availableSettingsDialog = document.querySelector('#available-settings-dialog');
 const availableEarlyInput = document.querySelector('#available-early-minutes');
-const availableBusSheetEl = document.querySelector('#available-bus-sheet');
-const availableSettingsStatus = document.querySelector('#available-settings-status');
 
 let announced = new Set();
 let latestAlerts = [];
@@ -394,21 +389,6 @@ function cachedClocks() {
     if (!cache.has(key)) cache.set(key, clocksForRoute(route).runs);
     return cache.get(key);
   };
-}
-
-function routeSchedules() {
-  const clocksFor = cachedClocks();
-  const names = new Map();
-  const add = (name) => {
-    const route = String(name || '').trim().replace(/\s+/g, ' ');
-    if (!route) return;
-    const key = route.toLowerCase();
-    if (!names.has(key)) names.set(key, route);
-  };
-  for (const row of POSTED_ROUTE_BUSES) add(row.route);
-  for (const name of routeCatalog()) add(name);
-  for (const row of routeBuses()) add(row.route);
-  return [...names.values()].map((route) => ({ route, runs: clocksFor(route) }));
 }
 
 function refreshScheduleClocks() {
@@ -666,11 +646,16 @@ function isDarkBusPath() {
   return cleanPath(location.pathname) === DARK_BUS_PATH;
 }
 
+let boardHistoryDepth = 0;
+
 function setScreenAddress(path, mode) {
   if (!mode || cleanPath(location.pathname) === path) return;
   const state = { screen: path };
   if (mode === 'replace') history.replaceState(state, '', path);
-  else history.pushState(state, '', path);
+  else {
+    history.pushState(state, '', path);
+    boardHistoryDepth += 1;
+  }
 }
 
 function studentPageOpen() {
@@ -1142,11 +1127,13 @@ function tryCloseStudentPage() {
   refreshStudentCheck();
 }
 
+// Dark Bus and Student Check read the school list from Time Changes.
+// A note already sitting on the run is replaced when that route has one.
 function withRouteNotes(runs) {
   return (runs || []).map((run) => {
-    if (String(run?.note || '').trim()) return run;
-    const note = routeProfile(run?.route)?.note;
-    return note ? { ...run, note } : run;
+    const note = String(routeProfile(run?.route)?.note ?? '').trim();
+    if (note) return { ...run, note };
+    return run;
   });
 }
 
@@ -1157,12 +1144,17 @@ function paintBoard(date = new Date()) {
   paintOosManager();
   absentList.innerHTML = absenceMarkup(absencesForDate(absences(), today), {
     routes: routeCatalog(),
+    outOfService: outOfService(),
+    assignments: routeBuses(),
+    date: today,
   });
   paintAbsenceEditor();
   const watched = withRouteNotes(withPostedDrivers(watchedRuns()));
-  const left = rememberSchoolVisits(watched, now, busZones, date);
-  const returns = rememberYardReturns(watched, now, busZones, left, date);
-  availableList.innerHTML = availableMarkup(availableDrivers(watched, now, busZones, left, earlyMinutes(), returns));
+  // Out of Service names the bus that is actually on the route.
+  const covered = watchOutOfService(watched, outOfService(), liveStatus(runs()), today);
+  const left = rememberSchoolVisits(covered, now, busZones, date);
+  const returns = rememberYardReturns(covered, now, busZones, left, date);
+  availableList.innerHTML = availableMarkup(availableDrivers(covered, now, busZones, left, earlyMinutes(), returns));
   paintClock(date);
   rememberDarkWatch(date);
   refreshDarkBus(date);
@@ -1214,32 +1206,6 @@ function paintMuteButton() {
   const muted = !alertSettings().sound;
   button.setAttribute('aria-pressed', muted ? 'true' : 'false');
   button.textContent = muted ? 'Unmute Alerts' : 'Mute Alerts';
-}
-
-function paintAvailableSheet() {
-  if (!availableBusSheetEl) return;
-  availableBusSheetEl.innerHTML = availableBusSheetMarkup(availableBusSheet(routeBuses(), routeSchedules()));
-}
-
-function changedAvailableAssignments() {
-  const inputs = [...document.querySelectorAll('#available-bus-sheet input[data-route]')];
-  const groups = new Map();
-  for (const input of inputs) {
-    const route = input.dataset.route || '';
-    if (!groups.has(route)) groups.set(route, []);
-    groups.get(route).push({
-      route,
-      run: input.dataset.run,
-      bus: input.value,
-      original: input.dataset.original || '',
-    });
-  }
-  const assignments = [];
-  for (const cells of groups.values()) {
-    if (!cells.some((cell) => cell.bus.trim() !== cell.original.trim())) continue;
-    for (const cell of cells) assignments.push({ route: cell.route, run: cell.run, bus: cell.bus });
-  }
-  return assignments;
 }
 
 function pendingAlerts() {
@@ -1689,6 +1655,9 @@ function paintAbsenceEditor() {
     list.innerHTML = absenceMarkup(absencesForDate(absences(), boardDate()), {
       routes: routeCatalog(),
       controls: true,
+      outOfService: outOfService(),
+      assignments: routeBuses(),
+      date: boardDate(),
     });
   }
 }
@@ -1755,8 +1724,6 @@ document.querySelector('#absent-cal-next')?.addEventListener('click', () => {
 
 document.querySelector('#available-settings')?.addEventListener('click', () => {
   if (availableEarlyInput) availableEarlyInput.value = String(earlyMinutes());
-  paintAvailableSheet();
-  setNamedStatus(availableSettingsStatus, '');
   if (!availableSettingsDialog?.open) availableSettingsDialog?.showModal();
 });
 
@@ -1764,23 +1731,9 @@ document.querySelector('#available-settings-cancel')?.addEventListener('click', 
 
 document.querySelector('#available-settings-form')?.addEventListener('submit', (event) => {
   event.preventDefault();
-  const minutes = normalizeEarlyMinutes(availableEarlyInput?.value);
-  const clocksFor = cachedClocks();
-  try {
-    const saved = assignRouteBuses(routeBuses(), changedAvailableAssignments(), clocksFor);
-    const list = applyScheduleClocks(saved.list, clocksFor);
-    writeJson(EARLY_KEY, { minutes });
-    writeJson(ROUTE_BUS_KEY, list);
-    paintBoard();
-    if (saved.skipped.length) {
-      paintAvailableSheet();
-      setNamedStatus(availableSettingsStatus, `Saved. No start time for ${saved.skipped.join(', ')}.`);
-      return;
-    }
-    availableSettingsDialog?.close();
-  } catch (error) {
-    setNamedStatus(availableSettingsStatus, error.message);
-  }
+  writeJson(EARLY_KEY, { minutes: normalizeEarlyMinutes(availableEarlyInput?.value) });
+  paintBoard();
+  availableSettingsDialog?.close();
 });
 
 document.querySelector('#absent-cancel')?.addEventListener('click', () => absentDialog?.close());
@@ -2297,6 +2250,23 @@ function closeOosManager() {
   const manager = document.querySelector('#oos-manager');
   if (manager) manager.hidden = true;
 }
+
+function referrerIsThisSite() {
+  try {
+    return Boolean(document.referrer) && new URL(document.referrer).origin === location.origin;
+  } catch {
+    return false;
+  }
+}
+
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('.board-back')) return;
+  if (!referrerIsThisSite() || history.length < 2) return;
+  event.preventDefault();
+  const steps = boardHistoryDepth + 1;
+  if (steps === 1) history.back();
+  else history.go(-steps);
+});
 
 document.addEventListener('click', (event) => {
   if (!event.target.closest('[data-board-home]')) return;
@@ -2839,6 +2809,7 @@ function seedPostedAssignments() {
 }
 
 window.addEventListener('popstate', () => {
+  boardHistoryDepth = Math.max(0, boardHistoryDepth - 1);
   if (isDarkBusPath()) {
     darkPageClosed = false;
     openDarkPage(false);

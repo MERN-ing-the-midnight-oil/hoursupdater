@@ -1634,9 +1634,37 @@ export function absentRouteGroups(absences) {
   return [...byRoute.values()].sort((a, b) => compareAbsentRoutes(a.route, b.route));
 }
 
-// Routes with an absence read left to right, then down, in numerical order.
-export function absentColumns(absences, routes) {
-  const groups = absentRouteGroups(absences, routes);
+function sameBoardRoute(left, right) {
+  if (routeKey(left) === routeKey(right)) return true;
+  if (!routeLabel(left) || !routeLabel(right)) return false;
+  return absentRouteNumber(left) === absentRouteNumber(right) && isSpedRoute(left) === isSpedRoute(right);
+}
+
+// An out-of-service bus joins the route pill that is already up. A route with
+// no absent student still gets a pill so the driver sees the bus is out.
+function groupsWithOutOfService(groups, alerts) {
+  const next = (groups || []).map((group) => ({ ...group, alerts: [] }));
+  for (const alert of alerts || []) {
+    const route = routeNameOf(alert?.route);
+    const bus = clean(alert?.bus);
+    if (!route || !bus) continue;
+    let group = next.find((item) => sameBoardRoute(item.route, route));
+    if (!group) {
+      group = { route, sped: isSpedRoute(route), students: [], alerts: [] };
+      next.push(group);
+    }
+    if (group.alerts.some((item) => busKey(item.bus) === busKey(bus))) continue;
+    group.alerts.push({ bus });
+  }
+  for (const group of next) {
+    group.alerts.sort((a, b) => clean(a.bus).localeCompare(clean(b.bus), undefined, { numeric: true }));
+  }
+  return next.sort((a, b) => compareAbsentRoutes(a.route, b.route));
+}
+
+// Routes with an absence or an out-of-service bus read left to right, then down.
+export function absentColumns(absences, routes, alerts = []) {
+  const groups = groupsWithOutOfService(absentRouteGroups(absences, routes), alerts);
   if (!groups.length) return { columns: [], lines: 0 };
   const columnCount = groups.length === 1 ? 1 : 2;
   const columns = Array.from({ length: columnCount }, (_, index) => ({
@@ -1912,72 +1940,6 @@ export function routeBusSheetMarkup(rows) {
     })
     .join('');
   return `<table class="board-route-sheet"><thead><tr><th scope="col">Route</th><th scope="col">AM bus</th><th scope="col">AM clock-in</th><th scope="col">MID bus</th><th scope="col">MID clock-in</th><th scope="col">PM bus</th><th scope="col">PM clock-in</th><th scope="col">Wheelchairs</th></tr></thead><tbody>${body}</tbody></table>`;
-}
-
-// One row per route run that Time Changes has a clock for, or that already has
-// a bus. The clock-out is Time Changes when that run has one. The bus is the
-// number Zonar watches. A run with no bus of its own shows the posted bus.
-export function availableBusSheet(saved, schedules = []) {
-  const clocks = new Map();
-  for (const schedule of schedules || []) {
-    const route = routeLabel(schedule?.route);
-    if (!route) continue;
-    const key = routeKey(route);
-    if (!clocks.has(key)) clocks.set(key, { route, byRun: new Map() });
-    const entry = clocks.get(key);
-    for (const run of schedule?.runs || []) {
-      let piece = '';
-      try {
-        piece = normalizeRun(run?.run);
-      } catch {
-        piece = '';
-      }
-      if (!SHEET_RUNS.includes(piece)) continue;
-      const clockIn = clockInputValue(run?.clockIn);
-      const clockOut = clockInputValue(run?.clockOut);
-      if (!clockIn && !clockOut) continue;
-      entry.byRun.set(piece, { clockIn, clockOut });
-    }
-  }
-
-  const routes = new Map();
-  for (const [key, entry] of clocks) routes.set(key, entry.route);
-  for (const row of saved || []) {
-    const route = routeLabel(row?.route);
-    if (route && !routes.has(routeKey(route))) routes.set(routeKey(route), route);
-  }
-
-  const rows = [];
-  for (const route of [...routes.values()].sort(compareRoutes)) {
-    const byRun = clocks.get(routeKey(route))?.byRun || new Map();
-    const posted = clean(postedBusRow(saved, route)?.bus);
-    for (const run of SHEET_RUNS) {
-      const choice = byRun.get(run);
-      const pairing = pairingForRun(saved, route, run);
-      if (!choice && !pairing) continue;
-      const clockOut = choice?.clockOut || (pairing?.clockOut ? clockInputValue(pairing.clockOut) : '');
-      rows.push({
-        route,
-        run,
-        bus: pairing ? clean(pairing.bus) : posted,
-        clockOut,
-      });
-    }
-  }
-  return rows;
-}
-
-export function availableBusSheetMarkup(rows) {
-  if (!rows?.length) return '<p class="board-empty">No route clock-outs yet.</p>';
-  const body = rows
-    .map((row) => {
-      const minutes = minutesOf(row.clockOut);
-      const clock = minutes == null ? '—' : formatBoardClock(minutes);
-      const bus = row.bus || '';
-      return `<tr><th scope="row">${escapeHtml(row.route)}</th><td>${escapeHtml(row.run)}</td><td>${escapeHtml(clock)}</td><td><input data-route="${escapeHtml(row.route)}" data-run="${escapeHtml(row.run)}" data-original="${escapeHtml(bus)}" value="${escapeHtml(bus)}" inputmode="numeric" autocomplete="off" aria-label="Bus for route ${escapeHtml(row.route)} ${escapeHtml(row.run)}" /></td></tr>`;
-    })
-    .join('');
-  return `<table class="board-route-sheet board-available-sheet"><thead><tr><th scope="col">Route</th><th scope="col">Run</th><th scope="col">Clock out</th><th scope="col">Bus</th></tr></thead><tbody>${body}</tbody></table>`;
 }
 
 function clocksForRun(clocksFor, route, run) {
@@ -3617,15 +3579,83 @@ function absentPeriodMarkup(students, period, controls) {
   return `<section class="board-period ${period.className}"><h4 class="board-period-label">${period.label}</h4><ul class="board-route-students">${rows}</ul></section>`;
 }
 
-function absentRouteMarkup(group, controls) {
-  const periods = ABSENCE_PERIOD_MARK.map((period) => absentPeriodMarkup(group.students, period, controls)).join('');
-  if (!periods) return '';
-  const paint = `background-color:${absentRouteColor(group.route)};border-color:${absentRouteBorder(group.route)}`;
-  return `<article class="board-route has-absent" style="${paint}"><h3 class="board-route-name">${escapeHtml(absentRouteNumber(group.route))}</h3><div class="board-route-periods">${periods}</div></article>`;
+function outagePortions(row, date) {
+  const limited = portionRun(row?.run);
+  const names = limited ? [limited] : PORTION_RUNS;
+  return names
+    .map((id) => ({ id, spare: spareForPortion(row, id, date) }))
+    .filter((part) => part.spare != null);
 }
 
-export function absenceMarkup(absences, { routes = [], controls = false } = {}) {
-  const board = absentColumns(absences, routes);
+function runsOnRoute(assignments, route) {
+  const runs = [];
+  for (const item of assignments || []) {
+    if (!sameBoardRoute(item?.route, route)) continue;
+    const run = portionRun(item?.run);
+    if (run && !runs.includes(run)) runs.push(run);
+  }
+  return runs;
+}
+
+function routesForOutOfService(row, assignments) {
+  const named = routeLabel(row?.route);
+  if (named) return [named];
+  const bus = busKey(row?.usualBus);
+  if (!bus) return [];
+  const limited = portionRun(row?.run);
+  const names = [];
+  for (const item of assignments || []) {
+    if (busKey(item?.bus) !== bus) continue;
+    const route = routeLabel(item?.route);
+    if (!route) continue;
+    const itemRun = portionRun(item?.run);
+    if (limited && itemRun && itemRun !== limited) continue;
+    if (names.some((name) => sameBoardRoute(name, route))) continue;
+    names.push(route);
+  }
+  return names;
+}
+
+// One mark per bus on each route it covers. The circle only names the bus.
+// The spare and the part of the day stay in the Out of Service column.
+function outOfServiceRouteAlerts(rows, assignments, date) {
+  const alerts = [];
+  for (const row of rows || []) {
+    const bus = clean(row?.usualBus);
+    if (!bus) continue;
+    for (const route of routesForOutOfService(row, assignments)) {
+      const known = runsOnRoute(assignments, route);
+      const portions = outagePortions(row, date).filter((part) => !known.length || known.includes(part.id));
+      if (!portions.length) continue;
+      alerts.push({ route, bus });
+    }
+  }
+  return alerts;
+}
+
+function outOfServiceAlertMarkup(alerts) {
+  const marks = (alerts || [])
+    .map((alert) => {
+      const bus = escapeHtml(alert.bus);
+      return `<span class="board-oos-mark" role="img" aria-label="Bus ${bus} is out of service"><s>${bus}</s></span>`;
+    })
+    .join('');
+  return marks ? `<span class="board-oos-marks">${marks}</span>` : '';
+}
+
+function absentRouteMarkup(group, controls) {
+  const periods = ABSENCE_PERIOD_MARK.map((period) => absentPeriodMarkup(group.students, period, controls)).join('');
+  const alerts = outOfServiceAlertMarkup(group.alerts);
+  if (!periods && !alerts) return '';
+  const paint = `background-color:${absentRouteColor(group.route)};border-color:${absentRouteBorder(group.route)}`;
+  const flag = alerts ? ' has-oos' : '';
+  const body = periods ? `<div class="board-route-periods">${periods}</div>` : '';
+  return `<article class="board-route has-absent${flag}" style="${paint}"><h3 class="board-route-name">${escapeHtml(absentRouteNumber(group.route))}</h3>${body}${alerts}</article>`;
+}
+
+export function absenceMarkup(absences, { routes = [], controls = false, outOfService = [], assignments = [], date = '' } = {}) {
+  const alerts = outOfServiceRouteAlerts(outOfService, assignments, date);
+  const board = absentColumns(absences, routes, alerts);
   if (!board.columns.length) {
     return '<p class="board-empty">No absent students.</p>';
   }

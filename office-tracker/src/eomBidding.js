@@ -11,11 +11,13 @@ import {
   bidPostingSpanText,
 } from '../../employee-tracker/src/clockHistory.js';
 import { formatSignedMinutes } from '../../employee-tracker/src/snapshot.js';
-import { addSchoolDays, getSchoolDays } from '../../src/logic/calendar.js';
+import { addSchoolDays, countSchoolDaysBetween, getSchoolDays } from '../../src/logic/calendar.js';
 import {
   BID_RESPONSE_SCHOOL_DAYS,
   MONTHLY_BID_POSTING_MONTHS,
+  WINDOW_SCHOOL_DAYS,
 } from '../../src/logic/constants.js';
+import { october1ForDate } from '../../src/logic/contractWindows.js';
 import { driversWithSeniorityNumbers } from '../../src/logic/seniority.js';
 import { driverForDate, sameDriver } from './assignments.js';
 import { isContractNoticeSent } from './contractNotice.js';
@@ -73,6 +75,123 @@ export function signupDueDate(calendar, fromDate) {
   } catch {
     return '';
   }
+}
+
+function spokenDate(iso) {
+  const match = String(iso || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return '';
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).toLocaleDateString(
+    'en-US',
+    { month: 'short', day: 'numeric', year: 'numeric' }
+  );
+}
+
+function monthName(iso) {
+  const match = String(iso || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return '';
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).toLocaleDateString(
+    'en-US',
+    { month: 'long' }
+  );
+}
+
+function increaseWords(increaseLabel) {
+  const text = String(increaseLabel || '').trim().replace(/^[+−-]\s*/, '');
+  if (!/^(?:\d+ hr(?: \d+ min)?|\d+ min)$/.test(text)) return '';
+  return text
+    .replace(/\b1 hr\b/, '1 hour')
+    .replace(/\b(\d+) hr\b/, '$1 hours')
+    .replace(/\b1 min\b/, '1 minute')
+    .replace(/\b(\d+) min\b/, '$1 minutes')
+    .replace(/\b(hour|hours) (\d+ minute)/, '$1 and $2');
+}
+
+function postedBeforeOctober(iso) {
+  const day = String(iso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+  return day < october1ForDate(day);
+}
+
+function schoolDayWord(count) {
+  return count === 1 ? 'school day' : 'school days';
+}
+
+/**
+ * Why this route is on the bid list.
+ * "Became up" is the day the increase reached 30 minutes. The next date is
+ * the school day that count finished (or today, if it is still counting).
+ */
+export function bidQualificationSentence(route = {}) {
+  const amount = increaseWords(route.increaseLabel) || '30 minutes';
+  const rose = spokenDate(route.roseOn);
+  const first = rose
+    ? `This route became up ${amount} on ${rose}.`
+    : `This route became up ${amount}.`;
+  const count = Number(route.schoolDaysLasted);
+  const dayCount = Number.isFinite(count) && count >= 0 ? count : WINDOW_SCHOOL_DAYS;
+  const days = `${dayCount} ${schoolDayWord(dayCount)}`;
+  const lastedOn = spokenDate(route.stillCounting ? route.asOf : route.lastedOn);
+  const lasted = route.stillCounting
+    ? `That increase has lasted ${days}${lastedOn ? ` as of ${lastedOn}` : ''}`
+    : `That increase lasted ${days}${lastedOn ? ` on ${lastedOn}` : ''}`;
+  const month = route.postingMonth || monthName(route.becomesOn);
+  const postedOn = spokenDate(route.becomesOn);
+
+  let ending;
+  if (route.carriedOver && postedBeforeOctober(route.becomesOn)) {
+    ending = postedOn
+      ? `so it went up for bid on ${postedOn} and is still open.`
+      : 'so it went up for bid and is still open.';
+  } else if (route.carriedOver) {
+    ending = month
+      ? `so it posted in the last 5 school days of ${month} and is still open.`
+      : 'so it posted in the last 5 school days of an earlier month and is still open.';
+  } else {
+    ending = month
+      ? `so it is posting in the last 5 school days of ${month}.`
+      : 'so it is posting in the last 5 school days of this month.';
+  }
+  return `${first} ${lasted}, ${ending}`;
+}
+
+function qualificationFacts({ calendar, roseOn, asOf, becomesOn }) {
+  const opened = String(roseOn || '').slice(0, 10);
+  const validOpened = /^\d{4}-\d{2}-\d{2}$/.test(opened) ? opened : '';
+  let lastedOn = '';
+  if (validOpened) {
+    try {
+      lastedOn = addSchoolDays(calendar, validOpened, WINDOW_SCHOOL_DAYS);
+    } catch {
+      lastedOn = '';
+    }
+  }
+  const today = String(asOf || '').slice(0, 10);
+  const validToday = /^\d{4}-\d{2}-\d{2}$/.test(today) ? today : '';
+  const stillCounting = Boolean(lastedOn && validToday && validToday < lastedOn);
+  let schoolDaysLasted = WINDOW_SCHOOL_DAYS;
+  if (stillCounting) {
+    try {
+      schoolDaysLasted = countSchoolDaysBetween(calendar, validOpened, validToday);
+    } catch {
+      schoolDaysLasted = 0;
+    }
+  }
+  return {
+    roseOn: validOpened,
+    lastedOn,
+    stillCounting,
+    schoolDaysLasted,
+    postingMonth: monthName(becomesOn),
+    asOf: validToday,
+  };
+}
+
+function historyDateForBid(history, becomesOn) {
+  const day = String(becomesOn || '').slice(0, 10);
+  const row = (history || []).find(
+    (item) => String(item?.contracted?.becomes_on || '').slice(0, 10) === day && item?.date
+  );
+  return String(row?.date || '').slice(0, 10);
 }
 
 export function fillPaperBidTemplate(template, values = {}) {
@@ -148,6 +267,7 @@ function routePacketRow({
   contractHours,
   contractedHoursLabel,
   changeIds,
+  roseOn,
 }) {
   const posting = postingFields(schoolDays, calendar, becomesOn, period);
   const ids = (changeIds || []).map(String).filter(Boolean);
@@ -156,6 +276,7 @@ function routePacketRow({
     routeName: String(profile?.name || '').trim() || '—',
     driverName: driverForDate(profile, asOf || becomesOn) || String(profile?.driver_name || '').trim(),
     ...posting,
+    ...qualificationFacts({ calendar, roseOn, asOf, becomesOn }),
     predicted,
     status: predicted ? 'predicted' : 'posted',
     increaseLabel: increaseLabel || '—',
@@ -166,6 +287,10 @@ function routePacketRow({
     changeIds: ids,
     changeId: ids[0] || '',
   };
+}
+
+function withQualification(row) {
+  return { ...row, qualification: bidQualificationSentence(row) };
 }
 
 /**
@@ -196,7 +321,7 @@ export function routesUpForBid({
     const key = `${row.routeName}|${row.becomesOn}`;
     if (seen.has(key)) return;
     seen.add(key);
-    out.push(row);
+    out.push(withQualification(row));
   }
 
   for (const item of snapshots) {
@@ -228,6 +353,7 @@ export function routesUpForBid({
           contractHours: hoursLabel(afterMinutes),
           contractedHoursLabel: hoursLabel(afterMinutes),
           changeIds: reportChangeIds(report),
+          roseOn: report.window_opened_date || historyDateForBid(history, becomesOn),
         })
       );
     }
@@ -257,6 +383,7 @@ export function routesUpForBid({
           contractHours: hoursLabel(currentMinutes),
           contractedHoursLabel: snap?.contracted?.label || hoursLabel(currentMinutes),
           changeIds: changeIdsFor(row),
+          roseOn: row.date,
         })
       );
     });
@@ -282,6 +409,7 @@ export function routesUpForBid({
           contractHours: '—',
           contractedHoursLabel: snap.contracted?.label || '—',
           changeIds: [],
+          roseOn: snap.window?.opened_date,
         })
       );
     }
@@ -349,28 +477,31 @@ export function routesStillOpenForBid({
       scheduleRoundedMinutes(historyRow?.schedule, rounding) ??
       scheduleRoundedMinutes(scheduleFromSegments(report?.after_segments), rounding);
     const changeIds = report ? reportChangeIds(report) : changeIdsFor(historyRow);
-    out.push({
-      ...routePacketRow({
-        profile,
-        asOf,
-        becomesOn,
-        period,
-        schoolDays,
-        calendar,
-        predicted: false,
-        increaseLabel:
-          formatSignedMinutes(report?.contracted_hours_delta_minutes) ||
-          historyRow?.cumulative_drift_label ||
-          formatSignedMinutes(historyRow?.cumulative_drift_minutes) ||
-          '—',
-        previousHours: hoursLabel(beforeMinutes),
-        contractHours: hoursLabel(afterMinutes),
-        contractedHoursLabel: hoursLabel(afterMinutes),
-        changeIds,
-      }),
-      carriedOver: true,
-      label: `Still open from ${prettyDate(becomesOn)}`,
-    });
+    out.push(
+      withQualification({
+        ...routePacketRow({
+          profile,
+          asOf,
+          becomesOn,
+          period,
+          schoolDays,
+          calendar,
+          predicted: false,
+          increaseLabel:
+            formatSignedMinutes(report?.contracted_hours_delta_minutes) ||
+            historyRow?.cumulative_drift_label ||
+            formatSignedMinutes(historyRow?.cumulative_drift_minutes) ||
+            '—',
+          previousHours: hoursLabel(beforeMinutes),
+          contractHours: hoursLabel(afterMinutes),
+          contractedHoursLabel: hoursLabel(afterMinutes),
+          changeIds,
+          roseOn: report?.window_opened_date || historyRow?.date,
+        }),
+        carriedOver: true,
+        label: `Still open from ${prettyDate(becomesOn)}`,
+      })
+    );
   }
   return out.sort((a, b) =>
     a.becomesOn.localeCompare(b.becomesOn) ||

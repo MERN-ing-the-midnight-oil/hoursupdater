@@ -12,7 +12,10 @@ import {
   isEarlyReleaseDate,
   knownSchoolCodes,
   normalizeEarlyReleaseTimes,
+  noteWithSchoolLists,
   pmClockForDate,
+  routeSchoolLists,
+  schoolCodeChoices,
   schoolCodesFromNote,
   schoolsForSegment,
   lastSchoolForSegment,
@@ -56,6 +59,42 @@ test('route S10 heads to Lowell first, and every school code on the note is know
   assert.equal(firstHeadedSchool('3.5 hours/4 hr min RV, SQHS/RV, SQHS'), 'RV');
   assert.equal(firstHeadedSchool('6 hrs MWF(CT) - CC, KMS, SQHS/CC, KMS'), 'CC');
   assert.deepEqual(schoolCodesFromNote('KMS, SHS, SL/KMS, SHS, SL-MER SK RET'), ['KMS', 'SHS', 'SL', 'MER']);
+});
+
+test('editing school codes keeps each run, and leaves an unchanged note alone', () => {
+  assert.deepEqual(routeSchoolLists(s10), { AM: ['LOW', 'SHS'], MIDDAY: [], PM: ['BHS', 'LOW'] });
+  assert.equal(noteWithSchoolLists(s10, routeSchoolLists(s10)), s10);
+  const withoutSehome = noteWithSchoolLists(s10, { AM: ['LOW'], MIDDAY: [], PM: ['BHS', 'LOW'] });
+  assert.equal(withoutSehome, 'LOW/BHS, LOW');
+  assert.deepEqual(routeSchoolLists(withoutSehome).AM, ['LOW']);
+  const withMidday = noteWithSchoolLists(s10, {
+    AM: ['LOW', 'SHS'],
+    MIDDAY: ['COSMO'],
+    PM: ['BHS', 'LOW'],
+  });
+  assert.equal(withMidday, 'LOW, SHS/BHS, LOW, MD COSMO');
+  assert.deepEqual(routeSchoolLists(withMidday).MIDDAY, ['COSMO']);
+  assert.equal(lastSchoolForSegment(withMidday, 'PM'), 'LOW');
+  const afternoonOnly = noteWithSchoolLists('', { AM: [], MIDDAY: [], PM: ['BHS', 'LOW'] });
+  assert.equal(afternoonOnly, '/BHS, LOW');
+  assert.deepEqual(routeSchoolLists(afternoonOnly), { AM: [], MIDDAY: [], PM: ['BHS', 'LOW'] });
+  assert.equal(firstHeadedSchool(afternoonOnly), '');
+});
+
+test('a school-code edit keeps the comment around the codes', () => {
+  const noted = 'SB, SQHS/SB, SQHS (miscalculation on time, signed for 4.25 hours)';
+  const preamble = '3.5 hours/4 hr min RV, SQHS/RV, SQHS';
+  assert.equal(noteWithSchoolLists(noted, routeSchoolLists(noted)), noted);
+  assert.equal(noteWithSchoolLists(preamble, routeSchoolLists(preamble)), preamble);
+  const next = noteWithSchoolLists(noted, { AM: ['SB'], MIDDAY: [], PM: ['SB', 'SQHS'] });
+  assert.equal(next, 'SB/SB, SQHS (miscalculation on time, signed for 4.25 hours)');
+  assert.equal(firstHeadedSchool(next), 'SB');
+  const utility = 'Utility day, 7:00 AM–3:00 PM. Recorded as one span, not an AM run and a PM run.';
+  assert.equal(noteWithSchoolLists(utility, routeSchoolLists(utility)), utility);
+  const choices = schoolCodeChoices({ a: { note: 'LOW, SHS/BHS, LOW' }, b: { note: preamble } });
+  assert.equal(choices.some((item) => item.code === 'LOW' && item.label === 'Lowell'), true);
+  assert.equal(choices.some((item) => item.code === 'RV'), true);
+  assert.equal(choices.some((item) => item.code === 'SQHS' && item.label === 'Squalicum'), true);
 });
 
 test('known school codes come from the route notes, in alphabetical order', () => {

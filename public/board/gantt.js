@@ -96,6 +96,10 @@ function schoolCodesIn(text, options = {}) {
 
 function splitSchoolLists(note) {
   const text = String(note ?? '');
+  // Keep this in step with splitSchoolLists in src/logic/earlyRelease.js.
+  if (text.trimStart().startsWith('/')) {
+    return { headed: '', other: text.trimStart().slice(1) };
+  }
   const parts = text.split('/');
   if (parts.length < 2) return { headed: text, other: '' };
   for (let index = parts.length - 1; index >= 1; index -= 1) {
@@ -106,6 +110,16 @@ function splitSchoolLists(note) {
     }
   }
   return { headed: text, other: '' };
+}
+
+function splitMidday(text) {
+  const source = String(text ?? '');
+  const match = source.match(/\bMD\b/i);
+  if (!match) return { schools: schoolCodesIn(source, { skipParenthetical: true }), midday: [] };
+  return {
+    schools: schoolCodesIn(source.slice(0, match.index), { skipParenthetical: true }),
+    midday: schoolCodesIn(source.slice(match.index + match[0].length), { skipParenthetical: true }),
+  };
 }
 
 /**
@@ -120,10 +134,12 @@ export function runSchoolLists(note) {
     return { AM: list(note.AM), MIDDAY: list(note.MIDDAY), PM: list(note.PM) };
   }
   const { headed, other } = splitSchoolLists(note);
+  const morning = splitMidday(headed);
+  const afternoon = splitMidday(other);
   return {
-    AM: schoolCodesIn(headed, { skipParenthetical: true }),
-    MIDDAY: [],
-    PM: schoolCodesIn(other, { skipParenthetical: true }),
+    AM: morning.schools,
+    MIDDAY: [...morning.midday, ...afternoon.midday],
+    PM: afternoon.schools,
   };
 }
 

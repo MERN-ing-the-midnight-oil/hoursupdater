@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { describe, it } from 'node:test';
 import {
   addIsoDays,
@@ -17,6 +18,7 @@ import {
   weekdayDates,
 } from '../public/board/gantt.js';
 import { driversForPin, setPin } from '../src/logic/clockKiosk.js';
+import { routeSchoolLists } from '../src/logic/earlyRelease.js';
 import { dailyWorkQrTarget } from '../src/routes/extraWorkRouter.js';
 
 describe('week chart lanes', () => {
@@ -177,6 +179,21 @@ describe('schools that bookend free time', () => {
       fromSchool: 'SQHS',
       toSchool: 'RV',
     });
+  });
+
+  it('puts an MD school on midday, the same way Time Changes does', () => {
+    const lists = runSchoolLists('NH, SMS,SQHS/NH, SMS, MD COSMO');
+    assert.deepEqual(lists, { AM: ['NH', 'SMS', 'SQHS'], MIDDAY: ['COSMO'], PM: ['NH', 'SMS'] });
+    assert.deepEqual(schoolsForWindow({ from: 'AM', to: 'MIDDAY' }, lists), {
+      fromSchool: 'SQHS',
+      toSchool: 'COSMO',
+    });
+    const notes = JSON.parse(
+      fs.readFileSync(new URL('../public/board/routeNotes.json', import.meta.url), 'utf8')
+    );
+    for (const note of Object.values(notes)) {
+      assert.deepEqual(runSchoolLists(note), routeSchoolLists(note));
+    }
   });
 
   it('uses a midday list when the route names one', () => {

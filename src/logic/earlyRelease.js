@@ -156,9 +156,13 @@ function schoolCodesIn(text, options = {}) {
 
 // The slash that separates the schools the driver heads to first from the other run.
 // Notes such as "3.5 hours/4 hr min RV, SQHS/RV, SQHS" use the last slash that
-// has school codes on both sides.
+// has school codes on both sides. A note that starts with a slash, "/BHS, LOW",
+// has no morning schools.
 function splitSchoolLists(note) {
   const text = String(note ?? '');
+  if (text.trimStart().startsWith('/')) {
+    return { headed: '', other: text.trimStart().slice(1) };
+  }
   const parts = text.split('/');
   if (parts.length < 2) return { headed: text, other: '' };
   for (let index = parts.length - 1; index >= 1; index -= 1) {
@@ -228,6 +232,97 @@ export function lastSchoolForSegment(note, segment) {
 export function firstHeadedSchool(note) {
   const { headed } = splitSchoolLists(note);
   return schoolCodesIn(headed, { skipParenthetical: true })[0] || schoolCodesIn(headed)[0] || '';
+}
+
+// Morning, midday, and afternoon schools, in the order the note lists them.
+export function routeSchoolLists(note) {
+  return {
+    AM: schoolsForSegment(note, 'AM'),
+    MIDDAY: schoolsForSegment(note, 'MID'),
+    PM: schoolsForSegment(note, 'PM'),
+  };
+}
+
+function cleanSchoolList(list) {
+  const codes = [];
+  for (const item of list || []) {
+    const code = String(item || '').trim().toUpperCase();
+    if (!/^[A-Z]{2,6}$/.test(code) || NOTE_WORDS.has(code) || codes.includes(code)) continue;
+    codes.push(code);
+  }
+  return codes;
+}
+
+function sameSchoolLists(left, right) {
+  return ['AM', 'MIDDAY', 'PM'].every((key) => {
+    const a = left[key] || [];
+    const b = right[key] || [];
+    return a.length === b.length && a.every((code, index) => code === b[index]);
+  });
+}
+
+// "LOW, SHS/BHS, LOW, MD COSMO". Afternoon schools with no morning list start
+// with a slash so they stay on the afternoon side.
+export function formatSchoolLists(lists) {
+  const am = cleanSchoolList(lists?.AM);
+  const mid = cleanSchoolList(lists?.MIDDAY);
+  const pm = cleanSchoolList(lists?.PM);
+  const morning = am.join(', ');
+  const afternoon = [pm.join(', '), mid.length ? `MD ${mid.join(', ')}` : ''].filter(Boolean).join(', ');
+  if (morning && afternoon) return `${morning}/${afternoon}`;
+  if (morning) return morning;
+  if (!afternoon) return '';
+  return pm.length ? `/${afternoon}` : afternoon;
+}
+
+function commentaryAroundSchools(note) {
+  const source = String(note ?? '');
+  const codes = [];
+  for (const match of source.matchAll(/\b[A-Za-z]{2,6}\b/g)) {
+    const code = match[0].toUpperCase();
+    if (NOTE_WORDS.has(code)) continue;
+    const index = match.index ?? 0;
+    if (isParenthetical(source, index, match[0].length)) continue;
+    codes.push({ index, length: match[0].length });
+  }
+  if (!codes.length) return { before: source.trim(), after: '' };
+  const first = codes[0];
+  const last = codes[codes.length - 1];
+  return {
+    before: source.slice(0, first.index).replace(/[\s,/\-–—]+$/g, '').trim(),
+    after: source.slice(last.index + last.length).replace(/^[\s,/\-–—]+/g, '').trim(),
+  };
+}
+
+// Write school codes back onto a route note. An unchanged list keeps the
+// original wording, including hours and other comments around the codes.
+export function noteWithSchoolLists(note, lists) {
+  const source =
+    note && typeof note === 'object' ? formatSchoolLists(routeSchoolLists(note)) : String(note ?? '');
+  const next = {
+    AM: cleanSchoolList(lists?.AM),
+    MIDDAY: cleanSchoolList(lists?.MIDDAY),
+    PM: cleanSchoolList(lists?.PM),
+  };
+  if (sameSchoolLists(routeSchoolLists(source), next)) return source.trim();
+  const schools = formatSchoolLists(next);
+  const { before, after } = commentaryAroundSchools(source);
+  return [before, schools, after].filter(Boolean).join(' ').replace(/[ \t]+/g, ' ').trim();
+}
+
+// Schools the Time Changes editor can add. Named schools come first, then any
+// other code already written on a route.
+export function schoolCodeChoices(profiles) {
+  const byCode = new Map(Object.entries(SCHOOL_DESTINATION_NAMES));
+  for (const code of knownSchoolCodes(profiles)) {
+    if (!byCode.has(code)) byCode.set(code, schoolDestinationLabel(code));
+  }
+  for (const code of ['RV', 'SWHS', 'WDC']) {
+    if (!byCode.has(code)) byCode.set(code, code);
+  }
+  return [...byCode.entries()]
+    .map(([code, label]) => ({ code, label }))
+    .sort((a, b) => a.label.localeCompare(b.label) || a.code.localeCompare(b.code));
 }
 
 // Every school code on the office routes, in alphabetical order.

@@ -4300,14 +4300,31 @@ async function loadRouteNotes(officeNotes) {
     const profiles = raw ? JSON.parse(raw).profiles : null;
     for (const profile of Object.values(profiles || {})) {
       const name = String(profile?.name || '').trim();
-      const note = String(profile?.note || '').trim();
-      if (name && note) notes[name] = note;
+      if (!name || !profile || typeof profile !== 'object') continue;
+      if (!Object.prototype.hasOwnProperty.call(profile, 'note')) continue;
+      const note = String(profile.note || '').trim();
+      if (note) notes[name] = note;
+      else delete notes[name];
     }
   } catch {
     // A missing office list leaves the saved route notes in place.
   }
   return notes;
 }
+
+let watchingRouteNotes = false;
+
+window.addEventListener('storage', (event) => {
+  if (!watchingRouteNotes || event.key !== 'transportation-timechange.v1') return;
+  const previous = JSON.stringify(state.routeNotes);
+  loadRouteNotes(state.routeNotes)
+    .then((notes) => {
+      if (JSON.stringify(notes) === previous) return;
+      state.routeNotes = notes;
+      if (!state.dirty) renderSheet();
+    })
+    .catch(() => {});
+});
 
 async function load({ keepSheet = false } = {}) {
   const sheet = boardList === 'roster' ? 'roster' : boardList === 'weekly' ? 'weekly' : 'daily';
@@ -4344,6 +4361,7 @@ async function load({ keepSheet = false } = {}) {
   state.substitutes = data.substitutes || [];
   state.schedules = data.schedules || [];
   state.routeNotes = await loadRouteNotes(data.route_notes);
+  watchingRouteNotes = true;
   if (onWeekWall() && state.signedIn) {
     state.driverId = state.drivers[0]?.driver_id || '';
   }

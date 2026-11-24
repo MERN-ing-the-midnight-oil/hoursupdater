@@ -155,12 +155,26 @@ function anchorFor(node) {
   return detailsAnchor(node);
 }
 
+function firstSentence(node) {
+  const text = plainText(node).replace(/\bArt\./g, 'Art\u0000');
+  const sentence = (text.split(/(?<=\.)\s/)[0] || '').replaceAll('\u0000', '.');
+  if (sentence.length > 180) return `${sentence.slice(0, 177)}…`;
+  return sentence;
+}
+
 function ariaLabel(anchor, node) {
   const heading = controlText(anchor);
   if (heading && !anchor.querySelector('.help-mark')) return `About ${heading}`;
-  const sentence = plainText(node).split(/(?<=\.)\s/)[0] || 'this';
+  const sentence = firstSentence(node);
   const short = sentence.length > 72 ? `${sentence.slice(0, 69)}…` : sentence;
-  return heading ? `About ${heading}: ${short}` : `About ${short}`;
+  return heading ? `About ${heading}: ${short || 'this'}` : `About ${short || 'this'}`;
+}
+
+function hoverLabel(anchor, node) {
+  const heading = controlText(anchor);
+  const sentence = firstSentence(node);
+  if (sentence && sentence.toLowerCase() !== heading.toLowerCase()) return sentence;
+  return ariaLabel(anchor, node);
 }
 
 let helpCopySeq = 0;
@@ -193,7 +207,7 @@ function placeGroup(group) {
   button.setAttribute('aria-haspopup', 'dialog');
   const label = ariaLabel(anchor, first);
   button.setAttribute('aria-label', label);
-  button.title = label;
+  button.title = hoverLabel(anchor, first);
   button.textContent = '?';
   if (anchor) anchor.append(button);
   else box.before(button);

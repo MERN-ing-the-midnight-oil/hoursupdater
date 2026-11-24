@@ -101,8 +101,6 @@ import {
   savePairing,
   applyScheduleClocks,
   assignRouteBuses,
-  availableBusSheet,
-  availableBusSheetMarkup,
   routeBusSheet,
   routeBusSheetMarkup,
   savePostedBus,
@@ -1256,39 +1254,9 @@ describe('available drivers', () => {
     assert.match(availableMarkup([]), /No drivers are available/);
   });
 
-  it('reassigns a Zonar bus to a route and uses that route’s Time Changes clock-out', () => {
+  it('watches the spare from out of service and keeps the Time Changes clock-out', () => {
     const saved = saveRouteBus([], { route: '10', bus: '61', run: 'AM', clockIn: '6:20', clockOut: '9:00' });
     const withPm = saveRouteBus(saved, { route: '10', bus: '61', run: 'PM', clockIn: '14:00', clockOut: '16:30' });
-    const schedules = [
-      {
-        route: '10',
-        runs: [
-          { run: 'AM', clockIn: '6:25', clockOut: '9:05' },
-          { run: 'PM', clockIn: '14:10', clockOut: '16:40' },
-        ],
-      },
-      { route: '12', runs: [{ run: 'AM', clockIn: '6:15', clockOut: '8:45' }] },
-    ];
-    const sheet = availableBusSheet(withPm, schedules);
-    assert.equal(sheet.find((row) => row.route === '10' && row.run === 'AM').bus, '61');
-    assert.equal(sheet.find((row) => row.route === '10' && row.run === 'AM').clockOut, '09:05');
-    assert.equal(sheet.find((row) => row.route === '12' && row.run === 'AM').bus, '');
-    assert.equal(sheet.some((row) => row.run === 'MID'), false);
-    const markup = availableBusSheetMarkup(sheet);
-    assert.match(markup, /9:05 AM/);
-    assert.match(markup, /data-route="10"/);
-    assert.match(markup, /data-run="AM"/);
-    assert.match(markup, /value="61"/);
-    assert.match(markup, /Bus for route 10 AM/);
-
-    const posted = savePostedBus([], { route: '4', bus: '86' });
-    const postedSheet = availableBusSheet(posted, [
-      { route: '4', runs: [{ run: 'AM', clockIn: '6:20', clockOut: '8:40' }] },
-    ]);
-    assert.equal(postedSheet[0].bus, '86');
-    assert.equal(postedSheet[0].clockOut, '08:40');
-    assert.match(availableBusSheetMarkup([]), /No route clock-outs yet/);
-
     const clocks = (route) =>
       route === '10'
         ? [
@@ -1297,28 +1265,47 @@ describe('available drivers', () => {
           ]
         : [];
     assert.equal(applyScheduleClocks(withPm, () => []), withPm);
-    const reassigned = assignRouteBuses(
-      withPm,
-      [
-        { route: '10', run: 'AM', bus: '70' },
-        { route: '10', run: 'PM', bus: '61' },
-      ],
-      clocks
-    );
-    const synced = applyScheduleClocks(reassigned.list, clocks);
-    assert.equal(synced.find((row) => row.run === 'AM').bus, '70');
+    const synced = applyScheduleClocks(withPm, clocks);
+    assert.equal(synced.find((row) => row.run === 'AM').bus, '61');
     assert.equal(synced.find((row) => row.run === 'AM').clockIn, '06:20');
     assert.equal(synced.find((row) => row.run === 'AM').clockOut, '09:05');
     assert.equal(synced.find((row) => row.run === 'PM').clockOut, '16:40');
 
     const runs = pairingsToRuns(synced).map((run) => ({ ...run, driver: 'Rhys', note: 'SHS, LOW/BHS' }));
-    const drivers = availableDrivers(runs, 8 * 60, [{ fleet: '70', zone: 'Lowell' }]);
+    const out = addOutOfService([], { route: '10', usualBus: '61', spareBus: '70', note: 'In the shop' });
+    const covered = watchOutOfService(runs, out, {}, '2026-11-20');
+    const drivers = availableDrivers(covered, 8 * 60, [{ fleet: '70', zone: 'Lowell' }]);
     assert.equal(drivers.length, 1);
     assert.equal(drivers[0].route, '10');
     assert.equal(drivers[0].bus, '70');
     assert.equal(drivers[0].status, 'Empty');
     assert.equal(drivers[0].clockOut, 9 * 60 + 5);
-    assert.equal(availableDrivers(runs, 8 * 60, [{ fleet: '61', zone: 'Lowell' }]).length, 0);
+    assert.equal(availableDrivers(covered, 8 * 60, [{ fleet: '61', zone: 'Lowell' }]).length, 0);
+    assert.equal(availableDrivers(runs, 8 * 60, [{ fleet: '61', zone: 'Lowell' }])[0].bus, '61');
+
+    const split = addOutOfService([], {
+      route: '10',
+      usualBus: '61',
+      spares: { AM: '70', MID: '', PM: '45' },
+    });
+    const portions = watchOutOfService(runs, split, {}, '2026-11-20');
+    assert.equal(portions.find((run) => run.run === 'AM').bus, '70');
+    assert.equal(portions.find((run) => run.run === 'PM').bus, '45');
+    const day = addOutOfService([], {
+      route: '10',
+      usualBus: '61',
+      spares: { AM: '70', MID: '', PM: '45' },
+      days: { '2026-11-21': { AM: '12', MID: '', PM: '45' } },
+    });
+    const later = watchOutOfService(runs, day, {}, '2026-11-21');
+    assert.equal(later.find((run) => run.run === 'AM').bus, '12');
+    assert.equal(availableDrivers(later, 8 * 60, [{ fleet: '12', zone: 'Lowell' }])[0].status, 'Empty');
+    const parked = addOutOfService([], {
+      route: '10',
+      usualBus: '61',
+      spares: { AM: '', MID: '', PM: '' },
+    });
+    assert.equal(watchOutOfService(runs, parked, {}, '2026-11-20').length, 0);
   });
 });
 
@@ -1695,6 +1682,68 @@ describe('absent students', () => {
     assert.equal(lookupStudents(next, 'ava')[0].route, '18');
     assert.throws(() => rememberStudent(roster, { name: 'Ava', route: '' }), /route/);
     assert.equal(formatBoardClock(16 * 60 + 5), '4:05 PM');
+  });
+
+  it('puts an out-of-service alert on the route pill instead of an absent student', () => {
+    const assignments = [
+      { route: '12', bus: '42', run: 'AM' },
+      { route: '12', bus: '42', run: 'PM' },
+      { route: '4', bus: '15', run: 'AM' },
+      { route: 'S 05', bus: '11', run: 'AM' },
+      { route: 'S 05', bus: '11', run: 'MID' },
+      { route: 'S 05', bus: '11', run: 'PM' },
+    ];
+    const out = addOutOfService([], { route: '12', usualBus: '42', spareBus: '7', note: 'In the shop' });
+    const alone = absenceMarkup([], {
+      outOfService: out,
+      assignments,
+    });
+    assert.match(alone, /board-route-name">12/);
+    assert.match(alone, /aria-label="Bus 42 is out of service"><s>42<\/s>/);
+    assert.doesNotMatch(alone, /Use spare|board-student|No absent students/);
+    assert.equal(alone.match(/board-route-name/g).length, 1);
+    assert.equal(alone.match(/<s>42<\/s>/g).length, 1);
+
+    const posted = [{ id: 'maya', name: 'Maya Chen', route: '12', when: 'AM' }];
+    const shared = absenceMarkup(posted, { outOfService: out, assignments, controls: true });
+    assert.equal(shared.match(/<article/g).length, 1);
+    assert.match(shared, /Maya Chen/);
+    assert.match(shared, /<s>42<\/s>/);
+    assert.doesNotMatch(shared, /data-absence-delete="[^"]*out|Use spare/i);
+    assert.match(shared, /data-absence-edit="maya"/);
+
+    const morning = addOutOfService([], { route: '4', usualBus: '15', spareBus: '3', run: 'AM' });
+    const partial = absenceMarkup([], { outOfService: morning, assignments });
+    assert.match(partial, /<s>15<\/s>/);
+    assert.doesNotMatch(partial, /for AM|Use spare/);
+    const morningOnTwelve = addOutOfService([], { route: '12', usualBus: '42', spareBus: '7', run: 'AM' });
+    const limited = absenceMarkup([], { outOfService: morningOnTwelve, assignments });
+    assert.match(limited, /<s>42<\/s>/);
+
+    const byBus = addOutOfService([], { usualBus: '42', spareBus: '9' });
+    const found = absenceMarkup([], { outOfService: byBus, assignments });
+    assert.match(found, /board-route-name">12/);
+    assert.match(found, /<s>42<\/s>/);
+    assert.doesNotMatch(found, /board-route-name">4/);
+
+    const split = addOutOfService([], {
+      usualBus: '11',
+      spares: { AM: '45', MID: '', PM: '9' },
+      days: { '2026-11-21': { AM: '12', MID: '', PM: '9' } },
+    });
+    const usualDay = absenceMarkup([], { outOfService: split, assignments, date: '2026-11-20' });
+    const laterDay = absenceMarkup([], { outOfService: split, assignments, date: '2026-11-21' });
+    assert.match(usualDay, /<s>11<\/s>/);
+    assert.match(laterDay, /<s>11<\/s>/);
+    assert.doesNotMatch(`${usualDay}${laterDay}`, /spare 45|spare 12|Use spare/);
+
+    const elsewhere = absenceMarkup([{ id: 'jonah', name: 'Jonah Hale', route: '50', when: 'PM' }], {
+      outOfService: out,
+      assignments,
+    });
+    assert.match(elsewhere, /Jonah Hale/);
+    assert.match(elsewhere, /board-route-name">12/);
+    assert.ok(elsewhere.indexOf('board-route-name">12') < elsewhere.indexOf('board-route-name">50'));
   });
 });
 

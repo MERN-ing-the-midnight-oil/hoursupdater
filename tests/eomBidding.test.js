@@ -111,6 +111,10 @@ test('earlier bids that are still BID_PENDING appear as still open', () => {
   assert.equal(stillOpen[0].routeName, '80');
   assert.equal(stillOpen[0].carriedOver, true);
   assert.equal(stillOpen[0].becomesOn, '2026-09-24');
+  assert.match(
+    stillOpen[0].qualification,
+    /^This route became up 1 hour on Aug 31, 2026\. That increase lasted 15 school days on .+?, so it went up for bid on Sep 24, 2026 and is still open\.$/
+  );
 });
 
 test('finalized BID_PENDING reports still post even when history is mislabeled', () => {
@@ -269,6 +273,45 @@ test('routesUpForBid keeps routes whose becomes_on falls in the month window', (
   assert.equal(routes[0].driverName, 'Ada Lovelace');
   assert.equal(routes[0].increaseLabel, '+35 min');
   assert.ok(routes[0].signupDue);
+  assert.equal(
+    routes[0].qualification,
+    'This route became up 35 minutes on Nov 2, 2026. That increase has lasted 13 school days as of Nov 20, 2026, so it is posting in the last 5 school days of November.'
+  );
+
+  const predicted = routesUpForBid({
+    snapshots: [
+      {
+        profile: { id: 'r70', name: '70', driver_name: 'Grace Hopper' },
+        snap: {
+          schedule_history: [
+            {
+              kind: 'change',
+              date: '2026-11-02',
+              cumulative_drift_minutes: 40,
+              cumulative_drift_label: '+40 min',
+              schedule: {
+                AM: { range: '6:00-8:00' },
+                PM: { range: '14:00-16:40' },
+              },
+              contracted: {
+                status: 'predicted',
+                projected_outcome: 'BID_PENDING',
+                becomes_on: november.start,
+              },
+            },
+          ],
+        },
+      },
+    ],
+    calendar,
+    monthKey: '2026-11',
+    asOf: november.start,
+  });
+  assert.equal(predicted.length, 1);
+  assert.match(
+    predicted[0].qualification,
+    /^This route became up 40 minutes on Nov 2, 2026\. That increase (?:lasted 15 school days on .+|has lasted \d+ school days as of .+), so it is posting in the last 5 school days of November\.$/
+  );
 
   const approaching = routesApproachingBid({
     snapshots,

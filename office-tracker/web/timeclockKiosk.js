@@ -712,6 +712,7 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
   const punchSoundIn = document.querySelector('#punch-sound-in');
   const punchSoundOut = document.querySelector('#punch-sound-out');
   const quarterClockForms = document.querySelectorAll('[data-quarter-clock-form]');
+  const contractSnapForms = document.querySelectorAll('[data-contract-snap-form]');
   const overtimeForms = document.querySelectorAll('[data-overtime-form]');
   const payDefaultsForm = document.querySelector('#pay-defaults-form');
   const payJobTitle = document.querySelector('#pay-job-title');
@@ -753,10 +754,12 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     form.addEventListener('submit', onSaveEarlyRelease);
   });
   quarterClockForms.forEach((form) => form.addEventListener('submit', onSaveQuarterClocks));
-  document.querySelector('#contract-snap-form')?.addEventListener('submit', onSaveContractSnap);
-  document
-    .querySelector('#contract-quarter-hour-snap')
-    ?.addEventListener('change', syncBidBumpSnapEnabled);
+  contractSnapForms.forEach((form) => {
+    form.addEventListener('submit', onSaveContractSnap);
+    form.querySelector('[data-contract-quarter-hour-snap]')?.addEventListener('change', () => {
+      syncBidBumpSnapEnabled(form);
+    });
+  });
   overtimeForms.forEach((form) => form.addEventListener('submit', onSaveOvertimeRules));
   nameSizeForm?.addEventListener('submit', onSaveNameSize);
   punchSoundForm?.addEventListener('submit', onSavePunchSounds);
@@ -1309,49 +1312,49 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
     });
   }
 
-  function readContractSnapBreaksFromForm() {
-    const valueOf = (id, fallback) => {
-      const input = document.querySelector(`#${id}`);
+  function readContractSnapBreaksFromForm(form) {
+    const valueOf = (name, fallback) => {
+      const input = form instanceof HTMLElement ? form.querySelector(`[data-contract-snap="${name}"]`) : null;
       if (!(input instanceof HTMLInputElement)) return fallback;
       const number = Number(input.value);
       return Number.isFinite(number) ? number : fallback;
     };
     return contractSnapBreaksFromState({
       contractSnapBreaks: {
-        toHour: valueOf('contract-snap-to-hour', 6),
-        toQuarter: valueOf('contract-snap-to-quarter', 21),
-        toHalf: valueOf('contract-snap-to-half', 36),
-        toNextHour: valueOf('contract-snap-to-next-hour', 52),
+        toHour: valueOf('toHour', 6),
+        toQuarter: valueOf('toQuarter', 21),
+        toHalf: valueOf('toHalf', 36),
+        toNextHour: valueOf('toNextHour', 52),
       },
     });
   }
 
-  function fillContractSnapBreaks(breaks) {
+  function fillContractSnapBreaks(form, breaks) {
     const bands = contractSnapBreaksFromState({ contractSnapBreaks: breaks });
     const fields = [
-      ['contract-snap-to-hour', bands.toHour],
-      ['contract-snap-to-quarter', bands.toQuarter],
-      ['contract-snap-to-half', bands.toHalf],
-      ['contract-snap-to-next-hour', bands.toNextHour],
+      ['toHour', bands.toHour],
+      ['toQuarter', bands.toQuarter],
+      ['toHalf', bands.toHalf],
+      ['toNextHour', bands.toNextHour],
     ];
-    for (const [id, value] of fields) {
-      const input = document.querySelector(`#${id}`);
+    for (const [name, value] of fields) {
+      const input = form.querySelector(`[data-contract-snap="${name}"]`);
       if (!(input instanceof HTMLInputElement) || input === document.activeElement) continue;
       input.value = String(value);
     }
   }
 
-  function setContractSnapExtrasVisible(snapOn) {
-    const bands = document.querySelector('#contract-snap-bands');
-    const bidField = document.querySelector('#bid-bump-snap-field');
+  function setContractSnapExtrasVisible(form, snapOn) {
+    const bands = form.querySelector('[data-contract-snap-bands]');
+    const bidField = form.querySelector('[data-bid-bump-snap-field]');
     if (bands instanceof HTMLElement) bands.hidden = !snapOn;
     if (bidField instanceof HTMLElement) bidField.hidden = !snapOn;
-    const bidInput = document.querySelector('#bid-bump-use-snapped-times');
+    const bidInput = form.querySelector('[data-bid-bump-use-snapped-times]');
     if (bidInput instanceof HTMLInputElement) {
       bidInput.disabled = !snapOn;
       if (!snapOn) bidInput.checked = false;
     }
-    const hint = document.querySelector('#bid-bump-snap-hint');
+    const hint = form.querySelector('[data-bid-bump-snap-hint]');
     if (hint) {
       hint.textContent = snapOn
         ? 'On: the 15-school-day countdown and 30-minute bid/bump line use snapped contracted hours. Off: they use exact minute changes (written clocks).'
@@ -1361,33 +1364,34 @@ export function mountTimeclock({ readState, writeState, listPeople, contractedMi
 
   function fillContractSnap() {
     const snapOn = contractQuarterHourSnapEnabled(state());
-    const snapInput = document.querySelector('#contract-quarter-hour-snap');
-    if (snapInput instanceof HTMLInputElement && snapInput !== document.activeElement) {
-      snapInput.checked = snapOn;
-    }
-    setContractSnapExtrasVisible(snapOn);
-    fillContractSnapBreaks(contractSnapBreaksFromState(state()));
-    const bidInput = document.querySelector('#bid-bump-use-snapped-times');
-    if (bidInput instanceof HTMLInputElement && bidInput !== document.activeElement) {
-      bidInput.checked = snapOn && bidBumpUseSnappedContractTimesEnabled(state());
-    }
+    const bidOn = bidBumpUseSnappedContractTimesEnabled(state());
+    const breaks = contractSnapBreaksFromState(state());
+    contractSnapForms.forEach((form) => {
+      if (!(form instanceof HTMLElement) || form.contains(document.activeElement)) return;
+      const snapInput = form.querySelector('[data-contract-quarter-hour-snap]');
+      if (snapInput instanceof HTMLInputElement) snapInput.checked = snapOn;
+      setContractSnapExtrasVisible(form, snapOn);
+      fillContractSnapBreaks(form, breaks);
+      const bidInput = form.querySelector('[data-bid-bump-use-snapped-times]');
+      if (bidInput instanceof HTMLInputElement) bidInput.checked = snapOn && bidOn;
+    });
   }
 
-  function syncBidBumpSnapEnabled() {
-    const snapInput = document.querySelector('#contract-quarter-hour-snap');
+  function syncBidBumpSnapEnabled(form) {
+    const snapInput = form.querySelector('[data-contract-quarter-hour-snap]');
     const snapOn = snapInput instanceof HTMLInputElement ? snapInput.checked : true;
-    setContractSnapExtrasVisible(snapOn);
+    setContractSnapExtrasVisible(form, snapOn);
   }
 
   function onSaveContractSnap(event) {
     event.preventDefault();
     const form = event.currentTarget;
-    const snapInput = document.querySelector('#contract-quarter-hour-snap');
-    const bidInput = document.querySelector('#bid-bump-use-snapped-times');
+    const snapInput = form instanceof HTMLElement ? form.querySelector('[data-contract-quarter-hour-snap]') : null;
+    const bidInput = form instanceof HTMLElement ? form.querySelector('[data-bid-bump-use-snapped-times]') : null;
     const snapOn = snapInput instanceof HTMLInputElement ? snapInput.checked : true;
     const bidOn =
       snapOn && (bidInput instanceof HTMLInputElement ? bidInput.checked : true);
-    const breaks = readContractSnapBreaksFromForm();
+    const breaks = readContractSnapBreaksFromForm(form);
     const next = state();
     next.contractQuarterHourSnap = snapOn;
     next.bidBumpUseSnappedContractTimes = bidOn;
