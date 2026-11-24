@@ -39,6 +39,10 @@ const dayTitle = document.querySelector('#day-dialog-title');
 const dayList = document.querySelector('#day-dialog-list');
 
 let profiles = [];
+let historySnap = false;
+
+const historySnapGroup = document.querySelector('#history-snap');
+const historySnapHint = document.querySelector('#history-snap-hint');
 
 function setStatus(node, message) {
   if (!node) return;
@@ -159,10 +163,11 @@ function choose(match) {
   if (!match) return;
   if (lookup) lookup.value = match.key;
   setStatus(pageStatus, '');
+  const options = { snap: historySnap };
   history.innerHTML =
     match.kind === 'route'
-      ? routeHistoryHtml(profiles, match.key)
-      : driverHistoryHtml(profiles, match.key);
+      ? routeHistoryHtml(profiles, match.key, options)
+      : driverHistoryHtml(profiles, match.key, options);
   document.title =
     match.kind === 'route'
       ? `Route ${match.label} · ${PAGE_TITLE}`
@@ -211,6 +216,28 @@ searchForm?.addEventListener('submit', (event) => {
 });
 
 lookup?.addEventListener('change', () => {
+  chooseFromLookup();
+});
+
+function historySnapHintText() {
+  return historySnap
+    ? 'Snap is on. Each clock moves onto a quarter hour with the payroll bands, and the statement and the table are figured again from those clocks. Turn it off to go back to the written times. The office record stays as it is.'
+    : 'Snap is off. Turn it on to move each clock onto a quarter hour with the payroll bands and see if the hours or the date change. The office record stays as it is.';
+}
+
+function syncHistorySnap() {
+  for (const button of historySnapGroup?.querySelectorAll('[data-snap]') || []) {
+    const on = button.dataset.snap === 'on';
+    button.setAttribute('aria-pressed', String(on === historySnap));
+  }
+  if (historySnapHint) historySnapHint.textContent = historySnapHintText();
+}
+
+historySnapGroup?.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-snap]');
+  if (!button || !historySnapGroup.contains(button)) return;
+  historySnap = button.dataset.snap === 'on';
+  syncHistorySnap();
   chooseFromLookup();
 });
 

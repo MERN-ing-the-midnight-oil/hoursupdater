@@ -101,6 +101,15 @@
             <option value="">Choose a driver</option>
           </select>
         </form>
+        <div class="history-snap">
+          <div class="audit-hours-mode" id="history-snap" role="group" aria-label="Whether snap clock times are used">
+            <button type="button" data-snap="off" aria-pressed="true">Written clock times</button>
+            <button type="button" data-snap="on" aria-pressed="false">Snap clock times</button>
+          </div>
+          <p class="hint" id="history-snap-hint">
+            Snap is off. Turn it on to move each clock onto a quarter hour with the payroll bands and see if the hours or the date change. The office record stays as it is.
+          </p>
+        </div>
         <p id="page-status" class="status" role="status"></p>
         <div id="history"></div>
         </div>

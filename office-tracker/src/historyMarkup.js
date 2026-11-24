@@ -337,14 +337,14 @@ export function historyLegendHtml(rows, tones = OFFICE_HISTORY_TONES) {
 }
 
 // Read-only clock-time history. The office screen keeps its own editable table.
-export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES) {
+export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES, options = {}) {
   const rows = snapshot?.schedule_history || [];
   if (!rows.length) {
     return `<table class="schedule-history">
       <tbody><tr><td class="empty">No clock times recorded yet.</td></tr></tbody>
     </table>`;
   }
-  const columns = contractColumnsForHistory(rows);
+  const columns = contractColumnsForHistory(rows, undefined, options);
   const body = rows
     .map((row, index) => {
       const previous = index > 0 ? rows[index - 1] : null;

@@ -22567,6 +22567,25 @@ function buildBellingham2026_2027Calendar() {
 }
 
 // src/logic/earlyRelease.js
+var EARLY_RELEASE_SCHOOL_CLOCKS = Object.freeze({
+  AW: "11:50",
+  BW: "11:50",
+  CC: "12:00",
+  COR: "11:50",
+  CORD: "11:50",
+  GEN: "11:55",
+  GN: "11:55",
+  HV: "11:55",
+  LOW: "11:55",
+  NH: "11:50",
+  PV: "11:55",
+  ROO: "11:55",
+  ROOS: "11:55",
+  SB: "11:50",
+  SL: "11:55",
+  SUN: "11:55",
+  WK: "11:55"
+});
 var EARLY_RELEASE_EXTRA_DATES = ["2027-06-11"];
 
 // src/logic/schoolYear.js
@@ -22906,23 +22925,8 @@ function localDateKey(date) {
 // office-tracker/src/timesheetPrompt.js
 var FRONT_SLOT_COUNT = 13;
 var BACK_SLOT_COUNT = 15;
-var EXTRACTION_SYSTEM = `You read one side of a blue paper timecard.
-
-Read only the far-right "Clock Record" column.
-A slot is one Clock Record block between bold horizontal lines. Each slot has two stamp rows (top then bottom).
-Count the slots: front has ${FRONT_SLOT_COUNT}, back has ${BACK_SLOT_COUNT}.
-
-For each slot return:
-- null \u2014 empty
-- "HANDWRITING" \u2014 handwritten clock times (not a machine stamp)
-- "illegible" \u2014 struck through, blurry, cut off, or not clearly legible
-- ["MAR 9 PM 2:00", "MAR 9 PM 5:15"] \u2014 stamps top to bottom, exactly as written
-A stamp string may also be "HANDWRITING" or "illegible" when only that row is handwritten or unreadable.
-
-Never guess or invent a stamp. If any clock time is not clearly legible, return "illegible" for that stamp or slot.
-Do not read the header sticker, Description of Work, Hours, Tot. Hrs., or Out/In labels.
-Do not write notes, caveats, commentary, or explanations.
-Return only the slots array for this one photo.`;
+var FRONT_LINE_COUNT = FRONT_SLOT_COUNT * 2;
+var BACK_LINE_COUNT = BACK_SLOT_COUNT * 2;
 
 // office-tracker/src/timesheetNormalize.js
 var ILLEGIBLE = "illegible";
@@ -23072,6 +23076,33 @@ function formatClockMinutes(minutesSinceMidnight) {
   const hours = Math.floor(minutesSinceMidnight / 60);
   const minutes = minutesSinceMidnight % 60;
   return `${hours}:${String(minutes).padStart(2, "0")}`;
+}
+function formatOneClockAmPm(clock) {
+  const minutes = parseClockTime(String(clock ?? ""));
+  const hour24 = Math.floor(minutes / 60);
+  const suffix = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = hour24 % 12 || 12;
+  return `${hour12}:${String(minutes % 60).padStart(2, "0")} ${suffix}`;
+}
+function formatClockAmPm(value) {
+  const text = String(value ?? "").trim();
+  if (!text || /\b(?:AM|PM)\b/i.test(text)) return text;
+  if (text.includes("-")) {
+    const parts = text.split("-");
+    if (parts.length === 2) {
+      try {
+        return `${formatOneClockAmPm(parts[0])}-${formatOneClockAmPm(parts[1])}`;
+      } catch {
+        return text;
+      }
+    }
+    return text;
+  }
+  try {
+    return formatOneClockAmPm(text);
+  } catch {
+    return text;
+  }
 }
 function splitSegmentRange(range) {
   if (!range || !String(range).trim()) {
@@ -25568,7 +25599,7 @@ function slicesForDriver(profile, driverName) {
         routing_adjustment: null,
         reason_category: "OTHER",
         note: "Starting schedule",
-        entered_by: stint.driver_name
+        entered_by: ""
       }));
       changeLog = [...seeds, ...during.filter((event) => !isSeed(event))];
       startDate = stint.from;
@@ -25837,14 +25868,14 @@ function historyLegendHtml(rows, tones = OFFICE_HISTORY_TONES) {
       End-of-month bid period: the last five school days of October through April, when a 30-minute increase is posted for bid.
     </li>`;
 }
-function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES) {
+function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES, options = {}) {
   const rows = snapshot?.schedule_history || [];
   if (!rows.length) {
     return `<table class="schedule-history">
       <tbody><tr><td class="empty">No clock times recorded yet.</td></tr></tbody>
     </table>`;
   }
-  const columns = contractColumnsForHistory(rows);
+  const columns = contractColumnsForHistory(rows, void 0, options);
   const body = rows.map((row, index) => {
     const previous = index > 0 ? rows[index - 1] : null;
     const predicted = row.contracted?.status === "predicted";
@@ -26089,12 +26120,13 @@ function bidRectMarkup(ranges, monthDays, pad) {
 
 // office-tracker/src/contractReminder.js
 var DEFAULT_REMINDER_BODY = [
-  "Route {{route}} for {{driver}} is predicted to become contracted on {{contract_date}}.",
+  "Admin recorded contracted hours for route {{route}} ({{driver}}).",
+  "Effective {{contract_date}}.",
   "",
   "{{change}}",
   "{{outcome}}",
   "",
-  "Open Contract time-changes and Record this Contract Change when ready.",
+  "These hours were finalized in Contract time-changes for District Payroll.",
   "{{accept_link}}"
 ].join("\n");
 
@@ -26254,6 +26286,91 @@ Please "REPLY ALL" to this notice and write "Received" in the subject line.
 {{citation_label}}
 {{citation_text}}
 `;
+
+// office-tracker/src/staffDirectory.js
+var TRANSPORTATION_STAFF = [
+  { name: "Lauren Adcox", email: "lauren.adcox@bellinghamschools.org" },
+  { name: "Samiullah Azizi", email: "samiullah.azizi@bellinghamschools.org" },
+  { name: "David Balle", email: "david.balle@bellinghamschools.org" },
+  { name: "Juan Banuelos", email: "juan.banuelos@bellinghamschools.org" },
+  { name: "Robert Blakeslee", email: "robert.blakeslee@bellinghamschools.org" },
+  { name: "Brian Boatman", email: "brian.boatman@bellinghamschools.org" },
+  { name: "Loriena Bobb", email: "loriena.bobb@bellinghamschools.org" },
+  { name: "Ricardo Broberg", email: "ricardo.broberg@bellinghamschools.org" },
+  { name: "Colyn Broglie", email: "Colyn.Broglie@bellinghamschools.org" },
+  { name: "Brennan Brown", email: "brennan.brown@bellinghamschools.org" },
+  { name: "Terri Cruikshank", email: "terri.cruikshank@bellinghamschools.org" },
+  { name: "Jamie Cullop", email: "jamie.cullop@bellinghamschools.org" },
+  { name: "Danna Daily", email: "danna.daily@bellinghamschools.org" },
+  { name: "Christian Danielson", email: "christian.danielson@bellinghamschools.org" },
+  { name: "Lisa DeGraaff", email: "lisa.degraaff@bellinghamschools.org" },
+  { name: "Johanna deVries", email: "johana.devries@bellinghamschools.org" },
+  { name: "Stacy Frost", email: "stacy.frost@bellinghamschools.org" },
+  { name: "Constance Garcia", email: "constance.garcia@bellinghamschools.org" },
+  { name: "Eduardo Garcia", email: "eduardo.garcia@bellinghamschools.org" },
+  { name: "Bonnie Glispy", email: "bonnie.glispy@bellinghamschools.org" },
+  { name: "Drew Graham", email: "drew.graham@bellinghamschools.org" },
+  { name: "Aaron Hakeman", email: "aaron.hakeman@bellinghamschools.org" },
+  { name: "Rachel Hrutfiord", email: "rachel.hrutfiord@bellinghamschools.org" },
+  { name: "Charanjit Hundal", email: "charanjit.hundal@bellinghamschools.org" },
+  { name: "Billa Inderjit", email: "Inderjit@bellinghamschools.org" },
+  { name: "Michael Ingham", email: "michael.ingham@bellinghamschools.org" },
+  { name: "Karen James", email: "Karen.James@bellinghamschools.org" },
+  { name: "Dennis Jensen", email: "dennis.jensen@bellinghamschools.org" },
+  { name: "Ahmad Kakar", email: "ahmad.kakar@bellinghamschools.org" },
+  { name: "Iqbal Kaur", email: "iqbal.kaur@bellinghamschools.org" },
+  { name: "Paul Krenz", email: "paul.krenz@bellinghamschools.org" },
+  { name: "James Kuhlman", email: "james.kuhlman@bellinghamschools.org" },
+  { name: "John Kwesele", email: "John.Kwesele@bellinghamschools.org" },
+  { name: "Dechelle Lagares", email: "dechelle.lagares@bellinghamschools.org" },
+  { name: "Charlie Lane", email: "Charles.Lane@bellinghamschools.org" },
+  { name: "Tina Lane", email: "tina.lane@bellinghamschools.org" },
+  { name: "Jeremy Larsen", email: "jeremy.larsen@bellinghamschools.org" },
+  { name: "Nick Levin", email: "Nicholas.Levin@bellinghamschools.org" },
+  { name: "Tonia Mark", email: "tonia.mark@bellinghamschools.org" },
+  { name: "Ford Martin", email: "ford.martin@bellinghamschools.org" },
+  { name: "Sheila McAuley", email: "sheila.mcauley@bellinghamschools.org" },
+  { name: "Heather McDermott", email: "Heather.McDermott@bellinghamschools.org" },
+  { name: "Masoud Meskinimood", email: "masoud.meskinimood@bellinghamschools.org" },
+  { name: "Toni Miller", email: "toni.miller@bellinghamschools.org" },
+  { name: "Angela Occhipinti", email: "angela.occhipinti@bellinghamschools.org" },
+  { name: "Marjorie Ortega", email: "marjorie.ortega@bellinghamschools.org" },
+  { name: "Levi Osborne", email: "Levi.Osborne@bellinghamschools.org" },
+  { name: "Athena Panagos", email: "athena.panagos@bellinghamschools.org" },
+  { name: "Rickard Persson", email: "rickard.persson@bellinghamschools.org" },
+  { name: "Matthew Peterson", email: "Matthew.A.Peterson@bellinghamschools.org" },
+  { name: "Darcie Poth", email: "darcie.poth@bellinghamschools.org" },
+  { name: "Jaycob Powell", email: "jaycob.powell@bellinghamschools.org" },
+  { name: "Natalia Rodriguez Aranzasti", email: "natalia.rodriguezaranzasti@bellinghamschools.org" },
+  { name: "Raul Rojas", email: "raul.rojas@bellinghamschools.org" },
+  { name: "Darryl Rose", email: "darryl.rose@bellinghamschools.org" },
+  { name: "Julie Sampson", email: "julie.sampson@bellinghamschools.org" },
+  { name: "Cody Shurtz", email: "Cody.Shurtz@bellinghamschools.org" },
+  { name: "Mukhtiar Singh", email: "mukhtiar.singh@bellinghamschools.org" },
+  { name: "Zachariah Smalley", email: "zachariah.smalley@bellinghamschools.org" },
+  { name: "David Smith", email: "david.smith@bellinghamschools.org" },
+  { name: "Moana Smithson", email: "moana.smithson@bellinghamschools.org" },
+  { name: "Rhys Smoker", email: "rhys.smoker@bellinghamschools.org" },
+  { name: "Cydney Tanner", email: "cydney.tanner@bellinghamschools.org" },
+  { name: "Graham Thomas", email: "Graham.Thomas@bellinghamschools.org" },
+  { name: "Rae Anne Thon", email: "raeanne.thon@bellinghamschools.org" },
+  { name: "Tammy Trapp", email: "tammy.trapp@bellinghamschools.org" },
+  { name: "Joshua Triplett", email: "joshua.triplett@bellinghamschools.org" },
+  { name: "Scott Tulk", email: "scott.tulk@bellinghamschools.org" },
+  { name: "David Vanderyacht", email: "david.vanderyacht@bellinghamschools.org" },
+  { name: "Rebecca Vanderyacht", email: "rebecca.vanderyacht@bellinghamschools.org" },
+  { name: "Aspi Variava", email: "aspi.variava@bellinghamschools.org" },
+  { name: "Mark Wallace", email: "Mark.Wallace@bellinghamschools.org" },
+  { name: "Jessika West", email: "jessika.west@bellinghamschools.org" },
+  { name: "Shemeca Woodfrinch", email: "shemeca.woodfrinch@bellinghamschools.org" },
+  { name: "Scott Wright", email: "scott.wright@bellinghamschools.org" }
+];
+function staffNameKey(name) {
+  return String(name ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+var EMAIL_BY_NAME = new Map(
+  TRANSPORTATION_STAFF.map((person) => [staffNameKey(person.name), person.email])
+);
 
 // office-tracker/src/overtimeRules.js
 var DEFAULT_OVERTIME_RULES = {
@@ -26999,7 +27116,7 @@ function quarterHoursBetweenCardStamps(outDate, inDate) {
 }
 function blockedStampLabel(parts) {
   if (parts.handwriting) return "HANDWRITING";
-  if (parts.illegible) return "illegible";
+  if (parts.illegible) return "unknown";
   return null;
 }
 function snapRoundedForRow(row, breaks, defaultYear, mode2) {
@@ -27036,6 +27153,65 @@ function snapRoundedForRow(row, breaks, defaultYear, mode2) {
     totalHours
   };
 }
+function stampPresent(raw) {
+  return Boolean(String(raw ?? "").trim());
+}
+function snapsForCardRows(rows, breaks, defaultYear, mode2) {
+  const list = Array.isArray(rows) ? rows : [];
+  const snaps = list.map((row, index) => ({
+    ...snapRoundedForRow(row, breaks, defaultYear, mode2),
+    spanOwner: index
+  }));
+  let pending = -1;
+  for (let index = 0; index < list.length; index += 1) {
+    const row = list[index];
+    if (!row || row.crossed_out) {
+      pending = -1;
+      continue;
+    }
+    const hasOut = stampPresent(row.clock_out_raw);
+    const hasIn = stampPresent(row.clock_in_raw);
+    if (hasOut && hasIn) {
+      pending = -1;
+      continue;
+    }
+    if (!hasOut && !hasIn) continue;
+    const side = hasOut ? "out" : "in";
+    if (pending < 0) {
+      pending = index;
+      continue;
+    }
+    const pendingRow = list[pending];
+    const pendingOut = stampPresent(pendingRow?.clock_out_raw);
+    const pendingIn = stampPresent(pendingRow?.clock_in_raw);
+    const pendingSide = pendingOut && !pendingIn ? "out" : pendingIn && !pendingOut ? "in" : "";
+    if (!pendingSide || pendingSide === side) {
+      pending = index;
+      continue;
+    }
+    const outRaw = pendingSide === "out" ? pendingRow.clock_out_raw : row.clock_out_raw;
+    const inRaw = pendingSide === "in" ? pendingRow.clock_in_raw : row.clock_in_raw;
+    const paired = snapRoundedForRow(
+      { clock_out_raw: outRaw, clock_in_raw: inRaw },
+      breaks,
+      defaultYear,
+      mode2
+    );
+    snaps[pending] = {
+      ...snaps[pending],
+      totalHours: paired.totalHours,
+      spanStart: paired.spanStart,
+      spanEnd: paired.spanEnd,
+      spanOwner: pending
+    };
+    snaps[index] = {
+      ...snaps[index],
+      spanOwner: pending
+    };
+    pending = -1;
+  }
+  return snaps;
+}
 
 // office-tracker/src/summaryMath.js
 function regOtGapHours(contractText, clocked) {
@@ -27058,6 +27234,7 @@ function splitTotHoursIntoRegOt(rowLists, options = {}) {
   const lists = (Array.isArray(rowLists) ? rowLists : []).filter(Array.isArray);
   const ready = [];
   for (const rows of lists) {
+    const snaps = snapsForCardRows(rows, breaks, year, mode2);
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index];
       if (!row || typeof row !== "object") continue;
@@ -27066,7 +27243,7 @@ function splitTotHoursIntoRegOt(rowLists, options = {}) {
         row.hours_overtime = null;
         continue;
       }
-      const snapped = snapRoundedForRow(row, breaks, year, mode2);
+      const snapped = snaps[index];
       const totHours = snapped.totalHours;
       const start = snapped.spanStart;
       const end = snapped.spanEnd;
@@ -27447,31 +27624,20 @@ function auditWrittenHours(extraction, options = {}) {
   };
 }
 
+// office-tracker/src/timesheetRunTable.js
+var DEFAULT_RUN_WINDOWS = Object.freeze({
+  amBefore: 8 * 60,
+  midAfter: 9 * 60,
+  midBefore: 11 * 60,
+  pmAfter: 11 * 60 + 30
+});
+var RUN_CONTRACT_FIELD = Object.freeze({
+  AM: "contract_am_hours",
+  MID: "contract_midday_hours",
+  PM: "contract_pm_hours"
+});
+
 // office-tracker/src/timesheetGenieCard.js
-var GENIE_CARD_SYSTEM = `You read one side of a blue paper timecard and copy what is printed on it.
-
-A slot is one block between bold horizontal lines. Each slot lines up a Clock Record (far right) with the Reg, OT, and Tot. Hrs. cells in that same block.
-Count the slots: front has ${FRONT_SLOT_COUNT}, back has ${BACK_SLOT_COUNT}.
-
-For each slot return null when the Clock Record and the hour cells are all empty.
-Otherwise return:
-- stamps \u2014 null when blank, "HANDWRITING" when the clocks are handwritten, "illegible" when struck through or unreadable, or the stamp strings top to bottom exactly as printed, e.g. ["MAR 9 PM 2:00", "MAR 9 PM 5:15"]
-- reg \u2014 the number written in Reg, or null when blank, or "illegible"
-- ot \u2014 the number written in OT, or null when blank, or "illegible"
-- tot \u2014 the number written in Tot. Hrs., or null when blank, or "illegible"
-
-A bullet, dot, or 0 in an hour cell is 0. A blank hour cell is null.
-Read only what is written. Never calculate Reg, OT, or Tot. Hrs. from the stamps.
-Never guess a digit. If a number or stamp is not clearly legible, use "illegible".
-Do not read Description of Work.
-
-On the FRONT photo, also read the sticker at the top of the card.
-The driver's name is on that sticker. The route number is the line directly under the driver's name.
-The contract hours are the line directly under the route number. Return that line as contract_hours, exactly as printed.
-Use null for contract_hours, employee_name, or route_number when that sticker line is not on this photo.
-Do not invent the contract hours from the clock stamps or from Reg and OT.
-On the BACK photo, contract_hours, employee_name, and route_number are null.
-Do not write notes. Return only the tool fields for this one photo.`;
 function roundHours3(value) {
   return Math.round(Number(value) * 100) / 100;
 }
@@ -27479,6 +27645,18 @@ function parseStickerContractHours(value) {
   if (value == null) return null;
   const text = typeof value === "number" ? String(value) : String(value).trim();
   if (!text || /^null$/i.test(text) || /^illegible$/i.test(text)) return null;
+  const withParen = text.match(/^(\d+(?:\.\d+)?)\s*\(([^)]+)\)\s*$/);
+  if (withParen) {
+    const total2 = Number(withParen[1]);
+    if (!(Number.isFinite(total2) && total2 > 0 && total2 <= 24)) return null;
+    const parts = [...withParen[2].matchAll(/\d+(?:\.\d+)?/g)].map((match) => Number(match[0])).filter((number) => Number.isFinite(number) && number > 0 && number <= 24);
+    if (!parts.length || parts.length > 3) return null;
+    if (parts.length === 1) return { total: roundHours3(total2), am: parts[0], midday: null, pm: null };
+    if (parts.length === 2) {
+      return { total: roundHours3(total2), am: parts[0], midday: null, pm: parts[1] };
+    }
+    return { total: roundHours3(total2), am: parts[0], midday: parts[1], pm: parts[2] };
+  }
   const numbers = [...text.matchAll(/\d+(?:\.\d+)?/g)].map((match) => Number(match[0])).filter((number) => Number.isFinite(number) && number > 0 && number <= 24);
   if (!numbers.length || numbers.length > 3) return null;
   const total = roundHours3(numbers.reduce((sum, number) => sum + number, 0));
@@ -27522,7 +27700,6 @@ function auditPeriodResultText() {
 }
 
 // office-tracker/src/timesheetCaptureShare.js
-var TTL_MS = 15 * 60 * 1e3;
 var MAX_BYTES = 12 * 1024 * 1024;
 function timesheetCaptureUrl(origin, token, desk) {
   const base = String(origin || "").replace(/\/$/, "");
@@ -27605,13 +27782,52 @@ async function fetchCapturePhoto(token, side) {
   const type = blob.type || "image/jpeg";
   return new File([blob], `${side}-timecard.jpg`, { type });
 }
-async function closeCaptureSession(token) {
+var CAPTURE_TOKEN_KEYS = {
+  genie: "timesheet-capture-token",
+  audit: "audit-capture-token"
+};
+function captureTokenKey(desk) {
+  return CAPTURE_TOKEN_KEYS[desk] || CAPTURE_TOKEN_KEYS.genie;
+}
+function rememberCaptureToken(desk, token) {
+  try {
+    const link = String(token || "").trim();
+    if (link) sessionStorage.setItem(captureTokenKey(desk), link);
+    else sessionStorage.removeItem(captureTokenKey(desk));
+  } catch {
+  }
+}
+function rememberedCaptureToken(desk) {
+  try {
+    return sessionStorage.getItem(captureTokenKey(desk)) || "";
+  } catch {
+    return "";
+  }
+}
+async function closeCaptureSession(token, { keepalive = false } = {}) {
   const link = String(token || "").trim();
   if (!link) return;
   try {
-    await fetch(`/api/timesheet-capture/${encodeURIComponent(link)}`, { method: "DELETE" });
+    await fetch(`/api/timesheet-capture/${encodeURIComponent(link)}`, {
+      method: "DELETE",
+      keepalive
+    });
   } catch {
   }
+}
+async function restartCaptureSession(token) {
+  const link = String(token || "").trim();
+  if (!link) return null;
+  const response = await fetch(`/api/timesheet-capture/${encodeURIComponent(link)}/restart`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}"
+  });
+  const body = await readJson(response);
+  if (!response.ok) {
+    throw new Error(body?.error || "Could not reset the phone photo link.");
+  }
+  return body;
 }
 
 // office-tracker/web/auditGenie.js
@@ -28431,6 +28647,8 @@ function mountAuditPhone({ setSideFile, setStatus: setStatus2 }) {
   let token = "";
   let pollTimer = null;
   let starting = false;
+  let pollInFlight = false;
+  let pairClaimed = false;
   const seen = { front: false, back: false };
   function setPhoneStatus(message, kind = "") {
     if (!(phoneStatus instanceof HTMLElement)) return;
@@ -28446,10 +28664,12 @@ function mountAuditPhone({ setSideFile, setStatus: setStatus2 }) {
   }
   async function endSession() {
     stopPolling();
-    const prior = token;
+    const prior = token || rememberedCaptureToken("audit");
     token = "";
+    rememberCaptureToken("audit", "");
     seen.front = false;
     seen.back = false;
+    pairClaimed = false;
     if (prior) await closeCaptureSession(prior);
   }
   function paintSource() {
@@ -28464,31 +28684,65 @@ function mountAuditPhone({ setSideFile, setStatus: setStatus2 }) {
     const desk = document.querySelector("#audit-genie-view");
     return desk instanceof HTMLElement && !desk.hidden;
   }
-  async function pollOnce() {
-    if (!token || source !== "phone") return;
-    const session = await readCaptureSession(token);
-    if (!session) {
-      setPhoneStatus("That photo link expired. Make a new QR code.", "error");
-      stopPolling();
-      return;
-    }
-    if (session.front && !seen.front) {
-      setSideFile("front", await fetchCapturePhoto(token, "front"));
-      seen.front = true;
-    }
-    if (session.back && !seen.back) {
-      setSideFile("back", await fetchCapturePhoto(token, "back"));
-      seen.back = true;
-    }
-    if (session.ready || seen.front && seen.back) {
-      setPhoneStatus("Front and back arrived from your phone.", "ok");
+  async function claimPairForNextCard() {
+    if (pairClaimed || !token) return;
+    pairClaimed = true;
+    try {
+      await restartCaptureSession(token);
+      seen.front = false;
+      seen.back = false;
+      pairClaimed = false;
+      setPhoneStatus("Front and back arrived. Ready for the next card.", "ok");
       setStatus2("Front and back arrived from your phone. Ready to check.", "ok");
-      stopPolling();
-      return;
+    } catch (error) {
+      pairClaimed = false;
+      setPhoneStatus(error?.message || "Could not reset the phone link for the next card.", "error");
     }
-    if (seen.front) setPhoneStatus("Front is in. Waiting for the back\u2026", "");
-    else if (seen.back) setPhoneStatus("Back is in. Waiting for the front\u2026", "");
-    else setPhoneStatus("Waiting for photos from your phone\u2026", "");
+  }
+  async function pollOnce() {
+    if (!token || source !== "phone" || pollInFlight) return;
+    pollInFlight = true;
+    try {
+      const session = await readCaptureSession(token);
+      if (!session) {
+        setPhoneStatus("That photo link is closed. Make a new QR code.", "error");
+        stopPolling();
+        return;
+      }
+      if (!session.front && !session.back && (seen.front || seen.back) && !pairClaimed) {
+        if (seen.front && seen.back) {
+          seen.front = false;
+          seen.back = false;
+          setPhoneStatus("Ready for the next card\u2026", "");
+          return;
+        }
+        const missing = seen.front ? "back" : "front";
+        seen.front = false;
+        seen.back = false;
+        setPhoneStatus(
+          `The ${missing} photo disappeared before it arrived here. Take both sides again.`,
+          "error"
+        );
+        return;
+      }
+      if (session.front && !seen.front) {
+        setSideFile("front", await fetchCapturePhoto(token, "front"));
+        seen.front = true;
+      }
+      if (session.back && !seen.back) {
+        setSideFile("back", await fetchCapturePhoto(token, "back"));
+        seen.back = true;
+      }
+      if (seen.front && seen.back) {
+        await claimPairForNextCard();
+        return;
+      }
+      if (seen.front) setPhoneStatus("Front is in. Waiting for the back\u2026", "");
+      else if (seen.back) setPhoneStatus("Back is in. Waiting for the front\u2026", "");
+      else setPhoneStatus("Waiting for photos from your phone\u2026", "");
+    } finally {
+      pollInFlight = false;
+    }
   }
   async function startSession() {
     if (starting) return;
@@ -28505,6 +28759,7 @@ function mountAuditPhone({ setSideFile, setStatus: setStatus2 }) {
         );
       }
       token = opened.token;
+      rememberCaptureToken("audit", token);
       await import_qrcode.default.toCanvas(canvas, url, {
         width: 288,
         margin: 1,
@@ -28543,6 +28798,10 @@ function mountAuditPhone({ setSideFile, setStatus: setStatus2 }) {
   }
   refreshBtn?.addEventListener("click", () => {
     startSession().catch((error) => setPhoneStatus(error?.message || "Could not make a new QR code.", "error"));
+  });
+  window.addEventListener("pagehide", (event) => {
+    if (event.persisted || !token) return;
+    closeCaptureSession(token, { keepalive: true });
   });
   paintSource();
   if (auditVisible()) {
@@ -29017,10 +29276,10 @@ function contractSnapFromStore() {
   }
   return {};
 }
-function buildSnapshot(profile, asOfDate = getAsOfDate()) {
+function buildSnapshot(profile, asOfDate = getAsOfDate(), snapOptions) {
   const pack = getCalendarPack();
   const asOf = toDateString(asOfDate);
-  const snapOptions = contractSnapFromStore();
+  const snap = snapOptions === void 0 ? contractSnapFromStore() : snapOptions || {};
   if (!profile) {
     return buildEmployeeSnapshot({
       profile: null,
@@ -29029,7 +29288,7 @@ function buildSnapshot(profile, asOfDate = getAsOfDate()) {
       calendar: pack.calendar,
       asOfDate: asOf,
       ...calendarMeta(),
-      ...snapOptions
+      ...snap
     });
   }
   const entry = rebuildEmployeeRouteState(
@@ -29037,7 +29296,7 @@ function buildSnapshot(profile, asOfDate = getAsOfDate()) {
     pack.calendar,
     asOf,
     {},
-    snapOptions
+    snap
   );
   return buildEmployeeSnapshot({
     profile: {
@@ -29049,7 +29308,7 @@ function buildSnapshot(profile, asOfDate = getAsOfDate()) {
     calendar: pack.calendar,
     asOfDate: asOf,
     ...calendarMeta(),
-    ...snapOptions
+    ...snap
   });
 }
 
@@ -29125,10 +29384,155 @@ function heldLabel(assignment) {
   if (!assignment.until) return `Since ${prettyDate2(assignment.from)}`;
   return `${prettyDate2(assignment.from)} \u2013 ${prettyDate2(dayBefore(assignment.until))}`;
 }
-function historyBlock(snapshot) {
+var RUNS2 = [
+  { id: "AM", label: "AM" },
+  { id: "MIDDAY", label: "Midday" },
+  { id: "PM", label: "PM" }
+];
+function driverSnapOptions(enabled) {
+  if (enabled !== true) {
+    return { snapContractClocks: false, bidBumpUseSnappedTimes: false };
+  }
+  return {
+    snapContractClocks: true,
+    bidBumpUseSnappedTimes: true,
+    contractSnapBreaks: { ...DEFAULT_CONTRACT_SNAP_BREAKS }
+  };
+}
+function runRange(schedule, runId) {
+  const item = schedule?.[runId];
+  if (item?.range) return item.range;
+  if (item?.clock_in && item?.clock_out) return `${item.clock_in}-${item.clock_out}`;
+  return "";
+}
+function runsLabel(schedule) {
+  return RUNS2.map((run) => {
+    const range = runRange(schedule, run.id);
+    return range ? `${run.label} ${formatClockAmPm(range)}` : `${run.label} \u2014`;
+  }).join(" \xB7 ");
+}
+function snappedRunsLabel(schedule) {
+  const segments = {};
+  for (const run of RUNS2) {
+    const range = runRange(schedule, run.id);
+    if (range) segments[run.id] = range;
+  }
+  const breakdown = buildPayrollRoundingBreakdown(segments, driverSnapOptions(true));
+  const byId2 = new Map((breakdown.segments || []).map((segment) => [segment.segment, segment]));
+  let moved = false;
+  const label = RUNS2.map((run) => {
+    const item = byId2.get(run.id);
+    const written = item?.time || "";
+    const snapped = item?.snapped_time || written;
+    if (snapped && snapped !== written) moved = true;
+    return snapped ? `${run.label} ${formatClockAmPm(snapped)}` : `${run.label} \u2014`;
+  }).join(" \xB7 ");
+  return moved ? label : "";
+}
+function contractedRunsLabel(snapshot) {
+  const open = snapshot?.window?.status === "ACCUMULATING" && snapshot.window.expires_date;
+  const before = open ? snapshot.window.see_the_math?.before?.segments : null;
+  if (Array.isArray(before) && before.length) {
+    const byId2 = new Map(before.map((segment) => [segment.segment, segment.time || ""]));
+    return RUNS2.map((run) => {
+      const range = byId2.get(run.id) || "";
+      return range ? `${run.label} ${formatClockAmPm(range)}` : `${run.label} \u2014`;
+    }).join(" \xB7 ");
+  }
+  return runsLabel(snapshot?.schedule);
+}
+function latestChange(snapshot) {
+  const rows = snapshot?.schedule_history || [];
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    if (rows[index]?.kind === "change") return rows[index];
+  }
+  return null;
+}
+function bidDates(start, end) {
+  const text = bidPostingSpanText({ start, end });
+  return text || (start ? prettyDate2(start) : "");
+}
+function rulesNext(snapshot) {
+  const view = snapshot?.window || {};
+  const drift = view.cumulative_drift_label;
+  const open = view.status === "ACCUMULATING" && view.expires_date;
+  if (open) {
+    let sentence;
+    if (view.projected_outcome === "BID_PENDING") {
+      const dates = bidDates(view.becomes_contracted_on, view.bid_through);
+      sentence = `This change is ${drift}. If nothing else is logged, the route should go up for bid ${dates}.`;
+    } else if (view.projected_outcome === "BUMP_ELIGIBLE") {
+      sentence = `This change is ${drift}. If nothing else is logged, the route should be bump-eligible on ${prettyDate2(view.becomes_contracted_on)}.`;
+    } else {
+      sentence = `This change is ${drift}. If nothing else is logged, these hours should become the contracted hours on ${prettyDate2(view.becomes_contracted_on)}.`;
+    }
+    return view.side_window_note ? `${sentence} ${view.side_window_note}` : sentence;
+  }
+  const row = latestChange(snapshot);
+  if (!row) return "Nothing is waiting on a count. These clock times are the contracted hours.";
+  const on = row.contracted?.becomes_on;
+  if (view.status === "BID_PENDING") {
+    const dates = bidDates(on, row.contracted?.bid_through);
+    return dates ? `The count has closed. The route should be up for bid ${dates}.` : "The count has closed. The route should be up for bid.";
+  }
+  if (view.status === "BUMP_ELIGIBLE") {
+    return on ? `The count has closed. The route should be bump-eligible as of ${prettyDate2(on)}.` : "The count has closed. The route should be bump-eligible.";
+  }
+  if (on) {
+    return `The count has closed. These clock times should be the contracted hours as of ${prettyDate2(on)}.`;
+  }
+  return "These clock times are the contracted hours.";
+}
+function snapNote(snapshot, comparedTo) {
+  const lines = [];
+  const snapped = snappedRunsLabel(snapshot?.schedule);
+  if (snapped) lines.push(`Snap reads the clock times as ${snapped}.`);
+  const hoursNow = snapshot?.contracted?.label || "";
+  const hoursWas = comparedTo?.contracted?.label || "";
+  const nextNow = rulesNext(snapshot);
+  const nextWas = rulesNext(comparedTo);
+  if (hoursNow === hoursWas && nextNow === nextWas) {
+    lines.push(
+      snapped ? "The contracted hours and what the rules say next stay the same." : "Snap leaves the clock times, the contracted hours, and what the rules say next the same."
+    );
+  } else {
+    if (hoursNow !== hoursWas && hoursWas && hoursNow) {
+      lines.push(`Snap moves the contracted hours from ${hoursWas} to ${hoursNow}.`);
+    }
+    if (nextNow !== nextWas) {
+      lines.push(`Written clock times: ${nextWas} Snap clock times: ${nextNow}`);
+    }
+  }
+  return lines.join(" ");
+}
+function routeResultHtml(snapshot, { snap = false, comparedTo = null } = {}) {
+  if (!snapshot?.schedule && !(snapshot?.schedule_history || []).length) return "";
+  const asOf = String(snapshot?.as_of || "").slice(0, 10);
+  const today = asOf && asOf === localDateString();
+  const clocks = runsLabel(snapshot?.schedule);
+  const contractedClocks = contractedRunsLabel(snapshot);
+  const started = snapshot?.schedule_history?.at(-1)?.date || snapshot?.employee?.start_date;
+  const hours = snapshot?.contracted?.label || "";
+  const sameClocks = contractedClocks === clocks;
+  const contractedFact = sameClocks ? "The same clocks." : contractedClocks;
+  const open = snapshot?.window?.status === "ACCUMULATING" && snapshot.window.expires_date;
+  const hoursNote = open ? "These stay the contracted hours while this count is open." : sameClocks ? "" : "These are the hours the rules call contracted.";
+  const contractedKicker = today || !asOf ? "Contracted today" : `Contracted as of ${prettyDate2(asOf)}`;
+  const hoursLine = [hours, hoursNote].filter(Boolean).join(". ");
+  const snapLine = snap && comparedTo ? snapNote(snapshot, comparedTo) : "";
+  return `<div class="route-result">
+    <p><span class="route-result-kicker">Clock times now</span> ${escapeHtml(clocks)}</p>
+    ${started ? `<p class="route-result-when">Started ${escapeHtml(prettyDate2(started))}.</p>` : ""}
+    <p><span class="route-result-kicker">${escapeHtml(contractedKicker)}</span> ${escapeHtml(contractedFact)}</p>
+    ${hoursLine ? `<p class="route-result-when">${escapeHtml(hoursLine.endsWith(".") ? hoursLine : `${hoursLine}.`)}</p>` : ""}
+    <p><span class="route-result-kicker">What the rules say next</span> ${escapeHtml(rulesNext(snapshot))}</p>
+    ${snapLine ? `<p class="route-result-snap">${escapeHtml(snapLine)}</p>` : ""}
+  </div>`;
+}
+function historyBlock(snapshot, snapOptions) {
   const rows = snapshot?.schedule_history || [];
   const asOf = snapshot?.as_of || getAsOfDate();
-  return `<div class="table-wrap">${scheduleHistoryTableHtml(snapshot)}</div>
+  return `<div class="table-wrap">${scheduleHistoryTableHtml(snapshot, void 0, snapOptions)}</div>
     <h3>Calendar</h3>
     <ul class="history-legend">${historyLegendHtml(rows)}</ul>
     <div class="calendar-months">${calendarMonthsHtml({
@@ -29137,7 +29541,7 @@ function historyBlock(snapshot) {
     asOf
   })}</div>`;
 }
-function sectionsForDriver(profiles2, driverName) {
+function sectionsForDriver(profiles2, driverName, snapOptions) {
   const name = String(driverName ?? "").trim();
   if (!name) return null;
   const pieces = [];
@@ -29154,34 +29558,40 @@ function sectionsForDriver(profiles2, driverName) {
     return {
       routeName: routeLabel(piece.profile),
       assignment: piece.assignment,
-      snapshot: buildSnapshot(piece.profile, snapshotAsOf || asOf)
+      snapshot: buildSnapshot(piece.profile, snapshotAsOf || asOf, snapOptions)
     };
   });
   return { name, sections, asOf };
 }
-function driverHistoryHtml(profiles2, driverName) {
+function driverHistoryHtml(profiles2, driverName, options = {}) {
   const name = String(driverName ?? "").trim();
-  const built = sectionsForDriver(profiles2, name);
+  const snap = options.snap === true;
+  const built = sectionsForDriver(profiles2, name, driverSnapOptions(snap));
   if (!built) {
     return `<p class="empty">No route history is recorded for ${escapeHtml(name)}.</p>`;
   }
+  const compared = snap ? sectionsForDriver(profiles2, name, driverSnapOptions(false)) : null;
   const routes = [];
   for (const section of built.sections) {
     if (!routes.includes(section.routeName)) routes.push(section.routeName);
   }
   const listed = routes.join(", ");
   const lead = routes.length === 1 ? `Route ${listed}, including each change while ${name} held it.` : `Routes ${listed}, including each change while ${name} held them.`;
-  const body = built.sections.map((section) => {
+  const body = built.sections.map((section, index) => {
     const held = heldLabel(section.assignment);
     return `<section class="history-route">
         <h2>Route ${escapeHtml(section.routeName)}</h2>
         ${held ? `<p class="lead">${escapeHtml(held)}</p>` : ""}
-        ${historyBlock(section.snapshot)}
+        ${routeResultHtml(section.snapshot, {
+      snap,
+      comparedTo: compared?.sections[index]?.snapshot || null
+    })}
+        ${historyBlock(section.snapshot, driverSnapOptions(snap))}
       </section>`;
   }).join("");
   return `<h2 class="person">${escapeHtml(name)}</h2><p class="lead">${escapeHtml(lead)}</p>${body}`;
 }
-function routeHistoryHtml(profiles2, routeName) {
+function routeHistoryHtml(profiles2, routeName, options = {}) {
   const wanted = String(routeName ?? "").trim().toLowerCase();
   const profile = (profiles2 || []).find((item) => routeLabel(item).toLowerCase() === wanted);
   if (!profile) {
@@ -29192,10 +29602,14 @@ function routeHistoryHtml(profiles2, routeName) {
     const held = heldLabel(assignment);
     return held ? `${assignment.driver_name} (${held})` : assignment.driver_name;
   }).join("; ");
-  const snapshot = buildSnapshot(profile, getAsOfDate(profile));
+  const snap = options.snap === true;
+  const asOf = getAsOfDate(profile);
+  const snapshot = buildSnapshot(profile, asOf, driverSnapOptions(snap));
+  const comparedTo = snap ? buildSnapshot(profile, asOf, driverSnapOptions(false)) : null;
   return `<h2 class="person">Route ${escapeHtml(label)}</h2>
     <p class="lead">${holders ? escapeHtml(holders) : "No driver is assigned."}</p>
-    ${historyBlock(snapshot)}`;
+    ${routeResultHtml(snapshot, { snap, comparedTo })}
+    ${historyBlock(snapshot, driverSnapOptions(snap))}`;
 }
 
 // employee-tracker/web/historyPage.js
@@ -29224,6 +29638,9 @@ var dayDialog = document.querySelector("#day-dialog");
 var dayTitle = document.querySelector("#day-dialog-title");
 var dayList = document.querySelector("#day-dialog-list");
 var profiles = [];
+var historySnap = false;
+var historySnapGroup = document.querySelector("#history-snap");
+var historySnapHint = document.querySelector("#history-snap-hint");
 function setStatus(node, message) {
   if (!node) return;
   node.textContent = message || "";
@@ -29333,7 +29750,8 @@ function choose(match) {
   if (!match) return;
   if (lookup) lookup.value = match.key;
   setStatus(pageStatus, "");
-  history.innerHTML = match.kind === "route" ? routeHistoryHtml(profiles, match.key) : driverHistoryHtml(profiles, match.key);
+  const options = { snap: historySnap };
+  history.innerHTML = match.kind === "route" ? routeHistoryHtml(profiles, match.key, options) : driverHistoryHtml(profiles, match.key, options);
   document.title = match.kind === "route" ? `Route ${match.label} \xB7 ${PAGE_TITLE}` : `${match.label} \xB7 ${PAGE_TITLE}`;
 }
 function chooseFromLookup() {
@@ -29374,6 +29792,23 @@ searchForm?.addEventListener("submit", (event) => {
   chooseFromLookup();
 });
 lookup?.addEventListener("change", () => {
+  chooseFromLookup();
+});
+function historySnapHintText() {
+  return historySnap ? "Snap is on. Each clock moves onto a quarter hour with the payroll bands, and the statement and the table are figured again from those clocks. Turn it off to go back to the written times. The office record stays as it is." : "Snap is off. Turn it on to move each clock onto a quarter hour with the payroll bands and see if the hours or the date change. The office record stays as it is.";
+}
+function syncHistorySnap() {
+  for (const button of historySnapGroup?.querySelectorAll("[data-snap]") || []) {
+    const on = button.dataset.snap === "on";
+    button.setAttribute("aria-pressed", String(on === historySnap));
+  }
+  if (historySnapHint) historySnapHint.textContent = historySnapHintText();
+}
+historySnapGroup?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-snap]");
+  if (!button || !historySnapGroup.contains(button)) return;
+  historySnap = button.dataset.snap === "on";
+  syncHistorySnap();
   chooseFromLookup();
 });
 for (const input of modeInputs) {

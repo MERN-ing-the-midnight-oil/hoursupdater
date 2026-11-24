@@ -217,10 +217,11 @@ function contractSnapFromStore() {
   return {};
 }
 
-export function buildSnapshot(profile, asOfDate = getAsOfDate()) {
+export function buildSnapshot(profile, asOfDate = getAsOfDate(), snapOptions) {
   const pack = getCalendarPack();
   const asOf = toDateString(asOfDate);
-  const snapOptions = contractSnapFromStore();
+  // A caller can pass snap options for one view. Omitted keeps the store setting.
+  const snap = snapOptions === undefined ? contractSnapFromStore() : snapOptions || {};
   if (!profile) {
     return buildEmployeeSnapshot({
       profile: null,
@@ -229,7 +230,7 @@ export function buildSnapshot(profile, asOfDate = getAsOfDate()) {
       calendar: pack.calendar,
       asOfDate: asOf,
       ...calendarMeta(),
-      ...snapOptions,
+      ...snap,
     });
   }
   const entry = rebuildEmployeeRouteState(
@@ -237,7 +238,7 @@ export function buildSnapshot(profile, asOfDate = getAsOfDate()) {
     pack.calendar,
     asOf,
     {},
-    snapOptions
+    snap
   );
   return buildEmployeeSnapshot({
     profile: {
@@ -249,7 +250,7 @@ export function buildSnapshot(profile, asOfDate = getAsOfDate()) {
     calendar: pack.calendar,
     asOfDate: asOf,
     ...calendarMeta(),
-    ...snapOptions,
+    ...snap,
   });
 }
 
