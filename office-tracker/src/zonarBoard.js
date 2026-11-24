@@ -240,9 +240,13 @@ export async function powerEventsForBuses(fleets, auth) {
   }
   await Promise.all(
     pending.map(async (zone) => {
-      const rows = await assetPowerEvents(zone.id, auth, start, end);
-      powerCache.set(zone.id, { at: Date.now(), events: rows });
-      for (const event of rows) events.push({ ...event, bus: zone.fleet });
+      try {
+        const rows = await assetPowerEvents(zone.id, auth, start, end);
+        powerCache.set(zone.id, { at: Date.now(), events: rows });
+        for (const event of rows) events.push({ ...event, bus: zone.fleet });
+      } catch {
+        // This bus is asked again on the next check. The others still count.
+      }
     })
   );
   return events;

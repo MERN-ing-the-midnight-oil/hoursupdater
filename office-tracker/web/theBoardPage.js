@@ -15,7 +15,6 @@ import {
   darkBusKey,
   darkBuses,
   startupDismissals,
-  darkBusLog,
   darkBusPageMarkup,
   darkBusPills,
   darkBusScreen,
@@ -296,6 +295,10 @@ async function loadBusZones() {
   }
 }
 
+// One request cannot ask Zonar about the whole fleet. The page call stops
+// after too many buses, and then every route looks like it never powered on.
+const POWER_BUS_GROUP = 20;
+
 async function loadPowerEvents() {
   const now = minutesNow();
   const buses = new Set(busesInService(watchedRuns(), now));
@@ -303,16 +306,27 @@ async function loadPowerEvents() {
     const spare = String(row?.spareBus || '').trim().replace(/^0+(?=\d)/, '');
     if (spare) buses.add(spare);
   }
-  if (!buses.size) return;
-  try {
-    const response = await fetch(`/api/the-board/power?buses=${encodeURIComponent([...buses].join(','))}`);
-    if (!response.ok) return;
-    const data = await response.json();
-    powerEventsByBus = indexPowerEvents(data?.events);
-    paintBoard();
-  } catch {
-    // Alerts stay up without a Power On time until the next check.
-  }
+  const names = [...buses];
+  if (!names.length) return;
+  const groups = [];
+  for (let i = 0; i < names.length; i += POWER_BUS_GROUP) groups.push(names.slice(i, i + POWER_BUS_GROUP));
+  let anyOk = false;
+  const batches = await Promise.all(
+    groups.map(async (group) => {
+      try {
+        const response = await fetch(`/api/the-board/power?buses=${encodeURIComponent(group.join(','))}`);
+        if (!response.ok) return [];
+        const data = await response.json();
+        anyOk = true;
+        return Array.isArray(data?.events) ? data.events : [];
+      } catch {
+        return [];
+      }
+    })
+  );
+  if (!anyOk) return;
+  powerEventsByBus = indexPowerEvents(batches.flat());
+  paintBoard();
 }
 
 async function loadInspections() {
@@ -679,7 +693,7 @@ function paintDarkPage(now, settings) {
   }
 }
 
-function paintAlert(alerts, settings, logLines = [], now = minutesNow()) {
+function paintAlert(alerts, settings, now = minutesNow()) {
   latestAlerts = alerts;
   const ackedSet = new Set(acknowledged());
   const pending = alerts.filter((alert) => !ackedSet.has(darkBusKey(alert)));
@@ -695,17 +709,6 @@ function paintAlert(alerts, settings, logLines = [], now = minutesNow()) {
   darkTitle?.classList.toggle('is-dark-flash', reds.length > 0);
   syncBoardFlash();
 
-  const logSignature = (logLines || []).map((line) => `${line.bus}|${line.route}|${line.run}|${line.verdict}|${line.detail}`).join('\n');
-  if (logSignature !== paintAlert.logged) {
-    paintAlert.logged = logSignature;
-    const text = (logLines || [])
-      .map((line) => {
-        const who = [line.bus ? `Bus ${line.bus}` : '', line.route ? `Route ${line.route}` : '', line.run].filter(Boolean).join(' ');
-        return `${who}: ${line.verdict}. ${line.detail}`;
-      })
-      .join('\n');
-    console.info(`[Dark Bus]${text ? `\n${text}` : ' No runs are being watched.'}`);
-  }
   if (fresh.length) darkPageClosed = false;
   const pageHidden = !darkPage || darkPage.hidden;
   const coverHolding = Boolean(settings.cover) && pending.length > 0;
@@ -808,8 +811,7 @@ function refreshDarkBus(date = new Date()) {
   const alerts = darkBuses(darkWatch, now, settings.graceMinutes, darkSkipped);
   const recorded = rememberAlertTimes(readJson(ALERTED_KEY, null), alerts, now, today);
   if (JSON.stringify(readJson(ALERTED_KEY, null)) !== JSON.stringify(recorded)) writeJson(ALERTED_KEY, recorded);
-  const log = darkBusLog(darkPowered, outOfService(), darkLive, now, settings.graceMinutes, acknowledged(), darkSkipped, today);
-  paintAlert(withAlertedAt(alerts, recorded), settings, log, now);
+  paintAlert(withAlertedAt(alerts, recorded), settings, now);
   if (hadPending && !pendingAlerts().length && darkPageForced) closeDarkPage();
 }
 
