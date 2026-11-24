@@ -212,9 +212,9 @@ export function earlyReleaseWatch(runs, clocksByRoute) {
 
 // A pill stays off the page until that route's start time.
 // neutral: the bus is not powered on, and it is not in the yellow or red window.
-// yellow: the start time has passed, the wait has not, and the bus is still off.
-// dark: the wait is over, the bus is still off, and the alert fires.
-// on: Power On is in, shown green.
+// yellow: the start time has passed, the wait has not, and this run has no Power On.
+// dark: the wait is over and this run still has no Power On, so the alert fires.
+// on: a Power On was counted for this run, shown green, even if the bus is off now.
 export function darkBusPillTone(run, nowMinutes, graceMinutes = 0) {
   const clockIn = minutesOf(run?.clockIn);
   if (clockIn == null) return 'quiet';
@@ -297,14 +297,16 @@ export function darkBusAlarmStatement(alert, graceMinutes = 0) {
   return `${who}, ${clock ? `clock-in ${clock}` : 'no clock-in'}, wait ${wait}.`;
 }
 
-// Two lines for a route that has not powered on: minutes since clock-in, and that status.
+// Two lines for a route with no Power On for this run: minutes since clock-in, and that status.
+// A flashing pill says "Never powered on" because a later key-off does not turn it red again.
 export function darkBusPillFacts(pill, nowMinutes) {
   const clockIn = minutesOf(pill?.clockIn);
   const elapsed = clockIn == null || !Number.isInteger(nowMinutes) ? null : Math.max(0, nowMinutes - clockIn);
   const since =
     elapsed == null ? 'No clock-in' : elapsed === 1 ? '1 minute since clock-in' : `${elapsed} minutes since clock-in`;
   const powered = minutesOf(pill?.poweredOnAt);
-  const power = powered == null ? 'Not powered on' : `Powered on at ${formatBoardClock(powered)}`;
+  const missing = pill?.tone === 'dark' || pill?.tone === 'held' ? 'Never powered on' : 'Not powered on';
+  const power = powered == null ? missing : `Powered on at ${formatBoardClock(powered)}`;
   return [since, power];
 }
 
@@ -3364,8 +3366,8 @@ const PILL_TONE_LABEL = {
   waiting: 'has not started',
   neutral: 'not powered on',
   yellow: 'start time passed, not powered on',
-  dark: 'wait over, no Power On',
-  held: 'dismissed, still no Power On',
+  dark: 'never powered on',
+  held: 'dismissed, never powered on',
   on: 'powered on',
   quiet: '',
 };

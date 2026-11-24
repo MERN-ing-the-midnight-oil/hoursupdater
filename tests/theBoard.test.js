@@ -569,6 +569,7 @@ describe('dark bus screen', () => {
     ]);
     assert.match(markup, /37 minutes since clock-in/);
     assert.match(markup, /2 minutes since clock-in/);
+    assert.match(markup, /Never powered on/);
     assert.match(markup, /Not powered on/);
     assert.doesNotMatch(markup, /Clock-in 6:15 AM/);
     assert.doesNotMatch(markup, /Wait 5 minutes/);
@@ -579,7 +580,7 @@ describe('dark bus screen', () => {
     });
     assert.match(poweredLate, /is-dark/);
     assert.match(poweredLate, /15 minutes since clock-in/);
-    assert.match(poweredLate, /Not powered on/);
+    assert.match(poweredLate, /Never powered on/);
     assert.doesNotMatch(poweredLate, /Powered on at/);
     assert.doesNotMatch(markup, /Route 17/);
     const on = darkBusPageMarkup([{ ...am, poweredOnAt: '6:51' }], {
@@ -599,6 +600,7 @@ describe('dark bus screen', () => {
     });
     assert.match(dismissed, /is-held/);
     assert.match(dismissed, /6 minutes since clock-in/);
+    assert.match(dismissed, /Never powered on/);
     assert.doesNotMatch(dismissed, /board-dark-info/);
     assert.doesNotMatch(dismissed, /is-dark/);
     assert.doesNotMatch(dismissed, /data-dark-key/);
