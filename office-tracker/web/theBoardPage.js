@@ -35,7 +35,9 @@ import {
   normalizeStudentCheckAlert,
   studentCheckAlarmStatement,
   studentCheckAlerts,
+  studentCheckDepartures,
   studentCheckPageMarkup,
+  studentCheckRuns,
   studentCheckPillFacts,
   studentCheckPills,
   studentCheckSchoolVisits,
@@ -50,6 +52,12 @@ import {
   normalizeDarkBusAlert,
   applyOutOfServiceSpares,
   assignOutOfServiceSpare,
+  keyRackMarkup,
+  keyRackPanelMarkup,
+  normalizeOutOfServicePeriods,
+  outOfServiceDateChoices,
+  outOfServiceDateLabel,
+  outOfServicePeriodLabel,
   outOfServiceManagerView,
   outOfServiceMarkup,
   placeOutOfServiceSpare,
@@ -66,7 +74,6 @@ import {
   isSpedRoute,
   spareAssignmentWarnings,
   spareAssignPrompt,
-  spareCovers,
   sparePoolChoiceMarkup,
   sparePoolMarkup,
   sparePortionWarnings,
@@ -128,6 +135,7 @@ const EARLY_KEY = 'the-board-early-minutes';
 const STUDENT_ALERT_KEY = 'the-board-student-alert';
 const STUDENT_ACK_KEY = 'the-board-student-ack';
 const STUDENT_VISIT_KEY = 'the-board-student-visits';
+const STUDENT_DEPART_KEY = 'the-board-student-departures';
 const STUDENT_RETURN_KEY = 'the-board-student-returns';
 
 const oosList = document.querySelector('#oos-list');
@@ -613,18 +621,6 @@ let darkLive = {};
 let darkPowered = [];
 let pinnedDarkTab = '';
 let pinnedDuring = '';
-let darkPageForced = false;
-let darkPageClosed = false;
-
-function darkBlockersOpen() {
-  return Boolean(
-    absentDialog?.open ||
-      availableSettingsDialog?.open ||
-      oosDialog?.open ||
-      document.querySelector('#absent-editor')?.hidden === false ||
-      document.querySelector('#oos-manager')?.hidden === false
-  );
-}
 
 function shownDarkTab(now, settings) {
   const scheduled = darkBusScreen(now, settings);
@@ -658,10 +654,6 @@ function setScreenAddress(path, mode) {
   }
 }
 
-function studentPageOpen() {
-  return Boolean(studentPage && !studentPage.hidden);
-}
-
 function openDarkPage(address = 'push') {
   const manager = document.querySelector('#oos-manager');
   if (manager) manager.hidden = true;
@@ -676,8 +668,6 @@ function openDarkPage(address = 'push') {
 }
 
 function closeDarkPage(address = 'push') {
-  darkPageForced = false;
-  darkPageClosed = true;
   if (darkPage) darkPage.hidden = true;
   document.body.classList.remove('is-dark-open');
   document.title = 'The Board';
@@ -724,17 +714,10 @@ function paintAlert(alerts, settings, now = minutesNow()) {
   darkTitle?.classList.toggle('is-dark-flash', reds.length > 0);
   syncBoardFlash();
 
-  if (fresh.length) darkPageClosed = false;
-  const pageHidden = !darkPage || darkPage.hidden;
-  const coverHolding = Boolean(settings.cover) && pending.length > 0;
-  if (pending.length && pageHidden && !darkPageClosed && !darkBlockersOpen() && !studentPageOpen() && (coverHolding || fresh.length)) {
-    darkPageForced = true;
-    openDarkPage('replace');
-  } else if (darkPageForced && !pending.length && darkPage && !darkPage.hidden) {
-    closeDarkPage('replace');
-  }
+  // Stay on the board. Dark Bus opens only from its button, the address, or Back/Forward.
   if (darkPage && !darkPage.hidden) paintDarkPage(now, settings);
   const pageOpen = Boolean(darkPage && !darkPage.hidden);
+  const coverHolding = Boolean(settings.cover) && pending.length > 0;
   if (fresh.length && settings.flash && !(coverHolding && pageOpen)) flashScreen();
   syncRouteAlarms(pending, settings);
   const anyFlashing = reds.length > 0;
@@ -825,7 +808,6 @@ function refreshDarkBus(date = new Date()) {
   const settings = alertSettings();
   const now = minutesNow(date);
   const today = boardDate(date);
-  const hadPending = pendingAlerts().length > 0;
   const started = startupDismissals(darkWatch, now, settings.graceMinutes, darkSkipped);
   if (started.length) {
     const keys = new Set(acknowledged());
@@ -841,7 +823,6 @@ function refreshDarkBus(date = new Date()) {
   const recorded = rememberAlertTimes(readJson(ALERTED_KEY, null), alerts, now, today);
   if (JSON.stringify(readJson(ALERTED_KEY, null)) !== JSON.stringify(recorded)) writeJson(ALERTED_KEY, recorded);
   paintAlert(withAlertedAt(alerts, recorded), settings, now);
-  if (hadPending && !pendingAlerts().length && darkPageForced) closeDarkPage();
 }
 
 function syncBoardFlash() {
@@ -855,8 +836,6 @@ let paintedStudentPills = '';
 let studentWatch = [];
 let pinnedStudentTab = '';
 let pinnedStudentDuring = '';
-let studentPageForced = false;
-let studentPageClosed = false;
 const studentAlarms = new Map();
 
 function studentSettings() {
@@ -874,6 +853,21 @@ function rememberStudentVisits(runs, now, zones, date = new Date()) {
   const prev = studentVisits(date);
   if (next.length !== prev.length || next.some((key, index) => key !== prev[index])) {
     writeJson(STUDENT_VISIT_KEY, { date: boardDate(date), keys: next });
+  }
+  return next;
+}
+
+function studentDepartures(date = new Date()) {
+  const saved = readJson(STUDENT_DEPART_KEY, null);
+  if (!saved || saved.date !== boardDate(date) || !Array.isArray(saved.keys)) return [];
+  return saved.keys;
+}
+
+function rememberStudentDepartures(runs, now, zones, date = new Date()) {
+  const next = studentCheckDepartures(runs, now, zones, studentDepartures(date));
+  const prev = studentDepartures(date);
+  if (next.length !== prev.length || next.some((key, index) => key !== prev[index])) {
+    writeJson(STUDENT_DEPART_KEY, { date: boardDate(date), keys: next });
   }
   return next;
 }
@@ -965,8 +959,6 @@ function openStudentPage(address = 'push') {
 }
 
 function closeStudentPage(address = 'push') {
-  studentPageForced = false;
-  studentPageClosed = true;
   if (studentPage) studentPage.hidden = true;
   document.body.classList.remove('is-student-open');
   if (!darkPage || darkPage.hidden) document.title = 'The Board';
@@ -1013,7 +1005,6 @@ function paintStudentAlert(alerts, settings, context, now) {
   studentTitle?.classList.toggle('is-dark-flash', reds.length > 0);
   syncBoardFlash();
   if (fresh.length) {
-    studentPageClosed = false;
     const lines = fresh.map((alert) => {
       const who = alert.route ? `Route ${alert.route}` : alert.bus ? `Bus ${alert.bus}` : 'A route';
       const facts = studentCheckPillFacts(alert, now);
@@ -1022,17 +1013,10 @@ function paintStudentAlert(alerts, settings, context, now) {
     });
     setNamedStatus(studentStatus, lines.join(' '));
   }
-  const pageHidden = !studentPage || studentPage.hidden;
-  const coverHolding = Boolean(settings.cover) && pending.length > 0;
-  const darkOpen = Boolean(darkPage && !darkPage.hidden);
-  if (pending.length && pageHidden && !studentPageClosed && !darkBlockersOpen() && !darkOpen && (coverHolding || fresh.length)) {
-    studentPageForced = true;
-    openStudentPage('replace');
-  } else if (studentPageForced && !pending.length && studentPage && !studentPage.hidden) {
-    closeStudentPage('replace');
-  }
+  // Stay on the board. Student Check opens only from its button, the address, or Back/Forward.
   if (studentPage && !studentPage.hidden) paintStudentPage(now, settings, { ...context, acknowledged: [...ackedSet] });
   const pageOpen = Boolean(studentPage && !studentPage.hidden);
+  const coverHolding = Boolean(settings.cover) && pending.length > 0;
   if (fresh.length && settings.flash && !(coverHolding && pageOpen)) flashScreen();
   syncStudentAlarms(pending, settings);
   const anyFlashing = reds.length > 0;
@@ -1052,7 +1036,7 @@ function rememberStudentWatch(date = new Date()) {
     }
     watched = earlyReleaseWatch(watched, clocks).runs;
   }
-  const covered = watchOutOfService(watched, outOfService(), liveStatus(runs()), boardDate(date));
+  const covered = studentCheckRuns(watched, outOfService(), boardDate(date));
   studentWatch = covered.map((run) => {
     const driver = regularDriverName(run.route) || String(run.driver || '').trim();
     return { ...run, driver, photo: driverPhotoSrc(driver) };
@@ -1060,23 +1044,27 @@ function rememberStudentWatch(date = new Date()) {
   return date;
 }
 
-function studentContext(visits, returns) {
+function studentContext(visits, returns, departures) {
   return {
     visits,
     returns,
+    departures,
     checks: studentChecksByRun(studentWatch, studentInspections || []),
     inspectionsKnown: studentInspections != null,
   };
 }
 
-function refreshStudentCheck(date = new Date(), visits = studentVisits(date), returns = studentReturns(date)) {
+function refreshStudentCheck(
+  date = new Date(),
+  visits = studentVisits(date),
+  returns = studentReturns(date),
+  departures = studentDepartures(date)
+) {
   const settings = studentSettings();
   const now = minutesNow(date);
-  const context = studentContext(visits, returns);
-  const hadPending = pendingStudentAlerts().length > 0;
+  const context = studentContext(visits, returns, departures);
   const alerts = studentCheckAlerts(studentWatch, now, settings.graceMinutes, context);
   paintStudentAlert(alerts, settings, context, now);
-  if (hadPending && !pendingStudentAlerts().length && studentPageForced) closeStudentPage();
 }
 
 function pendingStudentAlerts() {
@@ -1159,9 +1147,10 @@ function paintBoard(date = new Date()) {
   rememberDarkWatch(date);
   refreshDarkBus(date);
   rememberStudentWatch(date);
+  const studentDeparted = rememberStudentDepartures(studentWatch, now, busZones, date);
   const studentLeft = rememberStudentVisits(studentWatch, now, busZones, date);
   const studentBack = rememberStudentReturns(studentWatch, now, busZones, studentLeft, date);
-  refreshStudentCheck(date, studentLeft, studentBack);
+  refreshStudentCheck(date, studentLeft, studentBack, studentDeparted);
 }
 
 function fillRememberedNames() {
@@ -1252,8 +1241,6 @@ alertButton?.addEventListener('click', () => {
     tryCloseDarkPage();
     return;
   }
-  darkPageClosed = false;
-  darkPageForced = false;
   openDarkPage();
   refreshDarkBus();
 });
@@ -1343,8 +1330,6 @@ studentButton?.addEventListener('click', () => {
     tryCloseStudentPage();
     return;
   }
-  studentPageClosed = false;
-  studentPageForced = false;
   openStudentPage();
   refreshStudentCheck();
 });
@@ -1806,13 +1791,9 @@ absentForm?.addEventListener('submit', (event) => {
 const SPARE_POOL_KEY = 'the-board-spare-pools';
 const OOS_PORTIONS = ['AM', 'MID', 'PM'];
 const oosSpareWarning = document.querySelector('#oos-spare-warning');
-const oosDaysInput = document.querySelector('#oos-days');
 const spareListsForm = document.querySelector('#spare-lists-form');
 const spareListsDialog = document.querySelector('#spare-lists-dialog');
-let oosDayPlan = {};
 let oosEditId = '';
-let oosCalYear = new Date().getFullYear();
-let oosCalMonth = new Date().getMonth();
 
 function routeWheelchairs() {
   return readJson(ROUTE_WC_KEY, {});
@@ -1930,63 +1911,69 @@ function paintOosPortions(map = readOosSpares()) {
   all.innerHTML = spareOptionMarkup(same ? spares.AM : '', { mixed: !same });
 }
 
-function oosDayMode() {
-  return oosForm?.querySelector('input[name="oos-days-mode"]:checked')?.value === 'calendar' ? 'calendar' : 'same';
-}
-
-function setOosDayMode(mode) {
-  const calendar = mode === 'calendar';
-  const chosen = oosForm?.querySelector(`input[name="oos-days-mode"][value="${calendar ? 'calendar' : 'same'}"]`);
-  if (chosen) chosen.checked = true;
-  const panel = document.querySelector('#oos-calendar-panel');
-  if (panel) panel.hidden = !calendar;
-  if (!calendar) oosDayPlan = {};
-  paintOosCalendar();
-  if (calendar && oosDialog?.open) document.querySelector('#oos-cal-back')?.focus();
-}
-
-function sparesMatch(left, right) {
-  const a = portionSpareMap(left);
-  const b = portionSpareMap(right);
-  return OOS_PORTIONS.every((portion) => busToken(a[portion]) === busToken(b[portion]));
-}
-
-function paintOosCalendar() {
-  const root = document.querySelector('#oos-cal');
-  const title = document.querySelector('#oos-cal-title');
-  if (title) {
-    title.textContent = new Date(oosCalYear, oosCalMonth, 1).toLocaleString('en-US', {
-      month: 'long',
-      year: 'numeric',
-    });
+function periodSelectOptions(selected, { indefinite = false } = {}) {
+  const choices = outOfServiceDateChoices();
+  if (selected && selected !== 'indefinitely' && !choices.some((choice) => choice.value === selected)) {
+    choices.push({ value: selected, label: outOfServiceDateLabel(selected) });
+    choices.sort((left, right) => left.value.localeCompare(right.value));
   }
-  if (!root || oosDayMode() !== 'calendar') return;
-  const pattern = readOosSpares();
-  const today = boardDate();
-  const weekdayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const boxes = calendarCells(oosCalYear, oosCalMonth, Object.keys(oosDayPlan))
-    .map((cell, index) => {
-      const weekday = index % 7;
-      const custom = Boolean(oosDayPlan[cell.date]);
-      const spares = portionSpareMap(custom ? oosDayPlan[cell.date] : pattern);
-      const same = OOS_PORTIONS.every((portion) => busToken(spares[portion]) === busToken(spares.AM));
-      const field = (portion, label) =>
-        `<label class="board-cal-period">${label}<select data-oos-day="${cell.date}" data-oos-portion="${portion}" aria-label="${label} spare on ${cell.date}">${spareOptionMarkup(portion === 'ALL' ? (same ? spares.AM : '') : spares[portion], { mixed: portion === 'ALL' && !same })}</select></label>`;
-      const periods = [field('ALL', 'All'), field('AM', 'AM'), field('MID', 'MID'), field('PM', 'PM')].join('');
-      const usual = custom ? `<button type="button" class="board-oos-usual" data-oos-usual-day="${cell.date}">Usual</button>` : '';
-      const classes = [
-        'board-cal-day',
-        `is-dow-${weekday}`,
-        cell.inMonth ? '' : 'is-out',
-        custom ? 'is-custom' : '',
-        cell.date === today ? 'is-today' : '',
-      ]
-        .filter(Boolean)
-        .join(' ');
-      return `<div class="${classes}"><span class="board-cal-date"><span class="board-cal-dow-name">${weekdayNames[weekday]}</span><span class="board-cal-num">${cell.day}</span>${usual}</span><span class="board-cal-periods">${periods}</span></div>`;
-    })
+  const dates = choices
+    .map(
+      (choice) =>
+        `<option value="${escapeAttr(choice.value)}"${choice.value === selected ? ' selected' : ''}>${escapeText(choice.label)}</option>`
+    )
     .join('');
-  root.innerHTML = boxes;
+  if (!indefinite) return dates;
+  const picked = !selected || selected === 'indefinitely' ? ' selected' : '';
+  return `<option value="indefinitely"${picked}>Indefinitely</option>${dates}`;
+}
+
+function periodRowMarkup(period, removable) {
+  const start = period?.start || boardDate();
+  const end = period?.end || 'indefinitely';
+  const remove = removable
+    ? '<button type="button" class="secondary" data-oos-period-remove>Remove</button>'
+    : '';
+  return `<div class="board-oos-period"><label>Start <select data-oos-period-start>${periodSelectOptions(start)}</select></label><label>End <select data-oos-period-end>${periodSelectOptions(end, { indefinite: true })}</select></label>${remove}</div>`;
+}
+
+function periodsForRow(row) {
+  const today = boardDate();
+  const stored = normalizeOutOfServicePeriods(row?.periods);
+  if (stored.length) return stored;
+  if (row?.covers === 'today') return [{ start: today, end: today }];
+  const days = Number(row?.covers);
+  if (Number.isInteger(days) && days >= 1 && days <= 366) {
+    const [year, month, date] = today.split('-').map(Number);
+    const end = new Date(year, month - 1, date);
+    end.setDate(end.getDate() + days - 1);
+    return [{ start: today, end: boardDate(end) }];
+  }
+  return [{ start: today, end: 'indefinitely' }];
+}
+
+function paintOosPeriods(periods) {
+  const root = document.querySelector('#oos-period-list');
+  if (!root) return;
+  const list = periods?.length ? periods : [{ start: boardDate(), end: 'indefinitely' }];
+  root.innerHTML = list.map((period) => periodRowMarkup(period, list.length > 1)).join('');
+}
+
+function readOosPeriods() {
+  return [...document.querySelectorAll('#oos-period-list .board-oos-period')].map((row) => ({
+    start: row.querySelector('[data-oos-period-start]')?.value || '',
+    end: row.querySelector('[data-oos-period-end]')?.value || 'indefinitely',
+  }));
+}
+
+function oosPeriodError(periods) {
+  if (!periods.length) return 'Pick a start date.';
+  for (const period of periods) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(period.start)) return 'Pick a start date.';
+    if (period.end !== 'indefinitely' && !/^\d{4}-\d{2}-\d{2}$/.test(period.end)) return 'Pick an end date.';
+    if (period.end !== 'indefinitely' && period.end < period.start) return 'The end date has to be on or after the start date.';
+  }
+  return '';
 }
 
 function paintSpareLists() {
@@ -2104,12 +2091,6 @@ function fleetWarningsFor(spares, fleet) {
   return warnings;
 }
 
-function shortFleetDay(day) {
-  const [year, month, date] = String(day || '').split('-').map(Number);
-  if (!year || !month || !date) return String(day || '');
-  return new Date(year, month - 1, date).toLocaleString('en-US', { month: 'short', day: 'numeric' });
-}
-
 function afterSparePoolChange() {
   paintOosManager(true);
   if (spareListsDialog?.open) paintSpareLists();
@@ -2120,7 +2101,6 @@ function afterSparePoolChange() {
 function syncOpenSpareMenus() {
   paintOosSpareMenus();
   paintOosPortions();
-  if (oosDayMode() === 'calendar') paintOosCalendar();
   refreshSpareWarning();
 }
 
@@ -2129,23 +2109,8 @@ function assignSpareToAllPortions(bus) {
   const map = { AM: value, MID: value, PM: value };
   paintOosPortions(map);
   paintOosSpareMenus();
-  if (oosDayMode() === 'calendar') paintOosCalendar();
   refreshOosConfirm();
   refreshSpareWarning();
-}
-
-function oosDuration() {
-  const span = oosForm?.querySelector('input[name="oos-span"]:checked')?.value;
-  if (span === 'indefinitely') return 'indefinitely';
-  if (span === 'today') return 'today';
-  if (span === 'days') return { days: Number(oosDaysInput?.value) };
-  return null;
-}
-
-function syncOosDuration(focusDays = false) {
-  const span = oosForm?.querySelector('input[name="oos-span"]:checked')?.value || '';
-  if (oosDaysInput) oosDaysInput.disabled = span !== 'days';
-  if (focusDays && span === 'days') oosDaysInput?.focus();
 }
 
 function usualBusContext(bus) {
@@ -2188,17 +2153,10 @@ function refreshSpareWarning() {
     warnings.push(...kept);
   }
   warnings.push(...fleetWarningsFor(spares, fleet));
-  if (oosDayMode() === 'calendar') {
-    for (const [day, map] of Object.entries(oosDayPlan)) {
-      const extra = fleetWarningsFor(portionSpareMap(map), fleet).filter((line) => !warnings.includes(line));
-      for (const line of extra) warnings.push(line.replace(/\.$/, ` on ${shortFleetDay(day)}.`));
-    }
-  }
-  const days = oosDayMode() === 'calendar' ? oosDayPlan : {};
   warnings.push(
     ...sparePortionWarnings({
       spares,
-      days,
+      days: {},
       outOfService: outOfService(),
       ignoreId: oosEditId,
       usualBus: usual,
@@ -2228,19 +2186,21 @@ function paintOosManager(force = false) {
   const signature = JSON.stringify(view);
   if (!force && signature === paintedOosManager) return;
   paintedOosManager = signature;
-  const summary = document.querySelector('#oos-manager-summary');
+  closeKeyPanel();
   const suggestions = document.querySelector('#oos-manager-suggestions');
-  const buses = document.querySelector('#oos-manager-list');
+  const rack = document.querySelector('#oos-manager-rack');
   const spares = document.querySelector('#oos-manager-spares');
-  if (summary) summary.textContent = view.summary;
   if (suggestions) suggestions.innerHTML = view.suggestions;
-  if (buses) buses.innerHTML = view.buses;
+  if (rack) rack.innerHTML = view.rack || keyRackMarkup(outOfService());
   if (spares) spares.innerHTML = view.spares;
 }
 
 function openOosManager() {
   const manager = document.querySelector('#oos-manager');
   if (!manager) return;
+  const fold = document.querySelector('#oos-spares-fold');
+  if (fold) fold.open = false;
+  closeKeyPanel();
   manager.hidden = false;
   paintOosManager();
   document.querySelector('#oos-manager-title')?.focus();
@@ -2280,8 +2240,61 @@ document.addEventListener('click', (event) => {
 document.querySelector('#oos-manager-open')?.addEventListener('click', openOosManager);
 document.querySelector('#oos-manager-close')?.addEventListener('click', closeOosManager);
 
+function hideKeyTip() {
+  const tip = document.querySelector('#oos-key-tip');
+  if (tip) tip.hidden = true;
+}
+
+function placeFloating(el, anchor, gap = 8) {
+  const rect = anchor.getBoundingClientRect();
+  const width = el.offsetWidth;
+  const height = el.offsetHeight;
+  let left = rect.left + rect.width / 2 - width / 2;
+  let top = rect.top - height - gap;
+  if (top < 8) top = rect.bottom + gap;
+  left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+  if (top + height > window.innerHeight - 8) top = Math.max(8, window.innerHeight - height - 8);
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
+}
+
+function closeKeyPanel() {
+  const panel = document.querySelector('#oos-key-panel');
+  const wasOpen = Boolean(panel && !panel.hidden);
+  if (panel) {
+    panel.hidden = true;
+    panel.innerHTML = '';
+    delete panel.dataset.bus;
+  }
+  hideKeyTip();
+  return wasOpen;
+}
+
+function showKeyTip(hook) {
+  const panel = document.querySelector('#oos-key-panel');
+  if (!hook || panel?.dataset.bus === hook.dataset.oosHook) return;
+  const text = hook.dataset.oosTip || '';
+  const tip = document.querySelector('#oos-key-tip');
+  if (!tip || !text) return;
+  tip.textContent = text;
+  tip.hidden = false;
+  placeFloating(tip, hook);
+}
+
+function openKeyPanel(hook, rows) {
+  const panel = document.querySelector('#oos-key-panel');
+  if (!panel) return;
+  hideKeyTip();
+  panel.innerHTML = keyRackPanelMarkup(rows, hook.dataset.oosHook || '');
+  panel.dataset.bus = hook.dataset.oosHook || '';
+  panel.hidden = false;
+  placeFloating(panel, hook, 10);
+  panel.querySelector('button')?.focus();
+}
+
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+  if (closeKeyPanel()) return;
   if (darkPage && !darkPage.hidden) {
     tryCloseDarkPage();
     return;
@@ -2316,7 +2329,9 @@ document.querySelector('#oos-manager')?.addEventListener('change', (event) => {
 document.querySelector('#oos-manager')?.addEventListener('click', (event) => {
   const edit = event.target.closest('[data-oos-edit]');
   if (edit) {
-    openOosEditor(edit.dataset.oosEdit);
+    const id = edit.dataset.oosEdit;
+    closeKeyPanel();
+    openOosEditor(id);
     return;
   }
   if (event.target.closest('[data-oos-apply]')) {
@@ -2325,11 +2340,63 @@ document.querySelector('#oos-manager')?.addEventListener('click', (event) => {
     paintBoard();
     return;
   }
+  const hook = event.target.closest('[data-oos-hook]');
+  if (hook) {
+    const bus = hook.dataset.oosHook || '';
+    const matches = outOfService().filter((row) => busToken(row.usualBus) === busToken(bus));
+    if (matches.length) openKeyPanel(hook, outOfService());
+    else {
+      closeKeyPanel();
+      openOosForm({ usualBus: bus });
+    }
+    return;
+  }
   const button = event.target.closest('[data-oos-id]');
   if (!button) return;
   writeJson(OOS_KEY, removeOutOfService(outOfService(), button.dataset.oosId));
-  setOosStatus('Taken down.');
+  setOosStatus('Back in service.');
   paintBoard();
+});
+
+document.querySelector('#oos-manager')?.addEventListener('mouseover', (event) => {
+  const hook = event.target.closest('.board-key.is-out');
+  if (hook) showKeyTip(hook);
+});
+
+document.querySelector('#oos-manager')?.addEventListener('mouseout', (event) => {
+  const hook = event.target.closest('.board-key.is-out');
+  if (!hook) return;
+  const next = event.relatedTarget?.closest?.('.board-key.is-out');
+  if (next === hook) return;
+  hideKeyTip();
+});
+
+document.querySelector('#oos-manager')?.addEventListener('focusin', (event) => {
+  const hook = event.target.closest('.board-key.is-out');
+  if (hook) showKeyTip(hook);
+});
+
+document.querySelector('#oos-manager')?.addEventListener('focusout', (event) => {
+  const hook = event.target.closest('.board-key.is-out');
+  if (!hook) return;
+  const next = event.relatedTarget?.closest?.('.board-key.is-out');
+  if (next === hook) return;
+  hideKeyTip();
+});
+
+document.querySelector('.board-key-stage')?.addEventListener('scroll', () => {
+  hideKeyTip();
+  const panel = document.querySelector('#oos-key-panel');
+  if (!panel || panel.hidden || !panel.dataset.bus) return;
+  const anchor = document.querySelector(`#oos-manager-rack [data-oos-hook="${CSS.escape(panel.dataset.bus)}"]`);
+  if (anchor) placeFloating(panel, anchor, 10);
+});
+
+document.addEventListener('click', (event) => {
+  const panel = document.querySelector('#oos-key-panel');
+  if (!panel || panel.hidden) return;
+  if (event.target.closest('#oos-key-panel') || event.target.closest('.board-key.is-out')) return;
+  closeKeyPanel();
 });
 
 function paintOosEmailTemplate(settings = loadOutOfServiceNotice()) {
@@ -2397,7 +2464,7 @@ function openBoardNotice(mail) {
   return 'eml';
 }
 
-function emailOutOfServiceDriver({ usualBus, spareBus, spares, days, route, covers, note }) {
+function emailOutOfServiceDriver({ usualBus, spareBus, spares, periods, route, covers, note }) {
   const people = driversForOutOfService(usualBus, route);
   const bus = String(usualBus || '').trim();
   if (!people.length) {
@@ -2418,7 +2485,7 @@ function emailOutOfServiceDriver({ usualBus, spareBus, spares, days, route, cove
     usualBus: bus,
     spareBus,
     spares,
-    days,
+    periods,
     routeName: person.route,
     covers,
     note,
@@ -2442,30 +2509,14 @@ function spareStatusPhrase(spares) {
   return OOS_PORTIONS.map((portion) => (map[portion] ? `${portion} spare ${map[portion]}` : `${portion} has no spare`)).join(', ');
 }
 
-function openOosForm({ row = null } = {}) {
+function openOosForm({ row = null, usualBus = '' } = {}) {
   oosEditId = row?.id || '';
-  oosDayPlan = {};
-  for (const [day, map] of Object.entries(row?.days || {})) oosDayPlan[day] = portionSpareMap(map);
-  const today = new Date();
-  const focus = Object.keys(oosDayPlan).sort()[0];
-  if (focus) {
-    const [year, month] = focus.split('-').map(Number);
-    oosCalYear = year;
-    oosCalMonth = month - 1;
-  } else {
-    oosCalYear = today.getFullYear();
-    oosCalMonth = today.getMonth();
-  }
   oosForm?.reset();
   const usual = document.querySelector('#oos-usual');
   const note = document.querySelector('#oos-note');
-  if (usual) usual.value = row?.usualBus || '';
+  if (usual) usual.value = row?.usualBus || usualBus || '';
   if (note) note.value = row?.note || '';
-  const span = row?.covers === 'indefinitely' ? 'indefinitely' : row?.covers === 'today' ? 'today' : Number(row?.covers) >= 1 ? 'days' : '';
-  const spanInput = span ? oosForm?.querySelector(`input[name="oos-span"][value="${span}"]`) : null;
-  if (spanInput) spanInput.checked = true;
-  if (oosDaysInput && span === 'days') oosDaysInput.value = String(row.covers);
-  syncOosDuration();
+  paintOosPeriods(periodsForRow(row));
   const spares = portionSpareMap(row?.spares);
   if (row && !row.spares) {
     const spare = row.spareBus || '';
@@ -2478,7 +2529,6 @@ function openOosForm({ row = null } = {}) {
   mainFleetCache = null;
   paintOosPortions(spares);
   paintOosSpareMenus();
-  setOosDayMode(Object.keys(oosDayPlan).length ? 'calendar' : 'same');
   paintOosEmailTemplate();
   refreshOosConfirm();
   refreshSpareWarning();
@@ -2487,8 +2537,7 @@ function openOosForm({ row = null } = {}) {
   const title = document.querySelector('#oos-dialog-title');
   if (title) title.textContent = row ? 'Update out of service' : 'Out of Service';
   oosDialog?.showModal();
-  if (oosDayMode() === 'calendar') document.querySelector('#oos-cal-back')?.focus();
-  else usual?.focus();
+  usual?.focus();
 }
 
 function openOosEditor(id) {
@@ -2501,33 +2550,16 @@ document.querySelector('#oos-add')?.addEventListener('click', () => openOosForm(
 
 document.querySelector('#oos-cancel')?.addEventListener('click', () => oosDialog?.close());
 
-document.querySelector('#oos-cal-back')?.addEventListener('click', () => {
-  const panel = document.querySelector('#oos-calendar-panel');
-  if (panel) panel.hidden = true;
-  oosForm?.querySelector('input[name="oos-days-mode"][value="calendar"]')?.focus();
-});
-
-document.querySelector('#oos-cal-prev')?.addEventListener('click', () => {
-  oosCalMonth -= 1;
-  if (oosCalMonth < 0) {
-    oosCalMonth = 11;
-    oosCalYear -= 1;
-  }
-  paintOosCalendar();
-});
-
-document.querySelector('#oos-cal-next')?.addEventListener('click', () => {
-  oosCalMonth += 1;
-  if (oosCalMonth > 11) {
-    oosCalMonth = 0;
-    oosCalYear += 1;
-  }
-  paintOosCalendar();
+document.querySelector('#oos-period-add')?.addEventListener('click', () => {
+  paintOosPeriods([...readOosPeriods(), { start: boardDate(), end: 'indefinitely' }]);
 });
 
 oosForm?.addEventListener('click', (event) => {
-  if (event.target?.name === 'oos-days-mode' && event.target.value === 'calendar') {
-    setOosDayMode('calendar');
+  const periodRemove = event.target.closest('[data-oos-period-remove]');
+  if (periodRemove) {
+    const rows = [...document.querySelectorAll('#oos-period-list .board-oos-period')];
+    const index = rows.indexOf(periodRemove.closest('.board-oos-period'));
+    paintOosPeriods(readOosPeriods().filter((_, item) => item !== index));
     return;
   }
   const edit = event.target.closest('[data-spare-edit]');
@@ -2569,11 +2601,6 @@ oosForm?.addEventListener('click', (event) => {
     assignSpareToAllPortions(bus);
     return;
   }
-  const usual = event.target.closest('[data-oos-usual-day]');
-  if (!usual) return;
-  delete oosDayPlan[usual.dataset.oosUsualDay];
-  paintOosCalendar();
-  refreshSpareWarning();
 });
 
 oosForm?.addEventListener('input', (event) => {
@@ -2588,51 +2615,20 @@ oosForm?.addEventListener('input', (event) => {
 });
 
 oosForm?.addEventListener('change', (event) => {
-  if (event.target?.name === 'oos-span') {
-    syncOosDuration(event.target.value === 'days');
-    return;
-  }
-  if (event.target?.name === 'oos-days-mode') {
-    setOosDayMode(event.target.value);
-    refreshSpareWarning();
-    return;
-  }
   const portion = event.target?.dataset?.oosPortion;
-  if (!portion) return;
-  const day = event.target.dataset.oosDay || '';
-  if (!day) {
-    if (event.target.id === 'oos-spare-all') {
-      const value = event.target.value === '__mixed__' ? '' : event.target.value;
-      if (event.target.value !== '__mixed__') {
-        for (const part of OOS_PORTIONS) {
-          const select = document.querySelector(`#oos-spare-${part.toLowerCase()}`);
-          if (select) select.value = value;
-        }
+  if (!portion || event.target.dataset.oosDay) return;
+  if (event.target.id === 'oos-spare-all') {
+    const value = event.target.value === '__mixed__' ? '' : event.target.value;
+    if (event.target.value !== '__mixed__') {
+      for (const part of OOS_PORTIONS) {
+        const select = document.querySelector(`#oos-spare-${part.toLowerCase()}`);
+        if (select) select.value = value;
       }
     }
-    if (oosDayMode() === 'calendar') paintOosCalendar();
-    paintOosPortions();
-    paintOosSpareMenus();
-    refreshOosConfirm();
-    refreshSpareWarning();
-    return;
   }
-  const cell = event.target.closest('.board-cal-day');
-  const read = (part) => cell?.querySelector(`[data-oos-portion="${part}"]`)?.value || '';
-  if (portion === 'ALL' && event.target.value !== '__mixed__') {
-    for (const part of OOS_PORTIONS) {
-      const select = cell?.querySelector(`[data-oos-portion="${part}"]`);
-      if (select) select.value = event.target.value;
-    }
-  }
-  const next = portionSpareMap({
-    AM: portion === 'ALL' && event.target.value !== '__mixed__' ? event.target.value : read('AM'),
-    MID: portion === 'ALL' && event.target.value !== '__mixed__' ? event.target.value : read('MID'),
-    PM: portion === 'ALL' && event.target.value !== '__mixed__' ? event.target.value : read('PM'),
-  });
-  if (sparesMatch(next, readOosSpares())) delete oosDayPlan[day];
-  else oosDayPlan[day] = next;
-  paintOosCalendar();
+  paintOosPortions();
+  paintOosSpareMenus();
+  refreshOosConfirm();
   refreshSpareWarning();
 });
 
@@ -2664,14 +2660,13 @@ oosForm?.addEventListener('submit', (event) => {
     setNamedStatus(oosFormStatus, 'Enter the usual bus.');
     return;
   }
-  const duration = oosDuration();
-  const covers = spareCovers(duration);
-  if (!covers) {
-    setNamedStatus(oosFormStatus, 'Choose today only, a number of days, or indefinitely.');
+  const periods = normalizeOutOfServicePeriods(readOosPeriods());
+  const periodError = oosPeriodError(readOosPeriods());
+  if (periodError || !periods.length) {
+    setNamedStatus(oosFormStatus, periodError || 'Pick a start date.');
     return;
   }
   const spares = readOosSpares();
-  const days = oosDayMode() === 'calendar' ? oosDayPlan : {};
   const match = usualBusContext(usualBus);
   const note = document.querySelector('#oos-note')?.value || '';
   const emailDriver = oosForm.querySelector('input[name="oos-email"]:checked')?.value === 'yes';
@@ -2684,18 +2679,17 @@ oosForm?.addEventListener('submit', (event) => {
         route: match.route,
         usualBus,
         spares,
-        days,
+        periods,
         note,
-        covers,
         replaceId: oosEditId,
       })
     );
     const mailed = emailDriver
-      ? ` ${emailOutOfServiceDriver({ usualBus, spares, days, route: match.route, covers, note })}`
+      ? ` ${emailOutOfServiceDriver({ usualBus, spares, periods, route: match.route, note })}`
       : '';
     oosForm.reset();
     oosDialog?.close();
-    const length = covers === 'indefinitely' ? 'indefinitely' : covers === 'today' ? 'today only' : covers === 1 ? 'for 1 day' : `for ${covers} days`;
+    const length = periods.map(outOfServicePeriodLabel).join(', ');
     const warning = warnings ? ` ${warnings}` : '';
     setOosStatus(`Bus ${usualBus.trim()} is on the board. ${spareStatusPhrase(spares)} ${length}.${warning}${mailed}`);
     paintBoard();
@@ -2791,7 +2785,7 @@ window.addEventListener('storage', (event) => {
   if (event.key === STORAGE_KEY) refreshScheduleClocks();
   if (event.key === ALERT_KEY && document.activeElement?.closest('#dark-bus-config-form') == null) fillSettingsForm();
   if (event.key === STUDENT_ALERT_KEY && document.activeElement?.closest('#student-check-config-form') == null) fillStudentForm();
-  if ([ROSTER_KEY, ABSENCE_KEY, RUNS_KEY, OOS_KEY, PAIRING_KEY, ROUTE_BUS_KEY, USUAL_KEY, ALERT_KEY, ACK_KEY, ALERTED_KEY, POWER_ON_KEY, SCHOOL_VISIT_KEY, YARD_RETURN_KEY, EARLY_KEY, STUDENT_ALERT_KEY, STUDENT_ACK_KEY, STUDENT_VISIT_KEY, STUDENT_RETURN_KEY, STORAGE_KEY].includes(event.key)) {
+  if ([ROSTER_KEY, ABSENCE_KEY, RUNS_KEY, OOS_KEY, PAIRING_KEY, ROUTE_BUS_KEY, USUAL_KEY, ALERT_KEY, ACK_KEY, ALERTED_KEY, POWER_ON_KEY, SCHOOL_VISIT_KEY, YARD_RETURN_KEY, EARLY_KEY, STUDENT_ALERT_KEY, STUDENT_ACK_KEY, STUDENT_VISIT_KEY, STUDENT_DEPART_KEY, STUDENT_RETURN_KEY, STORAGE_KEY].includes(event.key)) {
     paintBoard();
   }
 });
@@ -2811,10 +2805,8 @@ function seedPostedAssignments() {
 window.addEventListener('popstate', () => {
   boardHistoryDepth = Math.max(0, boardHistoryDepth - 1);
   if (isDarkBusPath()) {
-    darkPageClosed = false;
     openDarkPage(false);
   } else if (isStudentCheckPath()) {
-    studentPageClosed = false;
     openStudentPage(false);
   } else {
     if (darkPage && !darkPage.hidden) closeDarkPage(false);
@@ -2830,10 +2822,8 @@ fillStudentForm();
 seedPostedAssignments();
 refreshScheduleClocks();
 if (isDarkBusPath()) {
-  darkPageClosed = false;
   openDarkPage(false);
 } else if (isStudentCheckPath()) {
-  studentPageClosed = false;
   openStudentPage(false);
 }
 paintBoard();

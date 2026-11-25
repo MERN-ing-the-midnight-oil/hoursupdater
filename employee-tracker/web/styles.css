@@ -16,6 +16,67 @@
 
 [hidden] { display: none !important; }
 
+html[lang="pa"] body,
+html[lang="pa"] button,
+html[lang="pa"] input,
+html[lang="pa"] select,
+html[lang="pa"] textarea,
+html[lang="pa"] h2,
+html[lang="pa"] h3,
+html[lang="pa"] .tool-tile-label {
+  font-family: "Noto Sans Gurmukhi", "Avenir Next", "Segoe UI", sans-serif;
+}
+
+html[lang="fa"] body,
+html[lang="fa"] button,
+html[lang="fa"] input,
+html[lang="fa"] select,
+html[lang="fa"] textarea,
+html[lang="fa"] h2,
+html[lang="fa"] h3,
+html[lang="fa"] .tool-tile-label {
+  font-family: "Noto Naskh Arabic", "Geeza Pro", Tahoma, sans-serif;
+}
+
+html[dir="rtl"] .schedule-history,
+html[dir="rtl"] .calendar-months,
+html[dir="rtl"] .month-grid,
+html[dir="rtl"] .audit-card,
+html[dir="rtl"] .timesheet-card-sheet,
+html[dir="rtl"] #password,
+html[dir="rtl"] input[inputmode="numeric"],
+html[dir="rtl"] input[inputmode="decimal"] {
+  direction: ltr;
+}
+
+.lang-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.85rem;
+  margin-top: 0.45rem;
+}
+
+.lang-switch a {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+}
+
+.lang-switch a[lang="pa"] {
+  font-family: "Noto Sans Gurmukhi", sans-serif;
+}
+
+.lang-switch a[lang="fa"] {
+  font-family: "Noto Naskh Arabic", "Geeza Pro", Tahoma, sans-serif;
+}
+
+html[lang="en"] .lang-switch a[data-lang-link="en"],
+html[lang="pa"] .lang-switch a[data-lang-link="pa"],
+html[lang="fa"] .lang-switch a[data-lang-link="fa"] {
+  border-bottom-color: currentColor;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -283,7 +344,7 @@ button:hover { background: var(--accent-deep); }
 
 .tool-home {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
   gap: 1.25rem;
 }
 
@@ -814,6 +875,40 @@ button.tool-tile:hover {
 .status { min-height: 1.3rem; margin: 0.4rem 0 0; color: var(--warn); font-weight: 650; }
 .hint { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.9rem; }
 .empty { color: var(--muted); }
+
+.coming-month { margin: 0.2rem 0 0.35rem; }
+
+.coming-list {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.coming-card {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: #f6f3ea;
+}
+
+.coming-card h2 { margin: 0.15rem 0; }
+
+.coming-card p { margin: 0.3rem 0; }
+
+.coming-kicker {
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.coming-driver { color: var(--muted); }
+
+.coming-card.is-likely { border-color: var(--accent); }
+.coming-card.is-eligible { border-color: #8a4b12; }
+.coming-card.is-no_longer { background: #f7f4ef; }
 
 .history-snap { margin: 1rem 0 0.2rem; }
 

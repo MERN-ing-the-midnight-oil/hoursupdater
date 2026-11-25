@@ -74,7 +74,7 @@ export const DEFAULT_DARK_BUS_ALERT = Object.freeze({
 });
 
 // Student Check waits this long after the bus is back in the yard.
-// The clock starts once a Mid Day or PM bus has visited a school and returned.
+// The clock starts once the bus has left the yard, visited a school, and returned.
 export const DEFAULT_STUDENT_CHECK_ALERT = Object.freeze({
   graceMinutes: 10,
   sound: true,
@@ -161,21 +161,15 @@ export function darkBusSwitchNote(tab, scheduled, settings) {
   return `AM until ${mid}. MID until ${pm}.`;
 }
 
-const STUDENT_CHECK_RUNS = ['MID', 'PM'];
+const STUDENT_CHECK_RUNS = ['AM', 'MID', 'PM'];
 
-// Student Check has no AM tab. Before the MID switch it stays on MID.
+// The open Student Check screen follows the same clock as Dark Bus: AM, then MID, then PM.
 export function studentCheckScreen(nowMinutes, settings) {
-  const screen = darkBusScreen(nowMinutes, settings);
-  return screen === 'AM' ? 'MID' : screen;
+  return darkBusScreen(nowMinutes, settings);
 }
 
 export function studentCheckSwitchNote(tab, scheduled, settings) {
-  const pm = formatBoardClock(minutesOf(settings?.pmAt) ?? minutesOf(DEFAULT_DARK_BUS_ALERT.pmAt));
-  const shown = clean(tab).toUpperCase() || scheduled;
-  if (shown !== scheduled) {
-    return `Showing ${shown}. The clock takes over again at the next switch. PM starts at ${pm}. AM routes are not watched.`;
-  }
-  return `MID until ${pm}. PM after that. AM routes are not watched.`;
+  return darkBusSwitchNote(tab, scheduled, settings);
 }
 
 // A standalone Student Check or Child Check. A Post Trip counts only when its
@@ -856,13 +850,13 @@ function studentRunPiece(run) {
   return STUDENT_CHECK_RUNS.includes(piece) ? piece : '';
 }
 
-// Mid Day and PM runs seen at any school. The last school is not required.
-// A street, the propane tank, and the warehouse do not count. AM does not count.
+// AM, Mid Day, and PM buses seen at any school. The last school is not required.
+// A street, the propane tank, and the warehouse do not count. A school means the bus has left the yard.
 export function studentCheckSchoolVisits(runs, nowMinutes, zones = [], already = []) {
   const zoneByBus = zonesByBus(zones);
   const seen = new Set((already || []).map((key) => String(key || '').toLowerCase()).filter(Boolean));
   for (const run of runs || []) {
-    if (!studentRunPiece(run) || !clean(run?.route) || !runIsDuring(run, nowMinutes)) continue;
+    if (!studentRunPiece(run) || !busKey(run?.bus) || !runIsDuring(run, nowMinutes)) continue;
     const zone = zoneByBus.get(busKey(run?.bus));
     if (!isSchoolZone(zone)) continue;
     seen.add(yardDepartureKey(run));
@@ -870,7 +864,21 @@ export function studentCheckSchoolVisits(runs, nowMinutes, zones = [], already =
   return [...seen].sort();
 }
 
-// The first minute a visited Mid Day or PM run is back in Transportation.
+// The bus has left Transportation. A named zone outside the yard counts, including a school.
+// A blank Zonar answer does not: most buses have no zone name between stops.
+export function studentCheckDepartures(runs, nowMinutes, zones = [], already = []) {
+  const zoneByBus = zonesByBus(zones);
+  const seen = new Set((already || []).map((key) => String(key || '').toLowerCase()).filter(Boolean));
+  for (const run of runs || []) {
+    if (!studentRunPiece(run) || !busKey(run?.bus) || !runIsDuring(run, nowMinutes)) continue;
+    const zone = zoneByBus.get(busKey(run?.bus));
+    if (!clean(zone) || isYardZone(zone)) continue;
+    seen.add(yardDepartureKey(run));
+  }
+  return [...seen].sort();
+}
+
+// The first minute a visited run is back in Transportation.
 // The return still counts after clock-out, because the check is owed to the yard.
 export function studentCheckYardReturns(runs, nowMinutes, zones = [], schoolKeys = [], already = []) {
   const zoneByBus = zonesByBus(zones);
@@ -884,7 +892,7 @@ export function studentCheckYardReturns(runs, nowMinutes, zones = [], schoolKeys
   }
   for (const run of runs || []) {
     const clockIn = minutesOf(run?.clockIn);
-    if (!studentRunPiece(run) || !clean(run?.route) || clockIn == null || nowMinutes < clockIn) continue;
+    if (!studentRunPiece(run) || !busKey(run?.bus) || clockIn == null || nowMinutes < clockIn) continue;
     const key = yardDepartureKey(run);
     if (seen.has(key) || !schools.has(key)) continue;
     const zone = zoneByBus.get(busKey(run?.bus));
@@ -897,7 +905,7 @@ export function studentCheckYardReturns(runs, nowMinutes, zones = [], schoolKeys
 }
 
 // The earliest completed Student Check that belongs to each run.
-// A check belongs to the latest Mid Day or PM clock-in at or before its end time,
+// A check belongs to the latest AM, Mid Day, or PM clock-in at or before its end time,
 // so a morning check does not clear the afternoon and one check does not clear both.
 export function studentChecksByRun(runs, inspections) {
   const byKey = new Map();
@@ -932,6 +940,7 @@ export function studentCheckKey(alert) {
 
 function studentCheckContext(context = {}) {
   const visits = new Set((context.visits || []).map((key) => String(key || '').toLowerCase()).filter(Boolean));
+  const departures = new Set((context.departures || []).map((key) => String(key || '').toLowerCase()).filter(Boolean));
   const returns = new Map();
   for (const item of context.returns || []) {
     const key = String(item?.key || '').toLowerCase();
@@ -939,15 +948,16 @@ function studentCheckContext(context = {}) {
     if (key && Number.isFinite(at)) returns.set(key, at);
   }
   const checks = context.checks instanceof Map ? context.checks : new Map();
-  return { visits, returns, checks, inspectionsKnown: context.inspectionsKnown !== false };
+  return { visits, departures, returns, checks, inspectionsKnown: context.inspectionsKnown !== false };
 }
 
-// A route alerts after it has visited a school, come back to the yard, and
-// waited out the grace with no completed Student Check. A check uploaded late
-// still closes the alert. An unfinished inspection does not.
+// A bus alerts after it leaves the yard, visits a school, comes back, and
+// waits out the grace with no completed Student Check. A school visit is proof
+// the bus left. A check uploaded late still closes the alert. An unfinished
+// inspection does not.
 export function studentCheckAlerts(runs, nowMinutes, graceMinutes = 0, context = {}) {
   const grace = Number.isFinite(Number(graceMinutes)) ? Number(graceMinutes) : 0;
-  const { visits, returns, checks, inspectionsKnown } = studentCheckContext(context);
+  const { visits, departures, returns, checks, inspectionsKnown } = studentCheckContext(context);
   if (!inspectionsKnown) return [];
   const alerts = [];
   for (const run of runs || []) {
@@ -955,7 +965,7 @@ export function studentCheckAlerts(runs, nowMinutes, graceMinutes = 0, context =
     const clockIn = minutesOf(run?.clockIn);
     if (!piece || clockIn == null || !busKey(run?.bus)) continue;
     const key = yardDepartureKey(run);
-    if (!visits.has(key) || !returns.has(key)) continue;
+    if (!(departures.has(key) || visits.has(key)) || !visits.has(key) || !returns.has(key)) continue;
     const returnedAt = returns.get(key);
     const due = returnedAt + grace;
     if (nowMinutes < due || checks.has(key)) continue;
@@ -974,7 +984,7 @@ export function studentCheckAlerts(runs, nowMinutes, graceMinutes = 0, context =
 
 export function studentCheckPills(runs, nowMinutes, graceMinutes = 0, context = {}) {
   const grace = Number.isFinite(Number(graceMinutes)) ? Number(graceMinutes) : 0;
-  const { visits, returns, checks, inspectionsKnown } = studentCheckContext(context);
+  const { visits, departures, returns, checks, inspectionsKnown } = studentCheckContext(context);
   const quiet = new Set((context.acknowledged || []).map((key) => String(key || '')));
   return (runs || [])
     .map((run) => {
@@ -982,6 +992,7 @@ export function studentCheckPills(runs, nowMinutes, graceMinutes = 0, context = 
       const piece = studentRunPiece(run);
       const key = yardDepartureKey(run);
       const visited = visits.has(key);
+      const left = departures.has(key) || visited;
       const returnedAt = returns.has(key) ? returns.get(key) : null;
       const check = checks.get(key);
       const due = returnedAt == null ? null : returnedAt + grace;
@@ -997,6 +1008,7 @@ export function studentCheckPills(runs, nowMinutes, graceMinutes = 0, context = 
         photo: clean(run?.photo),
         clockIn,
         visited,
+        left,
         returnedAt,
         due,
         checkedAt: check?.endAt ?? null,
@@ -1013,7 +1025,9 @@ export function studentCheckPillFacts(pill, nowMinutes) {
   if (pill?.checkedAt != null) return [`Student Check at ${formatBoardClock(pill.checkedAt)}`];
   if (!clean(pill?.bus)) return ['No bus number'];
   if (pill?.returnedAt == null) {
-    return pill?.visited ? ['Visited a school', 'Not back at the yard'] : ['No school visit yet'];
+    if (!pill?.left && !pill?.visited) return ['Has not left the yard'];
+    if (!pill?.visited) return ['Left the yard', 'No school visit yet'];
+    return ['Visited a school', 'Not back at the yard'];
   }
   const back = `Back at ${formatBoardClock(pill.returnedAt)}`;
   if (pill.waitingOnZonar) return [back, 'Waiting for Zonar'];
@@ -1764,6 +1778,7 @@ function addPortionOutOfService(list, entry) {
   const spares = portionSpareMap(entry?.spares);
   const days = portionSpareDays(entry?.days);
   const note = clean(entry?.note);
+  const periods = normalizeOutOfServicePeriods(entry?.periods);
   const covers = spareCovers(entry) || '';
   const id = outOfServiceId(route, '', usualBus);
   const replaceId = clean(entry?.replaceId);
@@ -1782,6 +1797,7 @@ function addPortionOutOfService(list, entry) {
     note,
     covers,
     spares,
+    ...(periods.length ? { periods } : {}),
     ...(Object.keys(days).length ? { days } : {}),
   });
   return sortOutOfService(next);
@@ -1798,9 +1814,10 @@ export function addOutOfService(list, entry) {
     throw new Error('Enter the usual bus and the spare that replaces it.');
   }
   const id = outOfServiceId(route, run, usualBus);
+  const periods = normalizeOutOfServicePeriods(entry?.periods);
   const covers = spareCovers(entry) || '';
   const next = (list || []).filter((item) => item.id !== id);
-  next.push({ id, route, run, usualBus, spareBus, note, covers });
+  next.push({ id, route, run, usualBus, spareBus, note, covers, ...(periods.length ? { periods } : {}) });
   return sortOutOfService(next);
 }
 
@@ -2226,7 +2243,7 @@ function statusForBus(live, bus, run) {
 // A bus that is already out of service is not dark. The route is dark only
 // when the spare assigned to it missed Power On.
 export function watchOutOfService(runs, outOfService, live = {}, date = '') {
-  const list = Array.isArray(outOfService) ? outOfService : [];
+  const list = (Array.isArray(outOfService) ? outOfService : []).filter((item) => outOfServiceActiveOn(item, date));
   const outBuses = new Set(list.map((item) => busKey(item?.usualBus)).filter(Boolean));
   return (runs || []).flatMap((run) => {
     const cover = list.find((item) => coversRun(item, run));
@@ -2247,6 +2264,30 @@ export function watchOutOfService(runs, outOfService, live = {}, date = '') {
     if (outBuses.has(busKey(run.bus))) return [];
     return [run];
   });
+}
+
+// Student Check follows the bus that makes the trip. Out of Service does not
+// remove the usual bus, and a spare named for that run is watched too.
+export function studentCheckRuns(runs, outOfService = [], date = '') {
+  const list = (Array.isArray(outOfService) ? outOfService : []).filter((item) => outOfServiceActiveOn(item, date));
+  const next = [];
+  const seen = new Set();
+  const add = (run) => {
+    if (!studentRunPiece(run) || !busKey(run?.bus)) return;
+    const key = yardDepartureKey(run);
+    if (seen.has(key)) return;
+    seen.add(key);
+    next.push(run);
+  };
+  for (const run of runs || []) {
+    add(run);
+    const cover = list.find((item) => coversRun(item, run));
+    if (!cover) continue;
+    const spare = spareForPortion(cover, run.run, date);
+    if (!spare || busKey(spare) === busKey(run.bus)) continue;
+    add({ ...run, bus: spare });
+  }
+  return next;
 }
 
 // Clock-ins already saved on a route. MIDDAY is stored as MID on The Board.
@@ -2723,6 +2764,70 @@ function coversLabel(covers) {
   return '';
 }
 
+export function outOfServiceDateLabel(iso, now = new Date()) {
+  const [year, month, date] = String(iso || '').split('-').map(Number);
+  if (!year || !month || !date) return '';
+  const value = new Date(year, month - 1, date);
+  const options = { weekday: 'short', month: 'short', day: 'numeric' };
+  if (value.getFullYear() !== now.getFullYear()) options.year = 'numeric';
+  return value.toLocaleString('en-US', options);
+}
+
+export function outOfServiceDateChoices(from = new Date(), count = MAX_SPARE_DAYS) {
+  const start = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const total = Number.isInteger(count) && count > 0 ? Math.min(count, MAX_SPARE_DAYS) : MAX_SPARE_DAYS;
+  const choices = [];
+  for (let index = 0; index < total; index += 1) {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    const value = boardDate(date);
+    choices.push({ value, label: outOfServiceDateLabel(value, start) });
+  }
+  return choices;
+}
+
+export function normalizeOutOfServicePeriods(value) {
+  const source = Array.isArray(value) ? value : [];
+  const periods = [];
+  for (const item of source) {
+    const start = clean(item?.start);
+    const end = clean(item?.end).toLowerCase() === 'indefinitely' ? 'indefinitely' : clean(item?.end);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) continue;
+    if (end !== 'indefinitely' && !/^\d{4}-\d{2}-\d{2}$/.test(end)) continue;
+    if (end !== 'indefinitely' && end < start) continue;
+    periods.push({ start, end });
+  }
+  return periods;
+}
+
+export function outOfServicePeriodLabel(period) {
+  const start = outOfServiceDateLabel(period?.start);
+  if (!start) return '';
+  if (period?.end === 'indefinitely') return `${start} – Indefinitely`;
+  if (period?.start === period?.end) return start;
+  const end = outOfServiceDateLabel(period?.end);
+  return end ? `${start} – ${end}` : start;
+}
+
+function outOfServiceCoversLines(row) {
+  const periods = normalizeOutOfServicePeriods(row?.periods);
+  if (periods.length) return periods.map(outOfServicePeriodLabel).filter(Boolean);
+  const cover = coversLabel(row?.covers);
+  return cover ? [cover] : [];
+}
+
+function outOfServiceActiveOn(row, date) {
+  const periods = normalizeOutOfServicePeriods(row?.periods);
+  if (!periods.length || !date) return true;
+  return periods.some((period) => date >= period.start && (period.end === 'indefinitely' || date <= period.end));
+}
+
+function outOfServiceOnRack(row, date) {
+  const periods = normalizeOutOfServicePeriods(row?.periods);
+  if (!periods.length || !date) return true;
+  return periods.some((period) => period.end === 'indefinitely' || period.end >= date);
+}
+
 function neededPool(route, spedRoutes) {
   if (!clean(route)) return '';
   if (isSpedRoute(route)) return 'sped';
@@ -2754,6 +2859,7 @@ function copyOutOfServiceRow(row) {
     ...row,
     ...(hasPortionSpares(row) ? { spares: { ...row.spares } } : {}),
     ...(row?.days && typeof row.days === 'object' ? { days: { ...row.days } } : {}),
+    ...(Array.isArray(row?.periods) ? { periods: row.periods.map((period) => ({ ...period })) } : {}),
   };
 }
 
@@ -3254,6 +3360,79 @@ function proposalNotes(rows, proposed, sped, reg, spedRoutes, wheelchairs) {
   return { moves, shortages };
 }
 
+// The key rack at Transportation. One empty screw sits between 28 and 29.
+// 89, 90, A3, and A7 are written on keys, not on hooks, so they are not positions.
+const KEY_RACK_ROWS = [
+  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18'],
+  ['19', '20', '21', '22', '23', '24', '25', '26', '27', '28', '', '29', '30', '31', '32', '33', '34', '35'],
+  ['36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53'],
+  ['54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71'],
+  ['72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', 'A41'],
+];
+
+function keyRackSpareLines(row) {
+  if (hasPortionSpares(row)) {
+    const map = portionSpareMap(row.spares);
+    const same = PORTION_RUNS.every((run) => busKey(map[run]) === busKey(map.AM));
+    if (same) return [map.AM ? `Spare ${map.AM}` : 'No spare'];
+    return PORTION_RUNS.map((run) => (map[run] ? `${run} spare ${map[run]}` : `${run} has no spare`));
+  }
+  const spare = clean(row?.spareBus);
+  const run = clean(row?.run);
+  if (!spare) return ['No spare'];
+  return [run ? `${run} spare ${spare}` : `Spare ${spare}`];
+}
+
+function keyRackFacts(row, { includeRoute = true } = {}) {
+  const lines = [];
+  if (includeRoute && clean(row?.route)) lines.push(`Route ${clean(row.route)}`);
+  lines.push(...keyRackSpareLines(row));
+  lines.push(...outOfServiceCoversLines(row));
+  if (hasPortionSpares(row) && Object.keys(portionSpareDays(row.days)).length) lines.push('Some days use a different spare.');
+  if (clean(row?.note)) lines.push(clean(row.note));
+  return lines;
+}
+
+function keyIcon() {
+  return '<svg class="board-key-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7.5" cy="8" r="3.4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10.2 10.2 20 20M15.6 16.2l2.2-2.2M17.8 18.4l2.2-2.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+}
+
+function rowsForKey(rows, bus) {
+  const key = busKey(bus);
+  return (Array.isArray(rows) ? rows : []).filter((row) => busKey(row?.usualBus) === key);
+}
+
+export function keyRackPanelMarkup(rows, bus, date = '') {
+  const today = date || boardDate();
+  const matches = rowsForKey(rows, bus).filter((row) => outOfServiceOnRack(row, today));
+  if (!matches.length) return '';
+  return matches
+    .map((row) => {
+      const title = clean(row.route) ? `Route ${clean(row.route)}` : `Bus ${clean(row.usualBus)}`;
+      const facts = keyRackFacts(row, { includeRoute: false }).map((line) => escapeHtml(line)).join('<br>');
+      return `<article class="board-key-card"><h3>${escapeHtml(title)}</h3><p>${facts}</p><div class="board-key-card-actions"><button type="button" data-oos-edit="${escapeHtml(row.id)}">Edit</button><button type="button" class="secondary" data-oos-id="${escapeHtml(row.id)}">Back in service</button></div></article>`;
+    })
+    .join('');
+}
+
+export function keyRackMarkup(rows, date = '') {
+  const today = date || boardDate();
+  const list = Array.isArray(rows) ? rows : [];
+  const cells = KEY_RACK_ROWS.flat()
+    .map((bus) => {
+      if (!bus) return '<span class="board-key-gap"></span>';
+      const matches = rowsForKey(list, bus).filter((row) => outOfServiceOnRack(row, today));
+      const marked = matches.length > 0;
+      const lines = matches.flatMap((row) => keyRackFacts(row));
+      const spoken = marked ? [`Bus ${bus}, out of service`, ...lines].join('. ') : `Bus ${bus}`;
+      const tip = marked ? ` data-oos-tip="${lines.map((line) => escapeHtml(line)).join('&#10;')}"` : '';
+      const hanging = marked ? '<span class="board-key-tag" aria-hidden="true"></span>' : keyIcon();
+      return `<button type="button" class="board-key${marked ? ' is-out' : ''}" data-oos-hook="${escapeHtml(bus)}" aria-pressed="${marked ? 'true' : 'false'}" aria-label="${escapeHtml(spoken)}"${tip}><span class="board-key-num">${escapeHtml(bus)}</span><span class="board-key-hook" aria-hidden="true"></span>${hanging}</button>`;
+    })
+    .join('');
+  return `<div class="board-key-rack">${cells}</div>`;
+}
+
 export function outOfServiceManagerView(rows, { sped = [], reg = [], spedRoutes = [], wheelchairs = {} } = {}) {
   const list = Array.isArray(rows) ? rows : [];
   const legacy = list.filter((row) => !hasPortionSpares(row));
@@ -3283,7 +3462,7 @@ export function outOfServiceManagerView(rows, { sped = [], reg = [], spedRoutes 
           const detail = [
             runLabel(row.run),
             `Usual bus ${escapeHtml(row.usualBus)} is out`,
-            escapeHtml(coversLabel(row.covers)),
+            escapeHtml(outOfServiceCoversLines(row).join(', ')),
             chairs ? `Needs ${escapeHtml(wheelchairPhrase(chairs))}` : '',
           ]
             .filter(Boolean)
@@ -3311,6 +3490,7 @@ export function outOfServiceManagerView(rows, { sped = [], reg = [], spedRoutes 
   return {
     summary: managerSummary(list, sped, reg, spedRoutes, wheelchairs),
     suggestions,
+    rack: keyRackMarkup(list),
     buses,
     spares: `<div class="board-spare-columns">${pool('Sped spare buses', sped, 'sped')}${pool('Reg ed spares', reg, 'reg')}</div>${otherPool}`,
   };
@@ -3343,7 +3523,7 @@ function outOfServicePairLabel(row, run, date) {
 // The board window is a status list: bus-spare under AM, MID, and PM.
 // date picks that day's spare when a row has a calendar override.
 export function outOfServiceMarkup(rows, date = '') {
-  const list = (Array.isArray(rows) ? rows : []).filter((row) => clean(row?.usualBus));
+  const list = (Array.isArray(rows) ? rows : []).filter((row) => clean(row?.usualBus) && outOfServiceActiveOn(row, date));
   if (!list.length) {
     return '<p class="board-empty">No buses are out of service.</p>';
   }
@@ -3454,9 +3634,9 @@ function studentFactsMarkup(pill, nowMinutes) {
   return `<span class="board-dark-facts">${lines}</span>`;
 }
 
-export function studentCheckPageMarkup(runs, { nowMinutes, graceMinutes = 0, tab = 'MID', acknowledged = [], visits = [], returns = [], checks = new Map(), inspectionsKnown = true } = {}) {
+export function studentCheckPageMarkup(runs, { nowMinutes, graceMinutes = 0, tab = 'AM', acknowledged = [], visits = [], departures = [], returns = [], checks = new Map(), inspectionsKnown = true } = {}) {
   const tabName = clean(tab).toUpperCase();
-  const context = { visits, returns, checks, acknowledged, inspectionsKnown };
+  const context = { visits, departures, returns, checks, acknowledged, inspectionsKnown };
   const groups = darkBusGroups(studentCheckPills(runs, nowMinutes, graceMinutes, context), tabName);
   if (!groups.length) {
     const later = (runs || []).some((run) => {

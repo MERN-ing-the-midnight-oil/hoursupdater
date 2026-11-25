@@ -9,24 +9,30 @@
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" sizes="180x180" />
     <link rel="manifest" href="./site.webmanifest" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@500;600;700&family=Noto+Sans+Gurmukhi:wght@500;600;700&display=swap" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <header class="topbar">
       <div>
         <h1 id="page-title">Teamster Tools</h1>
+        <nav class="lang-switch" data-i18n-aria="lang.label" aria-label="Language">
+          <a href="?lang=en" lang="en" hreflang="en" data-lang-link="en">English</a>
+          <a href="?lang=pa" lang="pa" hreflang="pa" data-lang-link="pa">ਪੰਜਾਬੀ</a>
+          <a href="?lang=fa" lang="fa" hreflang="fa" data-lang-link="fa">فارسی</a>
+        </nav>
       </div>
       <div class="top-actions">
-        <button type="button" id="disclaimer-open">Disclaimer</button>
-        <button type="button" id="back" hidden>Back</button>
+        <button type="button" id="disclaimer-open" data-i18n="disclaimer.open">Disclaimer</button>
+        <button type="button" id="back" data-i18n="back" hidden>Back</button>
       </div>
     </header>
 
     <main class="shell">
       <section id="gate" class="panel">
         <form id="gate-form">
-          <label for="password">Password</label>
-          <p class="hint" id="gate-hint">our yard gate code ____</p>
+          <label for="password" data-i18n="gate.password">Password</label>
+          <p class="hint" id="gate-hint" data-i18n="gate.hint">our yard gate code ____</p>
           <input
             id="password"
             type="text"
@@ -36,13 +42,13 @@
             required
             aria-describedby="gate-hint"
           />
-          <button type="submit">Open</button>
+          <button type="submit" data-i18n="gate.open">Open</button>
         </form>
         <p id="gate-status" class="status" role="status"></p>
       </section>
 
       <section id="app" class="panel" hidden>
-        <nav id="tool-home" class="tool-home" aria-label="Teamster tools">
+        <nav id="tool-home" class="tool-home" data-i18n-aria="nav.tools" aria-label="Teamster tools">
           <button type="button" class="tool-tile" data-home="history">
             <span class="tool-tile-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -51,7 +57,7 @@
                 <circle cx="18" cy="5" r="3" />
               </svg>
             </span>
-            <span class="tool-tile-label">Your Route Time Changes</span>
+            <span class="tool-tile-label" data-i18n="home.history">Your Route Time Changes</span>
           </button>
           <button type="button" class="tool-tile" data-home="audit">
             <span class="tool-tile-icon" aria-hidden="true">
@@ -77,7 +83,7 @@
                 <rect fill="#ffe7a8" x="14" y="3" width="1" height="1" />
               </svg>
             </span>
-            <span class="tool-tile-label">Blue Timecard Checker</span>
+            <span class="tool-tile-label" data-i18n="home.audit">Blue Timecard Checker</span>
           </button>
           <button type="button" class="tool-tile" data-home="guide">
             <span class="tool-tile-icon" aria-hidden="true">
@@ -86,66 +92,79 @@
                 <path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" />
               </svg>
             </span>
-            <span class="tool-tile-label">Timechange Rules Explained</span>
+            <span class="tool-tile-label" data-i18n="home.guide">Timechange Rules Explained</span>
+          </button>
+          <button type="button" class="tool-tile" data-home="coming">
+            <span class="tool-tile-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 10v4a2 2 0 0 0 2 2h2l5 4V4L8 8H6a2 2 0 0 0-2 2z" />
+                <path d="M16 9a4 4 0 0 1 0 6" />
+                <path d="M18.5 6.5a8 8 0 0 1 0 11" />
+              </svg>
+            </span>
+            <span class="tool-tile-label" data-i18n="home.coming">Coming Soon</span>
           </button>
         </nav>
         <div id="history-tool" hidden>
         <form id="search-form">
           <fieldset class="mode">
-            <legend>Look up by</legend>
-            <label><input type="radio" name="by" value="driver" checked /> Driver</label>
-            <label><input type="radio" name="by" value="route" /> Route</label>
+            <legend data-i18n="lookup.legend">Look up by</legend>
+            <label><input type="radio" name="by" value="driver" checked /> <span data-i18n="lookup.byDriver">Driver</span></label>
+            <label><input type="radio" name="by" value="route" /> <span data-i18n="lookup.byRoute">Route</span></label>
           </fieldset>
-          <label for="lookup" id="lookup-label">Driver</label>
+          <label for="lookup" id="lookup-label" data-i18n="lookup.driver">Driver</label>
           <select id="lookup">
             <option value="">Choose a driver</option>
           </select>
         </form>
         <div class="history-snap">
-          <div class="audit-hours-mode" id="history-snap" role="group" aria-label="Whether snap clock times are used">
-            <button type="button" data-snap="off" aria-pressed="true">Written clock times</button>
-            <button type="button" data-snap="on" aria-pressed="false">Snap clock times</button>
+            <div class="audit-hours-mode" id="history-snap" role="group" data-i18n-aria="snap.group" aria-label="Whether snap clock times are used">
+            <button type="button" data-snap="off" data-i18n="snap.written" aria-pressed="true">Written clock times</button>
+            <button type="button" data-snap="on" data-i18n="snap.onButton" aria-pressed="false">Snap clock times</button>
           </div>
-          <p class="hint" id="history-snap-hint">
+          <p class="hint" id="history-snap-hint" data-i18n="snap.hintOff">
             Snap is off. Turn it on to move each clock onto a quarter hour with the payroll bands and see if the hours or the date change. The office record stays as it is.
           </p>
         </div>
         <p id="page-status" class="status" role="status"></p>
         <div id="history"></div>
         </div>
+        <div id="coming-tool" hidden>
+          <div id="coming"></div>
+        </div>
         <div id="audit-tool" hidden>
-          <p class="lead">
+          <p class="lead" data-i18n="audit.lead">
             Photograph the front and back of a blue time card. Use good lighting and hold the card still.
             The secretary's Reg, OT, and Tot. Hrs. math all gets automatically calculated and checked based on
             the Clock Record times and your route info on the sticker at the top of the front side.
           </p>
           <div id="audit-genie-view">
-            <div class="audit-hours-mode" id="audit-hours-mode" role="group" aria-label="How clock hours are calculated">
-              <button type="button" data-hours-mode="snap" aria-pressed="true">Snap rounded times</button>
-              <button type="button" data-hours-mode="quarter" aria-pressed="false">Quarter hour rounding</button>
+            <div class="audit-hours-mode" id="audit-hours-mode" role="group" data-i18n-aria="audit.mode" aria-label="How clock hours are calculated">
+              <button type="button" data-hours-mode="snap" data-i18n="audit.snap" aria-pressed="true">Snap rounded times</button>
+              <button type="button" data-hours-mode="quarter" data-i18n="audit.quarter" aria-pressed="false">Quarter hour rounding</button>
             </div>
-            <p class="hint audit-hours-mode-hint">
+            <p class="hint audit-hours-mode-hint" data-i18n="audit.modeHint">
               Snap rounded times is the controversial payroll rule that changes all clock times to the nearest clock quarter hour.
             </p>
             <form id="audit-form" novalidate>
               <div class="audit-sides">
                 <div>
-                  <h2>Front</h2>
+                  <h2 data-i18n="audit.front">Front</h2>
                   <img id="audit-front-preview" class="audit-preview" alt="" hidden />
-                  <button type="button" id="audit-front-camera">Take front photo</button>
-                  <button type="button" class="secondary" id="audit-front-file">Choose a file</button>
+                  <button type="button" id="audit-front-camera" data-i18n="audit.takeFront">Take front photo</button>
+                  <button type="button" class="secondary" id="audit-front-file" data-i18n="audit.chooseFile">Choose a file</button>
                   <input id="audit-front" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" />
                 </div>
                 <div>
-                  <h2>Back</h2>
+                  <h2 data-i18n="audit.back">Back</h2>
                   <img id="audit-back-preview" class="audit-preview" alt="" hidden />
-                  <button type="button" id="audit-back-camera">Take back photo</button>
-                  <button type="button" class="secondary" id="audit-back-file">Choose a file</button>
+                  <button type="button" id="audit-back-camera" data-i18n="audit.takeBack">Take back photo</button>
+                  <button type="button" class="secondary" id="audit-back-file" data-i18n="audit.chooseFile">Choose a file</button>
                   <input id="audit-back" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" />
                 </div>
               </div>
               <div class="audit-contract-gate">
-                <label for="audit-contract-hours" id="audit-contract-label">Daily contract hours</label>
+                <label for="audit-contract-hours" id="audit-contract-label" data-i18n="audit.contract">Daily contract hours</label>
                 <input
                   id="audit-contract-hours"
                   type="text"
@@ -153,30 +172,31 @@
                   autocomplete="off"
                   spellcheck="false"
                   placeholder="e.g. 6.50"
+                  data-i18n-placeholder="audit.contractPlaceholder"
                   aria-label="Daily contract hours required before submit"
                   required
                 />
-                <p class="audit-contract-gate-hint">Required before you can submit. Used to check Reg and OT.</p>
+                <p class="audit-contract-gate-hint" data-i18n="audit.contractHint">Required before you can submit. Used to check Reg and OT.</p>
               </div>
               <div class="audit-actions">
-                <button type="submit" id="audit-read" class="audit-submit-btn">Submit these photos</button>
-                <button type="button" id="audit-clear" class="audit-submit-btn">Start over</button>
+                <button type="submit" id="audit-read" class="audit-submit-btn" data-i18n="audit.submit">Submit these photos</button>
+                <button type="button" id="audit-clear" class="audit-submit-btn" data-i18n="audit.startOver">Start over</button>
               </div>
             </form>
             <dialog id="audit-camera" class="audit-camera" aria-labelledby="audit-camera-title">
               <div class="guide-dialog-bar">
-                <h2 id="audit-camera-title">Front of the time card</h2>
-                <button type="button" id="audit-camera-cancel">Cancel</button>
+                <h2 id="audit-camera-title" data-i18n="audit.cameraTitle">Front of the time card</h2>
+                <button type="button" id="audit-camera-cancel" data-i18n="audit.cancel">Cancel</button>
               </div>
-              <p class="lead">Point the camera at the card. The bright screen helps light it.</p>
+              <p class="lead" data-i18n="audit.cameraLead">Point the camera at the card. The bright screen helps light it.</p>
               <div id="audit-camera-picker" hidden>
-                <label for="audit-camera-device">Camera</label>
+                <label for="audit-camera-device" data-i18n="audit.cameraLabel">Camera</label>
                 <select id="audit-camera-device"></select>
               </div>
               <video id="audit-camera-video" autoplay playsinline muted></video>
               <p id="audit-camera-status" class="status" role="status" hidden></p>
               <div class="audit-actions">
-                <button type="button" id="audit-camera-shutter">Take photo</button>
+                <button type="button" id="audit-camera-shutter" data-i18n="audit.shutter">Take photo</button>
               </div>
             </dialog>
             <p id="audit-status" class="status timesheet-progress" role="status" hidden>
@@ -184,25 +204,25 @@
               <span class="timesheet-progress-text"></span>
             </p>
             <div id="audit-sticker" class="audit-sticker" hidden>
-              <label for="audit-sticker-date" id="audit-sticker-label">Pay period ending</label>
+              <label for="audit-sticker-date" id="audit-sticker-label" data-i18n="audit.sticker">Pay period ending</label>
               <input id="audit-sticker-date" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="MM/DD/YY" aria-label="Pay period ending date on the sticker">
             </div>
             <div class="audit-actions" id="audit-result-actions" hidden>
-              <button type="button" id="audit-recalculate">Recalculate</button>
+              <button type="button" id="audit-recalculate" data-i18n="audit.recalculate">Recalculate</button>
             </div>
             <div id="audit-result" hidden>
-              <p class="hint">Blue handwriting is what was written on the card. A red number is the calculated hours when they differ.</p>
+              <p class="hint" data-i18n="audit.resultHint">Blue handwriting is what was written on the card. A red number is the calculated hours when they differ.</p>
               <section aria-labelledby="audit-front-heading">
-                <h2 id="audit-front-heading">Front</h2>
+                <h2 id="audit-front-heading" data-i18n="audit.front">Front</h2>
                 <div class="table-wrap">
                   <table class="audit-card timesheet-card-sheet" id="audit-front-sheet">
                     <thead>
                       <tr>
-                        <th scope="col">Desc</th>
-                        <th scope="col">Reg</th>
-                        <th scope="col">OT</th>
-                        <th scope="col">Tot. Hrs.</th>
-                        <th scope="col">Clock Record</th>
+                        <th scope="col" data-i18n="audit.desc">Desc</th>
+                        <th scope="col" data-i18n="audit.reg">Reg</th>
+                        <th scope="col" data-i18n="audit.ot">OT</th>
+                        <th scope="col" data-i18n="audit.tot">Tot. Hrs.</th>
+                        <th scope="col" data-i18n="audit.clock">Clock Record</th>
                       </tr>
                     </thead>
                     <tbody id="audit-front-body"></tbody>
@@ -210,16 +230,16 @@
                 </div>
               </section>
               <section aria-labelledby="audit-back-heading">
-                <h2 id="audit-back-heading">Back</h2>
+                <h2 id="audit-back-heading" data-i18n="audit.back">Back</h2>
                 <div class="table-wrap">
                   <table class="audit-card timesheet-card-sheet" id="audit-back-sheet">
                     <thead>
                       <tr>
-                        <th scope="col">Desc</th>
-                        <th scope="col">Reg</th>
-                        <th scope="col">OT</th>
-                        <th scope="col">Tot. Hrs.</th>
-                        <th scope="col">Clock Record</th>
+                        <th scope="col" data-i18n="audit.desc">Desc</th>
+                        <th scope="col" data-i18n="audit.reg">Reg</th>
+                        <th scope="col" data-i18n="audit.ot">OT</th>
+                        <th scope="col" data-i18n="audit.tot">Tot. Hrs.</th>
+                        <th scope="col" data-i18n="audit.clock">Clock Record</th>
                       </tr>
                     </thead>
                     <tbody id="audit-back-body"></tbody>
@@ -228,36 +248,36 @@
               </section>
             </div>
             <div class="audit-actions" id="audit-mark-actions" hidden>
-              <button type="button" id="audit-mark-checked">Mark as Checked?</button>
+              <button type="button" id="audit-mark-checked" data-i18n="audit.mark">Mark as Checked?</button>
             </div>
             <dialog id="audit-desc-dialog" class="audit-desc-dialog" aria-labelledby="audit-desc-title">
               <div class="guide-dialog-bar">
-                <h2 id="audit-desc-title">Description of Work</h2>
-                <button type="button" id="audit-desc-cancel">Cancel</button>
+                <h2 id="audit-desc-title" data-i18n="audit.work">Description of Work</h2>
+                <button type="button" id="audit-desc-cancel" data-i18n="audit.cancel">Cancel</button>
               </div>
-              <label for="audit-desc-text">Description of Work</label>
+              <label for="audit-desc-text" data-i18n="audit.work">Description of Work</label>
               <textarea id="audit-desc-text" rows="4"></textarea>
               <div class="audit-actions">
-                <button type="button" id="audit-desc-save">Save</button>
+                <button type="button" id="audit-desc-save" data-i18n="audit.save">Save</button>
               </div>
             </dialog>
           </div>
         </div>
       </section>
 
-      <p class="fine">
+      <p class="fine" data-i18n="fine">
         Made by Rhys Smoker on his own time. Not affiliated with Bellingham Public Schools,
         Transportation, or the Teamsters.
       </p>
 
-      <section id="landing-share" class="panel landing-qr" aria-label="Share this app">
-        <p>Share this app with another bus driver.</p>
+      <section id="landing-share" class="panel landing-qr" data-i18n-aria="share.section" aria-label="Share this app">
+        <p data-i18n="share.lead">Share this app with another bus driver.</p>
         <div class="landing-share-row">
           <figure class="landing-qr-code">
-            <figcaption>use this code to share</figcaption>
-            <img src="./share-qr.svg" width="192" height="192" alt="QR code that opens this page" />
+            <figcaption data-i18n="share.caption">use this code to share</figcaption>
+            <img src="./share-qr.svg" width="192" height="192" data-i18n-alt="share.qrAlt" alt="QR code that opens this page" />
           </figure>
-          <button type="button" id="share-open">Text or email this app to a friend</button>
+          <button type="button" id="share-open" data-i18n="share.button">Text or email this app to a friend</button>
         </div>
         <button type="button" id="install-open" class="install-link">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -265,26 +285,26 @@
             <path d="m7 10 5 5 5-5" />
             <path d="M5 21h14" />
           </svg>
-          Save this app to your phone
+          <span data-i18n="install.button">Save this app to your phone</span>
         </button>
       </section>
     </main>
 
     <dialog id="disclaimer-dialog" class="day-dialog disclaimer-dialog" aria-labelledby="disclaimer-dialog-title">
       <div class="guide-dialog-bar">
-        <h2 id="disclaimer-dialog-title">Disclaimer</h2>
-        <button type="button" id="disclaimer-dialog-close">Close</button>
+        <h2 id="disclaimer-dialog-title" data-i18n="disclaimer.title">Disclaimer</h2>
+        <button type="button" id="disclaimer-dialog-close" data-i18n="disclaimer.close">Close</button>
       </div>
       <div class="disclaimer-copy">
-        <p>
+        <p data-i18n="disclaimer.p1">
           I built Teamster Tools for free, on my own time, as a favor to my fellow bus drivers.
           It is not affiliated with Bellingham Public Schools, Transportation, or the Teamsters.
         </p>
-        <p>
+        <p data-i18n="disclaimer.p2">
           I do my best to keep the information accurate, but I can get things wrong. Clocks, contract
           rules, pay math, and anything else in this app can contain errors or outdated details.
         </p>
-        <p>
+        <p data-i18n="disclaimer.p3">
           By using this app, you agree that you will not hold me liable for mistakes, wrong information,
           missed pay, route decisions, or any other loss that comes from relying on it. Double-check
           important numbers with the office and your own records.
@@ -295,27 +315,27 @@
 
     <dialog id="install-dialog" class="day-dialog" aria-labelledby="install-dialog-title">
       <div class="guide-dialog-bar">
-        <h2 id="install-dialog-title">Save this app to your phone</h2>
-        <button type="button" id="install-dialog-close">Close</button>
+        <h2 id="install-dialog-title" data-i18n="install.title">Save this app to your phone</h2>
+        <button type="button" id="install-dialog-close" data-i18n="install.close">Close</button>
       </div>
       <div id="add-to-desktop" class="install-help">
-        <p id="install-either" class="install-note">Open this page on your phone, then follow the steps for that phone.</p>
+        <p id="install-either" class="install-note" data-i18n="install.either">Open this page on your phone, then follow the steps for that phone.</p>
         <section data-install="apple">
-          <h2>iPhone</h2>
-          <p class="install-note">Use Safari.</p>
+          <h2 data-i18n="install.iphone">iPhone</h2>
+          <p class="install-note" data-i18n="install.safari">Use Safari.</p>
           <ol>
-            <li>Tap the Share button at the bottom of Safari. It is a square with an arrow pointing up.</li>
-            <li>Scroll the share menu and tap Add to Home Screen.</li>
-            <li>Tap Add. Teamster Tools shows up as an icon on your home screen.</li>
+            <li data-i18n="install.iphone.1">Tap the Share button at the bottom of Safari. It is a square with an arrow pointing up.</li>
+            <li data-i18n="install.iphone.2">Scroll the share menu and tap Add to Home Screen.</li>
+            <li data-i18n="install.iphone.3">Tap Add. Teamster Tools shows up as an icon on your home screen.</li>
           </ol>
         </section>
         <section data-install="android">
-          <h2>Android</h2>
-          <p class="install-note">Use Chrome.</p>
+          <h2 data-i18n="install.android">Android</h2>
+          <p class="install-note" data-i18n="install.chrome">Use Chrome.</p>
           <ol>
-            <li>Tap the three dots in the top corner of Chrome.</li>
-            <li>Tap Add to Home screen. If you see Install app, tap that.</li>
-            <li>Tap Add or Install. Teamster Tools shows up as an icon on your home screen.</li>
+            <li data-i18n="install.android.1">Tap the three dots in the top corner of Chrome.</li>
+            <li data-i18n="install.android.2">Tap Add to Home screen. If you see Install app, tap that.</li>
+            <li data-i18n="install.android.3">Tap Add or Install. Teamster Tools shows up as an icon on your home screen.</li>
           </ol>
         </section>
       </div>
@@ -323,27 +343,27 @@
 
     <dialog id="share-dialog" class="day-dialog" aria-labelledby="share-dialog-title">
       <div class="guide-dialog-bar">
-        <h2 id="share-dialog-title">Share</h2>
-        <button type="button" id="share-dialog-close">Close</button>
+        <h2 id="share-dialog-title" data-i18n="share.title">Share</h2>
+        <button type="button" id="share-dialog-close" data-i18n="share.close">Close</button>
       </div>
       <div class="share-actions">
-        <p class="lead">The message includes the page link and the password. The link itself does not.</p>
-        <a id="share-email" class="share-link">Email</a>
-        <a id="share-text" class="share-link">Text</a>
+        <p class="lead" data-i18n="share.note">The message includes the page link and the password. The link itself does not.</p>
+        <a id="share-email" class="share-link" data-i18n="share.email">Email</a>
+        <a id="share-text" class="share-link" data-i18n="share.textLink">Text</a>
       </div>
     </dialog>
 
-    <dialog id="guide-dialog" class="guide-dialog" aria-label="Timechange Rules Explained">
+    <dialog id="guide-dialog" class="guide-dialog" data-i18n-aria="guide.dialog" aria-label="Timechange Rules Explained">
       <div class="guide-dialog-bar">
-        <button type="button" id="guide-dialog-close">Close</button>
+        <button type="button" id="guide-dialog-close" data-i18n="guide.close">Close</button>
       </div>
-      <iframe id="guide-frame" title="Timechange Rules Explained"></iframe>
+      <iframe id="guide-frame" data-i18n-title="guide.dialog" title="Timechange Rules Explained"></iframe>
     </dialog>
 
     <dialog id="day-dialog" class="day-dialog" aria-labelledby="day-dialog-title">
       <div class="guide-dialog-bar">
         <h2 id="day-dialog-title"></h2>
-        <button type="button" id="day-dialog-close">Close</button>
+        <button type="button" id="day-dialog-close" data-i18n="day.close">Close</button>
       </div>
       <ul id="day-dialog-list" class="day-dialog-list"></ul>
     </dialog>

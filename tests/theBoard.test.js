@@ -24,6 +24,10 @@ import {
   addOutOfService,
   applyOutOfServiceSpares,
   assignOutOfServiceSpare,
+  keyRackMarkup,
+  keyRackPanelMarkup,
+  normalizeOutOfServicePeriods,
+  outOfServiceDateChoices,
   outOfServiceManagerView,
   placeOutOfServiceSpare,
   availableDrivers,
@@ -81,11 +85,14 @@ import {
   normalizeStudentCheckAlert,
   isStudentCheckConfig,
   countsAsStudentCheck,
+  studentCheckDepartures,
+  studentCheckRuns,
   studentCheckSchoolVisits,
   studentCheckYardReturns,
   studentChecksByRun,
   studentCheckAlerts,
   studentCheckPills,
+  studentCheckPillFacts,
   studentCheckPageMarkup,
   studentCheckScreen,
   outOfServiceMarkup,
@@ -888,6 +895,73 @@ describe('out of service', () => {
     assert.doesNotMatch(mid, /11-45|49-9/);
     assert.match(pm, /49-9/);
     assert.doesNotMatch(pm, /11-45/);
+  });
+
+  it('draws the transportation key rack by bus number and marks buses that are out', () => {
+    const markup = keyRackMarkup([
+      { usualBus: '14' },
+      { usualBus: 'A41' },
+    ]);
+    assert.equal(markup.match(/data-oos-hook=/g).length, 89);
+    assert.match(markup, /data-oos-hook="1"/);
+    assert.match(markup, /data-oos-hook="13"/);
+    assert.match(markup, /data-oos-hook="28"/);
+    assert.match(markup, /data-oos-hook="29"/);
+    assert.match(markup, /data-oos-hook="53"/);
+    assert.match(markup, /data-oos-hook="88"/);
+    assert.match(markup, /data-oos-hook="A41"[^>]*aria-pressed="true"/);
+    assert.match(markup, /data-oos-hook="14"[^>]*aria-pressed="true"/);
+    assert.match(markup, /data-oos-hook="18"[^>]*aria-pressed="false"/);
+    assert.equal(markup.match(/board-key-tag/g).length, 2);
+    assert.equal(markup.match(/board-key-icon/g).length, 87);
+    assert.match(markup, /data-oos-hook="14"[^>]*data-oos-tip="No spare"/);
+    assert.equal(markup.match(/board-key-gap/g).length, 1);
+    assert.doesNotMatch(markup, /data-oos-hook="89"|data-oos-hook="90"|data-oos-hook="A3"|data-oos-hook="A7"/);
+    const saved = [{ id: '14', route: '12', usualBus: '14', spareBus: '9', note: 'Shop', covers: 'today' }];
+    const view = outOfServiceManagerView(saved);
+    assert.match(view.rack, /data-oos-hook="14"[^>]*aria-pressed="true"/);
+    assert.match(view.rack, /data-oos-tip="Route 12&#10;Spare 9&#10;Today only&#10;Shop"/);
+    const panel = keyRackPanelMarkup(saved, '14');
+    assert.equal(panel.match(/Route 12/g).length, 1);
+    assert.match(panel, /Spare 9/);
+    assert.match(panel, /Today only/);
+    assert.match(panel, /Shop/);
+    assert.match(panel, /data-oos-edit="14"/);
+    assert.match(panel, /Back in service/);
+    assert.equal(keyRackPanelMarkup(saved, '15'), '');
+  });
+
+  it('keeps a bus out between a start date and an end date, including more than one period', () => {
+    const saved = addOutOfService([], {
+      usualBus: '14',
+      spares: { AM: '9', MID: '9', PM: '9' },
+      periods: [
+        { start: '2026-11-25', end: '2026-11-27' },
+        { start: '2026-12-08', end: 'indefinitely' },
+        { start: '2026-12-01', end: '2026-11-01' },
+      ],
+    });
+    assert.deepEqual(saved[0].periods, [
+      { start: '2026-11-25', end: '2026-11-27' },
+      { start: '2026-12-08', end: 'indefinitely' },
+    ]);
+    assert.match(outOfServiceMarkup(saved, '2026-11-26'), /14-9/);
+    assert.match(outOfServiceMarkup(saved, '2026-12-01'), /No buses are out of service/);
+    assert.match(outOfServiceMarkup(saved, '2026-12-09'), /14-9/);
+    const waiting = keyRackMarkup(saved, '2026-11-20');
+    assert.match(waiting, /data-oos-hook="14"[^>]*aria-pressed="true"/);
+    assert.match(waiting, /Nov 25/);
+    assert.match(waiting, /Indefinitely/);
+    const finished = keyRackMarkup(
+      [{ usualBus: '14', periods: [{ start: '2026-11-01', end: '2026-11-02' }] }],
+      '2026-11-20'
+    );
+    assert.match(finished, /data-oos-hook="14"[^>]*aria-pressed="false"/);
+    assert.deepEqual(
+      outOfServiceDateChoices(new Date(2026, 10, 25), 3).map((choice) => choice.value),
+      ['2026-11-25', '2026-11-26', '2026-11-27']
+    );
+    assert.deepEqual(normalizeOutOfServicePeriods([{ start: '2026-11-25', end: '' }]), []);
   });
 
   it('switches spare assignments so each out-of-service bus can get an appropriate bus', () => {
@@ -1806,16 +1880,57 @@ describe('student check alerts', () => {
     assert.equal(normalizeStudentCheckAlert(null).graceMinutes, 10);
     assert.equal(normalizeStudentCheckAlert({ graceMinutes: 90 }).graceMinutes, 60);
     assert.equal(normalizeStudentCheckAlert({ graceMinutes: -4 }).graceMinutes, 0);
-    assert.equal(studentCheckScreen(8 * 60, { midAt: '09:30', pmAt: '13:00' }), 'MID');
+    assert.equal(studentCheckScreen(8 * 60, { midAt: '09:30', pmAt: '13:00' }), 'AM');
+    assert.equal(studentCheckScreen(10 * 60, { midAt: '09:30', pmAt: '13:00' }), 'MID');
     assert.equal(studentCheckScreen(14 * 60, { midAt: '09:30', pmAt: '13:00' }), 'PM');
   });
 
-  it('remembers a school visit on Mid Day or PM, and the yard return after clock-out', () => {
+  it('keeps an out-of-service bus and also watches its spare', () => {
+    const run = { route: '10', bus: '61', run: 'AM', clockIn: '06:50', clockOut: '09:20' };
+    const parked = addOutOfService([], {
+      route: '10',
+      usualBus: '61',
+      spares: { AM: '', MID: '', PM: '' },
+    });
+    assert.deepEqual(
+      studentCheckRuns([run], parked, '2026-11-25').map((item) => item.bus),
+      ['61']
+    );
+    const spared = addOutOfService([], {
+      route: '10',
+      usualBus: '61',
+      spares: { AM: '70', MID: '', PM: '45' },
+    });
+    assert.deepEqual(
+      studentCheckRuns([run], spared, '2026-11-25').map((item) => item.bus),
+      ['61', '70']
+    );
+    assert.equal(watchOutOfService([run], parked, {}, '2026-11-25').length, 0);
+  });
+
+  it('counts a bus as gone once it is outside the yard', () => {
+    const am = { route: '10', bus: '61', run: 'AM', clockIn: 6 * 60 + 50, clockOut: 9 * 60 + 20 };
+    const now = 8 * 60;
+    assert.deepEqual(studentCheckDepartures([am], now, [{ fleet: '61', zone: 'Transportation' }], []), []);
+    assert.deepEqual(studentCheckDepartures([am], now, [{ fleet: '61', zone: '' }], []), []);
+    assert.deepEqual(studentCheckDepartures([am], now, [{ fleet: '61', zone: 'I-5MeridianMerge' }], []), ['10|am|61']);
+    assert.deepEqual(studentCheckDepartures([am], now, [{ fleet: '61', zone: 'Lowell' }], []), ['10|am|61']);
+    const pills = studentCheckPills([am], now, 10, { inspectionsKnown: true });
+    assert.equal(pills[0].left, false);
+    assert.deepEqual(studentCheckPillFacts(pills[0], now), ['Has not left the yard']);
+    const gone = studentCheckPills([am], now, 10, { departures: ['10|am|61'], inspectionsKnown: true });
+    assert.deepEqual(studentCheckPillFacts(gone[0], now), ['Left the yard', 'No school visit yet']);
+  });
+
+  it('remembers a school visit on AM, Mid Day, or PM, and the yard return after clock-out', () => {
+    const am = { ...pm, run: 'AM', clockIn: 6 * 60 + 20, clockOut: 9 * 60 };
     assert.deepEqual(studentCheckSchoolVisits([pm], 15 * 60, school, []), visits);
-    assert.deepEqual(studentCheckSchoolVisits([{ ...pm, run: 'AM' }], 15 * 60, school, []), []);
+    assert.deepEqual(studentCheckSchoolVisits([am], 7 * 60, school, []), ['12|am|40']);
     assert.deepEqual(studentCheckSchoolVisits([pm], 15 * 60, [{ fleet: '40', zone: 'Transportation' }], []), []);
     const back = studentCheckYardReturns([pm], 17 * 60 + 5, yard, visits, []);
     assert.equal(back[0].at, 17 * 60 + 5);
+    const morning = studentCheckYardReturns([am], 8 * 60 + 40, yard, ['12|am|40'], []);
+    assert.equal(morning[0].at, 8 * 60 + 40);
   });
 
   it('counts a standalone Student Check and a Post Trip that includes the zone', () => {
@@ -1832,13 +1947,16 @@ describe('student check alerts', () => {
     };
     assert.equal(countsAsStudentCheck(postTrip), true);
     assert.equal(countsAsStudentCheck({ fleet: '40', label: 'BUS POST-TRIP', verified: true, endAt: 16 * 60 + 4 }), false);
-    const runs = [pm, { ...pm, run: 'MID', clockIn: 11 * 60, clockOut: 13 * 60 }];
+    const am = { ...pm, run: 'AM', clockIn: 6 * 60 + 20, clockOut: 9 * 60 };
+    const runs = [am, pm, { ...pm, run: 'MID', clockIn: 11 * 60, clockOut: 13 * 60 }];
     const checks = studentChecksByRun(runs, [
       { fleet: '040', label: 'BUS POST-TRIP', verified: true, endAt: 16 * 60 + 4 },
       { fleet: '40', label: 'STUDENT CHECK', verified: false, endAt: 16 * 60 + 5 },
+      { fleet: '40', label: 'STUDENT CHECK', verified: true, endAt: 8 * 60 },
       { fleet: '40', label: 'STUDENT CHECK', verified: true, endAt: 12 * 60 },
       postTrip,
     ]);
+    assert.equal(checks.get('12|am|40').endAt, 8 * 60);
     assert.equal(checks.get('12|mid|40').endAt, 12 * 60);
     assert.equal(checks.get('12|pm|40').endAt, 16 * 60 + 8);
   });
@@ -1865,5 +1983,13 @@ describe('student check alerts', () => {
     assert.match(markup, /Route 12/);
     assert.match(markup, /data-student-key="40\|12\|pm\|840"/);
     assert.match(markup, /No Student Check/);
+    const am = { ...pm, run: 'AM', clockIn: 6 * 60 + 20, clockOut: 9 * 60 };
+    const morning = { visits: ['12|am|40'], returns: [{ key: '12|am|40', at: 8 * 60 + 10 }], checks: new Map(), inspectionsKnown: true };
+    const amAlert = studentCheckAlerts([am], 8 * 60 + 20, 10, morning);
+    assert.equal(amAlert.length, 1);
+    assert.equal(amAlert[0].run, 'AM');
+    const amMarkup = studentCheckPageMarkup([am, pm], { nowMinutes: 8 * 60 + 20, graceMinutes: 10, tab: 'AM', ...morning });
+    assert.match(amMarkup, /data-student-key="40\|12\|am\|380"/);
+    assert.doesNotMatch(amMarkup, /pm/);
   });
 });

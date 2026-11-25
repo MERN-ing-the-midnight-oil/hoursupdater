@@ -8,7 +8,7 @@
     <link rel="icon" href="./favicon.ico" sizes="48x48" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./styles.css" />
-    <link rel="stylesheet" href="./office.css?v=board-back-1" />
+    <link rel="stylesheet" href="./office.css?v=oos-periods-1" />
   </head>
   <body class="the-board-page">
     <header class="the-board-bar">
@@ -50,7 +50,7 @@
           type="button"
           class="board-settings-btn board-settings-student"
           id="student-check-open"
-          title="A Mid Day or PM route alerts after it is back in the yard if Zonar has no Student Check. The wait is a setting. Click a flashing route to stop that alarm."
+          title="A bus owes a Student Check after it leaves the yard, visits a school, and comes back. Out of Service does not take the bus off this list. The wait is a setting. Click a flashing route to stop that alarm."
           aria-label="Student Check Alerts"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -175,6 +175,7 @@
       </div>
       <div class="board-dark-bar">
         <div class="board-dark-tabs" role="tablist" aria-label="Student Check run">
+          <button type="button" role="tab" id="student-tab-am" data-student-tab="AM" aria-controls="student-check-pills">AM</button>
           <button type="button" role="tab" id="student-tab-mid" data-student-tab="MID" aria-controls="student-check-pills">MID</button>
           <button type="button" role="tab" id="student-tab-pm" data-student-tab="PM" aria-controls="student-check-pills">PM</button>
         </div>
@@ -187,7 +188,7 @@
         <div id="student-check-pills" class="board-dark-board" role="tabpanel"></div>
         <form id="student-check-config-form" class="board-dark-settings">
           <h2>Settings</h2>
-          <p class="board-cal-note">A Mid Day or PM bus is watched after it visits a school and comes back to the yard. A standalone Student Check counts, and so does a Post Trip whose Student Check zone was completed. AM routes are not watched.</p>
+          <p class="board-cal-note">A Student Check is due after a bus leaves the yard, visits a school, and comes back. Out of Service keeps that bus on the list, and a spare named for the run is watched too. A standalone Student Check counts, and so does a Post Trip whose Student Check zone was completed.</p>
           <label>
             Minutes to wait after the bus is back
             <input id="student-check-grace" type="number" min="0" max="60" step="1" inputmode="numeric" />
@@ -225,24 +226,26 @@
         </div>
         <button type="button" class="secondary" id="oos-manager-close">Done</button>
       </div>
-      <p class="board-cal-note">Each out-of-service bus is listed with the spare covering it. Change a spare to switch assignments. A sped route takes a sped spare, and a regular-ed route takes a regular-ed spare, when one is available.</p>
       <p id="oos-manager-status" class="status" role="status" hidden></p>
-      <p id="oos-manager-summary" class="board-oos-summary"></p>
-      <div id="oos-manager-suggestions"></div>
-      <div class="board-editor-boards">
-        <section class="board-editor-panel" aria-labelledby="oos-buses-heading">
-          <h2 id="oos-buses-heading">Out of service</h2>
-          <button type="button" class="board-oos-add" id="oos-add">+ Mark a Bus as Out of Service</button>
-          <div id="oos-manager-list" class="board-editor-list"></div>
-        </section>
-        <section class="board-editor-panel" aria-labelledby="oos-spares-heading">
-          <div class="board-panel-head">
-            <h2 id="oos-spares-heading">Spares</h2>
-            <button type="button" class="secondary" id="spare-lists-open">Edit lists</button>
-          </div>
-          <div id="oos-manager-spares" class="board-editor-list"></div>
+      <div class="board-key-board">
+        <section class="board-key-stage" aria-label="Transportation key rack">
+          <h2 id="oos-rack-heading" class="visually-hidden">Key rack</h2>
+          <div id="oos-manager-rack"></div>
         </section>
       </div>
+      <details id="oos-spares-fold" class="board-spare-fold">
+        <summary id="oos-spares-heading">Spares</summary>
+        <div class="board-spare-fold-body">
+          <div class="board-panel-head">
+            <p>Sped spares cover sped routes. Regular-ed spares cover regular-ed routes.</p>
+            <button type="button" class="secondary" id="spare-lists-open">Edit lists</button>
+          </div>
+          <div id="oos-manager-suggestions"></div>
+          <div id="oos-manager-spares" class="board-editor-list"></div>
+        </div>
+      </details>
+      <div id="oos-key-tip" class="board-key-tip" role="tooltip" hidden></div>
+      <div id="oos-key-panel" class="board-key-panel" hidden></div>
     </div>
 
     <div id="absent-editor" class="board-editor" hidden>
@@ -271,10 +274,10 @@
         <label>Usual bus <input id="oos-usual" type="text" required inputmode="numeric" autocomplete="off" /></label>
         <fieldset class="board-oos-portions">
           <legend>Spare buses</legend>
-          <label>All <select id="oos-spare-all" aria-label="Spare for the whole day"></select></label>
-          <label>AM <select id="oos-spare-am" data-oos-portion="AM" aria-label="AM spare"></select></label>
-          <label>MID <select id="oos-spare-mid" data-oos-portion="MID" aria-label="MID spare"></select></label>
-          <label>PM <select id="oos-spare-pm" data-oos-portion="PM" aria-label="PM spare"></select></label>
+          <label>Assign All Day <select id="oos-spare-all" aria-label="Assign All Day"></select></label>
+          <label>ASSIGN AM ONLY <select id="oos-spare-am" data-oos-portion="AM" aria-label="ASSIGN AM ONLY"></select></label>
+          <label>ASSIGN MID ONLY <select id="oos-spare-mid" data-oos-portion="MID" aria-label="ASSIGN MID ONLY"></select></label>
+          <label>ASSIGN PM ONLY <select id="oos-spare-pm" data-oos-portion="PM" aria-label="ASSIGN PM ONLY"></select></label>
         </fieldset>
         <fieldset class="board-spare-pools">
           <legend>Pick a spare</legend>
@@ -316,16 +319,10 @@
             <div id="oos-fleet-spares" class="board-spare-choices"></div>
           </details>
         </fieldset>
-        <fieldset class="board-spare-duration">
+        <fieldset class="board-spare-duration" id="oos-periods">
           <legend>How long</legend>
-          <label><input name="oos-span" type="radio" value="today" /> Today only</label>
-          <label><input name="oos-span" type="radio" value="days" /> Days <input id="oos-days" name="oos-days" type="number" min="1" max="366" step="1" inputmode="numeric" disabled /></label>
-          <label><input name="oos-span" type="radio" value="indefinitely" /> Indefinitely</label>
-        </fieldset>
-        <fieldset class="board-span">
-          <legend>Which days</legend>
-          <label><input name="oos-days-mode" type="radio" value="same" checked /> Same spares each day</label>
-          <label><input name="oos-days-mode" type="radio" value="calendar" /> Change some days</label>
+          <div id="oos-period-list"></div>
+          <button type="button" class="secondary" id="oos-period-add">Add another period</button>
         </fieldset>
         <label>Note <input id="oos-note" type="text" placeholder="In the shop" /></label>
         <fieldset class="board-oos-email">
@@ -350,22 +347,10 @@
         <p id="oos-confirm" class="board-oos-confirm">Assign Spare Bus __ to replace Bus __?</p>
         <p id="oos-spare-warning" class="board-spare-warning" role="status" hidden></p>
         </div>
-        <div id="oos-calendar-panel" class="board-days" hidden>
-          <div class="board-cal-nav">
-            <button type="button" class="secondary" id="oos-cal-back">Back</button>
-            <div class="board-cal-month">
-              <button type="button" id="oos-cal-prev" aria-label="Previous month">‹</button>
-              <span id="oos-cal-title"></span>
-              <button type="button" id="oos-cal-next" aria-label="Next month">›</button>
-            </div>
-          </div>
-          <p class="board-cal-note">A day you have not changed uses the spares above. Usual puts that day back.</p>
-          <div id="oos-cal" class="board-cal board-oos-cal"></div>
-        </div>
         <p id="oos-form-status" class="status" role="status" hidden></p>
         <div class="board-dialog-actions">
           <button type="button" class="secondary" id="oos-cancel">Close</button>
-          <button type="submit" id="oos-submit">Yes</button>
+          <button type="submit" id="oos-submit">RECORD</button>
         </div>
       </form>
     </dialog>
@@ -493,6 +478,6 @@
       </form>
     </dialog>
 
-    <script type="module" src="./the-board.js?v=board-back-1"></script>
+    <script type="module" src="./the-board.js?v=dark-bus-click-1"></script>
   </body>
 </html>

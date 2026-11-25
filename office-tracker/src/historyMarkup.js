@@ -36,13 +36,31 @@ export function escapeHtml(value) {
     .replaceAll('"', '&quot;');
 }
 
+let historyDateLocale = 'en-US';
+
+// Employee language copies ask for Punjabi or Persian dates. English stays en-US.
+export function setHistoryDateLocale(locale = 'en-US') {
+  historyDateLocale = locale || 'en-US';
+}
+
 export function prettyDate(iso) {
   if (!iso) return '—';
-  return new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', {
+  const date = new Date(`${iso}T12:00:00`);
+  if (historyDateLocale === 'en-US') {
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  }
+  return date.toLocaleDateString(historyDateLocale, {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+    calendar: 'gregory',
+    numberingSystem: 'latn',
   });
 }
 
@@ -315,7 +333,7 @@ export function scheduleClockDiffers(current, previous) {
   return scheduleClockKey(current) !== scheduleClockKey(previous);
 }
 
-export function historyLegendHtml(rows, tones = OFFICE_HISTORY_TONES) {
+export function historyLegendHtml(rows, tones = OFFICE_HISTORY_TONES, labels = null) {
   return (
     (rows || [])
       .map((row, index) => {
@@ -331,7 +349,7 @@ export function historyLegendHtml(rows, tones = OFFICE_HISTORY_TONES) {
       .join('') +
     `<li class="is-key-note">
       <span class="history-swatch is-bid" aria-hidden="true"></span>
-      End-of-month bid period: the last five school days of October through April, when a 30-minute increase is posted for bid.
+      ${escapeHtml(labels?.bidNote || 'End-of-month bid period: the last five school days of October through April, when a 30-minute increase is posted for bid.')}
     </li>`
   );
 }
@@ -341,10 +359,23 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES,
   const rows = snapshot?.schedule_history || [];
   if (!rows.length) {
     return `<table class="schedule-history">
-      <tbody><tr><td class="empty">No clock times recorded yet.</td></tr></tbody>
+      <tbody><tr><td class="empty">${escapeHtml(options.labels?.empty || 'No clock times recorded yet.')}</td></tr></tbody>
     </table>`;
   }
   const columns = contractColumnsForHistory(rows, undefined, options);
+  const labels = options.labels || {};
+  const header = {
+    started: labels.started || 'New Schedule Started',
+    amStart: labels.amStart || 'AM start',
+    amEnd: labels.amEnd || 'AM end',
+    midStart: labels.midStart || 'Midday start',
+    midEnd: labels.midEnd || 'Midday end',
+    pmStart: labels.pmStart || 'PM start',
+    pmEnd: labels.pmEnd || 'PM end',
+    change: labels.change || 'Change',
+    hours: labels.hours || 'Scheduled Hours',
+    contractDate: labels.contractDate || 'Calculated Contract Date',
+  };
   const body = rows
     .map((row, index) => {
       const previous = index > 0 ? rows[index - 1] : null;
@@ -367,7 +398,7 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES,
               const differs = Boolean(previous) && scheduleClockDiffers(value, prior);
               const classes = [changed ? 'is-changed' : '', differs ? 'is-time-diff' : ''].filter(Boolean);
               const classAttr = classes.length ? ` class="${classes.join(' ')}"` : '';
-              const title = differs ? ' title="Different from the row above"' : '';
+              const title = differs ? ` title="${escapeHtml(labels.diffTitle || 'Different from the row above')}"` : '';
               return `<td${classAttr}><span class="times${differs ? ' is-time-diff' : ''}"${title}>${escapeHtml(
                 value || '—'
               )}</span></td>`;
@@ -387,16 +418,16 @@ export function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES,
   return `<table class="schedule-history">
     <thead>
       <tr>
-        <th scope="col">New Schedule Started</th>
-        <th scope="col">AM start</th>
-        <th scope="col">AM end</th>
-        <th scope="col">Midday start</th>
-        <th scope="col">Midday end</th>
-        <th scope="col">PM start</th>
-        <th scope="col">PM end</th>
-        <th scope="col">Change</th>
-        <th scope="col">Scheduled Hours</th>
-        <th scope="col">Calculated Contract Date</th>
+        <th scope="col">${escapeHtml(header.started)}</th>
+        <th scope="col">${escapeHtml(header.amStart)}</th>
+        <th scope="col">${escapeHtml(header.amEnd)}</th>
+        <th scope="col">${escapeHtml(header.midStart)}</th>
+        <th scope="col">${escapeHtml(header.midEnd)}</th>
+        <th scope="col">${escapeHtml(header.pmStart)}</th>
+        <th scope="col">${escapeHtml(header.pmEnd)}</th>
+        <th scope="col">${escapeHtml(header.change)}</th>
+        <th scope="col">${escapeHtml(header.hours)}</th>
+        <th scope="col">${escapeHtml(header.contractDate)}</th>
       </tr>
     </thead>
     <tbody>${body}</tbody>
@@ -563,11 +594,12 @@ function historyPipsHtml(mark) {
   return `<span class="history-pips">${parts.join('')}</span>`;
 }
 
-export function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTORY_TONES }) {
+export function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTORY_TONES, labels = null }) {
   const schoolDays = getSchoolDays(calendar);
   const marks = buildClockHistoryMarks(rows, { schoolDays, tones });
   const bidRanges = bidPeriodRanges(schoolDays);
-  const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const dows = labels?.dows || ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const say = (fallback, key) => (labels && labels[key]) || fallback;
   const today = asOf || '';
   return historyMonthsThroughNext(calendar.months, asOf)
     .map((month) => {
@@ -578,11 +610,20 @@ export function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTOR
       });
       const days = month.days.map((day, index) => {
         const num = Number(day.date.slice(-2));
-        const offReason = day.is_school_day ? '' : day.reason || 'Off';
+        const rawReason = day.is_school_day ? '' : day.reason || 'Off';
         const skipLabel =
-          !offReason ||
-          offReason === 'Weekend' ||
-          offReason.startsWith('Outside school year');
+          !rawReason ||
+          rawReason === 'Weekend' ||
+          rawReason.startsWith('Outside school year');
+        const offReason = !labels
+          ? rawReason
+          : rawReason === 'Weekend'
+            ? say('Weekend', 'weekend')
+            : rawReason === 'Off' || rawReason === 'No school'
+              ? say('Off', 'off')
+              : rawReason.startsWith('Outside school year')
+                ? say('Outside school year', 'outside')
+                : rawReason;
         const short =
           !day.is_school_day && !skipLabel ? offReason.replace(' (students off)', '') : '';
         const mark = marks.get(day.date);
@@ -613,12 +654,14 @@ export function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTOR
         ]
           .filter(Boolean)
           .join(' ');
-        const titleParts = [day.is_school_day ? 'School day' : offReason];
-        if (isToday) titleParts.unshift("Today's date");
-        if (inBid) titleParts.push('End-of-month bid period');
+        const titleParts = [day.is_school_day ? say('School day', 'schoolDay') : offReason];
+        if (isToday) titleParts.unshift(say("Today's date", 'today'));
+        if (inBid) titleParts.push(say('End-of-month bid period', 'bidPeriod'));
         if (mark?.arrow) {
-          const when = mark.resolvesOn ? prettyDate(mark.resolvesOn) : 'resolution';
-          const aim = mark.goesToBid ? `Goes to bid ${when}` : `Points to ${when}`;
+          const when = mark.resolvesOn ? prettyDate(mark.resolvesOn) : say('resolution', 'resolution');
+          const aim = mark.goesToBid
+            ? say('Goes to bid {when}', 'goesToBid').replaceAll('{when}', when)
+            : say('Points to {when}', 'pointsTo').replaceAll('{when}', when);
           if (changeLines.length) {
             titleParts.push(...changeLines, aim);
           } else {
@@ -627,17 +670,21 @@ export function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTOR
         } else if (mark) {
           if (changeLines.length) titleParts.push(...changeLines);
           else titleParts.push(mark.label);
-          if (mark.established) titleParts.push('established');
-          if (mark.windowDay) titleParts.push(`school day ${mark.windowDay} of 15`);
-          for (const extra of mark.extraWindows || []) {
-            if (extra?.windowDay) titleParts.push(`school day ${extra.windowDay} of 15`);
+          if (mark.established) titleParts.push(say('established', 'established'));
+          if (mark.windowDay) {
+            titleParts.push(say('school day {n} of 15', 'schoolDayN').replaceAll('{n}', String(mark.windowDay)));
           }
-          if (mark.contractedDay) titleParts.push('became contracted');
-          if (mark.result === 'BID') titleParts.push('posted for bid');
-          else if (mark.result === 'BUMP') titleParts.push('bump eligible');
+          for (const extra of mark.extraWindows || []) {
+            if (extra?.windowDay) {
+              titleParts.push(say('school day {n} of 15', 'schoolDayN').replaceAll('{n}', String(extra.windowDay)));
+            }
+          }
+          if (mark.contractedDay) titleParts.push(say('became contracted', 'became'));
+          if (mark.result === 'BID') titleParts.push(say('posted for bid', 'postedBid'));
+          else if (mark.result === 'BUMP') titleParts.push(say('bump eligible', 'bump'));
           for (const extra of mark.extraResults || []) {
-            if (extra?.result === 'BID') titleParts.push('posted for bid');
-            else if (extra?.result === 'BUMP') titleParts.push('bump eligible');
+            if (extra?.result === 'BID') titleParts.push(say('posted for bid', 'postedBid'));
+            else if (extra?.result === 'BUMP') titleParts.push(say('bump eligible', 'bump'));
           }
         }
         const popupLines = [
@@ -670,8 +717,18 @@ export function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTOR
         }${hoverList}</div>`;
       });
       const rects = bidRectMarkup(bidRanges, month.days, pad);
+      const monthTitle = labels?.dateLocale && first?.date
+        ? escapeHtml(
+            new Date(`${first.date}T12:00:00`).toLocaleDateString(labels.dateLocale, {
+              month: 'long',
+              year: 'numeric',
+              calendar: 'gregory',
+              numberingSystem: 'latn',
+            })
+          )
+        : month.label;
       return `<div class="month-block">
-        <h3>${month.label}</h3>
+        <h3>${monthTitle}</h3>
         <div class="month-grid">
           ${dows
             .map(

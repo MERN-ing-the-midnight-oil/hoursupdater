@@ -357,7 +357,26 @@ export function normalizeOutOfServiceNotice(raw) {
   };
 }
 
-export function outOfServiceCoversPhrase(covers) {
+function scheduledCoversPhrase(periods) {
+  if (!Array.isArray(periods) || !periods.length) return '';
+  const bits = periods
+    .map((period) => {
+      const start = prettyDate(period?.start);
+      if (!start) return '';
+      if (period?.end === 'indefinitely') return `from ${start} until further notice`;
+      if (period?.end === period?.start) return `on ${start}`;
+      const end = prettyDate(period?.end);
+      return end ? `from ${start} through ${end}` : '';
+    })
+    .filter(Boolean);
+  if (!bits.length) return '';
+  if (bits.length === 1) return bits[0];
+  return `${bits.slice(0, -1).join(', ')} and ${bits.at(-1)}`;
+}
+
+export function outOfServiceCoversPhrase(covers, periods) {
+  const scheduled = scheduledCoversPhrase(periods);
+  if (scheduled) return scheduled;
   if (covers === 'indefinitely') return 'until further notice';
   if (covers === 'today') return 'for today only';
   const days = Number(covers);
@@ -381,8 +400,8 @@ function oosBusKey(bus) {
 }
 
 // One spare all day keeps the usual sentence. Mixed spares name each part of the day.
-export function outOfServiceSparePlan({ spareBus, spares, days, covers } = {}) {
-  const phrase = outOfServiceCoversPhrase(covers);
+export function outOfServiceSparePlan({ spareBus, spares, days, covers, periods } = {}) {
+  const phrase = outOfServiceCoversPhrase(covers, periods);
   const map = oosPortionMap(spares);
   const dayCount = days && typeof days === 'object' ? Object.keys(days).filter((day) => /^\d{4}-\d{2}-\d{2}$/.test(day)).length : 0;
   const dayNote = dayCount ? ' Some days use a different spare.' : '';
@@ -412,11 +431,12 @@ export function outOfServiceNoticeMail({
   days,
   routeName,
   covers,
+  periods,
   note,
   asOf,
 }) {
   const settings = normalizeOutOfServiceNotice({ subject, body });
-  const plan = outOfServiceSparePlan({ spareBus, spares, days, covers });
+  const plan = outOfServiceSparePlan({ spareBus, spares, days, covers, periods });
   const values = {
     driver_name: String(driverName || '').trim(),
     usual_bus: String(usualBus || '').trim(),
@@ -424,7 +444,7 @@ export function outOfServiceNoticeMail({
     spare_plan: plan.sparePlan,
     route_name: String(routeName || '').trim() || 'your route',
     date: prettyDate(asOf),
-    covers: outOfServiceCoversPhrase(covers),
+    covers: outOfServiceCoversPhrase(covers, periods),
     note: String(note || '').trim(),
   };
   const text = fillNoticeTemplate(settings.body, values)

@@ -32,6 +32,16 @@ const HOURS_MODE_KEY = 'teamster-audit-hours-mode';
 const CARD_ASPECT_WIDTH = 5;
 const CARD_ASPECT_HEIGHT = 8;
 
+function ui(text) {
+  if (!text) return text;
+  const translated = globalThis.__TEAMSTER_PHRASES__?.[text];
+  return translated == null || translated === '' ? text : translated;
+}
+
+function uiFill(pattern, vars) {
+  return ui(pattern).replace(/\{(\w+)\}/g, (_, name) => String(vars[name] ?? ''));
+}
+
 /**
  * Blue Timecard Checker desk. Reads Reg and OT already written on a blue card and
  * compares them with the hours the Clock Record stamps produce.
@@ -194,7 +204,9 @@ export function mountAuditGenie(options = {}) {
     const row = Array.isArray(rows) ? rows[index - 1] : null;
     if (!row) return;
     descTarget = { row, button };
-    if (descTitle) descTitle.textContent = `${side === 'back' ? 'Back' : 'Front'} row ${index}`;
+    if (descTitle) {
+      descTitle.textContent = uiFill(side === 'back' ? 'Back row {index}' : 'Front row {index}', { index });
+    }
     descText.value = row.description_of_work || '';
     if (!descDialog.open) descDialog.showModal();
     descText.focus();
@@ -297,10 +309,12 @@ export function mountAuditGenie(options = {}) {
     button.disabled = marked;
     button.classList.toggle('is-marked', marked);
     if (!dateLabel) {
-      button.textContent = marked ? 'Marked as checked' : 'Mark as Checked?';
+      button.textContent = marked ? ui('Marked as checked') : ui('Mark as Checked?');
       return;
     }
-    button.textContent = marked ? `Marked ${dateLabel} as checked` : `Mark ${dateLabel} as Checked?`;
+    button.textContent = marked
+      ? uiFill('Marked {date} as checked', { date: dateLabel })
+      : uiFill('Mark {date} as Checked?', { date: dateLabel });
   }
 
   function syncCardFromEditors() {
@@ -361,7 +375,7 @@ export function mountAuditGenie(options = {}) {
     const iso = extraction.header?.period_end || '';
     if (!periodNote && iso) {
       markedFor = iso;
-      setStatus(`${stickerDayLabel(iso)} marked as checked.`, 'ok');
+      setStatus(uiFill('{date} marked as checked.', { date: stickerDayLabel(iso) }), 'ok');
     } else if (periodNote) {
       setStatus(periodNote, 'error');
     }
@@ -381,14 +395,14 @@ export function mountAuditGenie(options = {}) {
     wrap.hidden = !visible;
     if (!visible) {
       input.value = '';
-      if (label) label.textContent = 'Pay period ending';
+      if (label) label.textContent = ui('Pay period ending');
       return;
     }
     const iso = resolvedPeriodEndIso();
     if (extraction?.header && iso) extraction.header.period_end = iso;
     const dateLabel = formatStickerDate(iso);
     if (label) {
-      label.textContent = dateLabel ? `Pay period ending ${dateLabel}` : 'Pay period ending';
+      label.textContent = dateLabel ? uiFill('Pay period ending {date}', { date: dateLabel }) : ui('Pay period ending');
     }
     if (document.activeElement !== input) input.value = dateLabel;
     paintContract();
@@ -399,8 +413,8 @@ export function mountAuditGenie(options = {}) {
     if (!(contractLabel instanceof HTMLElement)) return;
     contractLabel.textContent =
       hours == null || !(Number(hours) > 0)
-        ? 'Daily contract hours'
-        : `Daily contract hours ${formatAuditHours(hours)}`;
+        ? ui('Daily contract hours')
+        : uiFill('Daily contract hours {hours}', { hours: formatAuditHours(hours) });
   }
 
   function paintContract() {
@@ -432,7 +446,7 @@ export function mountAuditGenie(options = {}) {
       box = document.createElement('section');
       box.id = 'audit-periods';
       box.className = 'audit-periods';
-      box.setAttribute('aria-label', 'Checked pay periods');
+      box.setAttribute('aria-label', ui('Checked pay periods'));
     }
     // Keep the list just above Mark as Checked so the new date is visible after a click.
     const markActions = document.querySelector('#audit-mark-actions');
@@ -454,10 +468,10 @@ export function mountAuditGenie(options = {}) {
     if (options.open || wasOpen) details.open = true;
     const summary = document.createElement('summary');
     const heading = document.createElement('h2');
-    heading.textContent = 'Checked pay periods';
+    heading.textContent = ui('Checked pay periods');
     const count = document.createElement('p');
     count.className = 'audit-periods-count';
-    count.textContent = saved.length ? `${saved.length} checked` : 'No cards checked yet.';
+    count.textContent = saved.length ? uiFill('{count} checked', { count: saved.length }) : ui('No cards checked yet.');
     summary.append(heading, count);
     if (note) {
       const noteEl = document.createElement('p');
@@ -474,7 +488,7 @@ export function mountAuditGenie(options = {}) {
       const when = document.createElement('span');
       when.textContent = stickerDayLabel(entry.iso);
       const result = document.createElement('span');
-      result.textContent = 'Checked';
+      result.textContent = ui('Checked');
       item.append(when, result);
       list.append(item);
     }
@@ -503,7 +517,7 @@ export function mountAuditGenie(options = {}) {
     } else if (!showRegOt) {
       setStatus('Daily contract hours are required to check Reg and OT.', 'error');
     } else if (markedFor && markedFor === iso) {
-      setStatus(`${stickerDayLabel(iso)} marked as checked.`, 'ok');
+      setStatus(uiFill('{date} marked as checked.', { date: stickerDayLabel(iso) }), 'ok');
     } else {
       setStatus('The front and back cards are ready to edit.', 'ok');
     }
@@ -515,8 +529,8 @@ export function mountAuditGenie(options = {}) {
       document.querySelector('#audit-result .field-hint');
     if (!(hint instanceof HTMLElement)) return;
     hint.textContent = showRegOt
-      ? 'Blue handwriting is what was written on the card. A red number is the calculated hours when they differ.'
-      : 'Daily contract hours are required to show and check Reg and OT. Tot. Hrs. still compares each Clock Record combo.';
+      ? ui('Blue handwriting is what was written on the card. A red number is the calculated hours when they differ.')
+      : ui('Daily contract hours are required to show and check Reg and OT. Tot. Hrs. still compares each Clock Record combo.');
   }
 
   function refresh() {
@@ -619,6 +633,7 @@ export function mountAuditGenie(options = {}) {
   }
 
   function setStatus(message, kind = '') {
+    message = ui(message || '');
     status.hidden = !message;
     status.className = `status timesheet-progress${kind ? ` is-${kind}` : ''}`;
     if (statusText) statusText.textContent = message || '';
@@ -626,6 +641,7 @@ export function mountAuditGenie(options = {}) {
   }
 
   function setBusyStatus(message) {
+    message = ui(message || '');
     status.hidden = !message;
     status.className = 'status timesheet-progress is-busy';
     if (statusText) statusText.textContent = message || '';
@@ -879,10 +895,10 @@ function showSidePreview(side, file) {
   for (const image of [preview, phonePreview]) {
     if (!(image instanceof HTMLImageElement)) continue;
     image.src = previewUrls[side];
-    image.alt = side === 'front' ? 'Front of the time card' : 'Back of the time card';
+    image.alt = side === 'front' ? ui('Front of the time card') : ui('Back of the time card');
     image.hidden = false;
   }
-  if (button) button.textContent = side === 'front' ? 'Retake front photo' : 'Retake back photo';
+  if (button) button.textContent = side === 'front' ? ui('Retake front photo') : ui('Retake back photo');
   if (phoneState) {
     phoneState.textContent = 'Received';
     phoneState.classList.add('is-ready');
@@ -903,7 +919,7 @@ function clearSidePreview(side) {
     image.alt = '';
     image.hidden = true;
   }
-  if (button) button.textContent = side === 'front' ? 'Take front photo' : 'Take back photo';
+  if (button) button.textContent = side === 'front' ? ui('Take front photo') : ui('Take back photo');
   if (phoneState) {
     phoneState.textContent = 'Waiting…';
     phoneState.classList.remove('is-ready');
@@ -1183,11 +1199,11 @@ function mountAuditCamera({ onCapture }) {
 
   async function open(nextSide) {
     if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('This browser cannot use a camera. Choose a file instead.');
+      throw new Error(ui('This browser cannot use a camera. Choose a file instead.'));
     }
     side = nextSide;
     const title = document.querySelector('#audit-camera-title');
-    if (title) title.textContent = nextSide === 'front' ? 'Front of the time card' : 'Back of the time card';
+    if (title) title.textContent = nextSide === 'front' ? ui('Front of the time card') : ui('Back of the time card');
     setCameraStatus('');
     shutter.disabled = true;
     if (!dialog.open) dialog.showModal();
@@ -1236,7 +1252,7 @@ function mountAuditCamera({ onCapture }) {
     devices.forEach((device, index) => {
       const option = document.createElement('option');
       option.value = device.deviceId;
-      option.textContent = device.label || `Camera ${index + 1}`;
+      option.textContent = device.label || uiFill('Camera {n}', { n: index + 1 });
       deviceSelect.append(option);
     });
     picker.hidden = devices.length < 2;
@@ -1346,12 +1362,12 @@ function validateFile(file, label) {
   if (!file) return;
   const name = file.name.toLowerCase();
   if (file.type === 'image/heic' || file.type === 'image/heif' || /\.(heic|heif)$/.test(name)) {
-    throw new Error(`${label}: HEIC is not supported. Export the photo as a JPEG.`);
+    throw new Error(uiFill('{label}: HEIC is not supported. Export the photo as a JPEG.', { label }));
   }
   if (file.type && !ALLOWED.has(file.type)) {
-    throw new Error(`${label}: use a JPEG, PNG, GIF, or WebP photo.`);
+    throw new Error(uiFill('{label}: use a JPEG, PNG, GIF, or WebP photo.', { label }));
   }
-  if (file.size > MAX_BYTES) throw new Error(`${label} photo exceeds 12MB.`);
+  if (file.size > MAX_BYTES) throw new Error(uiFill('{label} photo exceeds 12MB.', { label }));
 }
 
 function filePayload(file) {
