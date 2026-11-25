@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 import { mountAuditGenie } from '../../office-tracker/web/auditGenie.js';
-import { applyDom, pageLang, translate } from './i18n.js';
 import { comingSoonHtml } from './comingSoon.js';
 import {
   PAGE_PASSWORD,
@@ -42,8 +41,6 @@ const dayDialog = document.querySelector('#day-dialog');
 const dayTitle = document.querySelector('#day-dialog-title');
 const dayList = document.querySelector('#day-dialog-list');
 
-applyDom();
-
 let profiles = [];
 let historySnap = false;
 
@@ -70,15 +67,15 @@ async function loadConfig() {
 async function loadOffice(pass) {
   const config = await loadConfig();
   if (!config) {
-    throw new Error(translate('office.unreachable'));
+    throw new Error('This page cannot reach the office record yet.');
   }
   const client = createClient(config.url, config.anonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const { data, error } = await client.rpc('public_route_history', { pass });
-  if (error) throw new Error(translate('office.unavailable'));
+  if (error) throw new Error('The office record is not available from this page yet.');
   if (!data || typeof data !== 'object') {
-    const rejected = new Error(translate('gate.wrong'));
+    const rejected = new Error('That password is not right.');
     rejected.rejected = true;
     throw rejected;
   }
@@ -98,7 +95,7 @@ function showHome() {
 function renderComing() {
   if (!coming) return;
   coming.innerHTML = comingSoonHtml(profiles);
-  document.title = `${translate('home.coming')} · ${PAGE_TITLE}`;
+  document.title = `Coming Soon · ${PAGE_TITLE}`;
 }
 
 function showTool(tool) {
@@ -152,8 +149,8 @@ function fillLookup() {
   if (!lookup) return;
   const by = mode();
   const options = historyOptions(profiles, { by });
-  const blankLabel = by === 'route' ? translate('lookup.chooseRoute') : translate('lookup.chooseDriver');
-  if (lookupLabel) lookupLabel.textContent = by === 'route' ? translate('lookup.route') : translate('lookup.driver');
+  const blankLabel = by === 'route' ? 'Choose a route' : 'Choose a driver';
+  if (lookupLabel) lookupLabel.textContent = by === 'route' ? 'Route' : 'Driver';
   lookup.replaceChildren();
   const blank = document.createElement('option');
   blank.value = '';
@@ -167,7 +164,7 @@ function fillLookup() {
   }
   lookup.disabled = options.length === 0;
   if (!options.length) {
-    setStatus(pageStatus, by === 'route' ? translate('lookup.noRoutes') : translate('lookup.noDrivers'));
+    setStatus(pageStatus, by === 'route' ? 'No routes are recorded yet.' : 'No drivers are recorded yet.');
   } else {
     setStatus(pageStatus, '');
   }
@@ -184,8 +181,8 @@ function choose(match) {
       : driverHistoryHtml(profiles, match.key, options);
   document.title =
     match.kind === 'route'
-      ? translate('title.route', { label: match.label })
-      : translate('title.person', { label: match.label });
+      ? `Route ${match.label} · ${PAGE_TITLE}`
+      : `${match.label} · ${PAGE_TITLE}`;
 }
 
 function chooseFromLookup() {
@@ -200,7 +197,7 @@ function chooseFromLookup() {
 }
 
 async function unlock(pass) {
-  setStatus(gateStatus, translate('gate.opening'));
+  setStatus(gateStatus, 'Opening the office record…');
   try {
     await loadOffice(pass);
   } catch (error) {
@@ -217,7 +214,7 @@ gateForm?.addEventListener('submit', (event) => {
   event.preventDefault();
   const pass = passwordInput.value.trim();
   if (pass !== PAGE_PASSWORD) {
-    setStatus(gateStatus, translate('gate.wrong'));
+    setStatus(gateStatus, 'That password is not right.');
     passwordInput.focus();
     return;
   }
@@ -234,7 +231,9 @@ lookup?.addEventListener('change', () => {
 });
 
 function historySnapHintText() {
-  return historySnap ? translate('snap.hintOn') : translate('snap.hintOff');
+  return historySnap
+    ? 'Snap is on. Each clock moves onto a quarter hour with the payroll bands, and the statement and the table are figured again from those clocks. Turn it off to go back to the written times. The office record stays as it is.'
+    : 'Snap is off. Turn it on to move each clock onto a quarter hour with the payroll bands and see if the hours or the date change. The office record stays as it is.';
 }
 
 function syncHistorySnap() {
@@ -267,7 +266,7 @@ history?.addEventListener('click', (event) => {
   if (!day || !dayDialog || !dayList || !dayTitle) return;
   const lines = [...day.querySelectorAll('.cal-hover li')].map((item) => item.textContent || '').filter(Boolean);
   if (!lines.length) return;
-  dayTitle.textContent = day.dataset.date || translate('day.fallback');
+  dayTitle.textContent = day.dataset.date || 'Day';
   dayList.replaceChildren();
   for (const line of lines) {
     const item = document.createElement('li');
@@ -310,13 +309,14 @@ function showInstallSteps() {
   if (kind === 'apple') {
     const note = help.querySelector('[data-install="apple"] .install-note');
     if (note && /CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua)) {
-      note.textContent = translate('install.safariOther');
+      note.textContent =
+        'Open this page in Safari. Other iPhone browsers cannot add it to the home screen.';
     }
   }
   if (kind === 'android') {
     const note = help.querySelector('[data-install="android"] .install-note');
     const chrome = /Chrome/i.test(ua) && !/EdgA|OPR|SamsungBrowser|Firefox/i.test(ua);
-    if (note && !chrome) note.textContent = translate('install.chromeOther');
+    if (note && !chrome) note.textContent = 'Open this page in Chrome, then follow these steps.';
   }
 }
 
@@ -359,11 +359,9 @@ document.querySelector('#share-dialog-close')?.addEventListener('click', () => {
 });
 
 function openGuide() {
-  const lang = pageLang();
-  const src = lang === 'en' ? './clock-hours-guide.html' : `./clock-hours-guide.html?lang=${lang}`;
-  if (guideFrame && guideFrame.dataset.loaded !== src) {
-    guideFrame.src = src;
-    guideFrame.dataset.loaded = src;
+  if (guideFrame && guideFrame.dataset.loaded !== '1') {
+    guideFrame.src = './clock-hours-guide.html';
+    guideFrame.dataset.loaded = '1';
   }
   guideDialog?.showModal();
 }

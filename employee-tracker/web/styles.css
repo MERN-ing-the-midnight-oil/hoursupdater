@@ -16,67 +16,6 @@
 
 [hidden] { display: none !important; }
 
-html[lang="pa"] body,
-html[lang="pa"] button,
-html[lang="pa"] input,
-html[lang="pa"] select,
-html[lang="pa"] textarea,
-html[lang="pa"] h2,
-html[lang="pa"] h3,
-html[lang="pa"] .tool-tile-label {
-  font-family: "Noto Sans Gurmukhi", "Avenir Next", "Segoe UI", sans-serif;
-}
-
-html[lang="fa"] body,
-html[lang="fa"] button,
-html[lang="fa"] input,
-html[lang="fa"] select,
-html[lang="fa"] textarea,
-html[lang="fa"] h2,
-html[lang="fa"] h3,
-html[lang="fa"] .tool-tile-label {
-  font-family: "Noto Naskh Arabic", "Geeza Pro", Tahoma, sans-serif;
-}
-
-html[dir="rtl"] .schedule-history,
-html[dir="rtl"] .calendar-months,
-html[dir="rtl"] .month-grid,
-html[dir="rtl"] .audit-card,
-html[dir="rtl"] .timesheet-card-sheet,
-html[dir="rtl"] #password,
-html[dir="rtl"] input[inputmode="numeric"],
-html[dir="rtl"] input[inputmode="decimal"] {
-  direction: ltr;
-}
-
-.lang-switch {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.85rem;
-  margin-top: 0.45rem;
-}
-
-.lang-switch a {
-  color: var(--accent);
-  font-weight: 700;
-  text-decoration: none;
-  border-bottom: 2px solid transparent;
-}
-
-.lang-switch a[lang="pa"] {
-  font-family: "Noto Sans Gurmukhi", sans-serif;
-}
-
-.lang-switch a[lang="fa"] {
-  font-family: "Noto Naskh Arabic", "Geeza Pro", Tahoma, sans-serif;
-}
-
-html[lang="en"] .lang-switch a[data-lang-link="en"],
-html[lang="pa"] .lang-switch a[data-lang-link="pa"],
-html[lang="fa"] .lang-switch a[data-lang-link="fa"] {
-  border-bottom-color: currentColor;
-}
-
 body {
   margin: 0;
   min-height: 100vh;

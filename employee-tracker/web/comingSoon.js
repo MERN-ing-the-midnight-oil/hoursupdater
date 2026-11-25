@@ -4,7 +4,6 @@ import { driverForDate } from '../../office-tracker/src/assignments.js';
 import { escapeHtml, prettyDate } from '../../office-tracker/src/historyMarkup.js';
 import { getSchoolDays } from '../../src/logic/calendar.js';
 import { buildSnapshot, getAsOfDate, getCalendarPack } from './engine.js';
-import { dateLocaleFor, translate } from './i18n.js';
 import { driverSnapOptions } from './publicHistory.js';
 
 const LIVE_STATUS = new Set(['predicted', 'bid_pending', 'bump_eligible']);
@@ -64,11 +63,9 @@ function postingDates(row, schoolDays) {
 }
 
 function monthLabel(period) {
-  return new Date(`${period.start}T12:00:00`).toLocaleDateString(dateLocaleFor(), {
+  return new Date(`${period.start}T12:00:00`).toLocaleDateString('en-US', {
     month: 'long',
     year: 'numeric',
-    calendar: 'gregory',
-    numberingSystem: 'latn',
   });
 }
 
@@ -180,37 +177,32 @@ export function comingSoonAnnouncements(profiles, { asOf, calendar } = {}) {
 }
 
 function statusLabel(item) {
-  if (item.status === 'no_longer') return translate('coming.noLonger');
+  if (item.status === 'no_longer') return 'No longer likely';
   if (item.status === 'eligible') {
-    return translate(item.kind === 'bump' ? 'coming.eligibleBump' : 'coming.eligibleBid');
+    return item.kind === 'bump' ? 'Should be bump-eligible' : 'Should be up for bid';
   }
-  return translate(item.kind === 'bump' ? 'coming.likelyBump' : 'coming.likelyBid');
+  return item.kind === 'bump' ? 'Likely bump-eligible' : 'Likely up for bid';
 }
 
 function detailText(item, month) {
   if (item.status === 'no_longer') {
-    return translate('coming.dropped', {
-      kind: translate(item.kind === 'bump' ? 'coming.kindBump' : 'coming.kindBid'),
-      month,
-    });
+    const kind = item.kind === 'bump' ? 'a bump' : 'a bid';
+    return `This route was headed for ${kind} at the end of ${month}. A later change took it off that list.`;
   }
   if (item.status === 'eligible') {
-    return translate(item.kind === 'bump' ? 'coming.bumpNow' : 'coming.bidNow', {
-      dates: item.dates,
-      date: item.dates,
-    });
+    return item.kind === 'bump'
+      ? `The count has closed. This route should be bump-eligible as of ${item.dates}.`
+      : `The count has closed. This route should be up for bid ${item.dates}.`;
   }
-  return translate(item.kind === 'bump' ? 'coming.bumpOpen' : 'coming.bidOpen', {
-    drift: item.drift,
-    dates: item.dates,
-    date: item.dates,
-  });
+  return item.kind === 'bump'
+    ? `This change is ${item.drift}. If nothing else is logged, this route should be bump-eligible on ${item.dates}.`
+    : `This change is ${item.drift}. If nothing else is logged, this route should go up for bid ${item.dates}.`;
 }
 
 export function comingSoonHtml(profiles, options = {}) {
   const built = comingSoonAnnouncements(profiles, options);
   if (!built.period) {
-    return `<p class="lead">${escapeHtml(translate('coming.noneSeason'))}</p>`;
+    return `<p class="lead">${escapeHtml('There is no end-of-month bid or bump list ahead in this school year. Those lists run October through April.')}</p>`;
   }
   const cards = built.items.length
     ? built.items
@@ -220,15 +212,15 @@ export function comingSoonHtml(profiles, options = {}) {
             : '';
           return `<article class="coming-card is-${escapeHtml(item.status)}">
             <p class="coming-kicker">${escapeHtml(statusLabel(item))}</p>
-            <h2>${escapeHtml(translate('coming.route', { label: item.routeName }))}</h2>
+            <h2>${escapeHtml(`Route ${item.routeName}`)}</h2>
             ${driver}
             <p>${escapeHtml(detailText(item, built.month))}</p>
           </article>`;
         })
         .join('')
-    : `<p class="empty">${escapeHtml(translate('coming.empty'))}</p>`;
-  return `<p class="lead">${escapeHtml(translate('coming.lead'))}</p>
-    <h2 class="coming-month">${escapeHtml(translate('coming.period', { month: built.month }))}</h2>
-    <p class="hint">${escapeHtml(translate('coming.window', { dates: built.window }))}</p>
+    : `<p class="empty">${escapeHtml('No routes are likely for bid or bump at the end of this month.')}</p>`;
+  return `<p class="lead">${escapeHtml('Routes the contract rules say are likely to be up for bid or bump-eligible at the end of this month. A later time change can take a route off this list. These follow the written clock times, not an office posting.')}</p>
+    <h2 class="coming-month">${escapeHtml(`End of ${built.month}`)}</h2>
+    <p class="hint">${escapeHtml(`Bid posting days are the last five school days, ${built.window}.`)}</p>
     <div class="coming-list">${cards}</div>`;
 }

@@ -22586,7 +22586,11 @@ var EARLY_RELEASE_SCHOOL_CLOCKS = Object.freeze({
   SUN: "11:55",
   WK: "11:55"
 });
-var EARLY_RELEASE_EXTRA_DATES = ["2027-06-11"];
+var EARLY_RELEASE_EXTRA_DAYS = Object.freeze([
+  Object.freeze({ date: "2026-11-25", label: "Day before Thanksgiving" }),
+  Object.freeze({ date: "2027-06-11", label: "" })
+]);
+var EARLY_RELEASE_EXTRA_DATES = EARLY_RELEASE_EXTRA_DAYS.map((day) => day.date);
 
 // src/logic/schoolYear.js
 var LABEL_MAX = 80;
@@ -22672,7 +22676,7 @@ function builtinSchoolYear() {
     holidays: BELLINGHAM_2026_2027_INPUT.holidays,
     breaks: BELLINGHAM_2026_2027_INPUT.breaks,
     no_school: [],
-    early_release: EARLY_RELEASE_EXTRA_DATES.map((date) => ({ date, label: "" })),
+    early_release: EARLY_RELEASE_EXTRA_DAYS.map((day) => ({ date: day.date, label: day.label })),
     early_release_thursdays: true
   });
   if (!year) throw new Error("The built-in school year is unreadable.");
@@ -25649,28 +25653,13 @@ var RUNS = [
 function escapeHtml(value) {
   return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
-var historyDateLocale = "en-US";
-function setHistoryDateLocale(locale = "en-US") {
-  historyDateLocale = locale || "en-US";
-}
 function prettyDate2(iso) {
   if (!iso) return "\u2014";
-  const date = /* @__PURE__ */ new Date(`${iso}T12:00:00`);
-  if (historyDateLocale === "en-US") {
-    return date.toLocaleDateString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric"
-    });
-  }
-  return date.toLocaleDateString(historyDateLocale, {
+  return (/* @__PURE__ */ new Date(`${iso}T12:00:00`)).toLocaleDateString("en-US", {
     weekday: "short",
     month: "short",
     day: "numeric",
-    year: "numeric",
-    calendar: "gregory",
-    numberingSystem: "latn"
+    year: "numeric"
   });
 }
 function monthDayYear(iso) {
@@ -25875,7 +25864,7 @@ function scheduleClockKey(value) {
 function scheduleClockDiffers(current, previous) {
   return scheduleClockKey(current) !== scheduleClockKey(previous);
 }
-function historyLegendHtml(rows, tones = OFFICE_HISTORY_TONES, labels = null) {
+function historyLegendHtml(rows, tones = OFFICE_HISTORY_TONES) {
   return (rows || []).map((row, index) => {
     const tone2 = toneForRow(index, tones);
     return `<li style="--tone:${tone2}">
@@ -25887,30 +25876,17 @@ function historyLegendHtml(rows, tones = OFFICE_HISTORY_TONES, labels = null) {
       </li>`;
   }).join("") + `<li class="is-key-note">
       <span class="history-swatch is-bid" aria-hidden="true"></span>
-      ${escapeHtml(labels?.bidNote || "End-of-month bid period: the last five school days of October through April, when a 30-minute increase is posted for bid.")}
+      End-of-month bid period: the last five school days of October through April, when a 30-minute increase is posted for bid.
     </li>`;
 }
 function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES, options = {}) {
   const rows = snapshot?.schedule_history || [];
   if (!rows.length) {
     return `<table class="schedule-history">
-      <tbody><tr><td class="empty">${escapeHtml(options.labels?.empty || "No clock times recorded yet.")}</td></tr></tbody>
+      <tbody><tr><td class="empty">No clock times recorded yet.</td></tr></tbody>
     </table>`;
   }
   const columns = contractColumnsForHistory(rows, void 0, options);
-  const labels = options.labels || {};
-  const header = {
-    started: labels.started || "New Schedule Started",
-    amStart: labels.amStart || "AM start",
-    amEnd: labels.amEnd || "AM end",
-    midStart: labels.midStart || "Midday start",
-    midEnd: labels.midEnd || "Midday end",
-    pmStart: labels.pmStart || "PM start",
-    pmEnd: labels.pmEnd || "PM end",
-    change: labels.change || "Change",
-    hours: labels.hours || "Scheduled Hours",
-    contractDate: labels.contractDate || "Calculated Contract Date"
-  };
   const body = rows.map((row, index) => {
     const previous = index > 0 ? rows[index - 1] : null;
     const predicted = row.contracted?.status === "predicted";
@@ -25929,7 +25905,7 @@ function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES, option
         const differs = Boolean(previous) && scheduleClockDiffers(value, prior);
         const classes = [changed ? "is-changed" : "", differs ? "is-time-diff" : ""].filter(Boolean);
         const classAttr = classes.length ? ` class="${classes.join(" ")}"` : "";
-        const title = differs ? ` title="${escapeHtml(labels.diffTitle || "Different from the row above")}"` : "";
+        const title = differs ? ' title="Different from the row above"' : "";
         return `<td${classAttr}><span class="times${differs ? " is-time-diff" : ""}"${title}>${escapeHtml(
           value || "\u2014"
         )}</span></td>`;
@@ -25947,16 +25923,16 @@ function scheduleHistoryTableHtml(snapshot, tones = OFFICE_HISTORY_TONES, option
   return `<table class="schedule-history">
     <thead>
       <tr>
-        <th scope="col">${escapeHtml(header.started)}</th>
-        <th scope="col">${escapeHtml(header.amStart)}</th>
-        <th scope="col">${escapeHtml(header.amEnd)}</th>
-        <th scope="col">${escapeHtml(header.midStart)}</th>
-        <th scope="col">${escapeHtml(header.midEnd)}</th>
-        <th scope="col">${escapeHtml(header.pmStart)}</th>
-        <th scope="col">${escapeHtml(header.pmEnd)}</th>
-        <th scope="col">${escapeHtml(header.change)}</th>
-        <th scope="col">${escapeHtml(header.hours)}</th>
-        <th scope="col">${escapeHtml(header.contractDate)}</th>
+        <th scope="col">New Schedule Started</th>
+        <th scope="col">AM start</th>
+        <th scope="col">AM end</th>
+        <th scope="col">Midday start</th>
+        <th scope="col">Midday end</th>
+        <th scope="col">PM start</th>
+        <th scope="col">PM end</th>
+        <th scope="col">Change</th>
+        <th scope="col">Scheduled Hours</th>
+        <th scope="col">Calculated Contract Date</th>
       </tr>
     </thead>
     <tbody>${body}</tbody>
@@ -26025,12 +26001,11 @@ function historyPipsHtml(mark) {
   if (!parts.length) return "";
   return `<span class="history-pips">${parts.join("")}</span>`;
 }
-function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTORY_TONES, labels = null }) {
+function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTORY_TONES }) {
   const schoolDays = getSchoolDays(calendar);
   const marks = buildClockHistoryMarks(rows, { schoolDays, tones });
   const bidRanges = bidPeriodRanges(schoolDays);
-  const dows = labels?.dows || ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const say = (fallback, key) => labels && labels[key] || fallback;
+  const dows = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const today = asOf || "";
   return historyMonthsThroughNext(calendar.months, asOf).map((month) => {
     const first = month.days[0];
@@ -26040,9 +26015,8 @@ function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTORY_TONES
     });
     const days = month.days.map((day, index) => {
       const num = Number(day.date.slice(-2));
-      const rawReason = day.is_school_day ? "" : day.reason || "Off";
-      const skipLabel = !rawReason || rawReason === "Weekend" || rawReason.startsWith("Outside school year");
-      const offReason = !labels ? rawReason : rawReason === "Weekend" ? say("Weekend", "weekend") : rawReason === "Off" || rawReason === "No school" ? say("Off", "off") : rawReason.startsWith("Outside school year") ? say("Outside school year", "outside") : rawReason;
+      const offReason = day.is_school_day ? "" : day.reason || "Off";
+      const skipLabel = !offReason || offReason === "Weekend" || offReason.startsWith("Outside school year");
       const short = !day.is_school_day && !skipLabel ? offReason.replace(" (students off)", "") : "";
       const mark = marks.get(day.date);
       const inBid = bidRanges.some((range) => day.date >= range.start && day.date <= range.end);
@@ -26069,12 +26043,12 @@ function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTORY_TONES
         changeLines.length && col <= 2 ? "is-tip-start" : "",
         changeLines.length && col >= 6 ? "is-tip-end" : ""
       ].filter(Boolean).join(" ");
-      const titleParts = [day.is_school_day ? say("School day", "schoolDay") : offReason];
-      if (isToday) titleParts.unshift(say("Today's date", "today"));
-      if (inBid) titleParts.push(say("End-of-month bid period", "bidPeriod"));
+      const titleParts = [day.is_school_day ? "School day" : offReason];
+      if (isToday) titleParts.unshift("Today's date");
+      if (inBid) titleParts.push("End-of-month bid period");
       if (mark?.arrow) {
-        const when = mark.resolvesOn ? prettyDate2(mark.resolvesOn) : say("resolution", "resolution");
-        const aim = mark.goesToBid ? say("Goes to bid {when}", "goesToBid").replaceAll("{when}", when) : say("Points to {when}", "pointsTo").replaceAll("{when}", when);
+        const when = mark.resolvesOn ? prettyDate2(mark.resolvesOn) : "resolution";
+        const aim = mark.goesToBid ? `Goes to bid ${when}` : `Points to ${when}`;
         if (changeLines.length) {
           titleParts.push(...changeLines, aim);
         } else {
@@ -26083,21 +26057,17 @@ function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTORY_TONES
       } else if (mark) {
         if (changeLines.length) titleParts.push(...changeLines);
         else titleParts.push(mark.label);
-        if (mark.established) titleParts.push(say("established", "established"));
-        if (mark.windowDay) {
-          titleParts.push(say("school day {n} of 15", "schoolDayN").replaceAll("{n}", String(mark.windowDay)));
-        }
+        if (mark.established) titleParts.push("established");
+        if (mark.windowDay) titleParts.push(`school day ${mark.windowDay} of 15`);
         for (const extra of mark.extraWindows || []) {
-          if (extra?.windowDay) {
-            titleParts.push(say("school day {n} of 15", "schoolDayN").replaceAll("{n}", String(extra.windowDay)));
-          }
+          if (extra?.windowDay) titleParts.push(`school day ${extra.windowDay} of 15`);
         }
-        if (mark.contractedDay) titleParts.push(say("became contracted", "became"));
-        if (mark.result === "BID") titleParts.push(say("posted for bid", "postedBid"));
-        else if (mark.result === "BUMP") titleParts.push(say("bump eligible", "bump"));
+        if (mark.contractedDay) titleParts.push("became contracted");
+        if (mark.result === "BID") titleParts.push("posted for bid");
+        else if (mark.result === "BUMP") titleParts.push("bump eligible");
         for (const extra of mark.extraResults || []) {
-          if (extra?.result === "BID") titleParts.push(say("posted for bid", "postedBid"));
-          else if (extra?.result === "BUMP") titleParts.push(say("bump eligible", "bump"));
+          if (extra?.result === "BID") titleParts.push("posted for bid");
+          else if (extra?.result === "BUMP") titleParts.push("bump eligible");
         }
       }
       const popupLines = [
@@ -26117,16 +26087,8 @@ function calendarMonthsHtml({ calendar, rows, asOf, tones = OFFICE_HISTORY_TONES
       return `<div class="${classes}" style="grid-column:${col};grid-row:${row}${toneStyle}"${hoverAttrs}><span class="num">${num}</span>${pip}${arrow}${short ? `<span class="why">${escapeHtml(short)}</span>` : ""}${hoverList}</div>`;
     });
     const rects = bidRectMarkup(bidRanges, month.days, pad);
-    const monthTitle = labels?.dateLocale && first?.date ? escapeHtml(
-      (/* @__PURE__ */ new Date(`${first.date}T12:00:00`)).toLocaleDateString(labels.dateLocale, {
-        month: "long",
-        year: "numeric",
-        calendar: "gregory",
-        numberingSystem: "latn"
-      })
-    ) : month.label;
     return `<div class="month-block">
-        <h3>${monthTitle}</h3>
+        <h3>${month.label}</h3>
         <div class="month-grid">
           ${dows.map(
       (label, index) => `<div class="dow" style="grid-column:${index + 1};grid-row:1">${label}</div>`
@@ -27886,14 +27848,6 @@ var CAMERA_KEY = "teamster-timesheet-camera";
 var HOURS_MODE_KEY = "teamster-audit-hours-mode";
 var CARD_ASPECT_WIDTH = 5;
 var CARD_ASPECT_HEIGHT = 8;
-function ui(text) {
-  if (!text) return text;
-  const translated = globalThis.__TEAMSTER_PHRASES__?.[text];
-  return translated == null || translated === "" ? text : translated;
-}
-function uiFill(pattern, vars) {
-  return ui(pattern).replace(/\{(\w+)\}/g, (_, name) => String(vars[name] ?? ""));
-}
 function mountAuditGenie(options = {}) {
   const view = document.querySelector("#audit-genie-view");
   const form = document.querySelector("#audit-form");
@@ -28039,9 +27993,7 @@ function mountAuditGenie(options = {}) {
     const row = Array.isArray(rows) ? rows[index - 1] : null;
     if (!row) return;
     descTarget = { row, button };
-    if (descTitle) {
-      descTitle.textContent = uiFill(side === "back" ? "Back row {index}" : "Front row {index}", { index });
-    }
+    if (descTitle) descTitle.textContent = `${side === "back" ? "Back" : "Front"} row ${index}`;
     descText.value = row.description_of_work || "";
     if (!descDialog.open) descDialog.showModal();
     descText.focus();
@@ -28137,10 +28089,10 @@ function mountAuditGenie(options = {}) {
     button.disabled = marked;
     button.classList.toggle("is-marked", marked);
     if (!dateLabel) {
-      button.textContent = marked ? ui("Marked as checked") : ui("Mark as Checked?");
+      button.textContent = marked ? "Marked as checked" : "Mark as Checked?";
       return;
     }
-    button.textContent = marked ? uiFill("Marked {date} as checked", { date: dateLabel }) : uiFill("Mark {date} as Checked?", { date: dateLabel });
+    button.textContent = marked ? `Marked ${dateLabel} as checked` : `Mark ${dateLabel} as Checked?`;
   }
   function syncCardFromEditors() {
     if (!extraction) return;
@@ -28196,7 +28148,7 @@ function mountAuditGenie(options = {}) {
     const iso = extraction.header?.period_end || "";
     if (!periodNote && iso) {
       markedFor = iso;
-      setStatus2(uiFill("{date} marked as checked.", { date: stickerDayLabel(iso) }), "ok");
+      setStatus2(`${stickerDayLabel(iso)} marked as checked.`, "ok");
     } else if (periodNote) {
       setStatus2(periodNote, "error");
     }
@@ -28215,14 +28167,14 @@ function mountAuditGenie(options = {}) {
     wrap.hidden = !visible;
     if (!visible) {
       input.value = "";
-      if (label) label.textContent = ui("Pay period ending");
+      if (label) label.textContent = "Pay period ending";
       return;
     }
     const iso = resolvedPeriodEndIso();
     if (extraction?.header && iso) extraction.header.period_end = iso;
     const dateLabel = formatStickerDate(iso);
     if (label) {
-      label.textContent = dateLabel ? uiFill("Pay period ending {date}", { date: dateLabel }) : ui("Pay period ending");
+      label.textContent = dateLabel ? `Pay period ending ${dateLabel}` : "Pay period ending";
     }
     if (document.activeElement !== input) input.value = dateLabel;
     paintContract();
@@ -28230,7 +28182,7 @@ function mountAuditGenie(options = {}) {
   function paintContractLabel(hours) {
     const contractLabel = document.querySelector("#audit-contract-label");
     if (!(contractLabel instanceof HTMLElement)) return;
-    contractLabel.textContent = hours == null || !(Number(hours) > 0) ? ui("Daily contract hours") : uiFill("Daily contract hours {hours}", { hours: formatAuditHours(hours) });
+    contractLabel.textContent = hours == null || !(Number(hours) > 0) ? "Daily contract hours" : `Daily contract hours ${formatAuditHours(hours)}`;
   }
   function paintContract() {
     const field = document.querySelector("#audit-contract-hours");
@@ -28258,7 +28210,7 @@ function mountAuditGenie(options = {}) {
       box = document.createElement("section");
       box.id = "audit-periods";
       box.className = "audit-periods";
-      box.setAttribute("aria-label", ui("Checked pay periods"));
+      box.setAttribute("aria-label", "Checked pay periods");
     }
     const markActions = document.querySelector("#audit-mark-actions");
     if (markActions?.parentNode) {
@@ -28275,10 +28227,10 @@ function mountAuditGenie(options = {}) {
     if (options2.open || wasOpen) details.open = true;
     const summary = document.createElement("summary");
     const heading = document.createElement("h2");
-    heading.textContent = ui("Checked pay periods");
+    heading.textContent = "Checked pay periods";
     const count = document.createElement("p");
     count.className = "audit-periods-count";
-    count.textContent = saved.length ? uiFill("{count} checked", { count: saved.length }) : ui("No cards checked yet.");
+    count.textContent = saved.length ? `${saved.length} checked` : "No cards checked yet.";
     summary.append(heading, count);
     if (note) {
       const noteEl = document.createElement("p");
@@ -28295,7 +28247,7 @@ function mountAuditGenie(options = {}) {
       const when = document.createElement("span");
       when.textContent = stickerDayLabel(entry.iso);
       const result2 = document.createElement("span");
-      result2.textContent = ui("Checked");
+      result2.textContent = "Checked";
       item.append(when, result2);
       list.append(item);
     }
@@ -28323,7 +28275,7 @@ function mountAuditGenie(options = {}) {
     } else if (!showRegOt) {
       setStatus2("Daily contract hours are required to check Reg and OT.", "error");
     } else if (markedFor && markedFor === iso) {
-      setStatus2(uiFill("{date} marked as checked.", { date: stickerDayLabel(iso) }), "ok");
+      setStatus2(`${stickerDayLabel(iso)} marked as checked.`, "ok");
     } else {
       setStatus2("The front and back cards are ready to edit.", "ok");
     }
@@ -28331,7 +28283,7 @@ function mountAuditGenie(options = {}) {
   function paintResultHint(showRegOt) {
     const hint = document.querySelector("#audit-result .hint") || document.querySelector("#audit-result .field-hint");
     if (!(hint instanceof HTMLElement)) return;
-    hint.textContent = showRegOt ? ui("Blue handwriting is what was written on the card. A red number is the calculated hours when they differ.") : ui("Daily contract hours are required to show and check Reg and OT. Tot. Hrs. still compares each Clock Record combo.");
+    hint.textContent = showRegOt ? "Blue handwriting is what was written on the card. A red number is the calculated hours when they differ." : "Daily contract hours are required to show and check Reg and OT. Tot. Hrs. still compares each Clock Record combo.";
   }
   function refresh() {
     if (extraction) renderResult();
@@ -28428,14 +28380,12 @@ function mountAuditGenie(options = {}) {
     showSidePreview(side, file);
   }
   function setStatus2(message, kind = "") {
-    message = ui(message || "");
     status.hidden = !message;
     status.className = `status timesheet-progress${kind ? ` is-${kind}` : ""}`;
     if (statusText) statusText.textContent = message || "";
     else status.textContent = message || "";
   }
   function setBusyStatus(message) {
-    message = ui(message || "");
     status.hidden = !message;
     status.className = "status timesheet-progress is-busy";
     if (statusText) statusText.textContent = message || "";
@@ -28663,10 +28613,10 @@ function showSidePreview(side, file) {
   for (const image of [preview, phonePreview]) {
     if (!(image instanceof HTMLImageElement)) continue;
     image.src = previewUrls[side];
-    image.alt = side === "front" ? ui("Front of the time card") : ui("Back of the time card");
+    image.alt = side === "front" ? "Front of the time card" : "Back of the time card";
     image.hidden = false;
   }
-  if (button) button.textContent = side === "front" ? ui("Retake front photo") : ui("Retake back photo");
+  if (button) button.textContent = side === "front" ? "Retake front photo" : "Retake back photo";
   if (phoneState) {
     phoneState.textContent = "Received";
     phoneState.classList.add("is-ready");
@@ -28684,7 +28634,7 @@ function clearSidePreview(side) {
     image.alt = "";
     image.hidden = true;
   }
-  if (button) button.textContent = side === "front" ? ui("Take front photo") : ui("Take back photo");
+  if (button) button.textContent = side === "front" ? "Take front photo" : "Take back photo";
   if (phoneState) {
     phoneState.textContent = "Waiting\u2026";
     phoneState.classList.remove("is-ready");
@@ -28939,11 +28889,11 @@ function mountAuditCamera({ onCapture }) {
   });
   async function open(nextSide) {
     if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error(ui("This browser cannot use a camera. Choose a file instead."));
+      throw new Error("This browser cannot use a camera. Choose a file instead.");
     }
     side = nextSide;
     const title = document.querySelector("#audit-camera-title");
-    if (title) title.textContent = nextSide === "front" ? ui("Front of the time card") : ui("Back of the time card");
+    if (title) title.textContent = nextSide === "front" ? "Front of the time card" : "Back of the time card";
     setCameraStatus("");
     shutter.disabled = true;
     if (!dialog.open) dialog.showModal();
@@ -28988,7 +28938,7 @@ function mountAuditCamera({ onCapture }) {
     devices.forEach((device, index) => {
       const option = document.createElement("option");
       option.value = device.deviceId;
-      option.textContent = device.label || uiFill("Camera {n}", { n: index + 1 });
+      option.textContent = device.label || `Camera ${index + 1}`;
       deviceSelect.append(option);
     });
     picker.hidden = devices.length < 2;
@@ -29084,12 +29034,12 @@ function validateFile(file, label) {
   if (!file) return;
   const name = file.name.toLowerCase();
   if (file.type === "image/heic" || file.type === "image/heif" || /\.(heic|heif)$/.test(name)) {
-    throw new Error(uiFill("{label}: HEIC is not supported. Export the photo as a JPEG.", { label }));
+    throw new Error(`${label}: HEIC is not supported. Export the photo as a JPEG.`);
   }
   if (file.type && !ALLOWED.has(file.type)) {
-    throw new Error(uiFill("{label}: use a JPEG, PNG, GIF, or WebP photo.", { label }));
+    throw new Error(`${label}: use a JPEG, PNG, GIF, or WebP photo.`);
   }
-  if (file.size > MAX_BYTES2) throw new Error(uiFill("{label} photo exceeds 12MB.", { label }));
+  if (file.size > MAX_BYTES2) throw new Error(`${label} photo exceeds 12MB.`);
 }
 function filePayload(file) {
   return new Promise((resolve, reject) => {
@@ -29107,746 +29057,6 @@ function escapeHtml2(value) {
 }
 function escapeAttr(value) {
   return escapeHtml2(value).replace(/'/g, "&#39;");
-}
-
-// employee-tracker/web/locale-fa.js
-var fa = {
-  "lang.label": "\u0632\u0628\u0627\u0646",
-  "nav.tools": "\u0627\u0628\u0632\u0627\u0631\u0647\u0627\u06CC \u062A\u06CC\u0645\u0633\u062A\u0631",
-  "gate.password": "\u0631\u0645\u0632",
-  "gate.hint": "\u0631\u0645\u0632 \u062F\u0631\u0648\u0627\u0632\u0647 \u06CC\u0627\u0631\u062F \u0645\u0627 ____",
-  "gate.open": "\u0628\u0627\u0632 \u06A9\u0631\u062F\u0646",
-  "home.history": "\u062A\u063A\u06CC\u06CC\u0631\u0647\u0627\u06CC \u0633\u0627\u0639\u062A \u0645\u0633\u06CC\u0631 \u0634\u0645\u0627",
-  "home.audit": "\u0628\u0631\u0631\u0633\u06CC \u06A9\u0627\u0631\u062A \u0633\u0627\u0639\u062A \u0622\u0628\u06CC",
-  "home.guide": "\u0642\u0627\u0646\u0648\u0646\u200C\u0647\u0627\u06CC \u062A\u063A\u06CC\u06CC\u0631 \u0633\u0627\u0639\u062A\u060C \u0628\u0647 \u0632\u0628\u0627\u0646 \u0633\u0627\u062F\u0647",
-  "home.coming": "\u0628\u0647\u200C\u0632\u0648\u062F\u06CC",
-  "coming.lead": "\u0645\u0633\u06CC\u0631\u0647\u0627\u06CC\u06CC \u06A9\u0647 \u0637\u0628\u0642 \u0642\u0627\u0646\u0648\u0646 \u0642\u0631\u0627\u0631\u062F\u0627\u062F \u0627\u062D\u062A\u0645\u0627\u0644\u0627\u064B \u062F\u0631 \u067E\u0627\u06CC\u0627\u0646 \u0627\u06CC\u0646 \u0645\u0627\u0647 \u0628\u0631\u0627\u06CC bid \u06CC\u0627 bump \u0622\u0645\u0627\u062F\u0647 \u0645\u06CC\u200C\u0634\u0648\u0646\u062F. \u06CC\u06A9 \u062A\u063A\u06CC\u06CC\u0631 \u0633\u0627\u0639\u062A \u0628\u0639\u062F\u06CC \u0645\u06CC\u200C\u062A\u0648\u0627\u0646\u062F \u0645\u0633\u06CC\u0631 \u0631\u0627 \u0627\u0632 \u0627\u06CC\u0646 \u0641\u0647\u0631\u0633\u062A \u0628\u0631\u062F\u0627\u0631\u062F. \u0627\u06CC\u0646\u200C\u0647\u0627 \u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u0646\u0648\u0634\u062A\u0647\u200C\u0634\u062F\u0647 \u0647\u0633\u062A\u0646\u062F\u060C \u0646\u0647 \u0627\u0639\u0644\u0627\u0645 \u062F\u0641\u062A\u0631.",
-  "coming.period": "\u067E\u0627\u06CC\u0627\u0646 {month}",
-  "coming.window": "\u0631\u0648\u0632\u0647\u0627\u06CC \u0627\u0639\u0644\u0627\u0645 bid \u067E\u0646\u062C \u0631\u0648\u0632 \u0622\u062E\u0631 \u0645\u062F\u0631\u0633\u0647 \u0627\u0633\u062A\u060C {dates}.",
-  "coming.empty": "\u062F\u0631 \u067E\u0627\u06CC\u0627\u0646 \u0627\u06CC\u0646 \u0645\u0627\u0647 \u0647\u06CC\u0686 \u0645\u0633\u06CC\u0631\u06CC \u0628\u0631\u0627\u06CC bid \u06CC\u0627 bump \u0645\u062D\u062A\u0645\u0644 \u0646\u06CC\u0633\u062A.",
-  "coming.noneSeason": "\u062F\u0631 \u0627\u06CC\u0646 \u0633\u0627\u0644 \u062A\u062D\u0635\u06CC\u0644\u06CC \u0641\u0647\u0631\u0633\u062A \u067E\u0627\u06CC\u0627\u0646\u200C\u0645\u0627\u0647 \u062F\u06CC\u06AF\u0631\u06CC \u062F\u0631 \u067E\u06CC\u0634 \u0646\u06CC\u0633\u062A. \u0627\u06CC\u0646 \u0641\u0647\u0631\u0633\u062A\u200C\u0647\u0627 \u0627\u0632 \u0627\u06A9\u062A\u0628\u0631 \u062A\u0627 \u0622\u0648\u0631\u06CC\u0644 \u0647\u0633\u062A\u0646\u062F.",
-  "coming.likelyBid": "\u0627\u062D\u062A\u0645\u0627\u0644\u0627\u064B \u0628\u0631\u0627\u06CC bid",
-  "coming.likelyBump": "\u0627\u062D\u062A\u0645\u0627\u0644\u0627\u064B \u0628\u0631\u0627\u06CC bump",
-  "coming.eligibleBid": "\u0628\u0627\u06CC\u062F \u0628\u0631\u0627\u06CC bid \u0628\u0627\u0634\u062F",
-  "coming.eligibleBump": "\u0628\u0627\u06CC\u062F \u0628\u0631\u0627\u06CC bump \u0628\u0627\u0634\u062F",
-  "coming.noLonger": "\u062F\u06CC\u06AF\u0631 \u0645\u062D\u062A\u0645\u0644 \u0646\u06CC\u0633\u062A",
-  "coming.bidOpen": "\u0627\u06CC\u0646 \u062A\u063A\u06CC\u06CC\u0631 {drift} \u0627\u0633\u062A. \u0627\u06AF\u0631 \u0686\u06CC\u0632 \u062F\u06CC\u06AF\u0631\u06CC \u062B\u0628\u062A \u0646\u0634\u0648\u062F\u060C \u0627\u06CC\u0646 \u0645\u0633\u06CC\u0631 \u0628\u0627\u06CC\u062F {dates} \u0628\u0631\u0627\u06CC bid \u0628\u0631\u0648\u062F.",
-  "coming.bumpOpen": "\u0627\u06CC\u0646 \u062A\u063A\u06CC\u06CC\u0631 {drift} \u0627\u0633\u062A. \u0627\u06AF\u0631 \u0686\u06CC\u0632 \u062F\u06CC\u06AF\u0631\u06CC \u062B\u0628\u062A \u0646\u0634\u0648\u062F\u060C \u0627\u06CC\u0646 \u0645\u0633\u06CC\u0631 \u0628\u0627\u06CC\u062F \u062F\u0631 {date} \u0628\u0631\u0627\u06CC bump \u0622\u0645\u0627\u062F\u0647 \u0628\u0627\u0634\u062F.",
-  "coming.bidNow": "\u0634\u0645\u0627\u0631\u0634 \u0628\u0633\u062A\u0647 \u0634\u062F\u0647 \u0627\u0633\u062A. \u0627\u06CC\u0646 \u0645\u0633\u06CC\u0631 \u0628\u0627\u06CC\u062F {dates} \u0628\u0631\u0627\u06CC bid \u0628\u0627\u0634\u062F.",
-  "coming.bumpNow": "\u0634\u0645\u0627\u0631\u0634 \u0628\u0633\u062A\u0647 \u0634\u062F\u0647 \u0627\u0633\u062A. \u0627\u06CC\u0646 \u0645\u0633\u06CC\u0631 \u0627\u0632 {date} \u0628\u0627\u06CC\u062F \u0628\u0631\u0627\u06CC bump \u0622\u0645\u0627\u062F\u0647 \u0628\u0627\u0634\u062F.",
-  "coming.dropped": "\u0627\u06CC\u0646 \u0645\u0633\u06CC\u0631 \u0628\u0647 \u0633\u0648\u06CC {kind} \u062F\u0631 \u067E\u0627\u06CC\u0627\u0646 {month} \u0645\u06CC\u200C\u0631\u0641\u062A. \u06CC\u06A9 \u062A\u063A\u06CC\u06CC\u0631 \u0628\u0639\u062F\u06CC \u0622\u0646 \u0631\u0627 \u0627\u0632 \u0622\u0646 \u0641\u0647\u0631\u0633\u062A \u0628\u0631\u062F\u0627\u0634\u062A.",
-  "coming.kindBid": "\u06CC\u06A9 bid",
-  "coming.kindBump": "\u06CC\u06A9 bump",
-  "coming.route": "\u0645\u0633\u06CC\u0631 {label}",
-  "lookup.legend": "\u062C\u0633\u062A\u062C\u0648 \u0628\u0627",
-  "lookup.byDriver": "\u0631\u0627\u0646\u0646\u062F\u0647",
-  "lookup.route": "\u0645\u0633\u06CC\u0631",
-  "lookup.byRoute": "\u0645\u0633\u06CC\u0631",
-  "lookup.driver": "\u0631\u0627\u0646\u0646\u062F\u0647",
-  "snap.written": "\u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u0646\u0648\u0634\u062A\u0647\u200C\u0634\u062F\u0647",
-  "snap.onButton": "\u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC Snap",
-  "snap.group": "\u0627\u0633\u062A\u0641\u0627\u062F\u0647 \u0627\u0632 \u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC Snap",
-  "audit.lead": "\u0627\u0632 \u0631\u0648 \u0648 \u067E\u0634\u062A \u06A9\u0627\u0631\u062A \u0633\u0627\u0639\u062A \u0622\u0628\u06CC \u0639\u06A9\u0633 \u0628\u06AF\u06CC\u0631\u06CC\u062F. \u0646\u0648\u0631 \u062E\u0648\u0628 \u0628\u0627\u0634\u062F \u0648 \u06A9\u0627\u0631\u062A \u0631\u0627 \u062B\u0627\u0628\u062A \u0646\u06AF\u0647 \u062F\u0627\u0631\u06CC\u062F. \u062D\u0633\u0627\u0628 Reg \u0648 OT \u0648 Tot. Hrs. \u0645\u0646\u0634\u06CC\u060C \u0627\u0632 \u0631\u0648\u06CC \u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC Clock Record \u0648 \u0628\u0631\u0686\u0633\u0628 \u0628\u0627\u0644\u0627\u06CC \u0631\u0648\u06CC \u06A9\u0627\u0631\u062A\u060C \u062E\u0648\u062F\u06A9\u0627\u0631 \u0628\u0631\u0631\u0633\u06CC \u0645\u06CC\u200C\u0634\u0648\u062F.",
-  "audit.mode": "\u0631\u0648\u0634 \u062D\u0633\u0627\u0628 \u0633\u0627\u0639\u062A\u200C\u0647\u0627",
-  "audit.snap": "\u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u06AF\u0631\u062F\u0634\u062F\u0647 \u0628\u0627 Snap",
-  "audit.quarter": "\u06AF\u0631\u062F \u06A9\u0631\u062F\u0646 \u0628\u0647 \u0631\u0628\u0639 \u0633\u0627\u0639\u062A",
-  "audit.modeHint": "\u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u06AF\u0631\u062F\u0634\u062F\u0647 \u0628\u0627 Snap \u0647\u0645\u0627\u0646 \u0642\u0627\u0646\u0648\u0646 \u062D\u0642\u0648\u0642 \u0627\u0633\u062A \u06A9\u0647 \u0647\u0631 \u0633\u0627\u0639\u062A \u06A9\u0627\u0631\u062A \u0631\u0627 \u0628\u0647 \u0646\u0632\u062F\u06CC\u06A9\u200C\u062A\u0631\u06CC\u0646 \u0631\u0628\u0639 \u0633\u0627\u0639\u062A \u0645\u06CC\u200C\u0628\u0631\u062F.",
-  "audit.front": "\u0631\u0648",
-  "audit.back": "\u067E\u0634\u062A",
-  "audit.takeFront": "\u0639\u06A9\u0633 \u0627\u0632 \u0631\u0648",
-  "audit.takeBack": "\u0639\u06A9\u0633 \u0627\u0632 \u067E\u0634\u062A",
-  "audit.chooseFile": "\u0627\u0646\u062A\u062E\u0627\u0628 \u0641\u0627\u06CC\u0644",
-  "audit.contract": "\u0633\u0627\u0639\u062A \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0631\u0648\u0632\u0627\u0646\u0647",
-  "audit.contractHint": "\u067E\u06CC\u0634 \u0627\u0632 \u0641\u0631\u0633\u062A\u0627\u062F\u0646 \u0644\u0627\u0632\u0645 \u0627\u0633\u062A. \u0628\u0631\u0627\u06CC \u0628\u0631\u0631\u0633\u06CC Reg \u0648 OT \u0628\u0647 \u06A9\u0627\u0631 \u0645\u06CC\u200C\u0631\u0648\u062F.",
-  "audit.contractPlaceholder": "\u0645\u062B\u0644\u0627\u064B 6.50",
-  "audit.submit": "\u0627\u06CC\u0646 \u0639\u06A9\u0633\u200C\u0647\u0627 \u0631\u0627 \u0628\u0641\u0631\u0633\u062A",
-  "audit.startOver": "\u0627\u0632 \u0646\u0648",
-  "audit.cameraTitle": "\u0631\u0648\u06CC \u06A9\u0627\u0631\u062A \u0633\u0627\u0639\u062A",
-  "audit.cameraLead": "\u062F\u0648\u0631\u0628\u06CC\u0646 \u0631\u0627 \u0628\u0647 \u0637\u0631\u0641 \u06A9\u0627\u0631\u062A \u0628\u06AF\u06CC\u0631\u06CC\u062F. \u0635\u0641\u062D\u0647 \u0631\u0648\u0634\u0646 \u0628\u0647 \u0646\u0648\u0631 \u06A9\u0645\u06A9 \u0645\u06CC\u200C\u06A9\u0646\u062F.",
-  "audit.cameraLabel": "\u062F\u0648\u0631\u0628\u06CC\u0646",
-  "audit.shutter": "\u0639\u06A9\u0633 \u0628\u06AF\u06CC\u0631",
-  "audit.cancel": "\u0644\u063A\u0648",
-  "audit.sticker": "\u067E\u0627\u06CC\u0627\u0646 \u062F\u0648\u0631\u0647 \u062D\u0642\u0648\u0642",
-  "audit.recalculate": "\u062F\u0648\u0628\u0627\u0631\u0647 \u062D\u0633\u0627\u0628 \u06A9\u0646",
-  "audit.resultHint": "\u062F\u0633\u062A\u200C\u062E\u0637 \u0622\u0628\u06CC \u0647\u0645\u0627\u0646 \u0627\u0633\u062A \u06A9\u0647 \u0631\u0648\u06CC \u06A9\u0627\u0631\u062A \u0646\u0648\u0634\u062A\u0647 \u0634\u062F\u0647. \u0639\u062F\u062F \u0642\u0631\u0645\u0632 \u0633\u0627\u0639\u062A \u062D\u0633\u0627\u0628\u200C\u0634\u062F\u0647 \u0627\u0633\u062A\u060C \u0648\u0642\u062A\u06CC \u0628\u0627 \u0646\u0648\u0634\u062A\u0647 \u0641\u0631\u0642 \u062F\u0627\u0631\u062F.",
-  "audit.desc": "\u0634\u0631\u062D",
-  "audit.reg": "\u0639\u0627\u062F\u06CC (Reg)",
-  "audit.ot": "\u0627\u0636\u0627\u0641\u0647\u200C\u06A9\u0627\u0631 (OT)",
-  "audit.tot": "\u062C\u0645\u0639 \u0633\u0627\u0639\u062A",
-  "audit.clock": "\u062B\u0628\u062A \u0633\u0627\u0639\u062A",
-  "audit.mark": "\u0628\u0631\u0631\u0633\u06CC\u200C\u0634\u062F\u0647 \u0639\u0644\u0627\u0645\u062A \u0628\u0632\u0646\u0645\u061F",
-  "audit.work": "\u0634\u0631\u062D \u06A9\u0627\u0631",
-  "audit.save": "\u0630\u062E\u06CC\u0631\u0647",
-  fine: "\u0631\u0627\u06CC\u0633 \u0627\u0633\u0645\u0648\u06A9\u0631 \u0627\u06CC\u0646 \u0631\u0627 \u062F\u0631 \u0648\u0642\u062A \u0634\u062E\u0635\u06CC \u062E\u0648\u062F\u0634 \u0633\u0627\u062E\u062A\u0647 \u0627\u0633\u062A. \u0628\u0647 \u0645\u062F\u0627\u0631\u0633 \u0639\u0645\u0648\u0645\u06CC \u0628\u0644\u06CC\u0646\u06AF\u0647\u0645\u060C \u062A\u0631\u0627\u0628\u0631\u06CC\u060C \u06CC\u0627 \u062A\u06CC\u0645\u0633\u062A\u0631\u0632 \u0648\u0627\u0628\u0633\u062A\u0647 \u0646\u06CC\u0633\u062A.",
-  "share.section": "\u0627\u06CC\u0646 \u0628\u0631\u0646\u0627\u0645\u0647 \u0631\u0627 \u0628\u0641\u0631\u0633\u062A\u06CC\u062F",
-  "share.lead": "\u0627\u06CC\u0646 \u0628\u0631\u0646\u0627\u0645\u0647 \u0631\u0627 \u0628\u0627 \u06CC\u06A9 \u0631\u0627\u0646\u0646\u062F\u0647 \u062F\u06CC\u06AF\u0631 \u0628\u0647 \u0627\u0634\u062A\u0631\u0627\u06A9 \u0628\u06AF\u0630\u0627\u0631\u06CC\u062F.",
-  "share.caption": "\u0628\u0631\u0627\u06CC \u0641\u0631\u0633\u062A\u0627\u062F\u0646 \u0627\u0632 \u0627\u06CC\u0646 \u06A9\u062F \u0627\u0633\u062A\u0641\u0627\u062F\u0647 \u06A9\u0646\u06CC\u062F",
-  "share.qrAlt": "\u06A9\u062F\u06CC \u06A9\u0647 \u0627\u06CC\u0646 \u0635\u0641\u062D\u0647 \u0631\u0627 \u0628\u0627\u0632 \u0645\u06CC\u200C\u06A9\u0646\u062F",
-  "share.button": "\u0627\u06CC\u0646 \u0628\u0631\u0646\u0627\u0645\u0647 \u0631\u0627 \u0628\u0631\u0627\u06CC \u06CC\u06A9 \u062F\u0648\u0633\u062A \u067E\u06CC\u0627\u0645\u06A9 \u06CC\u0627 \u0627\u06CC\u0645\u06CC\u0644 \u06A9\u0646\u06CC\u062F",
-  "install.button": "\u0627\u06CC\u0646 \u0628\u0631\u0646\u0627\u0645\u0647 \u0631\u0627 \u0631\u0648\u06CC \u06AF\u0648\u0634\u06CC \u0630\u062E\u06CC\u0631\u0647 \u06A9\u0646\u06CC\u062F",
-  "disclaimer.open": "\u0633\u0644\u0628 \u0645\u0633\u0626\u0648\u0644\u06CC\u062A",
-  back: "\u0628\u0627\u0632\u06AF\u0634\u062A",
-  "disclaimer.title": "\u0633\u0644\u0628 \u0645\u0633\u0626\u0648\u0644\u06CC\u062A",
-  "disclaimer.close": "\u0628\u0633\u062A\u0646",
-  "disclaimer.p1": "\u0645\u0646 Teamster Tools \u0631\u0627 \u062F\u0631 \u0648\u0642\u062A \u0634\u062E\u0635\u06CC \u062E\u0648\u062F\u0645\u060C \u0631\u0627\u06CC\u06AF\u0627\u0646\u060C \u0628\u0631\u0627\u06CC \u0631\u0627\u0646\u0646\u062F\u0647\u200C\u0647\u0627\u06CC \u0647\u0645\u06A9\u0627\u0631 \u0633\u0627\u062E\u062A\u0645. \u0627\u06CC\u0646 \u0628\u0631\u0646\u0627\u0645\u0647 \u0628\u0647 \u0645\u062F\u0627\u0631\u0633 \u0639\u0645\u0648\u0645\u06CC \u0628\u0644\u06CC\u0646\u06AF\u0647\u0645\u060C \u062A\u0631\u0627\u0628\u0631\u06CC\u060C \u06CC\u0627 \u062A\u06CC\u0645\u0633\u062A\u0631\u0632 \u0648\u0627\u0628\u0633\u062A\u0647 \u0646\u06CC\u0633\u062A.",
-  "disclaimer.p2": "\u0633\u0639\u06CC \u0645\u06CC\u200C\u06A9\u0646\u0645 \u0627\u0637\u0644\u0627\u0639\u0627\u062A \u062F\u0631\u0633\u062A \u0628\u0627\u0634\u062F\u060C \u0627\u0645\u0627 \u0645\u0645\u06A9\u0646 \u0627\u0633\u062A \u0627\u0634\u062A\u0628\u0627\u0647 \u06A9\u0646\u0645. \u0633\u0627\u0639\u062A\u200C\u0647\u0627\u060C \u0642\u0627\u0646\u0648\u0646 \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u060C \u062D\u0633\u0627\u0628 \u062D\u0642\u0648\u0642\u060C \u0648 \u0647\u0631 \u0686\u06CC\u0632 \u062F\u06CC\u06AF\u0631 \u062F\u0631 \u0627\u06CC\u0646 \u0628\u0631\u0646\u0627\u0645\u0647 \u0645\u06CC\u200C\u062A\u0648\u0627\u0646\u062F \u063A\u0644\u0637 \u06CC\u0627 \u0642\u062F\u06CC\u0645\u06CC \u0628\u0627\u0634\u062F.",
-  "disclaimer.p3": "\u0628\u0627 \u0627\u0633\u062A\u0641\u0627\u062F\u0647 \u0627\u0632 \u0627\u06CC\u0646 \u0628\u0631\u0646\u0627\u0645\u0647 \u0645\u06CC\u200C\u067E\u0630\u06CC\u0631\u06CC\u062F \u06A9\u0647 \u0628\u0631\u0627\u06CC \u0627\u0634\u062A\u0628\u0627\u0647\u060C \u0627\u0637\u0644\u0627\u0639\u0627\u062A \u063A\u0644\u0637\u060C \u062D\u0642\u0648\u0642 \u0627\u0632\u062F\u0633\u062A\u200C\u0631\u0641\u062A\u0647\u060C \u062A\u0635\u0645\u06CC\u0645 \u0645\u0633\u06CC\u0631\u060C \u06CC\u0627 \u0647\u0631 \u0636\u0631\u0631 \u062F\u06CC\u06AF\u0631\u06CC \u06A9\u0647 \u0627\u0632 \u062A\u06A9\u06CC\u0647 \u0628\u0631 \u0622\u0646 \u0628\u06CC\u0627\u06CC\u062F\u060C \u0645\u0631\u0627 \u0645\u0633\u0626\u0648\u0644 \u0646\u062F\u0627\u0646\u06CC\u062F. \u0639\u062F\u062F\u0647\u0627\u06CC \u0645\u0647\u0645 \u0631\u0627 \u0628\u0627 \u062F\u0641\u062A\u0631 \u0648 \u0628\u0627 \u0645\u062F\u0631\u06A9 \u062E\u0648\u062F\u062A\u0627\u0646 \u062F\u0648\u0628\u0627\u0631\u0647 \u0686\u06A9 \u06A9\u0646\u06CC\u062F.",
-  "install.title": "\u0627\u06CC\u0646 \u0628\u0631\u0646\u0627\u0645\u0647 \u0631\u0627 \u0631\u0648\u06CC \u06AF\u0648\u0634\u06CC \u0630\u062E\u06CC\u0631\u0647 \u06A9\u0646\u06CC\u062F",
-  "install.close": "\u0628\u0633\u062A\u0646",
-  "install.either": "\u0627\u06CC\u0646 \u0635\u0641\u062D\u0647 \u0631\u0627 \u0631\u0648\u06CC \u06AF\u0648\u0634\u06CC \u0628\u0627\u0632 \u06A9\u0646\u06CC\u062F\u060C \u0628\u0639\u062F \u06AF\u0627\u0645\u200C\u0647\u0627\u06CC \u0647\u0645\u0627\u0646 \u06AF\u0648\u0634\u06CC \u0631\u0627 \u0627\u0646\u062C\u0627\u0645 \u062F\u0647\u06CC\u062F.",
-  "install.iphone": "\u0622\u06CC\u0641\u0648\u0646",
-  "install.safari": "\u0627\u0632 Safari \u0627\u0633\u062A\u0641\u0627\u062F\u0647 \u06A9\u0646\u06CC\u062F.",
-  "install.iphone.1": "\u062F\u06A9\u0645\u0647 Share \u067E\u0627\u06CC\u06CC\u0646 Safari \u0631\u0627 \u0628\u0632\u0646\u06CC\u062F. \u06CC\u06A9 \u0645\u0631\u0628\u0639 \u0627\u0633\u062A \u0628\u0627 \u0641\u0644\u0634\u06CC \u0628\u0647 \u0637\u0631\u0641 \u0628\u0627\u0644\u0627.",
-  "install.iphone.2": "\u062F\u0631 \u0641\u0647\u0631\u0633\u062A \u0627\u0634\u062A\u0631\u0627\u06A9\u060C \u067E\u0627\u06CC\u06CC\u0646 \u0628\u0631\u0648\u06CC\u062F \u0648 Add to Home Screen \u0631\u0627 \u0628\u0632\u0646\u06CC\u062F.",
-  "install.iphone.3": "Add \u0631\u0627 \u0628\u0632\u0646\u06CC\u062F. Teamster Tools \u0645\u062B\u0644 \u06CC\u06A9 \u0646\u0645\u0627\u062F \u0631\u0648\u06CC \u0635\u0641\u062D\u0647 \u0627\u0635\u0644\u06CC \u0645\u06CC\u200C\u0622\u06CC\u062F.",
-  "install.android": "\u0627\u0646\u062F\u0631\u0648\u06CC\u062F",
-  "install.chrome": "\u0627\u0632 Chrome \u0627\u0633\u062A\u0641\u0627\u062F\u0647 \u06A9\u0646\u06CC\u062F.",
-  "install.android.1": "\u0633\u0647 \u0646\u0642\u0637\u0647 \u06AF\u0648\u0634\u0647 \u0628\u0627\u0644\u0627\u06CC Chrome \u0631\u0627 \u0628\u0632\u0646\u06CC\u062F.",
-  "install.android.2": "Add to Home screen \u0631\u0627 \u0628\u0632\u0646\u06CC\u062F. \u0627\u06AF\u0631 Install app \u062F\u06CC\u062F\u06CC\u062F\u060C \u0647\u0645\u0627\u0646 \u0631\u0627 \u0628\u0632\u0646\u06CC\u062F.",
-  "install.android.3": "Add \u06CC\u0627 Install \u0631\u0627 \u0628\u0632\u0646\u06CC\u062F. Teamster Tools \u0645\u062B\u0644 \u06CC\u06A9 \u0646\u0645\u0627\u062F \u0631\u0648\u06CC \u0635\u0641\u062D\u0647 \u0627\u0635\u0644\u06CC \u0645\u06CC\u200C\u0622\u06CC\u062F.",
-  "share.title": "\u0627\u0634\u062A\u0631\u0627\u06A9",
-  "share.close": "\u0628\u0633\u062A\u0646",
-  "share.note": "\u067E\u06CC\u0627\u0645\u060C \u0644\u06CC\u0646\u06A9 \u0635\u0641\u062D\u0647 \u0648 \u0631\u0645\u0632 \u0631\u0627 \u062F\u0627\u0631\u062F. \u062E\u0648\u062F \u0644\u06CC\u0646\u06A9 \u0631\u0645\u0632 \u0631\u0627 \u0646\u062F\u0627\u0631\u062F.",
-  "share.email": "\u0627\u06CC\u0645\u06CC\u0644",
-  "share.text": "Teamster Tools\n\u0627\u0632 \u0631\u0627\u06CC\u0633 \u2014 \u062A\u0627\u0631\u06CC\u062E \u0648\u0627\u0642\u0639\u06CC \u062A\u063A\u06CC\u06CC\u0631 \u0645\u0633\u06CC\u0631\u062A\u0627\u0646 \u0631\u0627 \u0628\u0628\u06CC\u0646\u06CC\u062F\u060C \u06A9\u0627\u0631\u062A \u0633\u0627\u0639\u062A \u0631\u0627 \u0628\u0631\u0631\u0633\u06CC \u06A9\u0646\u06CC\u062F\u060C \u0648 \u0686\u06CC\u0632\u0647\u0627\u06CC \u062F\u06CC\u06AF\u0631.\n{url}\n\u0631\u0645\u0632: {password}",
-  "share.emailLink": "\u0627\u06CC\u0645\u06CC\u0644",
-  "share.textLink": "\u067E\u06CC\u0627\u0645\u06A9",
-  "guide.dialog": "\u0642\u0627\u0646\u0648\u0646\u200C\u0647\u0627\u06CC \u062A\u063A\u06CC\u06CC\u0631 \u0633\u0627\u0639\u062A\u060C \u0628\u0647 \u0632\u0628\u0627\u0646 \u0633\u0627\u062F\u0647",
-  "guide.close": "\u0628\u0633\u062A\u0646",
-  "day.close": "\u0628\u0633\u062A\u0646",
-  "office.unreachable": "\u0627\u06CC\u0646 \u0635\u0641\u062D\u0647 \u0647\u0646\u0648\u0632 \u0628\u0647 \u067E\u0631\u0648\u0646\u062F\u0647 \u062F\u0641\u062A\u0631 \u0646\u0645\u06CC\u200C\u0631\u0633\u062F.",
-  "office.unavailable": "\u067E\u0631\u0648\u0646\u062F\u0647 \u062F\u0641\u062A\u0631 \u0647\u0646\u0648\u0632 \u0627\u0632 \u0627\u06CC\u0646 \u0635\u0641\u062D\u0647 \u062F\u0631 \u062F\u0633\u062A\u0631\u0633 \u0646\u06CC\u0633\u062A.",
-  "gate.wrong": "\u0627\u06CC\u0646 \u0631\u0645\u0632 \u062F\u0631\u0633\u062A \u0646\u06CC\u0633\u062A.",
-  "gate.opening": "\u067E\u0631\u0648\u0646\u062F\u0647 \u062F\u0641\u062A\u0631 \u062F\u0631 \u062D\u0627\u0644 \u0628\u0627\u0632 \u0634\u062F\u0646 \u0627\u0633\u062A\u2026",
-  "lookup.chooseRoute": "\u06CC\u06A9 \u0645\u0633\u06CC\u0631 \u0627\u0646\u062A\u062E\u0627\u0628 \u06A9\u0646\u06CC\u062F",
-  "lookup.chooseDriver": "\u06CC\u06A9 \u0631\u0627\u0646\u0646\u062F\u0647 \u0627\u0646\u062A\u062E\u0627\u0628 \u06A9\u0646\u06CC\u062F",
-  "lookup.noRoutes": "\u0647\u0646\u0648\u0632 \u0647\u06CC\u0686 \u0645\u0633\u06CC\u0631\u06CC \u062B\u0628\u062A \u0646\u0634\u062F\u0647.",
-  "lookup.noDrivers": "\u0647\u0646\u0648\u0632 \u0647\u06CC\u0686 \u0631\u0627\u0646\u0646\u062F\u0647\u200C\u0627\u06CC \u062B\u0628\u062A \u0646\u0634\u062F\u0647.",
-  "title.route": "\u0645\u0633\u06CC\u0631 {label} \xB7 Teamster Tools",
-  "title.person": "{label} \xB7 Teamster Tools",
-  "snap.hintOn": "Snap \u0631\u0648\u0634\u0646 \u0627\u0633\u062A. \u0647\u0631 \u0633\u0627\u0639\u062A \u0628\u0647 \u0631\u0628\u0639\u200C\u0633\u0627\u0639\u062A \u0646\u0648\u0627\u0631 \u062D\u0642\u0648\u0642 \u0645\u06CC\u200C\u0631\u0648\u062F\u060C \u0648 \u062A\u0648\u0636\u06CC\u062D \u0648 \u062C\u062F\u0648\u0644 \u062F\u0648\u0628\u0627\u0631\u0647 \u0627\u0632 \u0647\u0645\u0627\u0646 \u0633\u0627\u0639\u062A\u200C\u0647\u0627 \u062D\u0633\u0627\u0628 \u0645\u06CC\u200C\u0634\u0648\u062F. \u0628\u0631\u0627\u06CC \u0628\u0631\u06AF\u0634\u062A \u0628\u0647 \u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u0646\u0648\u0634\u062A\u0647\u200C\u0634\u062F\u0647 \u0622\u0646 \u0631\u0627 \u062E\u0627\u0645\u0648\u0634 \u06A9\u0646\u06CC\u062F. \u067E\u0631\u0648\u0646\u062F\u0647 \u062F\u0641\u062A\u0631 \u0647\u0645\u0627\u0646\u200C\u0637\u0648\u0631 \u06A9\u0647 \u0647\u0633\u062A \u0645\u06CC\u200C\u0645\u0627\u0646\u062F.",
-  "snap.hintOff": "Snap \u062E\u0627\u0645\u0648\u0634 \u0627\u0633\u062A. \u0622\u0646 \u0631\u0627 \u0631\u0648\u0634\u0646 \u06A9\u0646\u06CC\u062F \u062A\u0627 \u0647\u0631 \u0633\u0627\u0639\u062A \u0628\u0647 \u0631\u0628\u0639\u200C\u0633\u0627\u0639\u062A \u0646\u0648\u0627\u0631 \u062D\u0642\u0648\u0642 \u0628\u0631\u0648\u062F \u0648 \u0628\u0628\u06CC\u0646\u06CC\u062F \u0633\u0627\u0639\u062A\u200C\u0647\u0627 \u06CC\u0627 \u062A\u0627\u0631\u06CC\u062E \u0639\u0648\u0636 \u0645\u06CC\u200C\u0634\u0648\u062F \u06CC\u0627 \u0646\u0647. \u067E\u0631\u0648\u0646\u062F\u0647 \u062F\u0641\u062A\u0631 \u0647\u0645\u0627\u0646\u200C\u0637\u0648\u0631 \u06A9\u0647 \u0647\u0633\u062A \u0645\u06CC\u200C\u0645\u0627\u0646\u062F.",
-  "install.safariOther": "\u0627\u06CC\u0646 \u0635\u0641\u062D\u0647 \u0631\u0627 \u062F\u0631 Safari \u0628\u0627\u0632 \u06A9\u0646\u06CC\u062F. \u0645\u0631\u0648\u0631\u06AF\u0631\u0647\u0627\u06CC \u062F\u06CC\u06AF\u0631 \u0622\u06CC\u0641\u0648\u0646 \u0646\u0645\u06CC\u200C\u062A\u0648\u0627\u0646\u0646\u062F \u0622\u0646 \u0631\u0627 \u0628\u0647 \u0635\u0641\u062D\u0647 \u0627\u0635\u0644\u06CC \u0627\u0636\u0627\u0641\u0647 \u06A9\u0646\u0646\u062F.",
-  "install.chromeOther": "\u0627\u06CC\u0646 \u0635\u0641\u062D\u0647 \u0631\u0627 \u062F\u0631 Chrome \u0628\u0627\u0632 \u06A9\u0646\u06CC\u062F\u060C \u0628\u0639\u062F \u0627\u06CC\u0646 \u06AF\u0627\u0645\u200C\u0647\u0627 \u0631\u0627 \u0627\u0646\u062C\u0627\u0645 \u062F\u0647\u06CC\u062F.",
-  "day.fallback": "\u0631\u0648\u0632",
-  "run.midday": "\u0638\u0647\u0631",
-  "empty.driver": "\u0628\u0631\u0627\u06CC {name} \u062A\u0627\u0631\u06CC\u062E \u0645\u0633\u06CC\u0631\u06CC \u062B\u0628\u062A \u0646\u0634\u062F\u0647.",
-  "empty.route": "\u0628\u0631\u0627\u06CC {route} \u062A\u0627\u0631\u06CC\u062E \u0645\u0633\u06CC\u0631\u06CC \u062B\u0628\u062A \u0646\u0634\u062F\u0647.",
-  "lead.one": "\u0645\u0633\u06CC\u0631 {routes}\u060C \u0628\u0627 \u0647\u0631 \u062A\u063A\u06CC\u06CC\u0631\u06CC \u062F\u0631 \u0648\u0642\u062A\u06CC \u06A9\u0647 {name} \u0622\u0646 \u0631\u0627 \u062F\u0627\u0634\u062A.",
-  "lead.many": "\u0645\u0633\u06CC\u0631\u0647\u0627\u06CC {routes}\u060C \u0628\u0627 \u0647\u0631 \u062A\u063A\u06CC\u06CC\u0631\u06CC \u062F\u0631 \u0648\u0642\u062A\u06CC \u06A9\u0647 {name} \u0622\u0646\u200C\u0647\u0627 \u0631\u0627 \u062F\u0627\u0634\u062A.",
-  "held.since": "\u0627\u0632 {date}",
-  "held.range": "{from} \u2013 {to}",
-  "route.heading": "\u0645\u0633\u06CC\u0631 {label}",
-  "holders.none": "\u0631\u0627\u0646\u0646\u062F\u0647\u200C\u0627\u06CC \u062A\u0639\u06CC\u06CC\u0646 \u0646\u0634\u062F\u0647.",
-  "clocks.now": "\u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u0627\u0644\u0627\u0646",
-  "started": "\u0627\u0632 {date} \u0634\u0631\u0648\u0639 \u0634\u062F.",
-  "contracted.today": "\u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0627\u0645\u0631\u0648\u0632",
-  "contracted.asOf": "\u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u062A\u0627 {date}",
-  "contracted.same": "\u0647\u0645\u0627\u0646 \u0633\u0627\u0639\u062A\u200C\u0647\u0627.",
-  "hours.open": "\u062A\u0627 \u0648\u0642\u062A\u06CC \u0627\u06CC\u0646 \u0634\u0645\u0627\u0631\u0634 \u0628\u0627\u0632 \u0627\u0633\u062A\u060C \u0647\u0645\u06CC\u0646\u200C\u0647\u0627 \u0633\u0627\u0639\u062A \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0645\u06CC\u200C\u0645\u0627\u0646\u0646\u062F.",
-  "hours.rules": "\u0642\u0627\u0646\u0648\u0646 \u0627\u06CC\u0646\u200C\u0647\u0627 \u0631\u0627 \u0633\u0627\u0639\u062A \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0645\u06CC\u200C\u062F\u0627\u0646\u062F.",
-  "rules.next": "\u0642\u0627\u0646\u0648\u0646 \u0628\u0639\u062F \u0627\u0632 \u0627\u06CC\u0646 \u0686\u0647 \u0645\u06CC\u200C\u06AF\u0648\u06CC\u062F",
-  "rules.bidOpen": "\u0627\u06CC\u0646 \u062A\u063A\u06CC\u06CC\u0631 {drift} \u0627\u0633\u062A. \u0627\u06AF\u0631 \u0686\u06CC\u0632 \u062F\u06CC\u06AF\u0631\u06CC \u062B\u0628\u062A \u0646\u0634\u0648\u062F\u060C \u0645\u0633\u06CC\u0631 \u0628\u0627\u06CC\u062F {dates} \u0628\u0631\u0627\u06CC \u0627\u0646\u062A\u062E\u0627\u0628 (bid) \u0628\u0631\u0648\u062F.",
-  "rules.bumpOpen": "\u0627\u06CC\u0646 \u062A\u063A\u06CC\u06CC\u0631 {drift} \u0627\u0633\u062A. \u0627\u06AF\u0631 \u0686\u06CC\u0632 \u062F\u06CC\u06AF\u0631\u06CC \u062B\u0628\u062A \u0646\u0634\u0648\u062F\u060C \u0645\u0633\u06CC\u0631 \u0628\u0627\u06CC\u062F \u062F\u0631 {date} \u0628\u0631\u0627\u06CC bump \u0622\u0645\u0627\u062F\u0647 \u0628\u0627\u0634\u062F.",
-  "rules.hoursOpen": "\u0627\u06CC\u0646 \u062A\u063A\u06CC\u06CC\u0631 {drift} \u0627\u0633\u062A. \u0627\u06AF\u0631 \u0686\u06CC\u0632 \u062F\u06CC\u06AF\u0631\u06CC \u062B\u0628\u062A \u0646\u0634\u0648\u062F\u060C \u0627\u06CC\u0646 \u0633\u0627\u0639\u062A\u200C\u0647\u0627 \u0628\u0627\u06CC\u062F \u062F\u0631 {date} \u0633\u0627\u0639\u062A \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0634\u0648\u0646\u062F.",
-  "rules.nothingWaiting": "\u0634\u0645\u0627\u0631\u0634\u06CC \u062F\u0631 \u0627\u0646\u062A\u0638\u0627\u0631 \u0646\u06CC\u0633\u062A. \u0627\u06CC\u0646 \u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u06A9\u0627\u0631\u062A\u060C \u0633\u0627\u0639\u062A \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0647\u0633\u062A\u0646\u062F.",
-  "rules.bidClosedDates": "\u0634\u0645\u0627\u0631\u0634 \u0628\u0633\u062A\u0647 \u0634\u062F. \u0645\u0633\u06CC\u0631 \u0628\u0627\u06CC\u062F {dates} \u0628\u0631\u0627\u06CC \u0627\u0646\u062A\u062E\u0627\u0628 (bid) \u0628\u0627\u0634\u062F.",
-  "rules.bidClosed": "\u0634\u0645\u0627\u0631\u0634 \u0628\u0633\u062A\u0647 \u0634\u062F. \u0645\u0633\u06CC\u0631 \u0628\u0627\u06CC\u062F \u0628\u0631\u0627\u06CC \u0627\u0646\u062A\u062E\u0627\u0628 (bid) \u0628\u0627\u0634\u062F.",
-  "rules.bumpClosedDate": "\u0634\u0645\u0627\u0631\u0634 \u0628\u0633\u062A\u0647 \u0634\u062F. \u0645\u0633\u06CC\u0631 \u0628\u0627\u06CC\u062F \u0627\u0632 {date} \u0628\u0631\u0627\u06CC bump \u0622\u0645\u0627\u062F\u0647 \u0628\u0627\u0634\u062F.",
-  "rules.bumpClosed": "\u0634\u0645\u0627\u0631\u0634 \u0628\u0633\u062A\u0647 \u0634\u062F. \u0645\u0633\u06CC\u0631 \u0628\u0627\u06CC\u062F \u0628\u0631\u0627\u06CC bump \u0622\u0645\u0627\u062F\u0647 \u0628\u0627\u0634\u062F.",
-  "rules.hoursClosedDate": "\u0634\u0645\u0627\u0631\u0634 \u0628\u0633\u062A\u0647 \u0634\u062F. \u0627\u06CC\u0646 \u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u06A9\u0627\u0631\u062A \u0628\u0627\u06CC\u062F \u0627\u0632 {date} \u0633\u0627\u0639\u062A \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0628\u0627\u0634\u0646\u062F.",
-  "rules.hoursAre": "\u0627\u06CC\u0646 \u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u06A9\u0627\u0631\u062A\u060C \u0633\u0627\u0639\u062A \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0647\u0633\u062A\u0646\u062F.",
-  "snap.reads": "Snap \u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u06A9\u0627\u0631\u062A \u0631\u0627 \u0627\u06CC\u0646\u200C\u0637\u0648\u0631 \u0645\u06CC\u200C\u062E\u0648\u0627\u0646\u062F: {clocks}.",
-  "snap.sameWithMove": "\u0633\u0627\u0639\u062A \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0648 \u062D\u0631\u0641 \u0628\u0639\u062F\u06CC \u0642\u0627\u0646\u0648\u0646 \u0647\u0645\u0627\u0646 \u0645\u06CC\u200C\u0645\u0627\u0646\u062F.",
-  "snap.sameNoMove": "Snap \u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u06A9\u0627\u0631\u062A\u060C \u0633\u0627\u0639\u062A \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC\u060C \u0648 \u062D\u0631\u0641 \u0628\u0639\u062F\u06CC \u0642\u0627\u0646\u0648\u0646 \u0631\u0627 \u0647\u0645\u0627\u0646 \u0646\u06AF\u0647 \u0645\u06CC\u200C\u062F\u0627\u0631\u062F.",
-  "snap.hours": "Snap \u0633\u0627\u0639\u062A \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0631\u0627 \u0627\u0632 {from} \u0628\u0647 {to} \u0645\u06CC\u200C\u0628\u0631\u062F.",
-  "snap.compare": "\u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u0646\u0648\u0634\u062A\u0647\u200C\u0634\u062F\u0647: {written} \u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC Snap: {snap}",
-  "history.calendar": "\u062A\u0642\u0648\u06CC\u0645",
-  "side.ownDate": "\u062A\u0627\u0631\u06CC\u062E \u062E\u0648\u062F\u0634",
-  "side.bidClock": "\u0634\u0645\u0627\u0631\u0634 bid \u062E\u0648\u062F\u0634\u060C \u062A\u0627 {when}",
-  "side.dayClock": "\u0634\u0645\u0627\u0631\u0634 \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u062E\u0648\u062F\u0634\u060C \u062A\u0627 {when}",
-  "side.note": "\u06CC\u06A9 \u062A\u063A\u06CC\u06CC\u0631 \u0628\u0639\u062F\u06CC \u0628\u0647 \u0627\u0646\u062F\u0627\u0632\u0647 {amount} \u0645\u0633\u06CC\u0631 \u0631\u0627 \u0631\u0648\u06CC \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u06CC\u0627 \u0628\u06CC\u0634\u062A\u0631 \u0646\u06AF\u0647 \u0645\u06CC\u200C\u062F\u0627\u0631\u062F\u060C \u067E\u0633 \u062A\u0627\u0631\u06CC\u062E bid \u062A\u06A9\u0627\u0646 \u0646\u0645\u06CC\u200C\u062E\u0648\u0631\u062F. \u0622\u0646 \u062A\u063A\u06CC\u06CC\u0631 {clock} \u0631\u0627 \u0637\u06CC \u0645\u06CC\u200C\u06A9\u0646\u062F.",
-  "col.started": "\u0634\u0631\u0648\u0639 \u0628\u0631\u0646\u0627\u0645\u0647 \u062C\u062F\u06CC\u062F",
-  "col.amStart": "\u0634\u0631\u0648\u0639 \u0635\u0628\u062D",
-  "col.amEnd": "\u067E\u0627\u06CC\u0627\u0646 \u0635\u0628\u062D",
-  "col.midStart": "\u0634\u0631\u0648\u0639 \u0638\u0647\u0631",
-  "col.midEnd": "\u067E\u0627\u06CC\u0627\u0646 \u0638\u0647\u0631",
-  "col.pmStart": "\u0634\u0631\u0648\u0639 \u0639\u0635\u0631",
-  "col.pmEnd": "\u067E\u0627\u06CC\u0627\u0646 \u0639\u0635\u0631",
-  "col.change": "\u062A\u063A\u06CC\u06CC\u0631",
-  "col.hours": "\u0633\u0627\u0639\u062A \u0628\u0631\u0646\u0627\u0645\u0647\u200C\u0631\u06CC\u0632\u06CC\u200C\u0634\u062F\u0647",
-  "col.contractDate": "\u062A\u0627\u0631\u06CC\u062E \u0645\u062D\u0627\u0633\u0628\u0647\u200C\u0634\u062F\u0647 \u0642\u0631\u0627\u0631\u062F\u0627\u062F",
-  "col.empty": "\u0647\u0646\u0648\u0632 \u0633\u0627\u0639\u062A \u06A9\u0627\u0631\u062A\u06CC \u062B\u0628\u062A \u0646\u0634\u062F\u0647.",
-  "col.diffTitle": "\u0628\u0627 \u0631\u062F\u06CC\u0641 \u0628\u0627\u0644\u0627 \u0641\u0631\u0642 \u062F\u0627\u0631\u062F",
-  "legend.bidNote": "\u062F\u0648\u0631\u0647 bid \u0622\u062E\u0631 \u0645\u0627\u0647: \u067E\u0646\u062C \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0622\u062E\u0631\u060C \u0627\u0632 \u0627\u06A9\u062A\u0628\u0631 \u062A\u0627 \u0622\u0648\u0631\u06CC\u0644\u060C \u0648\u0642\u062A\u06CC \u0627\u0641\u0632\u0627\u06CC\u0634 \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647\u200C\u0627\u06CC \u0628\u0631\u0627\u06CC \u0627\u0646\u062A\u062E\u0627\u0628 \u06AF\u0630\u0627\u0634\u062A\u0647 \u0645\u06CC\u200C\u0634\u0648\u062F.",
-  "dow.sun": "\u06CC\u06A9\u0634",
-  "dow.mon": "\u062F\u0648\u0634",
-  "dow.tue": "\u0633\u0647\u200C\u0634",
-  "dow.wed": "\u0686\u0647\u0627\u0631",
-  "dow.thu": "\u067E\u0646\u062C\u0634",
-  "dow.fri": "\u062C\u0645\u0639\u0647",
-  "dow.sat": "\u0634\u0646\u0628\u0647",
-  "cal.schoolDay": "\u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647",
-  "cal.today": "\u062A\u0627\u0631\u06CC\u062E \u0627\u0645\u0631\u0648\u0632",
-  "cal.bidPeriod": "\u062F\u0648\u0631\u0647 bid \u0622\u062E\u0631 \u0645\u0627\u0647",
-  "cal.off": "\u062A\u0639\u0637\u06CC\u0644",
-  "cal.weekend": "\u0622\u062E\u0631 \u0647\u0641\u062A\u0647",
-  "cal.outside": "\u0628\u06CC\u0631\u0648\u0646 \u0627\u0632 \u0633\u0627\u0644 \u062A\u062D\u0635\u06CC\u0644\u06CC",
-  "cal.goesToBid": "\u062F\u0631 {when} \u0628\u0631\u0627\u06CC bid \u0645\u06CC\u200C\u0631\u0648\u062F",
-  "cal.pointsTo": "\u0628\u0647 {when} \u0627\u0634\u0627\u0631\u0647 \u0645\u06CC\u200C\u06A9\u0646\u062F",
-  "cal.established": "\u062B\u0627\u0628\u062A \u0634\u062F",
-  "cal.schoolDayN": "\u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 {n} \u0627\u0632 \u06F1\u06F5",
-  "cal.became": "\u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0634\u062F",
-  "cal.postedBid": "\u0628\u0631\u0627\u06CC bid \u06AF\u0630\u0627\u0634\u062A\u0647 \u0634\u062F",
-  "cal.bump": "\u0622\u0645\u0627\u062F\u0647 bump",
-  "cal.resolution": "\u0646\u062A\u06CC\u062C\u0647",
-  "guide.title": "\u0631\u0627\u0647\u0646\u0645\u0627\u06CC \u0631\u0627\u0646\u0646\u062F\u0647 \u0627\u062A\u0648\u0628\u0648\u0633 \u0628\u0631\u0627\u06CC \u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u06A9\u0627\u0631\u062A",
-  "guide.eyebrow": "\u0645\u062F\u0627\u0631\u0633 \u0639\u0645\u0648\u0645\u06CC \u0628\u0644\u06CC\u0646\u06AF\u0647\u0645 \xB7 \u062A\u06CC\u0645\u0633\u062A\u0631\u0632",
-  "guide.h1": "\u0631\u0627\u0647\u0646\u0645\u0627\u06CC \u0631\u0627\u0646\u0646\u062F\u0647 \u0627\u062A\u0648\u0628\u0648\u0633 \u0628\u0631\u0627\u06CC \u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u06A9\u0627\u0631\u062A",
-  "guide.lede": "\u0633\u0644\u0627\u0645! \u0627\u06CC\u0646 \u0631\u0627\u0647\u0646\u0645\u0627 \u0631\u0627 \u0628\u0631\u0627\u06CC \u0631\u0627\u0646\u0646\u062F\u0647\u200C\u0647\u0627\u06CC \u062A\u0627\u0632\u0647\u200C\u06A9\u0627\u0631 \u0646\u0648\u0634\u062A\u0645\u060C \u0686\u0648\u0646 \u062C\u0627\u06CC \u062F\u06CC\u06AF\u0631\u06CC \u0646\u062F\u0627\u0631\u0646\u062F \u06A9\u0647 \u0642\u0627\u0646\u0648\u0646 \u0642\u0631\u0627\u0631\u062F\u0627\u062F \u0631\u0627 \u0628\u0647 \u0632\u0628\u0627\u0646 \u0633\u0627\u062F\u0647 \u0628\u062E\u0648\u0627\u0646\u0646\u062F. \u062A\u0627 \u062C\u0627\u06CC\u06CC \u06A9\u0647 \u0645\u06CC\u200C\u0641\u0647\u0645\u0645\u060C \u0642\u0627\u0646\u0648\u0646 \u0631\u0627 \u0633\u0627\u062F\u0647 \u0645\u06CC\u200C\u06AF\u0648\u06CC\u0645. \u0627\u06AF\u0631 \u062C\u0627\u06CC\u06CC \u0627\u0634\u062A\u0628\u0627\u0647 \u06A9\u0631\u062F\u0645\u060C \u0628\u0647 \u0645\u0646 \u0628\u06AF\u0648\u06CC\u06CC\u062F. \u0627\u06CC\u0646 \u0641\u0642\u0637 \u0641\u0647\u0645 \u0634\u062E\u0635\u06CC \u0645\u0646 \u0627\u0633\u062A \u0627\u0632 \u0627\u06CC\u0646\u06A9\u0647 \u06A9\u0627\u0631\u0647\u0627 \u0686\u0637\u0648\u0631 \u067E\u06CC\u0634 \u0645\u06CC\u200C\u0631\u0648\u062F. -\u0631\u0627\u06CC\u0633",
-  "guide.start.h": "\u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u06A9\u0627\u0631\u062A \u0634\u0645\u0627",
-  "guide.start.p1": "\u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u06A9\u0627\u0631\u062A \u0647\u0645\u0627\u0646 \u0632\u0645\u0627\u0646\u06CC \u0627\u0633\u062A \u06A9\u0647 \u0628\u0631\u0627\u06CC \u06AF\u0631\u0648\u0647 \u062D\u0642\u0648\u0642 \u0648 \u0628\u0631\u0627\u06CC \u0627\u06CC\u0646 \u0642\u0627\u0646\u0648\u0646\u200C\u0647\u0627 \u062D\u0633\u0627\u0628 \u0645\u06CC\u200C\u0634\u0648\u062F. \u0635\u0628\u062D\u060C \u0638\u0647\u0631\u060C \u0648 \u0639\u0635\u0631 \u0647\u0631 \u06A9\u062F\u0627\u0645 \u0628\u0647 \u0646\u0632\u062F\u06CC\u06A9\u200C\u062A\u0631\u06CC\u0646 \u06F1\u06F5 \u062F\u0642\u06CC\u0642\u0647 \u06AF\u0631\u062F \u0645\u06CC\u200C\u0634\u0648\u0646\u062F. \u0622\u0646 \u0645\u0642\u062F\u0627\u0631\u0647\u0627\u06CC \u06AF\u0631\u062F\u0634\u062F\u0647 \u0628\u0627 \u0647\u0645 \u062C\u0645\u0639 \u0645\u06CC\u200C\u0634\u0648\u0646\u062F\u060C \u0648 \u0622\u0646 \u062C\u0645\u0639 \u062F\u0648\u0628\u0627\u0631\u0647 \u0628\u0647 \u0646\u0632\u062F\u06CC\u06A9\u200C\u062A\u0631\u06CC\u0646 \u06F1\u06F5 \u062F\u0642\u06CC\u0642\u0647 \u06AF\u0631\u062F \u0645\u06CC\u200C\u0634\u0648\u062F.",
-  "guide.start.p2": "\u0645\u0645\u06A9\u0646 \u0627\u0633\u062A \u0647\u0645\u06CC\u0646 \u06A9\u0647 \u062F\u0641\u062A\u0631 \u0645\u0633\u06CC\u0631 \u0631\u0627 \u0639\u0648\u0636 \u06A9\u0631\u062F\u060C \u0634\u0645\u0627 \u0633\u0627\u0639\u062A\u200C\u0647\u0627\u06CC \u062C\u062F\u06CC\u062F \u0631\u0627 \u0628\u0631\u0627\u0646\u06CC\u062F. \u0627\u06CC\u0646 \u0642\u0627\u0646\u0648\u0646\u200C\u0647\u0627 \u0645\u06CC\u200C\u06AF\u0648\u06CC\u0646\u062F \u0622\u0646 \u0633\u0627\u0639\u062A \u0646\u0648 \u06A9\u06CC \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0645\u06CC\u200C\u0634\u0648\u062F\u060C \u06A9\u06CC \u0645\u06CC\u200C\u062A\u0648\u0627\u0646\u06CC\u062F \u0645\u0633\u06CC\u0631 \u0631\u0627\u0646\u0646\u062F\u0647 \u062F\u06CC\u06AF\u0631\u06CC \u0631\u0627 \u0628\u06AF\u06CC\u0631\u06CC\u062F\u060C \u0648 \u0645\u0633\u06CC\u0631 \u0634\u0645\u0627 \u06A9\u06CC \u0628\u0631\u0627\u06CC \u0627\u0646\u062A\u062E\u0627\u0628 (bid) \u0645\u06CC\u200C\u0631\u0648\u062F.",
-  "guide.usual.h": "\u0645\u0639\u0645\u0648\u0644\u0627\u064B \u0686\u0647 \u0645\u06CC\u200C\u0634\u0648\u062F",
-  "guide.usual.p1": "\u0628\u06CC\u0634\u062A\u0631 \u0645\u0627\u0647\u200C\u0647\u0627\u06CC \u0633\u0627\u0644 \u062A\u062D\u0635\u06CC\u0644\u06CC \u06CC\u06A9 \u0627\u0646\u062A\u062E\u0627\u0628 \u0622\u062E\u0631 \u0645\u0627\u0647 \u062F\u0627\u0631\u0646\u062F. \u0622\u0646 \u067E\u0646\u062C \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0622\u062E\u0631 \u0645\u0627\u0647 \u0627\u0633\u062A\u060C \u0648 \u0645\u0633\u06CC\u0631\u0647\u0627\u06CC\u06CC \u06A9\u0647 \u0627\u0641\u0632\u0627\u06CC\u0634 \u0628\u0632\u0631\u06AF\u200C\u0634\u0627\u0646 \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u062F\u0648\u0627\u0645 \u0622\u0648\u0631\u062F\u0647\u060C \u0647\u0645\u0627\u0646 \u0648\u0642\u062A \u0628\u0631\u0627\u06CC \u0627\u0646\u062A\u062E\u0627\u0628 \u0645\u06CC\u200C\u0631\u0648\u0646\u062F. \u0622\u0646 \u0645\u0627\u0647\u200C\u0647\u0627 \u0627\u06A9\u062A\u0628\u0631\u060C \u0646\u0648\u0627\u0645\u0628\u0631\u060C \u062F\u0633\u0627\u0645\u0628\u0631\u060C \u0698\u0627\u0646\u0648\u06CC\u0647\u060C \u0641\u0648\u0631\u06CC\u0647\u060C \u0645\u0627\u0631\u0633\u060C \u0648 \u0622\u0648\u0631\u06CC\u0644 \u0647\u0633\u062A\u0646\u062F. \u06A9\u0627\u0647\u0634 \u0628\u0632\u0631\u06AF\u060C \u0628\u0639\u062F \u0627\u0632 \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647\u060C \u0627\u0632 \u062D\u0642 \u0627\u0631\u0634\u062F\u06CC\u062A \u0627\u0633\u062A\u0641\u0627\u062F\u0647 \u0645\u06CC\u200C\u06A9\u0646\u062F. \u0641\u0642\u0637 \u0631\u0648\u0632\u0647\u0627\u06CC\u06CC \u062D\u0633\u0627\u0628 \u0645\u06CC\u200C\u0634\u0648\u0646\u062F \u06A9\u0647 \u062F\u0627\u0646\u0634\u200C\u0622\u0645\u0648\u0632\u0647\u0627 \u062F\u0631 \u0645\u062F\u0631\u0633\u0647\u200C\u0627\u0646\u062F.",
-  "guide.usual.p2": "\u0635\u0628\u062D\u060C \u0638\u0647\u0631\u060C \u0648 \u0639\u0635\u0631 \u06CC\u06A9 \u0645\u0633\u06CC\u0631 \u062D\u0633\u0627\u0628 \u0645\u06CC\u200C\u0634\u0648\u0646\u062F. \u062A\u0627 \u0648\u0642\u062A\u06CC \u062C\u0645\u0639 \u0632\u06CC\u0631 \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u0627\u0633\u062A\u060C \u062A\u063A\u06CC\u06CC\u0631 \u0646\u0648 \u0628\u0647 \u0622\u0646 \u0627\u0636\u0627\u0641\u0647 \u0645\u06CC\u200C\u0634\u0648\u062F \u0648 \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0627\u0632 \u0646\u0648 \u0634\u0631\u0648\u0639 \u0645\u06CC\u200C\u0634\u0648\u062F. \u0648\u0642\u062A\u06CC \u0645\u0633\u06CC\u0631 \u0627\u0632 \u0642\u0628\u0644 \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u06CC\u0627 \u0628\u06CC\u0634\u062A\u0631 \u0628\u0627\u0644\u0627 \u0631\u0641\u062A\u0647\u060C \u062A\u063A\u06CC\u06CC\u0631 \u0628\u0639\u062F\u06CC \u06A9\u0647 \u0622\u0646 \u0631\u0627 \u0647\u0645\u0627\u0646\u200C\u062C\u0627 \u0646\u06AF\u0647 \u062F\u0627\u0631\u062F \u062A\u0627\u0631\u06CC\u062E bid \u0631\u0627 \u062A\u06A9\u0627\u0646 \u0646\u0645\u06CC\u200C\u062F\u0647\u062F. \u0642\u0631\u0627\u0631\u062F\u0627\u062F \u0645\u06CC\u200C\u06AF\u0648\u06CC\u062F \u0645\u0633\u06CC\u0631 \u0648\u0642\u062A\u06CC \u0628\u0631\u0627\u06CC \u0627\u0646\u062A\u062E\u0627\u0628 \u0645\u06CC\u200C\u0631\u0648\u062F \u06A9\u0647 \xAB\u0633\u06CC (\u06F3\u06F0) \u062F\u0642\u06CC\u0642\u0647 \u06CC\u0627 \u0628\u06CC\u0634\u062A\u0631\u060C \u0628\u0631\u0627\u06CC \u067E\u0627\u0646\u0632\u062F\u0647 (\u06F1\u06F5) \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u06CC\u0627 \u0628\u06CC\u0634\u062A\u0631\xBB \u0632\u06CC\u0627\u062F \u0634\u062F\u0647 \u0628\u0627\u0634\u062F. \u0648\u0642\u062A \u0627\u0636\u0627\u0641\u0647 \u0622\u0646 \u0627\u0646\u062A\u0638\u0627\u0631 \u0631\u0627 \u0627\u0632 \u0646\u0648 \u0634\u0631\u0648\u0639 \u0646\u0645\u06CC\u200C\u06A9\u0646\u062F. \u062A\u063A\u06CC\u06CC\u0631 \u0628\u0639\u062F\u06CC \u0634\u0645\u0627\u0631\u0634 \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u062E\u0648\u062F\u0634 \u0631\u0627 \u062F\u0627\u0631\u062F.",
-  "guide.smallAdd.tag": "\u0627\u0641\u0632\u0627\u06CC\u0634 \u06A9\u0648\u0686\u06A9",
-  "guide.smallAdd.h": "\u06A9\u0645\u062A\u0631 \u0627\u0632 \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u0627\u0636\u0627\u0641\u0647",
-  "guide.smallAdd.p": "\u0648\u0642\u062A \u0627\u0636\u0627\u0641\u0647 \u062F\u0631 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647\u200C\u0627\u06CC \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0645\u06CC\u200C\u0634\u0648\u062F \u06A9\u0647 \u0628\u0639\u062F \u0627\u0632 \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0628\u062F\u0648\u0646 \u062A\u063A\u06CC\u06CC\u0631 \u062F\u06CC\u06AF\u0631 \u0628\u06CC\u0627\u06CC\u062F. \u0627\u06AF\u0631 \u062F\u0631 \u0622\u0646 \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u062A\u063A\u06CC\u06CC\u0631 \u062F\u06CC\u06AF\u0631\u06CC \u0634\u0648\u062F\u060C \u0628\u0627 \u062A\u063A\u06CC\u06CC\u0631\u0647\u0627\u06CC \u0642\u0628\u0644\u06CC \u062C\u0645\u0639 \u0645\u06CC\u200C\u0634\u0648\u062F \u0648 \u0634\u0645\u0627\u0631\u0634 \u06F1\u06F5 \u0631\u0648\u0632 \u0627\u0632 \u0646\u0648 \u0634\u0631\u0648\u0639 \u0645\u06CC\u200C\u0634\u0648\u062F. \u0627\u06AF\u0631 \u062C\u0645\u0639 \u0646\u0648 \u0647\u0646\u0648\u0632 \u0632\u06CC\u0631 \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u0628\u0627\u0634\u062F\u060C \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0628\u0639\u062F \u0627\u0632 \u06F1\u06F5 \u0631\u0648\u0632 \u062A\u0627\u0632\u0647\u060C \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0645\u06CC\u200C\u0634\u0648\u062F. \u0627\u06AF\u0631 \u0628\u0647 \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u0628\u0631\u0633\u062F\u060C \u062F\u06CC\u06AF\u0631 \u0627\u0641\u0632\u0627\u06CC\u0634 \u06A9\u0648\u0686\u06A9 \u0646\u06CC\u0633\u062A. \u0627\u0641\u0632\u0627\u06CC\u0634\u200C\u0647\u0627\u06CC \u06A9\u0648\u0686\u06A9 \u0627\u0648\u0644 \u0633\u0627\u0644 (\u0633\u067E\u062A\u0627\u0645\u0628\u0631) \u062A\u0627 \u06F1 \u0627\u06A9\u062A\u0628\u0631 \u0635\u0628\u0631 \u0645\u06CC\u200C\u06A9\u0646\u0646\u062F\u060C \u0646\u0647 \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647.",
-  "guide.bigAdd.tag": "\u0627\u0641\u0632\u0627\u06CC\u0634 \u0628\u0632\u0631\u06AF",
-  "guide.bigAdd.h": "\u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u06CC\u0627 \u0628\u06CC\u0634\u062A\u0631 \u0627\u0636\u0627\u0641\u0647",
-  "guide.bigAdd.p": "\u0642\u0631\u0627\u0631\u062F\u0627\u062F \u0645\u06CC\u200C\u06AF\u0648\u06CC\u062F \u0645\u0633\u06CC\u0631 \u062F\u0648\u0628\u0627\u0631\u0647 \u06AF\u0630\u0627\u0634\u062A\u0647 \u0645\u06CC\u200C\u0634\u0648\u062F \u0627\u06AF\u0631 \xAB\u0633\u06CC (\u06F3\u06F0) \u062F\u0642\u06CC\u0642\u0647 \u06CC\u0627 \u0628\u06CC\u0634\u062A\u0631\u060C \u0628\u0631\u0627\u06CC \u067E\u0627\u0646\u0632\u062F\u0647 (\u06F1\u06F5) \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u06CC\u0627 \u0628\u06CC\u0634\u062A\u0631\xBB \u0632\u06CC\u0627\u062F \u0634\u062F\u0647 \u0628\u0627\u0634\u062F. \u0622\u0646 \u0645\u0633\u06CC\u0631\u0647\u0627 \u062F\u0631 \u067E\u0646\u062C \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0622\u062E\u0631 \u0645\u0627\u0647 \u0628\u0631\u0627\u06CC \u0627\u0646\u062A\u062E\u0627\u0628 \u0645\u06CC\u200C\u0631\u0648\u0646\u062F. \u062A\u063A\u06CC\u06CC\u0631 \u0628\u0639\u062F\u06CC \u06A9\u0647 \u0645\u0633\u06CC\u0631 \u0631\u0627 \u0631\u0648\u06CC \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u06CC\u0627 \u0628\u06CC\u0634\u062A\u0631 \u0646\u06AF\u0647 \u062F\u0627\u0631\u062F\u060C \u0622\u0646 \u062A\u0627\u0631\u06CC\u062E bid \u0631\u0627 \u062A\u06A9\u0627\u0646 \u0646\u0645\u06CC\u200C\u062F\u0647\u062F. \u0634\u0645\u0627\u0631\u0634 \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u062E\u0648\u062F\u0634 \u0631\u0627 \u0634\u0631\u0648\u0639 \u0645\u06CC\u200C\u06A9\u0646\u062F. \u0627\u06AF\u0631 \u062A\u063A\u06CC\u06CC\u0631 \u0628\u0639\u062F\u06CC \u062C\u0645\u0639 \u0631\u0627 \u0632\u06CC\u0631 \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u0628\u06CC\u0627\u0648\u0631\u062F\u060C \u0645\u0633\u06CC\u0631 \u062F\u0631 \u0622\u0646 \u062A\u0627\u0631\u06CC\u062E \u062F\u06CC\u06AF\u0631 \u06AF\u0630\u0627\u0634\u062A\u0647 \u0646\u0645\u06CC\u200C\u0634\u0648\u062F.",
-  "guide.smallCut.tag": "\u06A9\u0627\u0647\u0634 \u06A9\u0648\u0686\u06A9",
-  "guide.smallCut.h": "\u06A9\u0645\u062A\u0631 \u0627\u0632 \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u06A9\u0645 \u0634\u062F\u0647",
-  "guide.smallCut.p": "\u06A9\u0627\u0647\u0634 \u06A9\u0648\u0686\u06A9 \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0628\u0627\u0632 \u0645\u06CC\u200C\u0645\u0627\u0646\u062F\u060C \u0645\u062B\u0644 \u0627\u0641\u0632\u0627\u06CC\u0634 \u06A9\u0648\u0686\u06A9. \u0647\u0631 \u062A\u063A\u06CC\u06CC\u0631 \u062F\u06CC\u06AF\u0631 \u062F\u0631 \u0622\u0646 \u06F1\u06F5 \u0631\u0648\u0632 \u0628\u0647 \u0622\u0646 \u0627\u0636\u0627\u0641\u0647 \u0645\u06CC\u200C\u0634\u0648\u062F. \u0627\u06AF\u0631 \u062C\u0645\u0639 \u0632\u06CC\u0631 \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u0628\u0645\u0627\u0646\u062F\u060C \u0648\u0642\u062A \u06A9\u0648\u062A\u0627\u0647\u200C\u062A\u0631 \u062F\u0631 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0628\u0639\u062F \u0627\u0632 \u0622\u0646 \u06F1\u06F5 \u0631\u0648\u0632 \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0645\u06CC\u200C\u0634\u0648\u062F. \u0627\u06AF\u0631 \u062C\u0645\u0639 \u0628\u0647 \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u0628\u0631\u0633\u062F\u060C \u06A9\u0627\u0647\u0634 \u0628\u0632\u0631\u06AF \u0627\u0633\u062A.",
-  "guide.bigCut.tag": "\u06A9\u0627\u0647\u0634 \u0628\u0632\u0631\u06AF",
-  "guide.bigCut.h": "\u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u06CC\u0627 \u0628\u06CC\u0634\u062A\u0631 \u06A9\u0645 \u0634\u062F\u0647",
-  "guide.bigCut.p": "\u0645\u062B\u0644 \u0627\u0641\u0632\u0627\u06CC\u0634 \u0628\u0632\u0631\u06AF\u060C \u06A9\u0645 \u0634\u062F\u0646 \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u06CC\u0627 \u0628\u06CC\u0634\u062A\u0631 \u0627\u0632 \u0633\u0627\u0639\u062A \u0634\u0645\u0627 \u0628\u0627\u06CC\u062F \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u062F\u0648\u0627\u0645 \u0628\u06CC\u0627\u0648\u0631\u062F. \u0628\u0639\u062F \u0627\u0632 \u0622\u0646 \u0646\u0627\u0645\u0647 \u06A9\u062A\u0628\u06CC \u0645\u06CC\u200C\u06AF\u06CC\u0631\u06CC\u062F. \u0633\u067E\u0633 \u062F\u0648 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0648\u0642\u062A \u062F\u0627\u0631\u06CC\u062F \u0645\u0633\u06CC\u0631 \u0631\u0627\u0646\u0646\u062F\u0647\u200C\u0627\u06CC \u0628\u0627 \u0627\u0631\u0634\u062F\u06CC\u062A \u06A9\u0645\u062A\u0631 \u0631\u0627 \u0628\u06AF\u06CC\u0631\u06CC\u062F\u060C \u06CC\u0627 \u0645\u0633\u06CC\u0631 \u062E\u0648\u062F\u062A\u0627\u0646 \u0631\u0627 \u0646\u06AF\u0647 \u062F\u0627\u0631\u06CC\u062F. \u067E\u06CC\u0634 \u0627\u0632 \u06F1 \u0627\u06A9\u062A\u0628\u0631\u060C \u06A9\u0627\u0647\u0634 \u0644\u0627\u0632\u0645 \u0646\u06CC\u0633\u062A \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u062F\u0648\u0627\u0645 \u0628\u06CC\u0627\u0648\u0631\u062F. \u0646\u0627\u0645\u0647 \u06A9\u062A\u0628\u06CC \u0647\u0645\u0627\u0646 \u0648\u0642\u062A \u0645\u06CC\u200C\u0622\u06CC\u062F\u060C \u0648 \u0622\u0646 \u062F\u0648 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0627\u0632 \u0647\u0645\u0627\u0646\u200C\u062C\u0627 \u0634\u0631\u0648\u0639 \u0645\u06CC\u200C\u0634\u0648\u062F.",
-  "guide.yearStart.h": "\u0627\u0648\u0644 \u0633\u0627\u0644 \u062A\u062D\u0635\u06CC\u0644\u06CC",
-  "guide.yearStart.p1": "\u0645\u0627\u0647 \u0627\u0648\u0644 \u0633\u0627\u0644 \u062A\u062D\u0635\u06CC\u0644\u06CC (\u0633\u067E\u062A\u0627\u0645\u0628\u0631) \u0648 \u062F\u0648 \u0645\u0627\u0647 \u0622\u062E\u0631 (\u0645\u0647 \u0648 \u0698\u0648\u0626\u0646) \u0627\u0646\u062A\u062E\u0627\u0628 \u0622\u062E\u0631 \u0645\u0627\u0647 \u0646\u062F\u0627\u0631\u0646\u062F. \u0627\u0641\u0632\u0627\u06CC\u0634 \u0628\u0632\u0631\u06AF \u062F\u0631 \u0633\u067E\u062A\u0627\u0645\u0628\u0631\u060C \u0628\u0639\u062F \u0627\u0632 \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647\u060C \u0628\u0631\u0627\u06CC \u0627\u0646\u062A\u062E\u0627\u0628 \u0645\u06CC\u200C\u0631\u0648\u062F. \u0627\u06AF\u0631 \u0622\u0646 \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u062F\u0631 \u06F1 \u0627\u06A9\u062A\u0628\u0631 \u0647\u0646\u0648\u0632 \u062A\u0645\u0627\u0645 \u0646\u0634\u062F\u0647 \u0628\u0627\u0634\u062F\u060C \u0631\u0627\u0646\u0646\u062F\u0647\u200C\u0647\u0627 \u062F\u0631 \u0627\u0646\u062A\u062E\u0627\u0628 \u0622\u062E\u0631 \u0627\u06A9\u062A\u0628\u0631 \u0627\u0645\u0636\u0627 \u0645\u06CC\u200C\u06A9\u0646\u0646\u062F.",
-  "guide.yearStart.p2": "\u0645\u0633\u06CC\u0631 \u0634\u0645\u0627 \u0628\u0627 \u0645\u0633\u06CC\u0631\u06CC \u0645\u0642\u0627\u06CC\u0633\u0647 \u0645\u06CC\u200C\u0634\u0648\u062F \u06A9\u0647 \u0627\u0648\u0644 \u0633\u0627\u0644 \u0627\u0646\u062A\u062E\u0627\u0628 \u06A9\u0631\u062F\u06CC\u062F.",
-  "guide.yearStart.small.tag": "\u062A\u063A\u06CC\u06CC\u0631 \u06A9\u0648\u0686\u06A9",
-  "guide.yearStart.small.h": "\u0632\u06CC\u0631 \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647\u060C \u0627\u0636\u0627\u0641\u0647 \u06CC\u0627 \u06A9\u0645",
-  "guide.yearStart.small.p": "\u0645\u0639\u0645\u0648\u0644\u0627\u064B \u0627\u0641\u0632\u0627\u06CC\u0634 \u06A9\u0648\u0686\u06A9 \u06CC\u0627 \u06A9\u0627\u0647\u0634 \u06A9\u0648\u0686\u06A9\u060C \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0628\u0639\u062F \u0627\u0632 \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647\u060C \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0645\u06CC\u200C\u0634\u0648\u062F. \u0627\u0648\u0644 \u0633\u0627\u0644 \u062A\u062D\u0635\u06CC\u0644\u06CC \u0622\u0646 \u0634\u0645\u0627\u0631\u0634 \u0628\u0647 \u06A9\u0627\u0631 \u0646\u0645\u06CC\u200C\u0631\u0648\u062F. \u062A\u063A\u06CC\u06CC\u0631 \u06A9\u0648\u0686\u06A9 \u062F\u0631 \u06F1 \u0627\u06A9\u062A\u0628\u0631 \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0645\u06CC\u200C\u0634\u0648\u062F\u060C \u0686\u0647 \u0648\u0642\u062A \u0627\u0636\u0627\u0641\u0647 \u0634\u062F\u0647 \u0628\u0627\u0634\u062F \u0686\u0647 \u06A9\u0645\u060C \u062A\u0627 \u0648\u0642\u062A\u06CC \u062C\u0645\u0639 \u0632\u06CC\u0631 \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u0628\u0645\u0627\u0646\u062F. \u062A\u063A\u06CC\u06CC\u0631\u0647\u0627\u06CC \u0633\u067E\u062A\u0627\u0645\u0628\u0631 \u0632\u06CC\u0631 \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u062A\u0627 \u0622\u0646 \u0631\u0648\u0632 \u0628\u0627 \u0647\u0645 \u062C\u0645\u0639 \u0645\u06CC\u200C\u0634\u0648\u0646\u062F\u060C \u0686\u0648\u0646 \u0627\u0646\u062A\u0638\u0627\u0631 \u0628\u0627\u0632 \u0645\u06CC\u200C\u0645\u0627\u0646\u062F.",
-  "guide.yearStart.add.tag": "\u0627\u0641\u0632\u0627\u06CC\u0634 \u0628\u0632\u0631\u06AF",
-  "guide.yearStart.add.h": "\u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u06CC\u0627 \u0628\u06CC\u0634\u062A\u0631 \u0627\u0636\u0627\u0641\u0647",
-  "guide.yearStart.add.p": "\u0645\u0639\u0645\u0648\u0644\u0627\u064B \u0627\u0641\u0632\u0627\u06CC\u0634 \u0628\u0632\u0631\u06AF \u0628\u0627\u06CC\u062F \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u062F\u0648\u0627\u0645 \u0628\u06CC\u0627\u0648\u0631\u062F\u060C \u0648 \u0628\u0639\u062F \u062F\u0631 \u067E\u0646\u062C \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0622\u062E\u0631 \u0645\u0627\u0647 \u0628\u0631\u0627\u06CC \u0627\u0646\u062A\u062E\u0627\u0628 \u0628\u0631\u0648\u062F. \u0627\u0648\u0644 \u0633\u0627\u0644 \u062A\u062D\u0635\u06CC\u0644\u06CC \u0627\u0646\u062A\u062E\u0627\u0628 \u0622\u062E\u0631 \u0645\u0627\u0647 \u0646\u06CC\u0633\u062A. \u0627\u0641\u0632\u0627\u06CC\u0634 \u0628\u0632\u0631\u06AF \u0628\u0639\u062F \u0627\u0632 \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0628\u0631\u0627\u06CC \u0627\u0646\u062A\u062E\u0627\u0628 \u0645\u06CC\u200C\u0631\u0648\u062F. \u0627\u06AF\u0631 \u0622\u0646 \u06F1\u06F5 \u0631\u0648\u0632 \u062F\u0631 \u06F1 \u0627\u06A9\u062A\u0628\u0631 \u0647\u0646\u0648\u0632 \u062A\u0645\u0627\u0645 \u0646\u0634\u062F\u0647 \u0628\u0627\u0634\u062F\u060C \u0631\u0627\u0646\u0646\u062F\u0647\u200C\u0647\u0627 \u062F\u0631 \u0627\u0646\u062A\u062E\u0627\u0628 \u0622\u062E\u0631 \u0627\u06A9\u062A\u0628\u0631 \u0627\u0645\u0636\u0627 \u0645\u06CC\u200C\u06A9\u0646\u0646\u062F.",
-  "guide.yearStart.cut.tag": "\u06A9\u0627\u0647\u0634 \u0628\u0632\u0631\u06AF",
-  "guide.yearStart.cut.h": "\u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u06CC\u0627 \u0628\u06CC\u0634\u062A\u0631 \u06A9\u0645 \u0634\u062F\u0647",
-  "guide.yearStart.cut.p": "\u0645\u0639\u0645\u0648\u0644\u0627\u064B \u06A9\u0627\u0647\u0634 \u06F3\u06F0 \u062F\u0642\u06CC\u0642\u0647 \u06CC\u0627 \u0628\u06CC\u0634\u062A\u0631 \u0628\u0627\u06CC\u062F \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u062F\u0648\u0627\u0645 \u0628\u06CC\u0627\u0648\u0631\u062F\u060C \u0648 \u0622\u0646 \u0648\u0642\u062A \u0646\u0627\u0645\u0647 \u06A9\u062A\u0628\u06CC \u0645\u06CC\u200C\u06AF\u06CC\u0631\u06CC\u062F. \u0633\u067E\u0633 \u062F\u0648 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0648\u0642\u062A \u062F\u0627\u0631\u06CC\u062F \u0645\u0633\u06CC\u0631 \u0631\u0627\u0646\u0646\u062F\u0647\u200C\u0627\u06CC \u0628\u0627 \u0627\u0631\u0634\u062F\u06CC\u062A \u06A9\u0645\u062A\u0631 \u0631\u0627 \u0628\u06AF\u06CC\u0631\u06CC\u062F\u060C \u06CC\u0627 \u0645\u0633\u06CC\u0631 \u062E\u0648\u062F\u062A\u0627\u0646 \u0631\u0627 \u0646\u06AF\u0647 \u062F\u0627\u0631\u06CC\u062F. \u0627\u0648\u0644 \u0633\u0627\u0644 \u062A\u062D\u0635\u06CC\u0644\u06CC\u060C \u06A9\u0627\u0647\u0634 \u0644\u0627\u0632\u0645 \u0646\u06CC\u0633\u062A \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u062F\u0648\u0627\u0645 \u0628\u06CC\u0627\u0648\u0631\u062F. \u0646\u0627\u0645\u0647 \u06A9\u062A\u0628\u06CC \u0647\u0645\u0627\u0646 \u0648\u0642\u062A \u0645\u06CC\u200C\u0622\u06CC\u062F\u060C \u0648 \u0622\u0646 \u062F\u0648 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0627\u0632 \u0647\u0645\u0627\u0646\u200C\u062C\u0627 \u0634\u0631\u0648\u0639 \u0645\u06CC\u200C\u0634\u0648\u062F.",
-  "guide.yearEnd.h": "\u0622\u062E\u0631 \u0633\u0627\u0644 \u062A\u062D\u0635\u06CC\u0644\u06CC",
-  "guide.yearEnd.p1": "\u062F\u0648 \u0645\u0627\u0647 \u0622\u062E\u0631 \u0633\u0627\u0644 \u062A\u062D\u0635\u06CC\u0644\u06CC (\u0645\u0647 \u0648 \u0698\u0648\u0626\u0646) \u0627\u0646\u062A\u062E\u0627\u0628 \u0622\u062E\u0631 \u0645\u0627\u0647 \u0646\u062F\u0627\u0631\u0646\u062F.",
-  "guide.yearEnd.p2": "\u0627\u0641\u0632\u0627\u06CC\u0634 \u06A9\u0648\u0686\u06A9\u060C \u06A9\u0627\u0647\u0634 \u06A9\u0648\u0686\u06A9\u060C \u0648 \u06A9\u0627\u0647\u0634 \u0628\u0632\u0631\u06AF \u0647\u0646\u0648\u0632 \u0642\u0627\u0646\u0648\u0646 \u0645\u0639\u0645\u0648\u0644 \u06F1\u06F5 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0631\u0627 \u062F\u0646\u0628\u0627\u0644 \u0645\u06CC\u200C\u06A9\u0646\u0646\u062F.",
-  "guide.bid.h": "\xAB\u0628\u0631\u0627\u06CC \u0627\u0646\u062A\u062E\u0627\u0628 \u0631\u0641\u062A\u0646\xBB \u06CC\u0639\u0646\u06CC \u0686\u0647",
-  "guide.bid.p1": "\u0631\u0627\u0646\u0646\u062F\u0647\u200C\u0647\u0627 \u0645\u06CC\u200C\u062A\u0648\u0627\u0646\u0646\u062F \u0628\u0627 \u0627\u0631\u0634\u062F\u06CC\u062A \u062E\u0648\u062F \u0645\u0633\u06CC\u0631 \u0631\u0627 \u0628\u062E\u0648\u0627\u0647\u0646\u062F. \u062F\u0648 \u0631\u0648\u0632 \u0645\u062F\u0631\u0633\u0647 \u0628\u0631\u0627\u06CC \u0627\u0645\u0636\u0627 \u0648\u0642\u062A \u062F\u0627\u0631\u06CC\u062F. \u0627\u06AF\u0631 \u062F\u0631 \u0622\u0646 \u062F\u0648 \u0631\u0648\u0632 \u0627\u0645\u0636\u0627 \u0646\u06A9\u0646\u06CC\u062F\u060C \u06CC\u0639\u0646\u06CC \u0646\u0647.",
-  "guide.bid.p2": "\u0641\u0642\u0637 \u0627\u0641\u0632\u0627\u06CC\u0634 \u0628\u0632\u0631\u06AF \u0628\u0631\u0627\u06CC \u0627\u0646\u062A\u062E\u0627\u0628 \u0645\u06CC\u200C\u0631\u0648\u062F. \u06A9\u0627\u0647\u0634 \u0628\u0632\u0631\u06AF \u0627\u0646\u062A\u062E\u0627\u0628 \u0628\u0627 \u0627\u0631\u0634\u062F\u06CC\u062A \u0627\u0633\u062A. \u0628\u0631\u0627\u06CC bid \u0631\u0627\u0646\u0646\u062F\u0647\u200C\u0647\u0627\u06CC \u062F\u06CC\u06AF\u0631 \u06AF\u0630\u0627\u0634\u062A\u0647 \u0646\u0645\u06CC\u200C\u0634\u0648\u062F.",
-  "guide.bid.p3": "\u0627\u06AF\u0631 \u0628\u0627 bid \u0628\u0647 \u0645\u0633\u06CC\u0631 \u062F\u06CC\u06AF\u0631\u06CC \u0628\u0631\u0648\u06CC\u062F\u060C \u0646\u0645\u06CC\u200C\u062A\u0648\u0627\u0646\u06CC\u062F \u0628\u0647 \u0645\u0633\u06CC\u0631\u06CC \u06A9\u0647 \u062A\u0627\u0632\u0647 \u06AF\u0630\u0627\u0634\u062A\u0647\u200C\u0627\u06CC\u062F \u0628\u0631\u06AF\u0631\u062F\u06CC\u062F\u060C \u0648\u0642\u062A\u06CC \u0622\u0646 \u0645\u0633\u06CC\u0631 \u0628\u0647 \u062E\u0627\u0637\u0631 \u0631\u0641\u062A\u0646 \u0634\u0645\u0627 \u06AF\u0630\u0627\u0634\u062A\u0647 \u0634\u0648\u062F. \u0645\u0633\u06CC\u0631 \u0646\u0648\u060C \u0648 \u062A\u063A\u06CC\u06CC\u0631\u0647\u0627\u06CC \u062F\u06CC\u06AF\u0631 \u0645\u0633\u06CC\u0631 \u06A9\u0647 \u0627\u0632 \u0622\u0646 bid \u0645\u06CC\u200C\u0622\u06CC\u0646\u062F\u060C \u0647\u0645\u0647 \u06CC\u06A9 \u0631\u0648\u0632 \u0634\u0631\u0648\u0639 \u0645\u06CC\u200C\u0634\u0648\u0646\u062F.",
-  "cite.kicker": "\u0642\u0631\u0627\u0631\u062F\u0627\u062F \u062A\u06CC\u0645\u0633\u062A\u0631\u0632 \u06F2\u06F0\u06F2\u06F4\u2013\u06F2\u06F0\u06F2\u06F7 \xB7 \u0635 {page}",
-  "cite.title": "\u0645\u062A\u0646 \u0627\u0646\u06AF\u0644\u06CC\u0633\u06CC \u0642\u0631\u0627\u0631\u062F\u0627\u062F",
-  "cite.pdf": "\u0627\u06CC\u0646 \u0635\u0641\u062D\u0647 \u0631\u0627 \u062F\u0631 \u0642\u0631\u0627\u0631\u062F\u0627\u062F \u0686\u0627\u067E\u200C\u0634\u062F\u0647 \u06F2\u06F0\u06F2\u06F4\u2013\u06F2\u06F0\u06F2\u06F7 (PDF) \u0628\u0627\u0632 \u06A9\u0646\u06CC\u062F",
-  "cite.close": "\u0628\u0633\u062A\u0646",
-  "Take front photo": "\u0639\u06A9\u0633 \u0627\u0632 \u0631\u0648",
-  "Take back photo": "\u0639\u06A9\u0633 \u0627\u0632 \u067E\u0634\u062A",
-  "Retake front photo": "\u0639\u06A9\u0633 \u062F\u0648\u0628\u0627\u0631\u0647 \u0627\u0632 \u0631\u0648",
-  "Retake back photo": "\u0639\u06A9\u0633 \u062F\u0648\u0628\u0627\u0631\u0647 \u0627\u0632 \u067E\u0634\u062A",
-  "Front of the time card": "\u0631\u0648\u06CC \u06A9\u0627\u0631\u062A \u0633\u0627\u0639\u062A",
-  "Back of the time card": "\u067E\u0634\u062A \u06A9\u0627\u0631\u062A \u0633\u0627\u0639\u062A",
-  "This browser cannot use a camera. Choose a file instead.": "\u0627\u06CC\u0646 \u0645\u0631\u0648\u0631\u06AF\u0631 \u062F\u0648\u0631\u0628\u06CC\u0646 \u0646\u062F\u0627\u0631\u062F. \u0628\u0647 \u062C\u0627\u06CC\u0634 \u06CC\u06A9 \u0641\u0627\u06CC\u0644 \u0627\u0646\u062A\u062E\u0627\u0628 \u06A9\u0646\u06CC\u062F.",
-  "Could not open the camera.": "\u062F\u0648\u0631\u0628\u06CC\u0646 \u0628\u0627\u0632 \u0646\u0634\u062F.",
-  "Could not audit that card.": "\u0627\u06CC\u0646 \u06A9\u0627\u0631\u062A \u0628\u0631\u0631\u0633\u06CC \u0646\u0634\u062F.",
-  "Check a card first.": "\u0627\u0648\u0644 \u06CC\u06A9 \u06A9\u0627\u0631\u062A \u0631\u0627 \u0628\u0631\u0631\u0633\u06CC \u06A9\u0646\u06CC\u062F.",
-  "Recalculated from the contract hours and Clock Record.": "\u0627\u0632 \u0633\u0627\u0639\u062A \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0648 \u062B\u0628\u062A \u0633\u0627\u0639\u062A \u062F\u0648\u0628\u0627\u0631\u0647 \u062D\u0633\u0627\u0628 \u0634\u062F.",
-  "Pay period ending": "\u067E\u0627\u06CC\u0627\u0646 \u062F\u0648\u0631\u0647 \u062D\u0642\u0648\u0642",
-  "Pay period ending {date}": "\u067E\u0627\u06CC\u0627\u0646 \u062F\u0648\u0631\u0647 \u062D\u0642\u0648\u0642 {date}",
-  "Daily contract hours": "\u0633\u0627\u0639\u062A \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0631\u0648\u0632\u0627\u0646\u0647",
-  "Daily contract hours {hours}": "\u0633\u0627\u0639\u062A \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0631\u0648\u0632\u0627\u0646\u0647 {hours}",
-  "Mark as Checked?": "\u0628\u0631\u0631\u0633\u06CC\u200C\u0634\u062F\u0647 \u0639\u0644\u0627\u0645\u062A \u0628\u0632\u0646\u0645\u061F",
-  "Marked as checked": "\u0628\u0631\u0631\u0633\u06CC\u200C\u0634\u062F\u0647 \u0639\u0644\u0627\u0645\u062A \u062E\u0648\u0631\u062F",
-  "Mark {date} as Checked?": "{date} \u0631\u0627 \u0628\u0631\u0631\u0633\u06CC\u200C\u0634\u062F\u0647 \u0639\u0644\u0627\u0645\u062A \u0628\u0632\u0646\u0645\u061F",
-  "Marked {date} as checked": "{date} \u0628\u0631\u0631\u0633\u06CC\u200C\u0634\u062F\u0647 \u0639\u0644\u0627\u0645\u062A \u062E\u0648\u0631\u062F",
-  "{date} marked as checked.": "{date} \u0628\u0631\u0631\u0633\u06CC\u200C\u0634\u062F\u0647 \u0639\u0644\u0627\u0645\u062A \u062E\u0648\u0631\u062F.",
-  "Checked pay periods": "\u062F\u0648\u0631\u0647\u200C\u0647\u0627\u06CC \u062D\u0642\u0648\u0642 \u0628\u0631\u0631\u0633\u06CC\u200C\u0634\u062F\u0647",
-  "No cards checked yet.": "\u0647\u0646\u0648\u0632 \u0647\u06CC\u0686 \u06A9\u0627\u0631\u062A\u06CC \u0628\u0631\u0631\u0633\u06CC \u0646\u0634\u062F\u0647.",
-  "{count} checked": "{count} \u0628\u0631\u0631\u0633\u06CC\u200C\u0634\u062F\u0647",
-  Checked: "\u0628\u0631\u0631\u0633\u06CC \u0634\u062F",
-  "Blue handwriting is what was written on the card. A red number is the calculated hours when they differ.": "\u062F\u0633\u062A\u200C\u062E\u0637 \u0622\u0628\u06CC \u0647\u0645\u0627\u0646 \u0627\u0633\u062A \u06A9\u0647 \u0631\u0648\u06CC \u06A9\u0627\u0631\u062A \u0646\u0648\u0634\u062A\u0647 \u0634\u062F\u0647. \u0639\u062F\u062F \u0642\u0631\u0645\u0632 \u0633\u0627\u0639\u062A \u062D\u0633\u0627\u0628\u200C\u0634\u062F\u0647 \u0627\u0633\u062A\u060C \u0648\u0642\u062A\u06CC \u0628\u0627 \u0646\u0648\u0634\u062A\u0647 \u0641\u0631\u0642 \u062F\u0627\u0631\u062F.",
-  "Daily contract hours are required to show and check Reg and OT. Tot. Hrs. still compares each Clock Record combo.": "\u0628\u0631\u0627\u06CC \u0646\u0634\u0627\u0646 \u062F\u0627\u062F\u0646 \u0648 \u0628\u0631\u0631\u0633\u06CC Reg \u0648 OT\u060C \u0633\u0627\u0639\u062A \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0631\u0648\u0632\u0627\u0646\u0647 \u0644\u0627\u0632\u0645 \u0627\u0633\u062A. \u062C\u0645\u0639 \u0633\u0627\u0639\u062A \u0647\u0646\u0648\u0632 \u0647\u0631 \u062A\u0631\u06A9\u06CC\u0628 \u062B\u0628\u062A \u0633\u0627\u0639\u062A \u0631\u0627 \u0645\u0642\u0627\u06CC\u0633\u0647 \u0645\u06CC\u200C\u06A9\u0646\u062F.",
-  "No clock stamps or written hours were found on those photos.": "\u0631\u0648\u06CC \u0622\u0646 \u0639\u06A9\u0633\u200C\u0647\u0627 \u0645\u0647\u0631 \u0633\u0627\u0639\u062A \u06CC\u0627 \u0633\u0627\u0639\u062A \u0646\u0648\u0634\u062A\u0647\u200C\u0634\u062F\u0647 \u067E\u06CC\u062F\u0627 \u0646\u0634\u062F.",
-  "Could not read the pay period ending date from the sticker. Type the MM/DD/YY to the right of the driver's name.": "\u062A\u0627\u0631\u06CC\u062E \u067E\u0627\u06CC\u0627\u0646 \u062F\u0648\u0631\u0647 \u062D\u0642\u0648\u0642 \u0627\u0632 \u0628\u0631\u0686\u0633\u0628 \u062E\u0648\u0627\u0646\u062F\u0647 \u0646\u0634\u062F. MM/DD/YY \u0631\u0627 \u0633\u0645\u062A \u0631\u0627\u0633\u062A \u0646\u0627\u0645 \u0631\u0627\u0646\u0646\u062F\u0647 \u0628\u0646\u0648\u06CC\u0633\u06CC\u062F.",
-  "Daily contract hours are required to check Reg and OT.": "\u0628\u0631\u0627\u06CC \u0628\u0631\u0631\u0633\u06CC Reg \u0648 OT\u060C \u0633\u0627\u0639\u062A \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0631\u0648\u0632\u0627\u0646\u0647 \u0644\u0627\u0632\u0645 \u0627\u0633\u062A.",
-  "The front and back cards are ready to edit.": "\u06A9\u0627\u0631\u062A \u0631\u0648 \u0648 \u067E\u0634\u062A \u0628\u0631\u0627\u06CC \u0627\u0635\u0644\u0627\u062D \u0622\u0645\u0627\u062F\u0647\u200C\u0627\u0646\u062F.",
-  "Take a photo of the front, the back, or both.": "\u0627\u0632 \u0631\u0648\u060C \u0627\u0632 \u067E\u0634\u062A\u060C \u06CC\u0627 \u0627\u0632 \u0647\u0631 \u062F\u0648 \u0639\u06A9\u0633 \u0628\u06AF\u06CC\u0631\u06CC\u062F.",
-  "Enter the daily contract hours before submitting the photos.": "\u067E\u06CC\u0634 \u0627\u0632 \u0641\u0631\u0633\u062A\u0627\u062F\u0646 \u0639\u06A9\u0633\u200C\u0647\u0627\u060C \u0633\u0627\u0639\u062A \u0642\u0631\u0627\u0631\u062F\u0627\u062F\u06CC \u0631\u0648\u0632\u0627\u0646\u0647 \u0631\u0627 \u0628\u0646\u0648\u06CC\u0633\u06CC\u062F.",
-  "Front row {index}": "\u0631\u062F\u06CC\u0641 \u0631\u0648\u06CC {index}",
-  "Back row {index}": "\u0631\u062F\u06CC\u0641 \u067E\u0634\u062A {index}",
-  "Camera {n}": "\u062F\u0648\u0631\u0628\u06CC\u0646 {n}",
-  "{label}: HEIC is not supported. Export the photo as a JPEG.": "{label}: HEIC \u067E\u0634\u062A\u06CC\u0628\u0627\u0646\u06CC \u0646\u0645\u06CC\u200C\u0634\u0648\u062F. \u0639\u06A9\u0633 \u0631\u0627 JPEG \u06A9\u0646\u06CC\u062F.",
-  "{label}: use a JPEG, PNG, GIF, or WebP photo.": "{label}: \u0627\u0632 \u0639\u06A9\u0633 JPEG \u06CC\u0627 PNG \u06CC\u0627 GIF \u06CC\u0627 WebP \u0627\u0633\u062A\u0641\u0627\u062F\u0647 \u06A9\u0646\u06CC\u062F.",
-  "{label} photo exceeds 12MB.": "\u0639\u06A9\u0633 {label} \u0627\u0632 \u06F1\u06F2 \u0645\u06AF\u0627\u0628\u0627\u06CC\u062A \u0628\u0632\u0631\u06AF\u200C\u062A\u0631 \u0627\u0633\u062A."
-};
-
-// employee-tracker/web/locale-pa.js
-var pa = {
-  "lang.label": "\u0A2D\u0A3E\u0A38\u0A3C\u0A3E",
-  "nav.tools": "\u0A1F\u0A40\u0A2E\u0A38\u0A1F\u0A30 \u0A1F\u0A42\u0A32",
-  "gate.password": "\u0A2A\u0A3E\u0A38\u0A35\u0A30\u0A21",
-  "gate.hint": "\u0A38\u0A3E\u0A21\u0A47 \u0A2F\u0A3E\u0A30\u0A21 \u0A26\u0A3E \u0A17\u0A47\u0A1F \u0A15\u0A4B\u0A21 ____",
-  "gate.open": "\u0A16\u0A4B\u0A32\u0A4D\u0A39\u0A4B",
-  "home.history": "\u0A24\u0A41\u0A39\u0A3E\u0A21\u0A47 \u0A30\u0A42\u0A1F \u0A26\u0A47 \u0A38\u0A2E\u0A47\u0A02 \u0A26\u0A40\u0A06\u0A02 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40\u0A06\u0A02",
-  "home.audit": "\u0A28\u0A40\u0A32\u0A47 \u0A1F\u0A3E\u0A08\u0A2E\u0A15\u0A3E\u0A30\u0A21 \u0A26\u0A40 \u0A1C\u0A3E\u0A02\u0A1A",
-  "home.guide": "\u0A38\u0A2E\u0A3E\u0A02-\u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 \u0A26\u0A47 \u0A28\u0A3F\u0A2F\u0A2E, \u0A38\u0A27\u0A3E\u0A30\u0A28 \u0A2D\u0A3E\u0A38\u0A3C\u0A3E \u0A35\u0A3F\u0A71\u0A1A",
-  "home.coming": "\u0A1C\u0A32\u0A26\u0A40 \u0A06 \u0A30\u0A3F\u0A39\u0A3E \u0A39\u0A48",
-  "coming.lead": "\u0A09\u0A39 \u0A30\u0A42\u0A1F \u0A1C\u0A4B \u0A20\u0A47\u0A15\u0A47 \u0A26\u0A47 \u0A28\u0A3F\u0A2F\u0A2E\u0A3E\u0A02 \u0A05\u0A28\u0A41\u0A38\u0A3E\u0A30 \u0A07\u0A38 \u0A2E\u0A39\u0A40\u0A28\u0A47 \u0A26\u0A47 \u0A05\u0A16\u0A40\u0A30 \u0A35\u0A3F\u0A71\u0A1A \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A1C\u0A3E\u0A02 \u0A2C\u0A70\u0A2A \u0A32\u0A08 \u0A24\u0A3F\u0A06\u0A30 \u0A39\u0A4B\u0A23 \u0A26\u0A40 \u0A38\u0A70\u0A2D\u0A3E\u0A35\u0A28\u0A3E \u0A30\u0A71\u0A16\u0A26\u0A47 \u0A39\u0A28\u0964 \u0A2C\u0A3E\u0A05\u0A26 \u0A26\u0A40 \u0A38\u0A2E\u0A47\u0A02 \u0A26\u0A40 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 \u0A30\u0A42\u0A1F \u0A28\u0A42\u0A70 \u0A07\u0A38 \u0A38\u0A42\u0A1A\u0A40 \u0A24\u0A4B\u0A02 \u0A39\u0A1F\u0A3E \u0A38\u0A15\u0A26\u0A40 \u0A39\u0A48\u0964 \u0A07\u0A39 \u0A32\u0A3F\u0A16\u0A47 \u0A39\u0A4B\u0A0F \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A35\u0A15\u0A24 \u0A39\u0A28, \u0A26\u0A2B\u0A3C\u0A24\u0A30 \u0A26\u0A40 \u0A2A\u0A4B\u0A38\u0A1F\u0A3F\u0A70\u0A17 \u0A28\u0A39\u0A40\u0A02\u0964",
-  "coming.period": "{month} \u0A26\u0A3E \u0A05\u0A16\u0A40\u0A30",
-  "coming.window": "\u0A2C\u0A4B\u0A32\u0A40 \u0A26\u0A47 \u0A26\u0A3F\u0A28 \u0A06\u0A16\u0A3C\u0A30\u0A40 \u0A2A\u0A70\u0A1C \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A39\u0A28, {dates}.",
-  "coming.empty": "\u0A07\u0A38 \u0A2E\u0A39\u0A40\u0A28\u0A47 \u0A26\u0A47 \u0A05\u0A16\u0A40\u0A30 \u0A35\u0A3F\u0A71\u0A1A \u0A15\u0A4B\u0A08 \u0A30\u0A42\u0A1F \u0A2C\u0A4B\u0A32\u0A40 \u0A1C\u0A3E\u0A02 \u0A2C\u0A70\u0A2A \u0A32\u0A08 \u0A24\u0A3F\u0A06\u0A30 \u0A28\u0A39\u0A40\u0A02\u0964",
-  "coming.noneSeason": "\u0A07\u0A38 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A38\u0A3E\u0A32 \u0A35\u0A3F\u0A71\u0A1A \u0A05\u0A71\u0A17\u0A47 \u0A15\u0A4B\u0A08 \u0A2E\u0A39\u0A40\u0A28\u0A47-\u0A26\u0A47-\u0A05\u0A16\u0A40\u0A30 \u0A35\u0A3E\u0A32\u0A40 \u0A2C\u0A4B\u0A32\u0A40 \u0A1C\u0A3E\u0A02 \u0A2C\u0A70\u0A2A \u0A38\u0A42\u0A1A\u0A40 \u0A28\u0A39\u0A40\u0A02\u0964 \u0A07\u0A39 \u0A38\u0A42\u0A1A\u0A40\u0A06\u0A02 \u0A05\u0A15\u0A24\u0A42\u0A2C\u0A30 \u0A24\u0A4B\u0A02 \u0A05\u0A2A\u0A4D\u0A30\u0A48\u0A32 \u0A24\u0A71\u0A15 \u0A1A\u0A32\u0A26\u0A40\u0A06\u0A02 \u0A39\u0A28\u0964",
-  "coming.likelyBid": "\u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A38\u0A70\u0A2D\u0A3E\u0A35\u0A3F\u0A24",
-  "coming.likelyBump": "\u0A2C\u0A70\u0A2A \u0A32\u0A08 \u0A38\u0A70\u0A2D\u0A3E\u0A35\u0A3F\u0A24",
-  "coming.eligibleBid": "\u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A39\u0A4B\u0A23\u0A3E \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A3E \u0A39\u0A48",
-  "coming.eligibleBump": "\u0A2C\u0A70\u0A2A \u0A32\u0A08 \u0A39\u0A4B\u0A23\u0A3E \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A3E \u0A39\u0A48",
-  "coming.noLonger": "\u0A39\u0A41\u0A23 \u0A38\u0A70\u0A2D\u0A3E\u0A35\u0A3F\u0A24 \u0A28\u0A39\u0A40\u0A02",
-  "coming.bidOpen": "\u0A07\u0A39 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 {drift} \u0A39\u0A48\u0964 \u0A1C\u0A47 \u0A39\u0A4B\u0A30 \u0A15\u0A41\u0A1D \u0A28\u0A3E \u0A32\u0A3F\u0A16\u0A3F\u0A06 \u0A1C\u0A3E\u0A35\u0A47, \u0A07\u0A39 \u0A30\u0A42\u0A1F {dates} \u0A28\u0A42\u0A70 \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A1C\u0A3E\u0A23\u0A3E \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "coming.bumpOpen": "\u0A07\u0A39 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 {drift} \u0A39\u0A48\u0964 \u0A1C\u0A47 \u0A39\u0A4B\u0A30 \u0A15\u0A41\u0A1D \u0A28\u0A3E \u0A32\u0A3F\u0A16\u0A3F\u0A06 \u0A1C\u0A3E\u0A35\u0A47, \u0A07\u0A39 \u0A30\u0A42\u0A1F {date} \u0A28\u0A42\u0A70 \u0A2C\u0A70\u0A2A \u0A32\u0A08 \u0A24\u0A3F\u0A06\u0A30 \u0A39\u0A4B\u0A23\u0A3E \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "coming.bidNow": "\u0A17\u0A3F\u0A23\u0A24\u0A40 \u0A2C\u0A70\u0A26 \u0A39\u0A4B \u0A17\u0A08 \u0A39\u0A48\u0964 \u0A07\u0A39 \u0A30\u0A42\u0A1F {dates} \u0A28\u0A42\u0A70 \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A39\u0A4B\u0A23\u0A3E \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "coming.bumpNow": "\u0A17\u0A3F\u0A23\u0A24\u0A40 \u0A2C\u0A70\u0A26 \u0A39\u0A4B \u0A17\u0A08 \u0A39\u0A48\u0964 \u0A07\u0A39 \u0A30\u0A42\u0A1F {date} \u0A24\u0A4B\u0A02 \u0A2C\u0A70\u0A2A \u0A32\u0A08 \u0A24\u0A3F\u0A06\u0A30 \u0A39\u0A4B\u0A23\u0A3E \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "coming.dropped": "\u0A07\u0A39 \u0A30\u0A42\u0A1F {month} \u0A26\u0A47 \u0A05\u0A16\u0A40\u0A30 \u0A35\u0A3F\u0A71\u0A1A {kind} \u0A35\u0A71\u0A32 \u0A1C\u0A3E \u0A30\u0A3F\u0A39\u0A3E \u0A38\u0A40\u0964 \u0A2C\u0A3E\u0A05\u0A26 \u0A26\u0A40 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 \u0A28\u0A47 \u0A07\u0A38 \u0A28\u0A42\u0A70 \u0A09\u0A38 \u0A38\u0A42\u0A1A\u0A40 \u0A24\u0A4B\u0A02 \u0A39\u0A1F\u0A3E \u0A26\u0A3F\u0A71\u0A24\u0A3E\u0964",
-  "coming.kindBid": "\u0A2C\u0A4B\u0A32\u0A40",
-  "coming.kindBump": "\u0A2C\u0A70\u0A2A",
-  "coming.route": "\u0A30\u0A42\u0A1F {label}",
-  "lookup.legend": "\u0A07\u0A38 \u0A28\u0A3E\u0A32 \u0A35\u0A47\u0A16\u0A4B",
-  "lookup.byDriver": "\u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30",
-  "lookup.byRoute": "\u0A30\u0A42\u0A1F",
-  "lookup.driver": "\u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30",
-  "lookup.route": "\u0A30\u0A42\u0A1F",
-  "snap.written": "\u0A32\u0A3F\u0A16\u0A47 \u0A39\u0A4B\u0A0F \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A35\u0A15\u0A24",
-  "snap.onButton": "Snap \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A35\u0A15\u0A24",
-  "snap.group": "Snap \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A35\u0A15\u0A24 \u0A35\u0A30\u0A24\u0A47 \u0A1C\u0A3E\u0A23 \u0A1C\u0A3E\u0A02 \u0A28\u0A39\u0A40\u0A02",
-  "audit.lead": "\u0A28\u0A40\u0A32\u0A47 \u0A1F\u0A3E\u0A08\u0A2E\u0A15\u0A3E\u0A30\u0A21 \u0A26\u0A47 \u0A05\u0A71\u0A17\u0A47 \u0A05\u0A24\u0A47 \u0A2A\u0A3F\u0A71\u0A1B\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A2A\u0A3E\u0A38\u0A47 \u0A26\u0A40 \u0A2B\u0A4B\u0A1F\u0A4B \u0A32\u0A13\u0964 \u0A30\u0A4B\u0A38\u0A3C\u0A28\u0A40 \u0A1A\u0A70\u0A17\u0A40 \u0A30\u0A71\u0A16\u0A4B \u0A05\u0A24\u0A47 \u0A15\u0A3E\u0A30\u0A21 \u0A28\u0A42\u0A70 \u0A38\u0A25\u0A3F\u0A30 \u0A2B\u0A5C\u0A4B\u0964 \u0A38\u0A15\u0A71\u0A24\u0A30 \u0A26\u0A3E Reg, OT, \u0A05\u0A24\u0A47 Tot. Hrs. \u0A39\u0A3F\u0A38\u0A3E\u0A2C \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A05\u0A24\u0A47 \u0A15\u0A3E\u0A30\u0A21 \u0A26\u0A47 \u0A09\u0A71\u0A2A\u0A30 \u0A35\u0A3E\u0A32\u0A47 \u0A38\u0A1F\u0A3F\u0A71\u0A15\u0A30 \u0A24\u0A4B\u0A02 \u0A06\u0A2A\u0A47 \u0A1A\u0A48\u0A71\u0A15 \u0A39\u0A41\u0A70\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "audit.mode": "\u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A18\u0A70\u0A1F\u0A47 \u0A15\u0A3F\u0A35\u0A47\u0A02 \u0A17\u0A3F\u0A23\u0A47 \u0A1C\u0A3E\u0A23",
-  "audit.snap": "Snap \u0A17\u0A4B\u0A32 \u0A35\u0A15\u0A24",
-  "audit.quarter": "15 \u0A2E\u0A3F\u0A70\u0A1F \u0A35\u0A3E\u0A32\u0A40 \u0A17\u0A4B\u0A32\u0A3E\u0A08",
-  "audit.modeHint": "Snap \u0A17\u0A4B\u0A32 \u0A35\u0A15\u0A24 \u0A09\u0A39 \u0A24\u0A28\u0A16\u0A3E\u0A39 \u0A28\u0A3F\u0A2F\u0A2E \u0A39\u0A48 \u0A1C\u0A4B \u0A39\u0A30 \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A35\u0A15\u0A24 \u0A28\u0A42\u0A70 \u0A38\u0A2D \u0A24\u0A4B\u0A02 \u0A28\u0A47\u0A5C\u0A32\u0A47 15 \u0A2E\u0A3F\u0A70\u0A1F \u0A35\u0A71\u0A32 \u0A32\u0A48 \u0A1C\u0A3E\u0A02\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "audit.front": "\u0A05\u0A71\u0A17\u0A47 \u0A35\u0A3E\u0A32\u0A3E \u0A2A\u0A3E\u0A38\u0A3E",
-  "audit.back": "\u0A2A\u0A3F\u0A71\u0A1B\u0A47 \u0A35\u0A3E\u0A32\u0A3E \u0A2A\u0A3E\u0A38\u0A3E",
-  "audit.takeFront": "\u0A05\u0A71\u0A17\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A2A\u0A3E\u0A38\u0A47 \u0A26\u0A40 \u0A2B\u0A4B\u0A1F\u0A4B \u0A32\u0A13",
-  "audit.takeBack": "\u0A2A\u0A3F\u0A71\u0A1B\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A2A\u0A3E\u0A38\u0A47 \u0A26\u0A40 \u0A2B\u0A4B\u0A1F\u0A4B \u0A32\u0A13",
-  "audit.chooseFile": "\u0A2B\u0A3E\u0A08\u0A32 \u0A1A\u0A41\u0A23\u0A4B",
-  "audit.contract": "\u0A30\u0A4B\u0A1C\u0A3C\u0A3E\u0A28\u0A3E \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A47",
-  "audit.contractHint": "\u0A2D\u0A47\u0A1C\u0A23 \u0A24\u0A4B\u0A02 \u0A2A\u0A39\u0A3F\u0A32\u0A3E\u0A02 \u0A32\u0A4B\u0A5C\u0A40\u0A02\u0A26\u0A47 \u0A39\u0A28\u0964 Reg \u0A05\u0A24\u0A47 OT \u0A26\u0A40 \u0A1C\u0A3E\u0A02\u0A1A \u0A32\u0A08 \u0A35\u0A30\u0A24\u0A47 \u0A1C\u0A3E\u0A02\u0A26\u0A47 \u0A39\u0A28\u0964",
-  "audit.contractPlaceholder": "\u0A1C\u0A3F\u0A35\u0A47\u0A02 6.50",
-  "audit.submit": "\u0A07\u0A39 \u0A2B\u0A4B\u0A1F\u0A4B\u0A06\u0A02 \u0A2D\u0A47\u0A1C\u0A4B",
-  "audit.startOver": "\u0A26\u0A41\u0A2C\u0A3E\u0A30\u0A3E \u0A38\u0A3C\u0A41\u0A30\u0A42 \u0A15\u0A30\u0A4B",
-  "audit.cameraTitle": "\u0A1F\u0A3E\u0A08\u0A2E\u0A15\u0A3E\u0A30\u0A21 \u0A26\u0A3E \u0A05\u0A71\u0A17\u0A47 \u0A35\u0A3E\u0A32\u0A3E \u0A2A\u0A3E\u0A38\u0A3E",
-  "audit.cameraLead": "\u0A15\u0A48\u0A2E\u0A30\u0A3E \u0A15\u0A3E\u0A30\u0A21 \u0A35\u0A71\u0A32 \u0A15\u0A30\u0A4B\u0964 \u0A1A\u0A2E\u0A15\u0A26\u0A40 \u0A38\u0A15\u0A30\u0A40\u0A28 \u0A30\u0A4B\u0A38\u0A3C\u0A28\u0A40 \u0A35\u0A3F\u0A71\u0A1A \u0A2E\u0A26\u0A26 \u0A15\u0A30\u0A26\u0A40 \u0A39\u0A48\u0964",
-  "audit.cameraLabel": "\u0A15\u0A48\u0A2E\u0A30\u0A3E",
-  "audit.shutter": "\u0A2B\u0A4B\u0A1F\u0A4B \u0A32\u0A13",
-  "audit.cancel": "\u0A30\u0A71\u0A26 \u0A15\u0A30\u0A4B",
-  "audit.sticker": "\u0A24\u0A28\u0A16\u0A3E\u0A39 \u0A2E\u0A3F\u0A06\u0A26 \u0A26\u0A3E \u0A06\u0A16\u0A30\u0A40 \u0A26\u0A3F\u0A28",
-  "audit.recalculate": "\u0A26\u0A41\u0A2C\u0A3E\u0A30\u0A3E \u0A17\u0A3F\u0A23\u0A4B",
-  "audit.resultHint": "\u0A28\u0A40\u0A32\u0A40 \u0A32\u0A3F\u0A16\u0A3E\u0A08 \u0A09\u0A39 \u0A39\u0A48 \u0A1C\u0A4B \u0A15\u0A3E\u0A30\u0A21 \u0A09\u0A71\u0A24\u0A47 \u0A32\u0A3F\u0A16\u0A40 \u0A38\u0A40\u0964 \u0A32\u0A3E\u0A32 \u0A28\u0A70\u0A2C\u0A30 \u0A09\u0A39 \u0A17\u0A3F\u0A23\u0A47 \u0A39\u0A4B\u0A0F \u0A18\u0A70\u0A1F\u0A47 \u0A39\u0A28 \u0A1C\u0A26\u0A4B\u0A02 \u0A09\u0A39 \u0A35\u0A71\u0A16\u0A30\u0A47 \u0A39\u0A4B\u0A23\u0964",
-  "audit.desc": "\u0A35\u0A47\u0A30\u0A35\u0A3E",
-  "audit.reg": "\u0A30\u0A48\u0A17 (Reg)",
-  "audit.ot": "\u0A13\u0A35\u0A30\u0A1F\u0A3E\u0A08\u0A2E (OT)",
-  "audit.tot": "\u0A15\u0A41\u0A71\u0A32 \u0A18\u0A70\u0A1F\u0A47",
-  "audit.clock": "\u0A18\u0A5C\u0A40 \u0A26\u0A3E \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21",
-  "audit.mark": "\u0A1C\u0A3E\u0A02\u0A1A\u0A3F\u0A06 \u0A39\u0A4B\u0A07\u0A06 \u0A2E\u0A70\u0A28\u0A4B?",
-  "audit.work": "\u0A15\u0A70\u0A2E \u0A26\u0A3E \u0A35\u0A47\u0A30\u0A35\u0A3E",
-  "audit.save": "\u0A38\u0A70\u0A2D\u0A3E\u0A32\u0A4B",
-  fine: "\u0A30\u0A3E\u0A08\u0A38 \u0A38\u0A2E\u0A4B\u0A15\u0A30 \u0A28\u0A47 \u0A06\u0A2A\u0A23\u0A47 \u0A35\u0A3F\u0A39\u0A32\u0A47 \u0A38\u0A2E\u0A47\u0A02 \u0A35\u0A3F\u0A71\u0A1A \u0A2C\u0A23\u0A3E\u0A07\u0A06\u0964 \u0A2C\u0A48\u0A32\u0A3F\u0A70\u0A17\u0A39\u0A48\u0A2E \u0A2A\u0A2C\u0A32\u0A3F\u0A15 \u0A38\u0A15\u0A42\u0A32, \u0A1F\u0A30\u0A3E\u0A02\u0A38\u0A2A\u0A4B\u0A30\u0A1F\u0A47\u0A38\u0A3C\u0A28, \u0A1C\u0A3E\u0A02 \u0A1F\u0A40\u0A2E\u0A38\u0A1F\u0A30\u0A1C\u0A3C \u0A28\u0A3E\u0A32 \u0A38\u0A70\u0A2C\u0A70\u0A27\u0A3F\u0A24 \u0A28\u0A39\u0A40\u0A02\u0964",
-  "share.section": "\u0A07\u0A39 \u0A10\u0A2A \u0A38\u0A3E\u0A02\u0A1D\u0A40 \u0A15\u0A30\u0A4B",
-  "share.lead": "\u0A07\u0A39 \u0A10\u0A2A \u0A15\u0A3F\u0A38\u0A47 \u0A39\u0A4B\u0A30 \u0A2C\u0A71\u0A38 \u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30 \u0A28\u0A3E\u0A32 \u0A38\u0A3E\u0A02\u0A1D\u0A40 \u0A15\u0A30\u0A4B\u0964",
-  "share.caption": "\u0A38\u0A3E\u0A02\u0A1D\u0A3E \u0A15\u0A30\u0A28 \u0A32\u0A08 \u0A07\u0A39 \u0A15\u0A4B\u0A21 \u0A35\u0A30\u0A24\u0A4B",
-  "share.qrAlt": "\u0A15\u0A4B\u0A21 \u0A1C\u0A4B \u0A07\u0A39 \u0A2A\u0A70\u0A28\u0A3E \u0A16\u0A4B\u0A32\u0A4D\u0A39\u0A26\u0A3E \u0A39\u0A48",
-  "share.button": "\u0A07\u0A39 \u0A10\u0A2A \u0A15\u0A3F\u0A38\u0A47 \u0A26\u0A4B\u0A38\u0A24 \u0A28\u0A42\u0A70 \u0A1F\u0A48\u0A15\u0A38\u0A1F \u0A1C\u0A3E\u0A02 \u0A08\u0A2E\u0A47\u0A32 \u0A15\u0A30\u0A4B",
-  "install.button": "\u0A07\u0A39 \u0A10\u0A2A \u0A06\u0A2A\u0A23\u0A47 \u0A2B\u0A4B\u0A28 \u0A09\u0A71\u0A24\u0A47 \u0A38\u0A70\u0A2D\u0A3E\u0A32\u0A4B",
-  "disclaimer.open": "\u0A2C\u0A47\u0A26\u0A3E\u0A05\u0A35\u0A3E",
-  back: "\u0A2A\u0A3F\u0A71\u0A1B\u0A47",
-  "disclaimer.title": "\u0A2C\u0A47\u0A26\u0A3E\u0A05\u0A35\u0A3E",
-  "disclaimer.close": "\u0A2C\u0A70\u0A26 \u0A15\u0A30\u0A4B",
-  "disclaimer.p1": "\u0A2E\u0A48\u0A02 Teamster Tools \u0A06\u0A2A\u0A23\u0A47 \u0A35\u0A3F\u0A39\u0A32\u0A47 \u0A38\u0A2E\u0A47\u0A02 \u0A35\u0A3F\u0A71\u0A1A, \u0A2E\u0A41\u0A2B\u0A3C\u0A24, \u0A06\u0A2A\u0A23\u0A47 \u0A38\u0A3E\u0A25\u0A40 \u0A2C\u0A71\u0A38 \u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30\u0A3E\u0A02 \u0A32\u0A08 \u0A2C\u0A23\u0A3E\u0A08\u0964 \u0A07\u0A39 \u0A2C\u0A48\u0A32\u0A3F\u0A70\u0A17\u0A39\u0A48\u0A2E \u0A2A\u0A2C\u0A32\u0A3F\u0A15 \u0A38\u0A15\u0A42\u0A32, \u0A1F\u0A30\u0A3E\u0A02\u0A38\u0A2A\u0A4B\u0A30\u0A1F\u0A47\u0A38\u0A3C\u0A28, \u0A1C\u0A3E\u0A02 \u0A1F\u0A40\u0A2E\u0A38\u0A1F\u0A30\u0A1C\u0A3C \u0A28\u0A3E\u0A32 \u0A38\u0A70\u0A2C\u0A70\u0A27\u0A3F\u0A24 \u0A28\u0A39\u0A40\u0A02\u0964",
-  "disclaimer.p2": "\u0A2E\u0A48\u0A02 \u0A1C\u0A3E\u0A23\u0A15\u0A3E\u0A30\u0A40 \u0A20\u0A40\u0A15 \u0A30\u0A71\u0A16\u0A23 \u0A26\u0A40 \u0A15\u0A4B\u0A38\u0A3C\u0A3F\u0A38\u0A3C \u0A15\u0A30\u0A26\u0A3E \u0A39\u0A3E\u0A02, \u0A2A\u0A30 \u0A17\u0A32\u0A24\u0A40 \u0A39\u0A4B \u0A38\u0A15\u0A26\u0A40 \u0A39\u0A48\u0964 \u0A18\u0A5C\u0A40\u0A06\u0A02, \u0A20\u0A47\u0A15\u0A47 \u0A26\u0A47 \u0A28\u0A3F\u0A2F\u0A2E, \u0A24\u0A28\u0A16\u0A3E\u0A39 \u0A26\u0A3E \u0A39\u0A3F\u0A38\u0A3E\u0A2C, \u0A05\u0A24\u0A47 \u0A07\u0A38 \u0A10\u0A2A \u0A35\u0A3F\u0A1A\u0A32\u0A40 \u0A39\u0A4B\u0A30 \u0A15\u0A4B\u0A08 \u0A17\u0A71\u0A32 \u0A17\u0A32\u0A24 \u0A1C\u0A3E\u0A02 \u0A2A\u0A41\u0A30\u0A3E\u0A23\u0A40 \u0A39\u0A4B \u0A38\u0A15\u0A26\u0A40 \u0A39\u0A48\u0964",
-  "disclaimer.p3": "\u0A07\u0A39 \u0A10\u0A2A \u0A35\u0A30\u0A24 \u0A15\u0A47 \u0A24\u0A41\u0A38\u0A40\u0A02 \u0A2E\u0A70\u0A28\u0A26\u0A47 \u0A39\u0A4B \u0A15\u0A3F \u0A17\u0A32\u0A24\u0A40, \u0A17\u0A32\u0A24 \u0A1C\u0A3E\u0A23\u0A15\u0A3E\u0A30\u0A40, \u0A30\u0A39\u0A3F \u0A17\u0A08 \u0A24\u0A28\u0A16\u0A3E\u0A39, \u0A30\u0A42\u0A1F \u0A26\u0A47 \u0A2B\u0A48\u0A38\u0A32\u0A47, \u0A1C\u0A3E\u0A02 \u0A07\u0A38 \u0A09\u0A71\u0A24\u0A47 \u0A2D\u0A30\u0A4B\u0A38\u0A3E \u0A15\u0A30\u0A28 \u0A28\u0A3E\u0A32 \u0A39\u0A4B\u0A0F \u0A15\u0A3F\u0A38\u0A47 \u0A28\u0A41\u0A15\u0A38\u0A3E\u0A28 \u0A32\u0A08 \u0A24\u0A41\u0A38\u0A40\u0A02 \u0A2E\u0A48\u0A28\u0A42\u0A70 \u0A1C\u0A3C\u0A3F\u0A70\u0A2E\u0A47\u0A35\u0A3E\u0A30 \u0A28\u0A39\u0A40\u0A02 \u0A20\u0A39\u0A3F\u0A30\u0A3E\u0A13\u0A17\u0A47\u0964 \u0A1C\u0A3C\u0A30\u0A42\u0A30\u0A40 \u0A28\u0A70\u0A2C\u0A30 \u0A26\u0A2B\u0A3C\u0A24\u0A30 \u0A05\u0A24\u0A47 \u0A06\u0A2A\u0A23\u0A47 \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A28\u0A3E\u0A32 \u0A26\u0A41\u0A2C\u0A3E\u0A30\u0A3E \u0A1C\u0A3E\u0A02\u0A1A\u0A4B\u0964",
-  "install.title": "\u0A07\u0A39 \u0A10\u0A2A \u0A06\u0A2A\u0A23\u0A47 \u0A2B\u0A4B\u0A28 \u0A09\u0A71\u0A24\u0A47 \u0A38\u0A70\u0A2D\u0A3E\u0A32\u0A4B",
-  "install.close": "\u0A2C\u0A70\u0A26 \u0A15\u0A30\u0A4B",
-  "install.either": "\u0A07\u0A39 \u0A2A\u0A70\u0A28\u0A3E \u0A06\u0A2A\u0A23\u0A47 \u0A2B\u0A4B\u0A28 \u0A09\u0A71\u0A24\u0A47 \u0A16\u0A4B\u0A32\u0A4D\u0A39\u0A4B, \u0A2B\u0A3F\u0A30 \u0A09\u0A38 \u0A2B\u0A4B\u0A28 \u0A26\u0A47 \u0A15\u0A26\u0A2E \u0A15\u0A30\u0A4B\u0964",
-  "install.iphone": "\u0A06\u0A08\u0A2B\u0A4B\u0A28",
-  "install.safari": "Safari \u0A35\u0A30\u0A24\u0A4B\u0964",
-  "install.iphone.1": "Safari \u0A26\u0A47 \u0A39\u0A47\u0A20\u0A3E\u0A02 Share \u0A2C\u0A1F\u0A28 \u0A1B\u0A42\u0A39\u0A4B\u0964 \u0A07\u0A39 \u0A09\u0A71\u0A2A\u0A30 \u0A35\u0A71\u0A32 \u0A24\u0A40\u0A30 \u0A35\u0A3E\u0A32\u0A3E \u0A35\u0A30\u0A17 \u0A39\u0A48\u0964",
-  "install.iphone.2": "\u0A38\u0A3E\u0A02\u0A1D\u0A40 \u0A38\u0A42\u0A1A\u0A40 \u0A35\u0A3F\u0A71\u0A1A \u0A39\u0A47\u0A20\u0A3E\u0A02 \u0A1C\u0A3E \u0A15\u0A47 Add to Home Screen \u0A1B\u0A42\u0A39\u0A4B\u0964",
-  "install.iphone.3": "Add \u0A1B\u0A42\u0A39\u0A4B\u0964 Teamster Tools \u0A24\u0A41\u0A39\u0A3E\u0A21\u0A40 \u0A39\u0A4B\u0A2E \u0A38\u0A15\u0A30\u0A40\u0A28 \u0A09\u0A71\u0A24\u0A47 \u0A06\u0A08\u0A15\u0A28 \u0A35\u0A1C\u0A4B\u0A02 \u0A26\u0A3F\u0A16\u0A47\u0A17\u0A40\u0964",
-  "install.android": "\u0A10\u0A02\u0A21\u0A30\u0A3E\u0A07\u0A21",
-  "install.chrome": "Chrome \u0A35\u0A30\u0A24\u0A4B\u0964",
-  "install.android.1": "Chrome \u0A26\u0A47 \u0A09\u0A71\u0A2A\u0A30\u0A32\u0A47 \u0A15\u0A4B\u0A28\u0A47 \u0A35\u0A3F\u0A71\u0A1A \u0A24\u0A3F\u0A70\u0A28 \u0A2C\u0A3F\u0A70\u0A26\u0A40\u0A06\u0A02 \u0A1B\u0A42\u0A39\u0A4B\u0964",
-  "install.android.2": "Add to Home screen \u0A1B\u0A42\u0A39\u0A4B\u0964 \u0A1C\u0A47 Install app \u0A26\u0A3F\u0A16\u0A47, \u0A09\u0A39 \u0A1B\u0A42\u0A39\u0A4B\u0964",
-  "install.android.3": "Add \u0A1C\u0A3E\u0A02 Install \u0A1B\u0A42\u0A39\u0A4B\u0964 Teamster Tools \u0A24\u0A41\u0A39\u0A3E\u0A21\u0A40 \u0A39\u0A4B\u0A2E \u0A38\u0A15\u0A30\u0A40\u0A28 \u0A09\u0A71\u0A24\u0A47 \u0A06\u0A08\u0A15\u0A28 \u0A35\u0A1C\u0A4B\u0A02 \u0A26\u0A3F\u0A16\u0A47\u0A17\u0A40\u0964",
-  "share.title": "\u0A38\u0A3E\u0A02\u0A1D\u0A3E \u0A15\u0A30\u0A4B",
-  "share.close": "\u0A2C\u0A70\u0A26 \u0A15\u0A30\u0A4B",
-  "share.note": "\u0A38\u0A41\u0A28\u0A47\u0A39\u0A47 \u0A35\u0A3F\u0A71\u0A1A \u0A2A\u0A70\u0A28\u0A47 \u0A26\u0A3E \u0A32\u0A3F\u0A70\u0A15 \u0A05\u0A24\u0A47 \u0A2A\u0A3E\u0A38\u0A35\u0A30\u0A21 \u0A39\u0A41\u0A70\u0A26\u0A3E \u0A39\u0A48\u0964 \u0A32\u0A3F\u0A70\u0A15 \u0A35\u0A3F\u0A71\u0A1A \u0A2A\u0A3E\u0A38\u0A35\u0A30\u0A21 \u0A28\u0A39\u0A40\u0A02 \u0A39\u0A41\u0A70\u0A26\u0A3E\u0964",
-  "share.email": "\u0A08\u0A2E\u0A47\u0A32",
-  "share.text": "Teamster Tools\n\u0A30\u0A3E\u0A08\u0A38 \u0A35\u0A71\u0A32\u0A4B\u0A02 \u2014 \u0A06\u0A2A\u0A23\u0A40 \u0A30\u0A42\u0A1F \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 \u0A26\u0A3E \u0A07\u0A24\u0A3F\u0A39\u0A3E\u0A38 \u0A35\u0A47\u0A16\u0A4B, \u0A1F\u0A3E\u0A08\u0A2E\u0A15\u0A3E\u0A30\u0A21 \u0A1A\u0A48\u0A71\u0A15 \u0A15\u0A30\u0A4B, \u0A05\u0A24\u0A47 \u0A39\u0A4B\u0A30\u0964\n{url}\n\u0A2A\u0A3E\u0A38\u0A35\u0A30\u0A21: {password}",
-  "share.emailLink": "\u0A08\u0A2E\u0A47\u0A32",
-  "share.textLink": "\u0A1F\u0A48\u0A15\u0A38\u0A1F",
-  "guide.dialog": "\u0A38\u0A2E\u0A3E\u0A02-\u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 \u0A26\u0A47 \u0A28\u0A3F\u0A2F\u0A2E, \u0A38\u0A27\u0A3E\u0A30\u0A28 \u0A2D\u0A3E\u0A38\u0A3C\u0A3E \u0A35\u0A3F\u0A71\u0A1A",
-  "guide.close": "\u0A2C\u0A70\u0A26 \u0A15\u0A30\u0A4B",
-  "day.close": "\u0A2C\u0A70\u0A26 \u0A15\u0A30\u0A4B",
-  "office.unreachable": "\u0A07\u0A39 \u0A2A\u0A70\u0A28\u0A3E \u0A39\u0A3E\u0A32\u0A47 \u0A26\u0A2B\u0A3C\u0A24\u0A30 \u0A26\u0A47 \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A24\u0A71\u0A15 \u0A28\u0A39\u0A40\u0A02 \u0A2A\u0A39\u0A41\u0A70\u0A1A \u0A38\u0A15\u0A26\u0A3E\u0964",
-  "office.unavailable": "\u0A07\u0A38 \u0A2A\u0A70\u0A28\u0A47 \u0A24\u0A4B\u0A02 \u0A26\u0A2B\u0A3C\u0A24\u0A30 \u0A26\u0A3E \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A39\u0A3E\u0A32\u0A47 \u0A09\u0A2A\u0A32\u0A2C\u0A27 \u0A28\u0A39\u0A40\u0A02\u0964",
-  "gate.wrong": "\u0A07\u0A39 \u0A2A\u0A3E\u0A38\u0A35\u0A30\u0A21 \u0A20\u0A40\u0A15 \u0A28\u0A39\u0A40\u0A02\u0964",
-  "gate.opening": "\u0A26\u0A2B\u0A3C\u0A24\u0A30 \u0A26\u0A3E \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A16\u0A41\u0A71\u0A32\u0A4D\u0A39 \u0A30\u0A3F\u0A39\u0A3E \u0A39\u0A48\u2026",
-  "lookup.chooseRoute": "\u0A07\u0A71\u0A15 \u0A30\u0A42\u0A1F \u0A1A\u0A41\u0A23\u0A4B",
-  "lookup.chooseDriver": "\u0A07\u0A71\u0A15 \u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30 \u0A1A\u0A41\u0A23\u0A4B",
-  "lookup.noRoutes": "\u0A39\u0A3E\u0A32\u0A47 \u0A15\u0A4B\u0A08 \u0A30\u0A42\u0A1F \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A28\u0A39\u0A40\u0A02\u0964",
-  "lookup.noDrivers": "\u0A39\u0A3E\u0A32\u0A47 \u0A15\u0A4B\u0A08 \u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30 \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A28\u0A39\u0A40\u0A02\u0964",
-  "title.route": "\u0A30\u0A42\u0A1F {label} \xB7 Teamster Tools",
-  "title.person": "{label} \xB7 Teamster Tools",
-  "snap.hintOn": "Snap \u0A1A\u0A3E\u0A32\u0A42 \u0A39\u0A48\u0964 \u0A39\u0A30 \u0A18\u0A5C\u0A40 \u0A26\u0A3E \u0A35\u0A15\u0A24 \u0A24\u0A28\u0A16\u0A3E\u0A39 \u0A35\u0A3E\u0A32\u0A47 15 \u0A2E\u0A3F\u0A70\u0A1F\u0A3E\u0A02 \u0A35\u0A71\u0A32 \u0A1C\u0A3E\u0A02\u0A26\u0A3E \u0A39\u0A48, \u0A05\u0A24\u0A47 \u0A2C\u0A3F\u0A06\u0A28 \u0A24\u0A47 \u0A38\u0A3E\u0A30\u0A23\u0A40 \u0A09\u0A28\u0A4D\u0A39\u0A3E\u0A02 \u0A35\u0A15\u0A24\u0A3E\u0A02 \u0A24\u0A4B\u0A02 \u0A26\u0A41\u0A2C\u0A3E\u0A30\u0A3E \u0A2C\u0A23\u0A26\u0A47 \u0A39\u0A28\u0964 \u0A32\u0A3F\u0A16\u0A47 \u0A39\u0A4B\u0A0F \u0A35\u0A15\u0A24\u0A3E\u0A02 \u0A09\u0A71\u0A24\u0A47 \u0A35\u0A3E\u0A2A\u0A38 \u0A1C\u0A3E\u0A23 \u0A32\u0A08 \u0A07\u0A38\u0A28\u0A42\u0A70 \u0A2C\u0A70\u0A26 \u0A15\u0A30\u0A4B\u0964 \u0A26\u0A2B\u0A3C\u0A24\u0A30 \u0A26\u0A3E \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A1C\u0A3F\u0A35\u0A47\u0A02 \u0A39\u0A48 \u0A09\u0A35\u0A47\u0A02 \u0A30\u0A39\u0A3F\u0A70\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "snap.hintOff": "Snap \u0A2C\u0A70\u0A26 \u0A39\u0A48\u0964 \u0A07\u0A38\u0A28\u0A42\u0A70 \u0A1A\u0A3E\u0A32\u0A42 \u0A15\u0A30\u0A4B \u0A24\u0A3E\u0A02 \u0A39\u0A30 \u0A18\u0A5C\u0A40 \u0A26\u0A3E \u0A35\u0A15\u0A24 \u0A24\u0A28\u0A16\u0A3E\u0A39 \u0A35\u0A3E\u0A32\u0A47 15 \u0A2E\u0A3F\u0A70\u0A1F\u0A3E\u0A02 \u0A35\u0A71\u0A32 \u0A1C\u0A3E\u0A35\u0A47, \u0A05\u0A24\u0A47 \u0A24\u0A41\u0A38\u0A40\u0A02 \u0A35\u0A47\u0A16 \u0A38\u0A15\u0A4B \u0A15\u0A3F \u0A18\u0A70\u0A1F\u0A47 \u0A1C\u0A3E\u0A02 \u0A24\u0A3E\u0A30\u0A40\u0A16 \u0A2C\u0A26\u0A32\u0A26\u0A40 \u0A39\u0A48 \u0A1C\u0A3E\u0A02 \u0A28\u0A39\u0A40\u0A02\u0964 \u0A26\u0A2B\u0A3C\u0A24\u0A30 \u0A26\u0A3E \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A1C\u0A3F\u0A35\u0A47\u0A02 \u0A39\u0A48 \u0A09\u0A35\u0A47\u0A02 \u0A30\u0A39\u0A3F\u0A70\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "install.safariOther": "\u0A07\u0A39 \u0A2A\u0A70\u0A28\u0A3E Safari \u0A35\u0A3F\u0A71\u0A1A \u0A16\u0A4B\u0A32\u0A4D\u0A39\u0A4B\u0964 \u0A06\u0A08\u0A2B\u0A4B\u0A28 \u0A26\u0A47 \u0A39\u0A4B\u0A30 \u0A2C\u0A4D\u0A30\u0A3E\u0A0A\u0A1C\u0A3C\u0A30 \u0A07\u0A38\u0A28\u0A42\u0A70 \u0A39\u0A4B\u0A2E \u0A38\u0A15\u0A30\u0A40\u0A28 \u0A09\u0A71\u0A24\u0A47 \u0A28\u0A39\u0A40\u0A02 \u0A32\u0A3E \u0A38\u0A15\u0A26\u0A47\u0964",
-  "install.chromeOther": "\u0A07\u0A39 \u0A2A\u0A70\u0A28\u0A3E Chrome \u0A35\u0A3F\u0A71\u0A1A \u0A16\u0A4B\u0A32\u0A4D\u0A39\u0A4B, \u0A2B\u0A3F\u0A30 \u0A07\u0A39 \u0A15\u0A26\u0A2E \u0A15\u0A30\u0A4B\u0964",
-  "day.fallback": "\u0A26\u0A3F\u0A28",
-  "run.midday": "\u0A26\u0A41\u0A2A\u0A39\u0A3F\u0A30",
-  "empty.driver": "{name} \u0A32\u0A08 \u0A15\u0A4B\u0A08 \u0A30\u0A42\u0A1F \u0A07\u0A24\u0A3F\u0A39\u0A3E\u0A38 \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A28\u0A39\u0A40\u0A02\u0964",
-  "empty.route": "{route} \u0A32\u0A08 \u0A15\u0A4B\u0A08 \u0A30\u0A42\u0A1F \u0A07\u0A24\u0A3F\u0A39\u0A3E\u0A38 \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A28\u0A39\u0A40\u0A02\u0964",
-  "lead.one": "\u0A30\u0A42\u0A1F {routes}, \u0A09\u0A38 \u0A35\u0A47\u0A32\u0A47 \u0A26\u0A40 \u0A39\u0A30 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 \u0A38\u0A2E\u0A47\u0A24 \u0A1C\u0A26\u0A4B\u0A02 {name} \u0A15\u0A4B\u0A32 \u0A07\u0A39 \u0A30\u0A42\u0A1F \u0A38\u0A40\u0964",
-  "lead.many": "\u0A30\u0A42\u0A1F {routes}, \u0A09\u0A38 \u0A35\u0A47\u0A32\u0A47 \u0A26\u0A40 \u0A39\u0A30 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 \u0A38\u0A2E\u0A47\u0A24 \u0A1C\u0A26\u0A4B\u0A02 {name} \u0A15\u0A4B\u0A32 \u0A07\u0A39 \u0A30\u0A42\u0A1F \u0A38\u0A28\u0964",
-  "held.since": "{date} \u0A24\u0A4B\u0A02",
-  "held.range": "{from} \u2013 {to}",
-  "route.heading": "\u0A30\u0A42\u0A1F {label}",
-  "holders.none": "\u0A15\u0A4B\u0A08 \u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30 \u0A28\u0A3F\u0A2F\u0A41\u0A15\u0A24 \u0A28\u0A39\u0A40\u0A02\u0964",
-  "clocks.now": "\u0A39\u0A41\u0A23 \u0A26\u0A47 \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A35\u0A15\u0A24",
-  "started": "{date} \u0A28\u0A42\u0A70 \u0A38\u0A3C\u0A41\u0A30\u0A42 \u0A39\u0A4B\u0A07\u0A06\u0964",
-  "contracted.today": "\u0A05\u0A71\u0A1C \u0A26\u0A47 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A47",
-  "contracted.asOf": "{date} \u0A24\u0A71\u0A15 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47",
-  "contracted.same": "\u0A09\u0A39\u0A40 \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A35\u0A15\u0A24\u0964",
-  "hours.open": "\u0A1C\u0A26\u0A4B\u0A02 \u0A24\u0A71\u0A15 \u0A07\u0A39 \u0A17\u0A3F\u0A23\u0A24\u0A40 \u0A16\u0A41\u0A71\u0A32\u0A4D\u0A39\u0A40 \u0A39\u0A48, \u0A07\u0A39\u0A40 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A47 \u0A30\u0A39\u0A3F\u0A70\u0A26\u0A47 \u0A39\u0A28\u0964",
-  "hours.rules": "\u0A28\u0A3F\u0A2F\u0A2E \u0A07\u0A28\u0A4D\u0A39\u0A3E\u0A02 \u0A28\u0A42\u0A70 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A47 \u0A15\u0A39\u0A3F\u0A70\u0A26\u0A47 \u0A39\u0A28\u0964",
-  "rules.next": "\u0A28\u0A3F\u0A2F\u0A2E \u0A05\u0A71\u0A17\u0A47 \u0A15\u0A40 \u0A15\u0A39\u0A3F\u0A70\u0A26\u0A47 \u0A39\u0A28",
-  "rules.bidOpen": "\u0A07\u0A39 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 {drift} \u0A39\u0A48\u0964 \u0A1C\u0A47 \u0A39\u0A4B\u0A30 \u0A15\u0A41\u0A1D \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A28\u0A3E \u0A39\u0A4B\u0A35\u0A47, \u0A24\u0A3E\u0A02 \u0A30\u0A42\u0A1F {dates} \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A32\u0A71\u0A17\u0A23\u0A3E \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "rules.bumpOpen": "\u0A07\u0A39 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 {drift} \u0A39\u0A48\u0964 \u0A1C\u0A47 \u0A39\u0A4B\u0A30 \u0A15\u0A41\u0A1D \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A28\u0A3E \u0A39\u0A4B\u0A35\u0A47, \u0A24\u0A3E\u0A02 \u0A30\u0A42\u0A1F {date} \u0A28\u0A42\u0A70 bump \u0A32\u0A08 \u0A16\u0A41\u0A71\u0A32\u0A4D\u0A39\u0A23\u0A3E \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "rules.hoursOpen": "\u0A07\u0A39 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 {drift} \u0A39\u0A48\u0964 \u0A1C\u0A47 \u0A39\u0A4B\u0A30 \u0A15\u0A41\u0A1D \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A28\u0A3E \u0A39\u0A4B\u0A35\u0A47, \u0A24\u0A3E\u0A02 \u0A07\u0A39 \u0A18\u0A70\u0A1F\u0A47 {date} \u0A28\u0A42\u0A70 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A47 \u0A2C\u0A23\u0A28\u0A47 \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A47 \u0A39\u0A28\u0964",
-  "rules.nothingWaiting": "\u0A15\u0A4B\u0A08 \u0A17\u0A3F\u0A23\u0A24\u0A40 \u0A2C\u0A3E\u0A15\u0A40 \u0A28\u0A39\u0A40\u0A02\u0964 \u0A07\u0A39 \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A35\u0A15\u0A24 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A47 \u0A39\u0A28\u0964",
-  "rules.bidClosedDates": "\u0A17\u0A3F\u0A23\u0A24\u0A40 \u0A2C\u0A70\u0A26 \u0A39\u0A4B \u0A17\u0A08 \u0A39\u0A48\u0964 \u0A30\u0A42\u0A1F {dates} \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A32\u0A71\u0A17\u0A23\u0A3E \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "rules.bidClosed": "\u0A17\u0A3F\u0A23\u0A24\u0A40 \u0A2C\u0A70\u0A26 \u0A39\u0A4B \u0A17\u0A08 \u0A39\u0A48\u0964 \u0A30\u0A42\u0A1F \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A32\u0A71\u0A17\u0A23\u0A3E \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "rules.bumpClosedDate": "\u0A17\u0A3F\u0A23\u0A24\u0A40 \u0A2C\u0A70\u0A26 \u0A39\u0A4B \u0A17\u0A08 \u0A39\u0A48\u0964 \u0A30\u0A42\u0A1F {date} \u0A24\u0A4B\u0A02 bump \u0A32\u0A08 \u0A16\u0A41\u0A71\u0A32\u0A4D\u0A39\u0A23\u0A3E \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "rules.bumpClosed": "\u0A17\u0A3F\u0A23\u0A24\u0A40 \u0A2C\u0A70\u0A26 \u0A39\u0A4B \u0A17\u0A08 \u0A39\u0A48\u0964 \u0A30\u0A42\u0A1F bump \u0A32\u0A08 \u0A16\u0A41\u0A71\u0A32\u0A4D\u0A39\u0A23\u0A3E \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "rules.hoursClosedDate": "\u0A17\u0A3F\u0A23\u0A24\u0A40 \u0A2C\u0A70\u0A26 \u0A39\u0A4B \u0A17\u0A08 \u0A39\u0A48\u0964 \u0A07\u0A39 \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A35\u0A15\u0A24 {date} \u0A24\u0A4B\u0A02 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A47 \u0A39\u0A4B\u0A23\u0A47 \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A47 \u0A39\u0A28\u0964",
-  "rules.hoursAre": "\u0A07\u0A39 \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A35\u0A15\u0A24 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A47 \u0A39\u0A28\u0964",
-  "snap.reads": "Snap \u0A07\u0A39 \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A35\u0A15\u0A24 \u0A2A\u0A5C\u0A4D\u0A39\u0A26\u0A3E \u0A39\u0A48: {clocks}.",
-  "snap.sameWithMove": "\u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A47 \u0A05\u0A24\u0A47 \u0A28\u0A3F\u0A2F\u0A2E\u0A3E\u0A02 \u0A26\u0A3E \u0A05\u0A17\u0A32\u0A3E \u0A28\u0A24\u0A40\u0A1C\u0A3E \u0A09\u0A39\u0A40 \u0A30\u0A39\u0A3F\u0A70\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "snap.sameNoMove": "Snap \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A35\u0A15\u0A24, \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A47, \u0A05\u0A24\u0A47 \u0A28\u0A3F\u0A2F\u0A2E\u0A3E\u0A02 \u0A26\u0A3E \u0A05\u0A17\u0A32\u0A3E \u0A28\u0A24\u0A40\u0A1C\u0A3E \u0A09\u0A39\u0A40 \u0A30\u0A71\u0A16\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "snap.hours": "Snap \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A47 {from} \u0A24\u0A4B\u0A02 {to} \u0A15\u0A30 \u0A26\u0A3F\u0A70\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "snap.compare": "\u0A32\u0A3F\u0A16\u0A47 \u0A39\u0A4B\u0A0F \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A35\u0A15\u0A24: {written} Snap \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A35\u0A15\u0A24: {snap}",
-  "history.calendar": "\u0A15\u0A48\u0A32\u0A70\u0A21\u0A30",
-  "side.ownDate": "\u0A06\u0A2A\u0A23\u0A40 \u0A24\u0A3E\u0A30\u0A40\u0A16",
-  "side.bidClock": "\u0A06\u0A2A\u0A23\u0A40 \u0A2C\u0A4B\u0A32\u0A40 \u0A26\u0A40 \u0A17\u0A3F\u0A23\u0A24\u0A40, {when} \u0A24\u0A71\u0A15",
-  "side.dayClock": "\u0A06\u0A2A\u0A23\u0A47 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28\u0A3E\u0A02 \u0A26\u0A40 \u0A17\u0A3F\u0A23\u0A24\u0A40, {when} \u0A24\u0A71\u0A15",
-  "side.note": "{amount} \u0A26\u0A40 \u0A2C\u0A3E\u0A05\u0A26 \u0A35\u0A3E\u0A32\u0A40 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 \u0A30\u0A42\u0A1F \u0A28\u0A42\u0A70 30 \u0A2E\u0A3F\u0A70\u0A1F \u0A1C\u0A3E\u0A02 \u0A35\u0A71\u0A27 \u0A09\u0A71\u0A24\u0A47 \u0A30\u0A71\u0A16\u0A26\u0A40 \u0A39\u0A48, \u0A07\u0A38 \u0A32\u0A08 \u0A2C\u0A4B\u0A32\u0A40 \u0A26\u0A40 \u0A24\u0A3E\u0A30\u0A40\u0A16 \u0A28\u0A39\u0A40\u0A02 \u0A39\u0A3F\u0A71\u0A32\u0A26\u0A40\u0964 \u0A09\u0A39 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 {clock} \u0A1A\u0A32\u0A26\u0A40 \u0A39\u0A48\u0964",
-  "col.started": "\u0A28\u0A35\u0A3E\u0A02 \u0A38\u0A2E\u0A3E\u0A02-\u0A38\u0A3E\u0A30\u0A23\u0A40 \u0A38\u0A3C\u0A41\u0A30\u0A42 \u0A39\u0A4B\u0A08",
-  "col.amStart": "\u0A38\u0A35\u0A47\u0A30 \u0A26\u0A40 \u0A38\u0A3C\u0A41\u0A30\u0A42\u0A06\u0A24",
-  "col.amEnd": "\u0A38\u0A35\u0A47\u0A30 \u0A26\u0A3E \u0A05\u0A70\u0A24",
-  "col.midStart": "\u0A26\u0A41\u0A2A\u0A39\u0A3F\u0A30 \u0A26\u0A40 \u0A38\u0A3C\u0A41\u0A30\u0A42\u0A06\u0A24",
-  "col.midEnd": "\u0A26\u0A41\u0A2A\u0A39\u0A3F\u0A30 \u0A26\u0A3E \u0A05\u0A70\u0A24",
-  "col.pmStart": "\u0A38\u0A3C\u0A3E\u0A2E \u0A26\u0A40 \u0A38\u0A3C\u0A41\u0A30\u0A42\u0A06\u0A24",
-  "col.pmEnd": "\u0A38\u0A3C\u0A3E\u0A2E \u0A26\u0A3E \u0A05\u0A70\u0A24",
-  "col.change": "\u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40",
-  "col.hours": "\u0A24\u0A39\u0A3F \u0A39\u0A4B\u0A0F \u0A18\u0A70\u0A1F\u0A47",
-  "col.contractDate": "\u0A20\u0A47\u0A15\u0A47 \u0A26\u0A40 \u0A17\u0A3F\u0A23\u0A40 \u0A24\u0A3E\u0A30\u0A40\u0A16",
-  "col.empty": "\u0A39\u0A3E\u0A32\u0A47 \u0A15\u0A4B\u0A08 \u0A18\u0A5C\u0A40 \u0A26\u0A3E \u0A35\u0A15\u0A24 \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A28\u0A39\u0A40\u0A02\u0964",
-  "col.diffTitle": "\u0A09\u0A71\u0A2A\u0A30 \u0A35\u0A3E\u0A32\u0A40 \u0A15\u0A24\u0A3E\u0A30 \u0A24\u0A4B\u0A02 \u0A35\u0A71\u0A16\u0A30\u0A3E",
-  "legend.bidNote": "\u0A2E\u0A39\u0A40\u0A28\u0A47 \u0A26\u0A47 \u0A05\u0A16\u0A40\u0A30 \u0A26\u0A40 \u0A2C\u0A4B\u0A32\u0A40: \u0A05\u0A15\u0A24\u0A42\u0A2C\u0A30 \u0A24\u0A4B\u0A02 \u0A05\u0A2A\u0A4D\u0A30\u0A48\u0A32 \u0A24\u0A71\u0A15 \u0A26\u0A47 \u0A06\u0A16\u0A30\u0A40 \u0A2A\u0A70\u0A1C \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28, \u0A1C\u0A26\u0A4B\u0A02 30 \u0A2E\u0A3F\u0A70\u0A1F \u0A26\u0A3E \u0A35\u0A3E\u0A27\u0A3E \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A32\u0A71\u0A17\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "dow.sun": "\u0A10\u0A24",
-  "dow.mon": "\u0A38\u0A4B\u0A2E",
-  "dow.tue": "\u0A2E\u0A70\u0A17\u0A32",
-  "dow.wed": "\u0A2C\u0A41\u0A71\u0A27",
-  "dow.thu": "\u0A35\u0A40\u0A30",
-  "dow.fri": "\u0A38\u0A3C\u0A41\u0A71\u0A15\u0A30",
-  "dow.sat": "\u0A38\u0A3C\u0A28\u0A40",
-  "cal.schoolDay": "\u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28",
-  "cal.today": "\u0A05\u0A71\u0A1C \u0A26\u0A40 \u0A24\u0A3E\u0A30\u0A40\u0A16",
-  "cal.bidPeriod": "\u0A2E\u0A39\u0A40\u0A28\u0A47 \u0A26\u0A47 \u0A05\u0A16\u0A40\u0A30 \u0A26\u0A40 \u0A2C\u0A4B\u0A32\u0A40",
-  "cal.off": "\u0A1B\u0A41\u0A71\u0A1F\u0A40",
-  "cal.weekend": "\u0A39\u0A2B\u0A3C\u0A24\u0A47 \u0A26\u0A3E \u0A05\u0A70\u0A24",
-  "cal.outside": "\u0A38\u0A15\u0A42\u0A32\u0A40 \u0A38\u0A3E\u0A32 \u0A24\u0A4B\u0A02 \u0A2C\u0A3E\u0A39\u0A30",
-  "cal.goesToBid": "{when} \u0A28\u0A42\u0A70 \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A1C\u0A3E\u0A02\u0A26\u0A3E \u0A39\u0A48",
-  "cal.pointsTo": "{when} \u0A35\u0A71\u0A32 \u0A07\u0A38\u0A3C\u0A3E\u0A30\u0A3E",
-  "cal.established": "\u0A24\u0A39\u0A3F \u0A39\u0A4B\u0A07\u0A06",
-  "cal.schoolDayN": "15 \u0A35\u0A3F\u0A71\u0A1A\u0A4B\u0A02 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 {n}",
-  "cal.became": "\u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A3E \u0A2C\u0A23 \u0A17\u0A3F\u0A06",
-  "cal.postedBid": "\u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A32\u0A71\u0A17\u0A3E",
-  "cal.bump": "bump \u0A32\u0A08 \u0A16\u0A41\u0A71\u0A32\u0A4D\u0A39\u0A3E",
-  "cal.resolution": "\u0A28\u0A24\u0A40\u0A1C\u0A3E",
-  "guide.title": "\u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A18\u0A70\u0A1F\u0A3F\u0A06\u0A02 \u0A2C\u0A3E\u0A30\u0A47 \u0A2C\u0A71\u0A38 \u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30 \u0A26\u0A40 \u0A17\u0A3E\u0A08\u0A21",
-  "guide.eyebrow": "\u0A2C\u0A48\u0A32\u0A3F\u0A70\u0A17\u0A39\u0A48\u0A2E \u0A2A\u0A2C\u0A32\u0A3F\u0A15 \u0A38\u0A15\u0A42\u0A32 \xB7 \u0A1F\u0A40\u0A2E\u0A38\u0A1F\u0A30\u0A1C\u0A3C",
-  "guide.h1": "\u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A18\u0A70\u0A1F\u0A3F\u0A06\u0A02 \u0A2C\u0A3E\u0A30\u0A47 \u0A2C\u0A71\u0A38 \u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30 \u0A26\u0A40 \u0A17\u0A3E\u0A08\u0A21",
-  "guide.lede": "\u0A38\u0A24\u0A3F \u0A38\u0A4D\u0A30\u0A40 \u0A05\u0A15\u0A3E\u0A32! \u0A2E\u0A48\u0A02 \u0A07\u0A39 \u0A17\u0A3E\u0A08\u0A21 \u0A28\u0A35\u0A47\u0A02 \u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30\u0A3E\u0A02 \u0A32\u0A08 \u0A32\u0A3F\u0A16\u0A40, \u0A15\u0A3F\u0A09\u0A02\u0A15\u0A3F \u0A28\u0A35\u0A47\u0A02 \u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30\u0A3E\u0A02 \u0A15\u0A4B\u0A32 \u0A20\u0A47\u0A15\u0A47 \u0A24\u0A4B\u0A02 \u0A07\u0A32\u0A3E\u0A35\u0A3E \u0A06\u0A2A\u0A23\u0A47 \u0A28\u0A3F\u0A2F\u0A2E \u0A2A\u0A5C\u0A4D\u0A39\u0A28 \u0A26\u0A40 \u0A25\u0A3E\u0A02 \u0A28\u0A39\u0A40\u0A02 \u0A39\u0A41\u0A70\u0A26\u0A40\u0964 \u0A2E\u0A48\u0A02 \u0A28\u0A3F\u0A2F\u0A2E \u0A1C\u0A3F\u0A70\u0A28\u0A40 \u0A38\u0A27\u0A3E\u0A30\u0A28 \u0A2D\u0A3E\u0A38\u0A3C\u0A3E \u0A35\u0A3F\u0A71\u0A1A \u0A15\u0A39\u0A3F \u0A38\u0A15\u0A26\u0A3E \u0A39\u0A3E\u0A02, \u0A15\u0A39\u0A3F \u0A30\u0A3F\u0A39\u0A3E \u0A39\u0A3E\u0A02\u0964 \u0A1C\u0A47 \u0A2E\u0A48\u0A02 \u0A15\u0A41\u0A1D \u0A17\u0A32\u0A24 \u0A15\u0A3F\u0A39\u0A3E \u0A39\u0A4B\u0A35\u0A47 \u0A24\u0A3E\u0A02 \u0A2E\u0A48\u0A28\u0A42\u0A70 \u0A26\u0A71\u0A38\u0A4B\u0964 \u0A07\u0A39 \u0A38\u0A3F\u0A30\u0A2B\u0A3C \u0A2E\u0A47\u0A30\u0A40 \u0A38\u0A2E\u0A1D \u0A39\u0A48 \u0A15\u0A3F \u0A17\u0A71\u0A32\u0A3E\u0A02 \u0A15\u0A3F\u0A35\u0A47\u0A02 \u0A1A\u0A32\u0A26\u0A40\u0A06\u0A02 \u0A39\u0A28\u0964 -\u0A30\u0A3E\u0A08\u0A38",
-  "guide.start.h": "\u0A24\u0A41\u0A39\u0A3E\u0A21\u0A47 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A18\u0A70\u0A1F\u0A47",
-  "guide.start.p1": "\u0A24\u0A41\u0A39\u0A3E\u0A21\u0A47 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A18\u0A70\u0A1F\u0A47 \u0A09\u0A39 \u0A38\u0A2E\u0A3E\u0A02 \u0A39\u0A48 \u0A1C\u0A4B \u0A24\u0A41\u0A39\u0A3E\u0A21\u0A47 \u0A24\u0A28\u0A16\u0A3E\u0A39 \u0A38\u0A2E\u0A42\u0A39 \u0A05\u0A24\u0A47 \u0A07\u0A28\u0A4D\u0A39\u0A3E\u0A02 \u0A28\u0A3F\u0A2F\u0A2E\u0A3E\u0A02 \u0A32\u0A08 \u0A17\u0A3F\u0A23\u0A3F\u0A06 \u0A1C\u0A3E\u0A02\u0A26\u0A3E \u0A39\u0A48\u0964 \u0A38\u0A35\u0A47\u0A30, \u0A26\u0A41\u0A2A\u0A39\u0A3F\u0A30, \u0A05\u0A24\u0A47 \u0A38\u0A3C\u0A3E\u0A2E \u0A39\u0A30\u0A47\u0A15 \u0A28\u0A42\u0A70 \u0A38\u0A2D \u0A24\u0A4B\u0A02 \u0A28\u0A47\u0A5C\u0A32\u0A47 15 \u0A2E\u0A3F\u0A70\u0A1F\u0A3E\u0A02 \u0A24\u0A71\u0A15 \u0A17\u0A4B\u0A32 \u0A15\u0A40\u0A24\u0A3E \u0A1C\u0A3E\u0A02\u0A26\u0A3E \u0A39\u0A48\u0964 \u0A09\u0A39 \u0A17\u0A4B\u0A32 \u0A15\u0A40\u0A24\u0A40\u0A06\u0A02 \u0A30\u0A15\u0A2E\u0A3E\u0A02 \u0A1C\u0A4B\u0A5C\u0A40\u0A06\u0A02 \u0A1C\u0A3E\u0A02\u0A26\u0A40\u0A06\u0A02 \u0A39\u0A28, \u0A05\u0A24\u0A47 \u0A09\u0A38 \u0A1C\u0A4B\u0A5C \u0A28\u0A42\u0A70 \u0A2B\u0A3F\u0A30 \u0A38\u0A2D \u0A24\u0A4B\u0A02 \u0A28\u0A47\u0A5C\u0A32\u0A47 15 \u0A2E\u0A3F\u0A70\u0A1F\u0A3E\u0A02 \u0A24\u0A71\u0A15 \u0A17\u0A4B\u0A32 \u0A15\u0A40\u0A24\u0A3E \u0A1C\u0A3E\u0A02\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "guide.start.p2": "\u0A26\u0A2B\u0A3C\u0A24\u0A30 \u0A30\u0A42\u0A1F \u0A2C\u0A26\u0A32\u0A26\u0A47 \u0A39\u0A40 \u0A24\u0A41\u0A38\u0A40\u0A02 \u0A28\u0A35\u0A47\u0A02 \u0A35\u0A15\u0A24 \u0A1A\u0A32\u0A3E \u0A30\u0A39\u0A47 \u0A39\u0A4B \u0A38\u0A15\u0A26\u0A47 \u0A39\u0A4B\u0964 \u0A07\u0A39 \u0A28\u0A3F\u0A2F\u0A2E \u0A26\u0A71\u0A38\u0A26\u0A47 \u0A39\u0A28 \u0A15\u0A3F \u0A28\u0A35\u0A3E\u0A02 \u0A38\u0A2E\u0A3E\u0A02 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A3E \u0A15\u0A26\u0A4B\u0A02 \u0A2C\u0A23\u0A26\u0A3E \u0A39\u0A48, \u0A24\u0A41\u0A38\u0A40\u0A02 \u0A15\u0A3F\u0A38\u0A47 \u0A39\u0A4B\u0A30 \u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30 \u0A26\u0A3E \u0A30\u0A42\u0A1F \u0A15\u0A26\u0A4B\u0A02 \u0A32\u0A48 \u0A38\u0A15\u0A26\u0A47 \u0A39\u0A4B, \u0A05\u0A24\u0A47 \u0A24\u0A41\u0A39\u0A3E\u0A21\u0A3E \u0A30\u0A42\u0A1F \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A15\u0A26\u0A4B\u0A02 \u0A32\u0A71\u0A17\u0A26\u0A3E \u0A39\u0A48\u0964",
-  "guide.usual.h": "\u0A06\u0A2E \u0A24\u0A4C\u0A30 \u0A09\u0A71\u0A24\u0A47 \u0A15\u0A40 \u0A39\u0A41\u0A70\u0A26\u0A3E \u0A39\u0A48",
-  "guide.usual.p1": "\u0A38\u0A15\u0A42\u0A32\u0A40 \u0A38\u0A3E\u0A32 \u0A26\u0A47 \u0A1C\u0A3C\u0A3F\u0A06\u0A26\u0A3E \u0A2E\u0A39\u0A40\u0A28\u0A3F\u0A06\u0A02 \u0A35\u0A3F\u0A71\u0A1A \u0A2E\u0A39\u0A40\u0A28\u0A47 \u0A26\u0A47 \u0A05\u0A16\u0A40\u0A30 \u0A26\u0A40 \u0A2C\u0A4B\u0A32\u0A40 \u0A39\u0A41\u0A70\u0A26\u0A40 \u0A39\u0A48\u0964 \u0A07\u0A39 \u0A2E\u0A39\u0A40\u0A28\u0A47 \u0A26\u0A47 \u0A06\u0A16\u0A30\u0A40 \u0A2A\u0A70\u0A1C \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A39\u0A41\u0A70\u0A26\u0A47 \u0A39\u0A28, \u0A05\u0A24\u0A47 \u0A35\u0A71\u0A21\u0A47 \u0A35\u0A3E\u0A27\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A30\u0A42\u0A1F \u0A1C\u0A4B \u0A2A\u0A39\u0A3F\u0A32\u0A3E\u0A02 \u0A39\u0A40 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A1A\u0A71\u0A32 \u0A1A\u0A41\u0A71\u0A15\u0A47 \u0A39\u0A4B\u0A23, \u0A09\u0A26\u0A4B\u0A02 \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A32\u0A71\u0A17\u0A26\u0A47 \u0A39\u0A28\u0964 \u0A09\u0A39 \u0A2E\u0A39\u0A40\u0A28\u0A47 \u0A05\u0A15\u0A24\u0A42\u0A2C\u0A30, \u0A28\u0A35\u0A70\u0A2C\u0A30, \u0A26\u0A38\u0A70\u0A2C\u0A30, \u0A1C\u0A28\u0A35\u0A30\u0A40, \u0A2B\u0A30\u0A35\u0A30\u0A40, \u0A2E\u0A3E\u0A30\u0A1A, \u0A05\u0A24\u0A47 \u0A05\u0A2A\u0A4D\u0A30\u0A48\u0A32 \u0A39\u0A28\u0964 \u0A35\u0A71\u0A21\u0A40 \u0A15\u0A1F\u0A4C\u0A24\u0A40 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A1A\u0A71\u0A32\u0A23 \u0A24\u0A4B\u0A02 \u0A2C\u0A3E\u0A05\u0A26 \u0A38\u0A40\u0A28\u0A40\u0A05\u0A30\u0A3F\u0A1F\u0A40 \u0A26\u0A40 \u0A1A\u0A4B\u0A23 \u0A35\u0A30\u0A24\u0A26\u0A40 \u0A39\u0A48\u0964 \u0A38\u0A3F\u0A30\u0A2B\u0A3C \u0A09\u0A39 \u0A26\u0A3F\u0A28 \u0A17\u0A3F\u0A23\u0A47 \u0A1C\u0A3E\u0A02\u0A26\u0A47 \u0A39\u0A28 \u0A1C\u0A26\u0A4B\u0A02 \u0A35\u0A3F\u0A26\u0A3F\u0A06\u0A30\u0A25\u0A40 \u0A38\u0A15\u0A42\u0A32 \u0A35\u0A3F\u0A71\u0A1A \u0A39\u0A41\u0A70\u0A26\u0A47 \u0A39\u0A28\u0964",
-  "guide.usual.p2": "\u0A38\u0A35\u0A47\u0A30, \u0A26\u0A41\u0A2A\u0A39\u0A3F\u0A30, \u0A05\u0A24\u0A47 \u0A38\u0A3C\u0A3E\u0A2E \u0A07\u0A71\u0A15\u0A4B \u0A30\u0A42\u0A1F \u0A17\u0A3F\u0A23\u0A47 \u0A1C\u0A3E\u0A02\u0A26\u0A47 \u0A39\u0A28\u0964 \u0A1C\u0A26\u0A4B\u0A02 \u0A24\u0A71\u0A15 \u0A15\u0A41\u0A71\u0A32 30 \u0A2E\u0A3F\u0A70\u0A1F \u0A24\u0A4B\u0A02 \u0A18\u0A71\u0A1F \u0A39\u0A48, \u0A28\u0A35\u0A40\u0A02 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 \u0A1C\u0A4B\u0A5C \u0A26\u0A3F\u0A71\u0A24\u0A40 \u0A1C\u0A3E\u0A02\u0A26\u0A40 \u0A39\u0A48 \u0A05\u0A24\u0A47 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A26\u0A41\u0A2C\u0A3E\u0A30\u0A3E \u0A38\u0A3C\u0A41\u0A30\u0A42 \u0A39\u0A41\u0A70\u0A26\u0A47 \u0A39\u0A28\u0964 \u0A1C\u0A26\u0A4B\u0A02 \u0A30\u0A42\u0A1F \u0A2A\u0A39\u0A3F\u0A32\u0A3E\u0A02 \u0A39\u0A40 30 \u0A2E\u0A3F\u0A70\u0A1F \u0A1C\u0A3E\u0A02 \u0A35\u0A71\u0A27 \u0A35\u0A27 \u0A1A\u0A41\u0A71\u0A15\u0A3E \u0A39\u0A4B\u0A35\u0A47, \u0A2C\u0A3E\u0A05\u0A26 \u0A35\u0A3E\u0A32\u0A40 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 \u0A1C\u0A4B \u0A07\u0A38\u0A28\u0A42\u0A70 \u0A09\u0A71\u0A25\u0A47 \u0A39\u0A40 \u0A30\u0A71\u0A16\u0A47, \u0A2C\u0A4B\u0A32\u0A40 \u0A26\u0A40 \u0A24\u0A3E\u0A30\u0A40\u0A16 \u0A28\u0A39\u0A40\u0A02 \u0A39\u0A3F\u0A32\u0A3E\u0A09\u0A02\u0A26\u0A40\u0964 \u0A20\u0A47\u0A15\u0A3E \u0A15\u0A39\u0A3F\u0A70\u0A26\u0A3E \u0A39\u0A48 \u0A15\u0A3F \u0A30\u0A42\u0A1F \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A09\u0A26\u0A4B\u0A02 \u0A32\u0A71\u0A17\u0A26\u0A3E \u0A39\u0A48 \u0A1C\u0A26\u0A4B\u0A02 \u0A07\u0A39 \u201C30 \u0A2E\u0A3F\u0A70\u0A1F \u0A1C\u0A3E\u0A02 \u0A35\u0A71\u0A27, 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A1C\u0A3E\u0A02 \u0A35\u0A71\u0A27\u201D \u0A35\u0A27\u0A3F\u0A06 \u0A39\u0A4B\u0A35\u0A47\u0964 \u0A35\u0A3E\u0A27\u0A42 \u0A38\u0A2E\u0A3E\u0A02 \u0A09\u0A39 \u0A09\u0A21\u0A40\u0A15 \u0A26\u0A41\u0A2C\u0A3E\u0A30\u0A3E \u0A38\u0A3C\u0A41\u0A30\u0A42 \u0A28\u0A39\u0A40\u0A02 \u0A15\u0A30\u0A26\u0A3E\u0964 \u0A2C\u0A3E\u0A05\u0A26 \u0A35\u0A3E\u0A32\u0A40 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 \u0A26\u0A40 \u0A06\u0A2A\u0A23\u0A40 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A26\u0A40 \u0A17\u0A3F\u0A23\u0A24\u0A40 \u0A1A\u0A32\u0A26\u0A40 \u0A39\u0A48\u0964",
-  "guide.smallAdd.tag": "\u0A1B\u0A4B\u0A1F\u0A3E \u0A35\u0A3E\u0A27\u0A3E",
-  "guide.smallAdd.h": "30 \u0A2E\u0A3F\u0A70\u0A1F \u0A24\u0A4B\u0A02 \u0A18\u0A71\u0A1F \u0A35\u0A3E\u0A27\u0A3E",
-  "guide.smallAdd.p": "\u0A35\u0A3E\u0A27\u0A42 \u0A38\u0A2E\u0A3E\u0A02 \u0A09\u0A38 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A3E \u0A2C\u0A23\u0A26\u0A3E \u0A39\u0A48 \u0A1C\u0A4B 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28\u0A3E\u0A02 \u0A24\u0A4B\u0A02 \u0A05\u0A17\u0A32\u0A3E \u0A39\u0A48, \u0A1C\u0A47 \u0A35\u0A3F\u0A1A\u0A15\u0A3E\u0A30 \u0A39\u0A4B\u0A30 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 \u0A28\u0A3E \u0A39\u0A4B\u0A08\u0964 \u0A1C\u0A47 \u0A09\u0A28\u0A4D\u0A39\u0A3E\u0A02 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28\u0A3E\u0A02 \u0A35\u0A3F\u0A71\u0A1A \u0A39\u0A4B\u0A30 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40\u0A06\u0A02 \u0A39\u0A4B\u0A23, \u0A09\u0A39 \u0A2A\u0A3F\u0A1B\u0A32\u0A40\u0A06\u0A02 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40\u0A06\u0A02 \u0A28\u0A3E\u0A32 \u0A1C\u0A4B\u0A5C\u0A40\u0A06\u0A02 \u0A1C\u0A3E\u0A02\u0A26\u0A40\u0A06\u0A02 \u0A39\u0A28 \u0A05\u0A24\u0A47 15 \u0A26\u0A3F\u0A28 \u0A26\u0A40 \u0A17\u0A3F\u0A23\u0A24\u0A40 \u0A26\u0A41\u0A2C\u0A3E\u0A30\u0A3E \u0A38\u0A3C\u0A41\u0A30\u0A42 \u0A39\u0A41\u0A70\u0A26\u0A40 \u0A39\u0A48\u0964 \u0A1C\u0A47 \u0A28\u0A35\u0A3E\u0A02 \u0A15\u0A41\u0A71\u0A32 \u0A2B\u0A3F\u0A30 \u0A35\u0A40 30 \u0A2E\u0A3F\u0A70\u0A1F \u0A24\u0A4B\u0A02 \u0A18\u0A71\u0A1F \u0A39\u0A4B\u0A35\u0A47, \u0A07\u0A39 \u0A28\u0A35\u0A47\u0A02 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28\u0A3E\u0A02 \u0A24\u0A4B\u0A02 \u0A05\u0A17\u0A32\u0A47 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A3E \u0A2C\u0A23\u0A26\u0A3E \u0A39\u0A48\u0964 \u0A1C\u0A47 \u0A07\u0A39 30 \u0A2E\u0A3F\u0A70\u0A1F \u0A24\u0A71\u0A15 \u0A2A\u0A39\u0A41\u0A70\u0A1A \u0A1C\u0A3E\u0A35\u0A47, \u0A24\u0A3E\u0A02 \u0A07\u0A39 \u0A1B\u0A4B\u0A1F\u0A3E \u0A35\u0A3E\u0A27\u0A3E \u0A28\u0A39\u0A40\u0A02 \u0A30\u0A39\u0A3F\u0A70\u0A26\u0A3E\u0964 \u0A38\u0A3E\u0A32 \u0A26\u0A40 \u0A38\u0A3C\u0A41\u0A30\u0A42\u0A06\u0A24 (\u0A38\u0A24\u0A70\u0A2C\u0A30) \u0A26\u0A47 \u0A1B\u0A4B\u0A1F\u0A47 \u0A35\u0A3E\u0A27\u0A47 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28\u0A3E\u0A02 \u0A26\u0A40 \u0A25\u0A3E\u0A02 1 \u0A05\u0A15\u0A24\u0A42\u0A2C\u0A30 \u0A24\u0A71\u0A15 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A2C\u0A23\u0A28 \u0A26\u0A40 \u0A09\u0A21\u0A40\u0A15 \u0A15\u0A30\u0A26\u0A47 \u0A39\u0A28\u0964",
-  "guide.bigAdd.tag": "\u0A35\u0A71\u0A21\u0A3E \u0A35\u0A3E\u0A27\u0A3E",
-  "guide.bigAdd.h": "30 \u0A2E\u0A3F\u0A70\u0A1F \u0A1C\u0A3E\u0A02 \u0A35\u0A71\u0A27 \u0A26\u0A3E \u0A35\u0A3E\u0A27\u0A3E",
-  "guide.bigAdd.p": "\u0A20\u0A47\u0A15\u0A3E \u0A15\u0A39\u0A3F\u0A70\u0A26\u0A3E \u0A39\u0A48 \u0A15\u0A3F \u0A30\u0A42\u0A1F \u0A26\u0A41\u0A2C\u0A3E\u0A30\u0A3E \u0A32\u0A71\u0A17\u0A26\u0A3E \u0A39\u0A48 \u0A1C\u0A47 \u0A07\u0A39 \u201C30 \u0A2E\u0A3F\u0A70\u0A1F \u0A1C\u0A3E\u0A02 \u0A35\u0A71\u0A27, 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A1C\u0A3E\u0A02 \u0A35\u0A71\u0A27\u201D \u0A35\u0A27\u0A3F\u0A06 \u0A39\u0A4B\u0A35\u0A47\u0964 \u0A09\u0A39 \u0A30\u0A42\u0A1F \u0A2E\u0A39\u0A40\u0A28\u0A47 \u0A26\u0A47 \u0A06\u0A16\u0A30\u0A40 \u0A2A\u0A70\u0A1C \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28\u0A3E\u0A02 \u0A35\u0A3F\u0A71\u0A1A \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A32\u0A71\u0A17\u0A26\u0A47 \u0A39\u0A28\u0964 \u0A2C\u0A3E\u0A05\u0A26 \u0A35\u0A3E\u0A32\u0A40 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 \u0A1C\u0A4B \u0A30\u0A42\u0A1F \u0A28\u0A42\u0A70 30 \u0A2E\u0A3F\u0A70\u0A1F \u0A1C\u0A3E\u0A02 \u0A35\u0A71\u0A27 \u0A09\u0A71\u0A24\u0A47 \u0A30\u0A71\u0A16\u0A47, \u0A09\u0A38 \u0A2C\u0A4B\u0A32\u0A40 \u0A26\u0A40 \u0A24\u0A3E\u0A30\u0A40\u0A16 \u0A28\u0A39\u0A40\u0A02 \u0A39\u0A3F\u0A32\u0A3E\u0A09\u0A02\u0A26\u0A40\u0964 \u0A07\u0A38\u0A26\u0A40 \u0A06\u0A2A\u0A23\u0A40 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A26\u0A40 \u0A17\u0A3F\u0A23\u0A24\u0A40 \u0A38\u0A3C\u0A41\u0A30\u0A42 \u0A39\u0A41\u0A70\u0A26\u0A40 \u0A39\u0A48\u0964 \u0A1C\u0A47 \u0A2C\u0A3E\u0A05\u0A26 \u0A35\u0A3E\u0A32\u0A40 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 \u0A15\u0A41\u0A71\u0A32 \u0A28\u0A42\u0A70 30 \u0A2E\u0A3F\u0A70\u0A1F \u0A24\u0A4B\u0A02 \u0A39\u0A47\u0A20\u0A3E\u0A02 \u0A32\u0A48 \u0A06\u0A35\u0A47, \u0A24\u0A3E\u0A02 \u0A30\u0A42\u0A1F \u0A09\u0A38 \u0A24\u0A3E\u0A30\u0A40\u0A16 \u0A09\u0A71\u0A24\u0A47 \u0A28\u0A39\u0A40\u0A02 \u0A32\u0A71\u0A17\u0A26\u0A3E\u0964",
-  "guide.smallCut.tag": "\u0A1B\u0A4B\u0A1F\u0A40 \u0A15\u0A1F\u0A4C\u0A24\u0A40",
-  "guide.smallCut.h": "30 \u0A2E\u0A3F\u0A70\u0A1F \u0A24\u0A4B\u0A02 \u0A18\u0A71\u0A1F \u0A15\u0A1F\u0A4C\u0A24\u0A40",
-  "guide.smallCut.p": "\u0A1B\u0A4B\u0A1F\u0A40 \u0A15\u0A1F\u0A4C\u0A24\u0A40 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A16\u0A41\u0A71\u0A32\u0A4D\u0A39\u0A40 \u0A30\u0A39\u0A3F\u0A70\u0A26\u0A40 \u0A39\u0A48, \u0A1B\u0A4B\u0A1F\u0A47 \u0A35\u0A3E\u0A27\u0A47 \u0A35\u0A3E\u0A02\u0A17\u0964 \u0A09\u0A28\u0A4D\u0A39\u0A3E\u0A02 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28\u0A3E\u0A02 \u0A35\u0A3F\u0A1A\u0A32\u0A40 \u0A15\u0A4B\u0A08 \u0A39\u0A4B\u0A30 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 \u0A07\u0A38 \u0A35\u0A3F\u0A71\u0A1A \u0A1C\u0A4B\u0A5C\u0A40 \u0A1C\u0A3E\u0A02\u0A26\u0A40 \u0A39\u0A48\u0964 \u0A1C\u0A47 \u0A15\u0A41\u0A71\u0A32 30 \u0A2E\u0A3F\u0A70\u0A1F \u0A24\u0A4B\u0A02 \u0A18\u0A71\u0A1F \u0A30\u0A39\u0A47, \u0A1B\u0A4B\u0A1F\u0A3E \u0A38\u0A2E\u0A3E\u0A02 \u0A09\u0A28\u0A4D\u0A39\u0A3E\u0A02 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28\u0A3E\u0A02 \u0A24\u0A4B\u0A02 \u0A05\u0A17\u0A32\u0A47 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A3E \u0A2C\u0A23\u0A26\u0A3E \u0A39\u0A48\u0964 \u0A1C\u0A47 \u0A15\u0A41\u0A71\u0A32 30 \u0A2E\u0A3F\u0A70\u0A1F \u0A24\u0A71\u0A15 \u0A2A\u0A39\u0A41\u0A70\u0A1A \u0A1C\u0A3E\u0A35\u0A47, \u0A07\u0A39 \u0A35\u0A71\u0A21\u0A40 \u0A15\u0A1F\u0A4C\u0A24\u0A40 \u0A39\u0A48\u0964",
-  "guide.bigCut.tag": "\u0A35\u0A71\u0A21\u0A40 \u0A15\u0A1F\u0A4C\u0A24\u0A40",
-  "guide.bigCut.h": "30 \u0A2E\u0A3F\u0A70\u0A1F \u0A1C\u0A3E\u0A02 \u0A35\u0A71\u0A27 \u0A26\u0A40 \u0A15\u0A1F\u0A4C\u0A24\u0A40",
-  "guide.bigCut.p": "\u0A35\u0A71\u0A21\u0A47 \u0A35\u0A3E\u0A27\u0A47 \u0A35\u0A3E\u0A02\u0A17, \u0A24\u0A41\u0A39\u0A3E\u0A21\u0A47 \u0A18\u0A70\u0A1F\u0A3F\u0A06\u0A02 \u0A35\u0A3F\u0A71\u0A1A 30 \u0A1C\u0A3E\u0A02 \u0A35\u0A71\u0A27 \u0A2E\u0A3F\u0A70\u0A1F \u0A26\u0A40 \u0A15\u0A1F\u0A4C\u0A24\u0A40 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A1A\u0A71\u0A32\u0A23\u0A40 \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A40 \u0A39\u0A48\u0964 \u0A09\u0A38 \u0A24\u0A4B\u0A02 \u0A2C\u0A3E\u0A05\u0A26 \u0A24\u0A41\u0A39\u0A3E\u0A28\u0A42\u0A70 \u0A32\u0A3F\u0A16\u0A24\u0A40 \u0A28\u0A4B\u0A1F\u0A3F\u0A38 \u0A2E\u0A3F\u0A32\u0A26\u0A3E \u0A39\u0A48\u0964 \u0A2B\u0A3F\u0A30 \u0A24\u0A41\u0A39\u0A3E\u0A21\u0A47 \u0A15\u0A4B\u0A32 \u0A26\u0A4B \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A39\u0A41\u0A70\u0A26\u0A47 \u0A39\u0A28 \u0A18\u0A71\u0A1F \u0A38\u0A40\u0A28\u0A40\u0A05\u0A30\u0A3F\u0A1F\u0A40 \u0A35\u0A3E\u0A32\u0A47 \u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30 \u0A26\u0A3E \u0A30\u0A42\u0A1F \u0A32\u0A48\u0A23 \u0A32\u0A08, \u0A1C\u0A3E\u0A02 \u0A06\u0A2A\u0A23\u0A3E \u0A30\u0A42\u0A1F \u0A30\u0A71\u0A16\u0A23 \u0A32\u0A08\u0964 1 \u0A05\u0A15\u0A24\u0A42\u0A2C\u0A30 \u0A24\u0A4B\u0A02 \u0A2A\u0A39\u0A3F\u0A32\u0A3E\u0A02 \u0A15\u0A1F\u0A4C\u0A24\u0A40 \u0A28\u0A42\u0A70 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A1A\u0A71\u0A32\u0A23 \u0A26\u0A40 \u0A32\u0A4B\u0A5C \u0A28\u0A39\u0A40\u0A02\u0964 \u0A24\u0A41\u0A39\u0A3E\u0A28\u0A42\u0A70 \u0A24\u0A41\u0A30\u0A24 \u0A32\u0A3F\u0A16\u0A24\u0A40 \u0A28\u0A4B\u0A1F\u0A3F\u0A38 \u0A2E\u0A3F\u0A32\u0A26\u0A3E \u0A39\u0A48, \u0A05\u0A24\u0A47 \u0A09\u0A39 \u0A26\u0A4B \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A09\u0A26\u0A4B\u0A02 \u0A38\u0A3C\u0A41\u0A30\u0A42 \u0A39\u0A41\u0A70\u0A26\u0A47 \u0A39\u0A28\u0964",
-  "guide.yearStart.h": "\u0A38\u0A15\u0A42\u0A32\u0A40 \u0A38\u0A3E\u0A32 \u0A26\u0A40 \u0A38\u0A3C\u0A41\u0A30\u0A42\u0A06\u0A24",
-  "guide.yearStart.p1": "\u0A38\u0A15\u0A42\u0A32\u0A40 \u0A38\u0A3E\u0A32 \u0A26\u0A47 \u0A2A\u0A39\u0A3F\u0A32\u0A47 \u0A2E\u0A39\u0A40\u0A28\u0A47 (\u0A38\u0A24\u0A70\u0A2C\u0A30) \u0A05\u0A24\u0A47 \u0A06\u0A16\u0A30\u0A40 \u0A26\u0A4B \u0A2E\u0A39\u0A40\u0A28\u0A3F\u0A06\u0A02 (\u0A2E\u0A08 \u0A05\u0A24\u0A47 \u0A1C\u0A42\u0A28) \u0A35\u0A3F\u0A71\u0A1A \u0A2E\u0A39\u0A40\u0A28\u0A47 \u0A26\u0A47 \u0A05\u0A16\u0A40\u0A30 \u0A26\u0A40 \u0A2C\u0A4B\u0A32\u0A40 \u0A28\u0A39\u0A40\u0A02 \u0A39\u0A41\u0A70\u0A26\u0A40\u0964 \u0A38\u0A24\u0A70\u0A2C\u0A30 \u0A35\u0A3F\u0A71\u0A1A \u0A35\u0A71\u0A21\u0A3E \u0A35\u0A3E\u0A27\u0A3E 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A1A\u0A71\u0A32\u0A23 \u0A24\u0A4B\u0A02 \u0A2C\u0A3E\u0A05\u0A26 \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A32\u0A71\u0A17\u0A26\u0A3E \u0A39\u0A48\u0964 \u0A1C\u0A47 \u0A09\u0A39 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 1 \u0A05\u0A15\u0A24\u0A42\u0A2C\u0A30 \u0A28\u0A42\u0A70 \u0A05\u0A1C\u0A47 \u0A2A\u0A42\u0A30\u0A47 \u0A28\u0A3E \u0A39\u0A4B\u0A0F \u0A39\u0A4B\u0A23, \u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30 \u0A05\u0A15\u0A24\u0A42\u0A2C\u0A30 \u0A26\u0A40 \u0A2E\u0A39\u0A40\u0A28\u0A47-\u0A05\u0A70\u0A24 \u0A2C\u0A4B\u0A32\u0A40 \u0A35\u0A3F\u0A71\u0A1A \u0A26\u0A38\u0A24\u0A16\u0A24 \u0A15\u0A30\u0A26\u0A47 \u0A39\u0A28\u0964",
-  "guide.yearStart.p2": "\u0A24\u0A41\u0A39\u0A3E\u0A21\u0A47 \u0A30\u0A42\u0A1F \u0A26\u0A40 \u0A24\u0A41\u0A32\u0A28\u0A3E \u0A09\u0A38 \u0A30\u0A42\u0A1F \u0A28\u0A3E\u0A32 \u0A39\u0A41\u0A70\u0A26\u0A40 \u0A39\u0A48 \u0A1C\u0A4B \u0A24\u0A41\u0A38\u0A40\u0A02 \u0A38\u0A3E\u0A32 \u0A26\u0A40 \u0A38\u0A3C\u0A41\u0A30\u0A42\u0A06\u0A24 \u0A35\u0A3F\u0A71\u0A1A \u0A32\u0A3F\u0A06 \u0A38\u0A40\u0964",
-  "guide.yearStart.small.tag": "\u0A1B\u0A4B\u0A1F\u0A40 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40",
-  "guide.yearStart.small.h": "30 \u0A2E\u0A3F\u0A70\u0A1F \u0A24\u0A4B\u0A02 \u0A18\u0A71\u0A1F, \u0A35\u0A3E\u0A27\u0A3E \u0A1C\u0A3E\u0A02 \u0A15\u0A1F\u0A4C\u0A24\u0A40",
-  "guide.yearStart.small.p": "\u0A06\u0A2E \u0A24\u0A4C\u0A30 \u0A09\u0A71\u0A24\u0A47 \u0A1B\u0A4B\u0A1F\u0A3E \u0A35\u0A3E\u0A27\u0A3E \u0A1C\u0A3E\u0A02 \u0A1B\u0A4B\u0A1F\u0A40 \u0A15\u0A1F\u0A4C\u0A24\u0A40 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A1A\u0A71\u0A32\u0A23 \u0A24\u0A4B\u0A02 \u0A05\u0A17\u0A32\u0A47 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A40 \u0A2C\u0A23\u0A26\u0A40 \u0A39\u0A48\u0964 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A38\u0A3E\u0A32 \u0A26\u0A40 \u0A38\u0A3C\u0A41\u0A30\u0A42\u0A06\u0A24 \u0A35\u0A3F\u0A71\u0A1A \u0A09\u0A39 \u0A17\u0A3F\u0A23\u0A24\u0A40 \u0A28\u0A39\u0A40\u0A02 \u0A1A\u0A32\u0A26\u0A40\u0964 \u0A1B\u0A4B\u0A1F\u0A40 \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40 1 \u0A05\u0A15\u0A24\u0A42\u0A2C\u0A30 \u0A28\u0A42\u0A70 \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A40 \u0A2C\u0A23\u0A26\u0A40 \u0A39\u0A48, \u0A2D\u0A3E\u0A35\u0A47\u0A02 \u0A38\u0A2E\u0A3E\u0A02 \u0A35\u0A27\u0A47 \u0A1C\u0A3E\u0A02 \u0A18\u0A1F\u0A47, \u0A1C\u0A26\u0A4B\u0A02 \u0A24\u0A71\u0A15 \u0A15\u0A41\u0A71\u0A32 30 \u0A2E\u0A3F\u0A70\u0A1F \u0A24\u0A4B\u0A02 \u0A18\u0A71\u0A1F \u0A30\u0A39\u0A47\u0964 \u0A38\u0A24\u0A70\u0A2C\u0A30 \u0A26\u0A40\u0A06\u0A02 30 \u0A2E\u0A3F\u0A70\u0A1F \u0A24\u0A4B\u0A02 \u0A18\u0A71\u0A1F \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40\u0A06\u0A02 \u0A09\u0A38 \u0A26\u0A3F\u0A28 \u0A24\u0A71\u0A15 \u0A1C\u0A41\u0A5C\u0A26\u0A40\u0A06\u0A02 \u0A30\u0A39\u0A3F\u0A70\u0A26\u0A40\u0A06\u0A02 \u0A39\u0A28, \u0A15\u0A3F\u0A09\u0A02\u0A15\u0A3F \u0A09\u0A21\u0A40\u0A15 \u0A16\u0A41\u0A71\u0A32\u0A4D\u0A39\u0A40 \u0A30\u0A39\u0A3F\u0A70\u0A26\u0A40 \u0A39\u0A48\u0964",
-  "guide.yearStart.add.tag": "\u0A35\u0A71\u0A21\u0A3E \u0A35\u0A3E\u0A27\u0A3E",
-  "guide.yearStart.add.h": "30 \u0A2E\u0A3F\u0A70\u0A1F \u0A1C\u0A3E\u0A02 \u0A35\u0A71\u0A27 \u0A26\u0A3E \u0A35\u0A3E\u0A27\u0A3E",
-  "guide.yearStart.add.p": "\u0A06\u0A2E \u0A24\u0A4C\u0A30 \u0A09\u0A71\u0A24\u0A47 \u0A35\u0A71\u0A21\u0A3E \u0A35\u0A3E\u0A27\u0A3E 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A1A\u0A71\u0A32\u0A23\u0A3E \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A3E \u0A39\u0A48, \u0A05\u0A24\u0A47 \u0A2B\u0A3F\u0A30 \u0A2E\u0A39\u0A40\u0A28\u0A47 \u0A26\u0A47 \u0A06\u0A16\u0A30\u0A40 \u0A2A\u0A70\u0A1C \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28\u0A3E\u0A02 \u0A35\u0A3F\u0A71\u0A1A \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A32\u0A71\u0A17\u0A26\u0A3E \u0A39\u0A48\u0964 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A38\u0A3E\u0A32 \u0A26\u0A40 \u0A38\u0A3C\u0A41\u0A30\u0A42\u0A06\u0A24 \u0A35\u0A3F\u0A71\u0A1A \u0A2E\u0A39\u0A40\u0A28\u0A47-\u0A05\u0A70\u0A24 \u0A2C\u0A4B\u0A32\u0A40 \u0A28\u0A39\u0A40\u0A02 \u0A39\u0A41\u0A70\u0A26\u0A40\u0964 \u0A35\u0A71\u0A21\u0A3E \u0A35\u0A3E\u0A27\u0A3E 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A1A\u0A71\u0A32\u0A23 \u0A24\u0A4B\u0A02 \u0A2C\u0A3E\u0A05\u0A26 \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A32\u0A71\u0A17\u0A26\u0A3E \u0A39\u0A48\u0964 \u0A1C\u0A47 \u0A09\u0A39 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 1 \u0A05\u0A15\u0A24\u0A42\u0A2C\u0A30 \u0A28\u0A42\u0A70 \u0A05\u0A1C\u0A47 \u0A2A\u0A42\u0A30\u0A47 \u0A28\u0A3E \u0A39\u0A4B\u0A0F \u0A39\u0A4B\u0A23, \u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30 \u0A05\u0A15\u0A24\u0A42\u0A2C\u0A30 \u0A26\u0A40 \u0A2E\u0A39\u0A40\u0A28\u0A47-\u0A05\u0A70\u0A24 \u0A2C\u0A4B\u0A32\u0A40 \u0A35\u0A3F\u0A71\u0A1A \u0A26\u0A38\u0A24\u0A16\u0A24 \u0A15\u0A30\u0A26\u0A47 \u0A39\u0A28\u0964",
-  "guide.yearStart.cut.tag": "\u0A35\u0A71\u0A21\u0A40 \u0A15\u0A1F\u0A4C\u0A24\u0A40",
-  "guide.yearStart.cut.h": "30 \u0A2E\u0A3F\u0A70\u0A1F \u0A1C\u0A3E\u0A02 \u0A35\u0A71\u0A27 \u0A26\u0A40 \u0A15\u0A1F\u0A4C\u0A24\u0A40",
-  "guide.yearStart.cut.p": "\u0A06\u0A2E \u0A24\u0A4C\u0A30 \u0A09\u0A71\u0A24\u0A47 30 \u0A2E\u0A3F\u0A70\u0A1F \u0A1C\u0A3E\u0A02 \u0A35\u0A71\u0A27 \u0A26\u0A40 \u0A15\u0A1F\u0A4C\u0A24\u0A40 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A1A\u0A71\u0A32\u0A23\u0A40 \u0A1A\u0A3E\u0A39\u0A40\u0A26\u0A40 \u0A39\u0A48, \u0A05\u0A24\u0A47 \u0A09\u0A26\u0A4B\u0A02 \u0A24\u0A41\u0A39\u0A3E\u0A28\u0A42\u0A70 \u0A32\u0A3F\u0A16\u0A24\u0A40 \u0A28\u0A4B\u0A1F\u0A3F\u0A38 \u0A2E\u0A3F\u0A32\u0A26\u0A3E \u0A39\u0A48\u0964 \u0A2B\u0A3F\u0A30 \u0A24\u0A41\u0A39\u0A3E\u0A21\u0A47 \u0A15\u0A4B\u0A32 \u0A26\u0A4B \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A39\u0A41\u0A70\u0A26\u0A47 \u0A39\u0A28 \u0A18\u0A71\u0A1F \u0A38\u0A40\u0A28\u0A40\u0A05\u0A30\u0A3F\u0A1F\u0A40 \u0A35\u0A3E\u0A32\u0A47 \u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30 \u0A26\u0A3E \u0A30\u0A42\u0A1F \u0A32\u0A48\u0A23 \u0A32\u0A08, \u0A1C\u0A3E\u0A02 \u0A06\u0A2A\u0A23\u0A3E \u0A30\u0A42\u0A1F \u0A30\u0A71\u0A16\u0A23 \u0A32\u0A08\u0964 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A38\u0A3E\u0A32 \u0A26\u0A40 \u0A38\u0A3C\u0A41\u0A30\u0A42\u0A06\u0A24 \u0A35\u0A3F\u0A71\u0A1A \u0A15\u0A1F\u0A4C\u0A24\u0A40 \u0A28\u0A42\u0A70 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A1A\u0A71\u0A32\u0A23 \u0A26\u0A40 \u0A32\u0A4B\u0A5C \u0A28\u0A39\u0A40\u0A02\u0964 \u0A24\u0A41\u0A39\u0A3E\u0A28\u0A42\u0A70 \u0A24\u0A41\u0A30\u0A24 \u0A32\u0A3F\u0A16\u0A24\u0A40 \u0A28\u0A4B\u0A1F\u0A3F\u0A38 \u0A2E\u0A3F\u0A32\u0A26\u0A3E \u0A39\u0A48, \u0A05\u0A24\u0A47 \u0A09\u0A39 \u0A26\u0A4B \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A09\u0A26\u0A4B\u0A02 \u0A38\u0A3C\u0A41\u0A30\u0A42 \u0A39\u0A41\u0A70\u0A26\u0A47 \u0A39\u0A28\u0964",
-  "guide.yearEnd.h": "\u0A38\u0A15\u0A42\u0A32\u0A40 \u0A38\u0A3E\u0A32 \u0A26\u0A3E \u0A05\u0A70\u0A24",
-  "guide.yearEnd.p1": "\u0A38\u0A15\u0A42\u0A32\u0A40 \u0A38\u0A3E\u0A32 \u0A26\u0A47 \u0A06\u0A16\u0A30\u0A40 \u0A26\u0A4B \u0A2E\u0A39\u0A40\u0A28\u0A3F\u0A06\u0A02 (\u0A2E\u0A08 \u0A05\u0A24\u0A47 \u0A1C\u0A42\u0A28) \u0A35\u0A3F\u0A71\u0A1A \u0A2E\u0A39\u0A40\u0A28\u0A47 \u0A26\u0A47 \u0A05\u0A16\u0A40\u0A30 \u0A26\u0A40 \u0A2C\u0A4B\u0A32\u0A40 \u0A28\u0A39\u0A40\u0A02 \u0A39\u0A41\u0A70\u0A26\u0A40\u0964",
-  "guide.yearEnd.p2": "\u0A1B\u0A4B\u0A1F\u0A47 \u0A35\u0A3E\u0A27\u0A47, \u0A1B\u0A4B\u0A1F\u0A40\u0A06\u0A02 \u0A15\u0A1F\u0A4C\u0A24\u0A40\u0A06\u0A02, \u0A05\u0A24\u0A47 \u0A35\u0A71\u0A21\u0A40\u0A06\u0A02 \u0A15\u0A1F\u0A4C\u0A24\u0A40\u0A06\u0A02 \u0A2B\u0A3F\u0A30 \u0A35\u0A40 \u0A06\u0A2E 15 \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A35\u0A3E\u0A32\u0A47 \u0A28\u0A3F\u0A2F\u0A2E\u0A3E\u0A02 \u0A09\u0A71\u0A24\u0A47 \u0A1A\u0A32\u0A26\u0A47 \u0A39\u0A28\u0964",
-  "guide.bid.h": "\u201C\u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A32\u0A71\u0A17\u0A23\u0A3E\u201D \u0A26\u0A3E \u0A2E\u0A24\u0A32\u0A2C",
-  "guide.bid.p1": "\u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30 \u0A06\u0A2A\u0A23\u0A40 \u0A38\u0A40\u0A28\u0A40\u0A05\u0A30\u0A3F\u0A1F\u0A40 \u0A28\u0A3E\u0A32 \u0A30\u0A42\u0A1F \u0A2E\u0A70\u0A17 \u0A38\u0A15\u0A26\u0A47 \u0A39\u0A28\u0964 \u0A26\u0A38\u0A24\u0A16\u0A24 \u0A15\u0A30\u0A28 \u0A32\u0A08 \u0A24\u0A41\u0A39\u0A3E\u0A21\u0A47 \u0A15\u0A4B\u0A32 \u0A26\u0A4B \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28 \u0A39\u0A41\u0A70\u0A26\u0A47 \u0A39\u0A28\u0964 \u0A1C\u0A47 \u0A24\u0A41\u0A38\u0A40\u0A02 \u0A09\u0A28\u0A4D\u0A39\u0A3E\u0A02 \u0A26\u0A4B \u0A38\u0A15\u0A42\u0A32\u0A40 \u0A26\u0A3F\u0A28\u0A3E\u0A02 \u0A35\u0A3F\u0A71\u0A1A \u0A26\u0A38\u0A24\u0A16\u0A24 \u0A28\u0A3E \u0A15\u0A30\u0A4B, \u0A07\u0A38\u0A26\u0A3E \u0A2E\u0A24\u0A32\u0A2C \u0A28\u0A3E \u0A39\u0A48\u0964",
-  "guide.bid.p2": "\u0A38\u0A3F\u0A30\u0A2B\u0A3C \u0A35\u0A71\u0A21\u0A3E \u0A35\u0A3E\u0A27\u0A3E \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A32\u0A71\u0A17\u0A26\u0A3E \u0A39\u0A48\u0964 \u0A35\u0A71\u0A21\u0A40 \u0A15\u0A1F\u0A4C\u0A24\u0A40 \u0A38\u0A40\u0A28\u0A40\u0A05\u0A30\u0A3F\u0A1F\u0A40 \u0A26\u0A40 \u0A1A\u0A4B\u0A23 \u0A39\u0A48\u0964 \u0A07\u0A39 \u0A39\u0A4B\u0A30 \u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30\u0A3E\u0A02 \u0A26\u0A40 \u0A2C\u0A4B\u0A32\u0A40 \u0A32\u0A08 \u0A28\u0A39\u0A40\u0A02 \u0A32\u0A71\u0A17\u0A26\u0A40\u0964",
-  "guide.bid.p3": "\u0A1C\u0A47 \u0A24\u0A41\u0A38\u0A40\u0A02 \u0A15\u0A3F\u0A38\u0A47 \u0A39\u0A4B\u0A30 \u0A30\u0A42\u0A1F \u0A09\u0A71\u0A24\u0A47 \u0A2C\u0A4B\u0A32\u0A40 \u0A1C\u0A3F\u0A71\u0A24 \u0A32\u0A35\u0A4B, \u0A24\u0A41\u0A38\u0A40\u0A02 \u0A09\u0A38 \u0A30\u0A42\u0A1F \u0A09\u0A71\u0A24\u0A47 \u0A35\u0A3E\u0A2A\u0A38 \u0A2C\u0A4B\u0A32\u0A40 \u0A28\u0A39\u0A40\u0A02 \u0A32\u0A3E \u0A38\u0A15\u0A26\u0A47 \u0A1C\u0A3F\u0A38\u0A28\u0A42\u0A70 \u0A24\u0A41\u0A38\u0A40\u0A02 \u0A39\u0A41\u0A23\u0A47 \u0A1B\u0A71\u0A21\u0A3F\u0A06, \u0A1C\u0A26\u0A4B\u0A02 \u0A09\u0A39 \u0A30\u0A42\u0A1F \u0A07\u0A38 \u0A32\u0A08 \u0A32\u0A71\u0A17\u0A47 \u0A15\u0A3F \u0A24\u0A41\u0A38\u0A40\u0A02 \u0A1B\u0A71\u0A21 \u0A17\u0A0F\u0964 \u0A28\u0A35\u0A3E\u0A02 \u0A30\u0A42\u0A1F, \u0A05\u0A24\u0A47 \u0A09\u0A38 \u0A2C\u0A4B\u0A32\u0A40 \u0A24\u0A4B\u0A02 \u0A06\u0A09\u0A23 \u0A35\u0A3E\u0A32\u0A40\u0A06\u0A02 \u0A39\u0A4B\u0A30 \u0A30\u0A42\u0A1F \u0A24\u0A2C\u0A26\u0A40\u0A32\u0A40\u0A06\u0A02, \u0A38\u0A3E\u0A30\u0A40\u0A06\u0A02 \u0A07\u0A71\u0A15\u0A4B \u0A26\u0A3F\u0A28 \u0A38\u0A3C\u0A41\u0A30\u0A42 \u0A39\u0A41\u0A70\u0A26\u0A40\u0A06\u0A02 \u0A39\u0A28\u0964",
-  "cite.kicker": "\u0A1F\u0A40\u0A2E\u0A38\u0A1F\u0A30\u0A1C\u0A3C \u0A20\u0A47\u0A15\u0A3E 2024\u20132027 \xB7 \u0A38\u0A2B\u0A3C\u0A3E {page}",
-  "cite.title": "\u0A20\u0A47\u0A15\u0A47 \u0A26\u0A3E \u0A2E\u0A42\u0A32 \u0A05\u0A70\u0A17\u0A30\u0A47\u0A1C\u0A3C\u0A40 \u0A32\u0A3F\u0A16\u0A24",
-  "cite.pdf": "\u0A1B\u0A2A\u0A47 \u0A39\u0A4B\u0A0F 2024\u20132027 \u0A20\u0A47\u0A15\u0A47 (PDF) \u0A35\u0A3F\u0A71\u0A1A \u0A07\u0A39 \u0A38\u0A2B\u0A3C\u0A3E \u0A16\u0A4B\u0A32\u0A4D\u0A39\u0A4B",
-  "cite.close": "\u0A2C\u0A70\u0A26 \u0A15\u0A30\u0A4B",
-  "Take front photo": "\u0A05\u0A71\u0A17\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A2A\u0A3E\u0A38\u0A47 \u0A26\u0A40 \u0A2B\u0A4B\u0A1F\u0A4B \u0A32\u0A13",
-  "Take back photo": "\u0A2A\u0A3F\u0A71\u0A1B\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A2A\u0A3E\u0A38\u0A47 \u0A26\u0A40 \u0A2B\u0A4B\u0A1F\u0A4B \u0A32\u0A13",
-  "Retake front photo": "\u0A05\u0A71\u0A17\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A2A\u0A3E\u0A38\u0A47 \u0A26\u0A40 \u0A2B\u0A4B\u0A1F\u0A4B \u0A26\u0A41\u0A2C\u0A3E\u0A30\u0A3E \u0A32\u0A13",
-  "Retake back photo": "\u0A2A\u0A3F\u0A71\u0A1B\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A2A\u0A3E\u0A38\u0A47 \u0A26\u0A40 \u0A2B\u0A4B\u0A1F\u0A4B \u0A26\u0A41\u0A2C\u0A3E\u0A30\u0A3E \u0A32\u0A13",
-  "Front of the time card": "\u0A1F\u0A3E\u0A08\u0A2E\u0A15\u0A3E\u0A30\u0A21 \u0A26\u0A3E \u0A05\u0A71\u0A17\u0A47 \u0A35\u0A3E\u0A32\u0A3E \u0A2A\u0A3E\u0A38\u0A3E",
-  "Back of the time card": "\u0A1F\u0A3E\u0A08\u0A2E\u0A15\u0A3E\u0A30\u0A21 \u0A26\u0A3E \u0A2A\u0A3F\u0A71\u0A1B\u0A47 \u0A35\u0A3E\u0A32\u0A3E \u0A2A\u0A3E\u0A38\u0A3E",
-  "This browser cannot use a camera. Choose a file instead.": "\u0A07\u0A39 \u0A2C\u0A4D\u0A30\u0A3E\u0A0A\u0A1C\u0A3C\u0A30 \u0A15\u0A48\u0A2E\u0A30\u0A3E \u0A28\u0A39\u0A40\u0A02 \u0A35\u0A30\u0A24 \u0A38\u0A15\u0A26\u0A3E\u0964 \u0A07\u0A38\u0A26\u0A40 \u0A25\u0A3E\u0A02 \u0A07\u0A71\u0A15 \u0A2B\u0A3E\u0A08\u0A32 \u0A1A\u0A41\u0A23\u0A4B\u0964",
-  "Could not open the camera.": "\u0A15\u0A48\u0A2E\u0A30\u0A3E \u0A28\u0A39\u0A40\u0A02 \u0A16\u0A41\u0A71\u0A32\u0A4D\u0A39 \u0A38\u0A15\u0A3F\u0A06\u0964",
-  "Could not audit that card.": "\u0A07\u0A38 \u0A15\u0A3E\u0A30\u0A21 \u0A26\u0A40 \u0A1C\u0A3E\u0A02\u0A1A \u0A28\u0A39\u0A40\u0A02 \u0A39\u0A4B \u0A38\u0A15\u0A40\u0964",
-  "Check a card first.": "\u0A2A\u0A39\u0A3F\u0A32\u0A3E\u0A02 \u0A07\u0A71\u0A15 \u0A15\u0A3E\u0A30\u0A21 \u0A1A\u0A48\u0A71\u0A15 \u0A15\u0A30\u0A4B\u0964",
-  "Recalculated from the contract hours and Clock Record.": "\u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A3F\u0A06\u0A02 \u0A05\u0A24\u0A47 \u0A18\u0A5C\u0A40 \u0A26\u0A47 \u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A24\u0A4B\u0A02 \u0A26\u0A41\u0A2C\u0A3E\u0A30\u0A3E \u0A17\u0A3F\u0A23\u0A3F\u0A06\u0964",
-  "Pay period ending": "\u0A24\u0A28\u0A16\u0A3E\u0A39 \u0A2E\u0A3F\u0A06\u0A26 \u0A26\u0A3E \u0A06\u0A16\u0A30\u0A40 \u0A26\u0A3F\u0A28",
-  "Pay period ending {date}": "\u0A24\u0A28\u0A16\u0A3E\u0A39 \u0A2E\u0A3F\u0A06\u0A26 \u0A26\u0A3E \u0A06\u0A16\u0A30\u0A40 \u0A26\u0A3F\u0A28 {date}",
-  "Daily contract hours": "\u0A30\u0A4B\u0A1C\u0A3C\u0A3E\u0A28\u0A3E \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A47",
-  "Daily contract hours {hours}": "\u0A30\u0A4B\u0A1C\u0A3C\u0A3E\u0A28\u0A3E \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A47 {hours}",
-  "Mark as Checked?": "\u0A1C\u0A3E\u0A02\u0A1A\u0A3F\u0A06 \u0A39\u0A4B\u0A07\u0A06 \u0A2E\u0A70\u0A28\u0A4B?",
-  "Marked as checked": "\u0A1C\u0A3E\u0A02\u0A1A\u0A3F\u0A06 \u0A39\u0A4B\u0A07\u0A06 \u0A2E\u0A70\u0A28 \u0A32\u0A3F\u0A06",
-  "Mark {date} as Checked?": "{date} \u0A28\u0A42\u0A70 \u0A1C\u0A3E\u0A02\u0A1A\u0A3F\u0A06 \u0A39\u0A4B\u0A07\u0A06 \u0A2E\u0A70\u0A28\u0A4B?",
-  "Marked {date} as checked": "{date} \u0A28\u0A42\u0A70 \u0A1C\u0A3E\u0A02\u0A1A\u0A3F\u0A06 \u0A39\u0A4B\u0A07\u0A06 \u0A2E\u0A70\u0A28 \u0A32\u0A3F\u0A06",
-  "{date} marked as checked.": "{date} \u0A28\u0A42\u0A70 \u0A1C\u0A3E\u0A02\u0A1A\u0A3F\u0A06 \u0A39\u0A4B\u0A07\u0A06 \u0A2E\u0A70\u0A28 \u0A32\u0A3F\u0A06\u0964",
-  "Checked pay periods": "\u0A1C\u0A3E\u0A02\u0A1A\u0A40\u0A06\u0A02 \u0A39\u0A4B\u0A08\u0A06\u0A02 \u0A24\u0A28\u0A16\u0A3E\u0A39 \u0A2E\u0A3F\u0A06\u0A26\u0A3E\u0A02",
-  "No cards checked yet.": "\u0A39\u0A3E\u0A32\u0A47 \u0A15\u0A4B\u0A08 \u0A15\u0A3E\u0A30\u0A21 \u0A1C\u0A3E\u0A02\u0A1A\u0A3F\u0A06 \u0A28\u0A39\u0A40\u0A02\u0964",
-  "{count} checked": "{count} \u0A1C\u0A3E\u0A02\u0A1A\u0A47",
-  Checked: "\u0A1C\u0A3E\u0A02\u0A1A\u0A3F\u0A06",
-  "Blue handwriting is what was written on the card. A red number is the calculated hours when they differ.": "\u0A28\u0A40\u0A32\u0A40 \u0A32\u0A3F\u0A16\u0A3E\u0A08 \u0A09\u0A39 \u0A39\u0A48 \u0A1C\u0A4B \u0A15\u0A3E\u0A30\u0A21 \u0A09\u0A71\u0A24\u0A47 \u0A32\u0A3F\u0A16\u0A40 \u0A38\u0A40\u0964 \u0A32\u0A3E\u0A32 \u0A28\u0A70\u0A2C\u0A30 \u0A09\u0A39 \u0A17\u0A3F\u0A23\u0A47 \u0A39\u0A4B\u0A0F \u0A18\u0A70\u0A1F\u0A47 \u0A39\u0A28 \u0A1C\u0A26\u0A4B\u0A02 \u0A09\u0A39 \u0A35\u0A71\u0A16\u0A30\u0A47 \u0A39\u0A4B\u0A23\u0964",
-  "Daily contract hours are required to show and check Reg and OT. Tot. Hrs. still compares each Clock Record combo.": "Reg \u0A05\u0A24\u0A47 OT \u0A35\u0A3F\u0A16\u0A3E\u0A09\u0A23 \u0A05\u0A24\u0A47 \u0A1A\u0A48\u0A71\u0A15 \u0A15\u0A30\u0A28 \u0A32\u0A08 \u0A30\u0A4B\u0A1C\u0A3C\u0A3E\u0A28\u0A3E \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A47 \u0A32\u0A4B\u0A5C\u0A40\u0A02\u0A26\u0A47 \u0A39\u0A28\u0964 \u0A15\u0A41\u0A71\u0A32 \u0A18\u0A70\u0A1F\u0A47 \u0A2B\u0A3F\u0A30 \u0A35\u0A40 \u0A39\u0A30 \u0A18\u0A5C\u0A40-\u0A30\u0A3F\u0A15\u0A3E\u0A30\u0A21 \u0A1C\u0A4B\u0A5C\u0A47 \u0A28\u0A3E\u0A32 \u0A2E\u0A3F\u0A32\u0A26\u0A47 \u0A39\u0A28\u0964",
-  "No clock stamps or written hours were found on those photos.": "\u0A09\u0A28\u0A4D\u0A39\u0A3E\u0A02 \u0A2B\u0A4B\u0A1F\u0A4B\u0A06\u0A02 \u0A09\u0A71\u0A24\u0A47 \u0A15\u0A4B\u0A08 \u0A18\u0A5C\u0A40 \u0A26\u0A40 \u0A2E\u0A4B\u0A39\u0A30 \u0A1C\u0A3E\u0A02 \u0A32\u0A3F\u0A16\u0A47 \u0A18\u0A70\u0A1F\u0A47 \u0A28\u0A39\u0A40\u0A02 \u0A2E\u0A3F\u0A32\u0A47\u0964",
-  "Could not read the pay period ending date from the sticker. Type the MM/DD/YY to the right of the driver's name.": "\u0A38\u0A1F\u0A3F\u0A71\u0A15\u0A30 \u0A24\u0A4B\u0A02 \u0A24\u0A28\u0A16\u0A3E\u0A39 \u0A2E\u0A3F\u0A06\u0A26 \u0A26\u0A40 \u0A06\u0A16\u0A30\u0A40 \u0A24\u0A3E\u0A30\u0A40\u0A16 \u0A28\u0A39\u0A40\u0A02 \u0A2A\u0A5C\u0A4D\u0A39\u0A40 \u0A1C\u0A3E \u0A38\u0A15\u0A40\u0964 \u0A21\u0A30\u0A3E\u0A08\u0A35\u0A30 \u0A26\u0A47 \u0A28\u0A3E\u0A2E \u0A26\u0A47 \u0A38\u0A71\u0A1C\u0A47 \u0A2A\u0A3E\u0A38\u0A47 MM/DD/YY \u0A32\u0A3F\u0A16\u0A4B\u0964",
-  "Daily contract hours are required to check Reg and OT.": "Reg \u0A05\u0A24\u0A47 OT \u0A26\u0A40 \u0A1C\u0A3E\u0A02\u0A1A \u0A32\u0A08 \u0A30\u0A4B\u0A1C\u0A3C\u0A3E\u0A28\u0A3E \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A47 \u0A32\u0A4B\u0A5C\u0A40\u0A02\u0A26\u0A47 \u0A39\u0A28\u0964",
-  "The front and back cards are ready to edit.": "\u0A05\u0A71\u0A17\u0A47 \u0A05\u0A24\u0A47 \u0A2A\u0A3F\u0A71\u0A1B\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A15\u0A3E\u0A30\u0A21 \u0A38\u0A4B\u0A27\u0A23 \u0A32\u0A08 \u0A24\u0A3F\u0A06\u0A30 \u0A39\u0A28\u0964",
-  "Take a photo of the front, the back, or both.": "\u0A05\u0A71\u0A17\u0A47, \u0A2A\u0A3F\u0A71\u0A1B\u0A47, \u0A1C\u0A3E\u0A02 \u0A26\u0A4B\u0A35\u0A3E\u0A02 \u0A2A\u0A3E\u0A38\u0A3F\u0A06\u0A02 \u0A26\u0A40 \u0A2B\u0A4B\u0A1F\u0A4B \u0A32\u0A13\u0964",
-  "Enter the daily contract hours before submitting the photos.": "\u0A2B\u0A4B\u0A1F\u0A4B\u0A06\u0A02 \u0A2D\u0A47\u0A1C\u0A23 \u0A24\u0A4B\u0A02 \u0A2A\u0A39\u0A3F\u0A32\u0A3E\u0A02 \u0A30\u0A4B\u0A1C\u0A3C\u0A3E\u0A28\u0A3E \u0A20\u0A47\u0A15\u0A47 \u0A35\u0A3E\u0A32\u0A47 \u0A18\u0A70\u0A1F\u0A47 \u0A32\u0A3F\u0A16\u0A4B\u0964",
-  "Front row {index}": "\u0A05\u0A71\u0A17\u0A47 \u0A35\u0A3E\u0A32\u0A40 \u0A15\u0A24\u0A3E\u0A30 {index}",
-  "Back row {index}": "\u0A2A\u0A3F\u0A71\u0A1B\u0A47 \u0A35\u0A3E\u0A32\u0A40 \u0A15\u0A24\u0A3E\u0A30 {index}",
-  "Camera {n}": "\u0A15\u0A48\u0A2E\u0A30\u0A3E {n}",
-  "{label}: HEIC is not supported. Export the photo as a JPEG.": "{label}: HEIC \u0A28\u0A39\u0A40\u0A02 \u0A1A\u0A71\u0A32\u0A26\u0A40\u0964 \u0A2B\u0A4B\u0A1F\u0A4B \u0A28\u0A42\u0A70 JPEG \u0A35\u0A1C\u0A4B\u0A02 \u0A2C\u0A23\u0A3E\u0A13\u0964",
-  "{label}: use a JPEG, PNG, GIF, or WebP photo.": "{label}: JPEG, PNG, GIF, \u0A1C\u0A3E\u0A02 WebP \u0A2B\u0A4B\u0A1F\u0A4B \u0A35\u0A30\u0A24\u0A4B\u0964",
-  "{label} photo exceeds 12MB.": "{label} \u0A2B\u0A4B\u0A1F\u0A4B 12MB \u0A24\u0A4B\u0A02 \u0A35\u0A71\u0A21\u0A40 \u0A39\u0A48\u0964"
-};
-
-// employee-tracker/web/i18n.js
-var en = {
-  "office.unreachable": "This page cannot reach the office record yet.",
-  "office.unavailable": "The office record is not available from this page yet.",
-  "gate.wrong": "That password is not right.",
-  "gate.opening": "Opening the office record\u2026",
-  "lookup.route": "Route",
-  "lookup.driver": "Driver",
-  "lookup.chooseRoute": "Choose a route",
-  "lookup.chooseDriver": "Choose a driver",
-  "lookup.noRoutes": "No routes are recorded yet.",
-  "lookup.noDrivers": "No drivers are recorded yet.",
-  "title.route": "Route {label} \xB7 Teamster Tools",
-  "title.person": "{label} \xB7 Teamster Tools",
-  "snap.hintOn": "Snap is on. Each clock moves onto a quarter hour with the payroll bands, and the statement and the table are figured again from those clocks. Turn it off to go back to the written times. The office record stays as it is.",
-  "snap.hintOff": "Snap is off. Turn it on to move each clock onto a quarter hour with the payroll bands and see if the hours or the date change. The office record stays as it is.",
-  "install.safariOther": "Open this page in Safari. Other iPhone browsers cannot add it to the home screen.",
-  "install.chromeOther": "Open this page in Chrome, then follow these steps.",
-  "day.fallback": "Day",
-  "run.midday": "Midday",
-  "empty.driver": "No route history is recorded for {name}.",
-  "empty.route": "No route history is recorded for {route}.",
-  "lead.one": "Route {routes}, including each change while {name} held it.",
-  "lead.many": "Routes {routes}, including each change while {name} held them.",
-  "held.since": "Since {date}",
-  "held.range": "{from} \u2013 {to}",
-  "route.heading": "Route {label}",
-  "holders.none": "No driver is assigned.",
-  "clocks.now": "Clock times now",
-  "started": "Started {date}.",
-  "contracted.today": "Contracted today",
-  "contracted.asOf": "Contracted as of {date}",
-  "contracted.same": "The same clocks.",
-  "hours.open": "These stay the contracted hours while this count is open.",
-  "hours.rules": "These are the hours the rules call contracted.",
-  "rules.next": "What the rules say next",
-  "rules.bidOpen": "This change is {drift}. If nothing else is logged, the route should go up for bid {dates}.",
-  "rules.bumpOpen": "This change is {drift}. If nothing else is logged, the route should be bump-eligible on {date}.",
-  "rules.hoursOpen": "This change is {drift}. If nothing else is logged, these hours should become the contracted hours on {date}.",
-  "rules.nothingWaiting": "Nothing is waiting on a count. These clock times are the contracted hours.",
-  "rules.bidClosedDates": "The count has closed. The route should be up for bid {dates}.",
-  "rules.bidClosed": "The count has closed. The route should be up for bid.",
-  "rules.bumpClosedDate": "The count has closed. The route should be bump-eligible as of {date}.",
-  "rules.bumpClosed": "The count has closed. The route should be bump-eligible.",
-  "rules.hoursClosedDate": "The count has closed. These clock times should be the contracted hours as of {date}.",
-  "rules.hoursAre": "These clock times are the contracted hours.",
-  "snap.reads": "Snap reads the clock times as {clocks}.",
-  "snap.sameWithMove": "The contracted hours and what the rules say next stay the same.",
-  "snap.sameNoMove": "Snap leaves the clock times, the contracted hours, and what the rules say next the same.",
-  "snap.hours": "Snap moves the contracted hours from {from} to {to}.",
-  "snap.compare": "Written clock times: {written} Snap clock times: {snap}",
-  "history.calendar": "Calendar",
-  "side.ownDate": "its own date",
-  "side.bidClock": "its own bid countdown, through {when}",
-  "side.dayClock": "its own 15 school day countdown, through {when}",
-  "side.note": "A later change of {amount} keeps the route at 30 minutes or more, so the bid date stays. That change runs {clock}.",
-  "col.started": "New Schedule Started",
-  "col.amStart": "AM start",
-  "col.amEnd": "AM end",
-  "col.midStart": "Midday start",
-  "col.midEnd": "Midday end",
-  "col.pmStart": "PM start",
-  "col.pmEnd": "PM end",
-  "col.change": "Change",
-  "col.hours": "Scheduled Hours",
-  "col.contractDate": "Calculated Contract Date",
-  "col.empty": "No clock times recorded yet.",
-  "col.diffTitle": "Different from the row above",
-  "legend.bidNote": "End-of-month bid period: the last five school days of October through April, when a 30-minute increase is posted for bid.",
-  "dow.sun": "Sun",
-  "dow.mon": "Mon",
-  "dow.tue": "Tue",
-  "dow.wed": "Wed",
-  "dow.thu": "Thu",
-  "dow.fri": "Fri",
-  "dow.sat": "Sat",
-  "cal.schoolDay": "School day",
-  "cal.today": "Today's date",
-  "cal.bidPeriod": "End-of-month bid period",
-  "cal.off": "Off",
-  "cal.weekend": "Weekend",
-  "cal.outside": "Outside school year",
-  "cal.goesToBid": "Goes to bid {when}",
-  "cal.pointsTo": "Points to {when}",
-  "cal.established": "established",
-  "cal.schoolDayN": "school day {n} of 15",
-  "cal.became": "became contracted",
-  "cal.postedBid": "posted for bid",
-  "cal.bump": "bump eligible",
-  "cal.resolution": "resolution",
-  "home.coming": "Coming Soon",
-  "share.text": "Teamster Tools\nBy Rhys- Get your real route change history, use an AI to scan your timecards, and more!\n{url}\nPassword: {password}",
-  "coming.lead": "Routes the contract rules say are likely to be up for bid or bump-eligible at the end of this month. A later time change can take a route off this list. These follow the written clock times, not an office posting.",
-  "coming.period": "End of {month}",
-  "coming.window": "Bid posting days are the last five school days, {dates}.",
-  "coming.empty": "No routes are likely for bid or bump at the end of this month.",
-  "coming.noneSeason": "There is no end-of-month bid or bump list ahead in this school year. Those lists run October through April.",
-  "coming.likelyBid": "Likely up for bid",
-  "coming.likelyBump": "Likely bump-eligible",
-  "coming.eligibleBid": "Should be up for bid",
-  "coming.eligibleBump": "Should be bump-eligible",
-  "coming.noLonger": "No longer likely",
-  "coming.bidOpen": "This change is {drift}. If nothing else is logged, this route should go up for bid {dates}.",
-  "coming.bumpOpen": "This change is {drift}. If nothing else is logged, this route should be bump-eligible on {date}.",
-  "coming.bidNow": "The count has closed. This route should be up for bid {dates}.",
-  "coming.bumpNow": "The count has closed. This route should be bump-eligible as of {date}.",
-  "coming.dropped": "This route was headed for {kind} at the end of {month}. A later change took it off that list.",
-  "coming.kindBid": "a bid",
-  "coming.kindBump": "a bump",
-  "coming.route": "Route {label}"
-};
-var catalogs = { en, pa, fa };
-function storedLang() {
-  try {
-    const stored = globalThis.localStorage?.getItem("teamster-tools-lang");
-    if (stored === "pa" || stored === "fa" || stored === "en") return stored;
-  } catch {
-  }
-  return "";
-}
-function pageLang() {
-  const forced = globalThis.__TEAMSTER_LANG__;
-  if (forced === "pa" || forced === "fa" || forced === "en") return forced;
-  try {
-    const requested = new URLSearchParams(globalThis.location?.search || "").get("lang");
-    if (requested === "pa" || requested === "fa" || requested === "en") return requested;
-  } catch {
-  }
-  return storedLang() || "en";
-}
-function rememberLang() {
-  const lang = pageLang();
-  try {
-    globalThis.localStorage?.setItem("teamster-tools-lang", lang);
-  } catch {
-  }
-  return lang;
-}
-function dateLocaleFor(lang = pageLang()) {
-  if (lang === "pa") return "pa-IN-u-ca-gregory-nu-latn";
-  if (lang === "fa") return "fa-IR-u-ca-gregory-nu-latn";
-  return "en-US";
-}
-function translate(key, vars = {}) {
-  const lang = pageLang();
-  const localized = lang === "en" ? void 0 : catalogs[lang]?.[key];
-  let text = localized ?? en[key] ?? "";
-  for (const [name, value] of Object.entries(vars)) {
-    text = text.replaceAll(`{${name}}`, String(value ?? ""));
-  }
-  return text;
-}
-function applyPack(root, pack) {
-  for (const el of root.querySelectorAll("[data-i18n]")) {
-    const value = pack[el.getAttribute("data-i18n")];
-    if (value) el.textContent = value;
-  }
-  for (const el of root.querySelectorAll("[data-i18n-aria]")) {
-    const value = pack[el.getAttribute("data-i18n-aria")];
-    if (value) el.setAttribute("aria-label", value);
-  }
-  for (const el of root.querySelectorAll("[data-i18n-placeholder]")) {
-    const value = pack[el.getAttribute("data-i18n-placeholder")];
-    if (value) el.setAttribute("placeholder", value);
-  }
-  for (const el of root.querySelectorAll("[data-i18n-alt]")) {
-    const value = pack[el.getAttribute("data-i18n-alt")];
-    if (value) el.setAttribute("alt", value);
-  }
-  for (const el of root.querySelectorAll("[data-i18n-title]")) {
-    const value = pack[el.getAttribute("data-i18n-title")];
-    if (value) el.setAttribute("title", value);
-  }
-}
-function applyDom(root = globalThis.document) {
-  if (!root?.querySelectorAll) return pageLang();
-  const lang = rememberLang();
-  const html = root.documentElement;
-  if (html) {
-    html.lang = lang;
-    html.dir = lang === "fa" ? "rtl" : "ltr";
-  }
-  const pack = catalogs[lang];
-  globalThis.__TEAMSTER_PHRASES__ = lang === "en" ? null : pack;
-  if (lang !== "en" && pack) applyPack(root, pack);
-  return lang;
 }
 
 // employee-tracker/web/store.js
@@ -30117,56 +29327,11 @@ function buildSnapshot(profile, asOfDate = getAsOfDate(), snapOptions) {
 var PAGE_PASSWORD = "6111";
 var PUBLISHED_SHARE_URL = "https://mern-ing-the-midnight-oil.github.io/hoursupdater/";
 function sharePayload() {
-  const lang = pageLang();
-  const url = lang === "pa" || lang === "fa" ? `${PUBLISHED_SHARE_URL}?lang=${lang}` : PUBLISHED_SHARE_URL;
-  if (lang === "en") {
-    return {
-      text: `Teamster Tools
-By Rhys- Get your real route change history, use an AI to scan your timecards, and more!
-${url}
-Password: ${PAGE_PASSWORD}`
-    };
-  }
-  return { text: translate("share.text", { url, password: PAGE_PASSWORD }) };
-}
-function usePageDateLocale() {
-  setHistoryDateLocale(dateLocaleFor(pageLang()));
-}
-function runLabel(run) {
-  return run.id === "MIDDAY" ? translate("run.midday") : run.label;
-}
-function historyCopy() {
-  if (pageLang() === "en") return null;
   return {
-    started: translate("col.started"),
-    amStart: translate("col.amStart"),
-    amEnd: translate("col.amEnd"),
-    midStart: translate("col.midStart"),
-    midEnd: translate("col.midEnd"),
-    pmStart: translate("col.pmStart"),
-    pmEnd: translate("col.pmEnd"),
-    change: translate("col.change"),
-    hours: translate("col.hours"),
-    contractDate: translate("col.contractDate"),
-    empty: translate("col.empty"),
-    diffTitle: translate("col.diffTitle"),
-    bidNote: translate("legend.bidNote"),
-    dows: ["sun", "mon", "tue", "wed", "thu", "fri", "sat"].map((day) => translate(`dow.${day}`)),
-    schoolDay: translate("cal.schoolDay"),
-    today: translate("cal.today"),
-    bidPeriod: translate("cal.bidPeriod"),
-    off: translate("cal.off"),
-    weekend: translate("cal.weekend"),
-    outside: translate("cal.outside"),
-    goesToBid: translate("cal.goesToBid"),
-    pointsTo: translate("cal.pointsTo"),
-    established: translate("cal.established"),
-    schoolDayN: translate("cal.schoolDayN"),
-    became: translate("cal.became"),
-    postedBid: translate("cal.postedBid"),
-    bump: translate("cal.bump"),
-    resolution: translate("cal.resolution"),
-    dateLocale: dateLocaleFor()
+    text: `Teamster Tools
+By Rhys- Get your real route change history, use an AI to scan your timecards, and more!
+${PUBLISHED_SHARE_URL}
+Password: ${PAGE_PASSWORD}`
   };
 }
 function shareMailHref() {
@@ -30227,11 +29392,8 @@ function viewCalendar() {
 }
 function heldLabel(assignment) {
   if (!assignment?.from) return "";
-  if (!assignment.until) return translate("held.since", { date: prettyDate2(assignment.from) });
-  return translate("held.range", {
-    from: prettyDate2(assignment.from),
-    to: prettyDate2(dayBefore(assignment.until))
-  });
+  if (!assignment.until) return `Since ${prettyDate2(assignment.from)}`;
+  return `${prettyDate2(assignment.from)} \u2013 ${prettyDate2(dayBefore(assignment.until))}`;
 }
 var RUNS2 = [
   { id: "AM", label: "AM" },
@@ -30257,7 +29419,7 @@ function runRange(schedule, runId) {
 function runsLabel(schedule) {
   return RUNS2.map((run) => {
     const range = runRange(schedule, run.id);
-    return range ? `${runLabel(run)} ${formatClockAmPm(range)}` : `${runLabel(run)} \u2014`;
+    return range ? `${run.label} ${formatClockAmPm(range)}` : `${run.label} \u2014`;
   }).join(" \xB7 ");
 }
 function snappedRunsLabel(schedule) {
@@ -30274,7 +29436,7 @@ function snappedRunsLabel(schedule) {
     const written = item?.time || "";
     const snapped = item?.snapped_time || written;
     if (snapped && snapped !== written) moved = true;
-    return snapped ? `${runLabel(run)} ${formatClockAmPm(snapped)}` : `${runLabel(run)} \u2014`;
+    return snapped ? `${run.label} ${formatClockAmPm(snapped)}` : `${run.label} \u2014`;
   }).join(" \xB7 ");
   return moved ? label : "";
 }
@@ -30285,7 +29447,7 @@ function contractedRunsLabel(snapshot) {
     const byId2 = new Map(before.map((segment) => [segment.segment, segment.time || ""]));
     return RUNS2.map((run) => {
       const range = byId2.get(run.id) || "";
-      return range ? `${runLabel(run)} ${formatClockAmPm(range)}` : `${runLabel(run)} \u2014`;
+      return range ? `${run.label} ${formatClockAmPm(range)}` : `${run.label} \u2014`;
     }).join(" \xB7 ");
   }
   return runsLabel(snapshot?.schedule);
@@ -30301,17 +29463,6 @@ function bidDates(start, end) {
   const text = bidPostingSpanText({ start, end });
   return text || (start ? prettyDate2(start) : "");
 }
-function sideSuffix(view) {
-  if (pageLang() === "en") return view?.side_window_note ? ` ${view.side_window_note}` : "";
-  const sides = view?.side_windows;
-  if (!Array.isArray(sides) || !sides.length) return "";
-  return ` ${sides.map((side) => {
-    const amount = formatSignedMinutes(side.drift_minutes);
-    const when = side.becomes_on ? prettyDate2(side.becomes_on) : translate("side.ownDate");
-    const clock = String(side.rule ?? "").endsWith("_bid") ? translate("side.bidClock", { when }) : translate("side.dayClock", { when });
-    return translate("side.note", { amount, clock });
-  }).join(" ")}`;
-}
 function rulesNext(snapshot) {
   const view = snapshot?.window || {};
   const drift = view.cumulative_drift_label;
@@ -30320,43 +29471,47 @@ function rulesNext(snapshot) {
     let sentence;
     if (view.projected_outcome === "BID_PENDING") {
       const dates = bidDates(view.becomes_contracted_on, view.bid_through);
-      sentence = translate("rules.bidOpen", { drift, dates });
+      sentence = `This change is ${drift}. If nothing else is logged, the route should go up for bid ${dates}.`;
     } else if (view.projected_outcome === "BUMP_ELIGIBLE") {
-      sentence = translate("rules.bumpOpen", { drift, date: prettyDate2(view.becomes_contracted_on) });
+      sentence = `This change is ${drift}. If nothing else is logged, the route should be bump-eligible on ${prettyDate2(view.becomes_contracted_on)}.`;
     } else {
-      sentence = translate("rules.hoursOpen", { drift, date: prettyDate2(view.becomes_contracted_on) });
+      sentence = `This change is ${drift}. If nothing else is logged, these hours should become the contracted hours on ${prettyDate2(view.becomes_contracted_on)}.`;
     }
-    return `${sentence}${sideSuffix(view)}`;
+    return view.side_window_note ? `${sentence} ${view.side_window_note}` : sentence;
   }
   const row = latestChange(snapshot);
-  if (!row) return translate("rules.nothingWaiting");
+  if (!row) return "Nothing is waiting on a count. These clock times are the contracted hours.";
   const on = row.contracted?.becomes_on;
   if (view.status === "BID_PENDING") {
     const dates = bidDates(on, row.contracted?.bid_through);
-    return dates ? translate("rules.bidClosedDates", { dates }) : translate("rules.bidClosed");
+    return dates ? `The count has closed. The route should be up for bid ${dates}.` : "The count has closed. The route should be up for bid.";
   }
   if (view.status === "BUMP_ELIGIBLE") {
-    return on ? translate("rules.bumpClosedDate", { date: prettyDate2(on) }) : translate("rules.bumpClosed");
+    return on ? `The count has closed. The route should be bump-eligible as of ${prettyDate2(on)}.` : "The count has closed. The route should be bump-eligible.";
   }
-  if (on) return translate("rules.hoursClosedDate", { date: prettyDate2(on) });
-  return translate("rules.hoursAre");
+  if (on) {
+    return `The count has closed. These clock times should be the contracted hours as of ${prettyDate2(on)}.`;
+  }
+  return "These clock times are the contracted hours.";
 }
 function snapNote(snapshot, comparedTo) {
   const lines = [];
   const snapped = snappedRunsLabel(snapshot?.schedule);
-  if (snapped) lines.push(translate("snap.reads", { clocks: snapped }));
+  if (snapped) lines.push(`Snap reads the clock times as ${snapped}.`);
   const hoursNow = snapshot?.contracted?.label || "";
   const hoursWas = comparedTo?.contracted?.label || "";
   const nextNow = rulesNext(snapshot);
   const nextWas = rulesNext(comparedTo);
   if (hoursNow === hoursWas && nextNow === nextWas) {
-    lines.push(snapped ? translate("snap.sameWithMove") : translate("snap.sameNoMove"));
+    lines.push(
+      snapped ? "The contracted hours and what the rules say next stay the same." : "Snap leaves the clock times, the contracted hours, and what the rules say next the same."
+    );
   } else {
     if (hoursNow !== hoursWas && hoursWas && hoursNow) {
-      lines.push(translate("snap.hours", { from: hoursWas, to: hoursNow }));
+      lines.push(`Snap moves the contracted hours from ${hoursWas} to ${hoursNow}.`);
     }
     if (nextNow !== nextWas) {
-      lines.push(translate("snap.compare", { written: nextWas, snap: nextNow }));
+      lines.push(`Written clock times: ${nextWas} Snap clock times: ${nextNow}`);
     }
   }
   return lines.join(" ");
@@ -30370,34 +29525,31 @@ function routeResultHtml(snapshot, { snap = false, comparedTo = null } = {}) {
   const started = snapshot?.schedule_history?.at(-1)?.date || snapshot?.employee?.start_date;
   const hours = snapshot?.contracted?.label || "";
   const sameClocks = contractedClocks === clocks;
-  const contractedFact = sameClocks ? translate("contracted.same") : contractedClocks;
+  const contractedFact = sameClocks ? "The same clocks." : contractedClocks;
   const open = snapshot?.window?.status === "ACCUMULATING" && snapshot.window.expires_date;
-  const hoursNote = open ? translate("hours.open") : sameClocks ? "" : translate("hours.rules");
-  const contractedKicker = today || !asOf ? translate("contracted.today") : translate("contracted.asOf", { date: prettyDate2(asOf) });
+  const hoursNote = open ? "These stay the contracted hours while this count is open." : sameClocks ? "" : "These are the hours the rules call contracted.";
+  const contractedKicker = today || !asOf ? "Contracted today" : `Contracted as of ${prettyDate2(asOf)}`;
   const hoursLine = [hours, hoursNote].filter(Boolean).join(". ");
   const snapLine = snap && comparedTo ? snapNote(snapshot, comparedTo) : "";
   return `<div class="route-result">
-    <p><span class="route-result-kicker">${escapeHtml(translate("clocks.now"))}</span> ${escapeHtml(clocks)}</p>
-    ${started ? `<p class="route-result-when">${escapeHtml(translate("started", { date: prettyDate2(started) }))}</p>` : ""}
+    <p><span class="route-result-kicker">Clock times now</span> ${escapeHtml(clocks)}</p>
+    ${started ? `<p class="route-result-when">Started ${escapeHtml(prettyDate2(started))}.</p>` : ""}
     <p><span class="route-result-kicker">${escapeHtml(contractedKicker)}</span> ${escapeHtml(contractedFact)}</p>
     ${hoursLine ? `<p class="route-result-when">${escapeHtml(hoursLine.endsWith(".") ? hoursLine : `${hoursLine}.`)}</p>` : ""}
-    <p><span class="route-result-kicker">${escapeHtml(translate("rules.next"))}</span> ${escapeHtml(rulesNext(snapshot))}</p>
+    <p><span class="route-result-kicker">What the rules say next</span> ${escapeHtml(rulesNext(snapshot))}</p>
     ${snapLine ? `<p class="route-result-snap">${escapeHtml(snapLine)}</p>` : ""}
   </div>`;
 }
 function historyBlock(snapshot, snapOptions) {
   const rows = snapshot?.schedule_history || [];
   const asOf = snapshot?.as_of || getAsOfDate();
-  const copy = historyCopy();
-  const tableOptions = copy ? { ...snapOptions, labels: copy } : snapOptions;
-  return `<div class="table-wrap">${scheduleHistoryTableHtml(snapshot, void 0, tableOptions)}</div>
-    <h3>${escapeHtml(translate("history.calendar"))}</h3>
-    <ul class="history-legend">${historyLegendHtml(rows, void 0, copy)}</ul>
+  return `<div class="table-wrap">${scheduleHistoryTableHtml(snapshot, void 0, snapOptions)}</div>
+    <h3>Calendar</h3>
+    <ul class="history-legend">${historyLegendHtml(rows)}</ul>
     <div class="calendar-months">${calendarMonthsHtml({
     calendar: viewCalendar(),
     rows,
-    asOf,
-    ...copy ? { labels: copy } : {}
+    asOf
   })}</div>`;
 }
 function sectionsForDriver(profiles2, driverName, snapOptions) {
@@ -30423,12 +29575,11 @@ function sectionsForDriver(profiles2, driverName, snapOptions) {
   return { name, sections, asOf };
 }
 function driverHistoryHtml(profiles2, driverName, options = {}) {
-  usePageDateLocale();
   const name = String(driverName ?? "").trim();
   const snap = options.snap === true;
   const built = sectionsForDriver(profiles2, name, driverSnapOptions(snap));
   if (!built) {
-    return `<p class="empty">${escapeHtml(translate("empty.driver", { name }))}</p>`;
+    return `<p class="empty">No route history is recorded for ${escapeHtml(name)}.</p>`;
   }
   const compared = snap ? sectionsForDriver(profiles2, name, driverSnapOptions(false)) : null;
   const routes = [];
@@ -30436,11 +29587,11 @@ function driverHistoryHtml(profiles2, driverName, options = {}) {
     if (!routes.includes(section.routeName)) routes.push(section.routeName);
   }
   const listed = routes.join(", ");
-  const lead = routes.length === 1 ? translate("lead.one", { routes: listed, name }) : translate("lead.many", { routes: listed, name });
+  const lead = routes.length === 1 ? `Route ${listed}, including each change while ${name} held it.` : `Routes ${listed}, including each change while ${name} held them.`;
   const body = built.sections.map((section, index) => {
     const held = heldLabel(section.assignment);
     return `<section class="history-route">
-        <h2>${escapeHtml(translate("route.heading", { label: section.routeName }))}</h2>
+        <h2>Route ${escapeHtml(section.routeName)}</h2>
         ${held ? `<p class="lead">${escapeHtml(held)}</p>` : ""}
         ${routeResultHtml(section.snapshot, {
       snap,
@@ -30452,11 +29603,10 @@ function driverHistoryHtml(profiles2, driverName, options = {}) {
   return `<h2 class="person">${escapeHtml(name)}</h2><p class="lead">${escapeHtml(lead)}</p>${body}`;
 }
 function routeHistoryHtml(profiles2, routeName, options = {}) {
-  usePageDateLocale();
   const wanted = String(routeName ?? "").trim().toLowerCase();
   const profile = (profiles2 || []).find((item) => routeLabel(item).toLowerCase() === wanted);
   if (!profile) {
-    return `<p class="empty">${escapeHtml(translate("empty.route", { route: routeName }))}</p>`;
+    return `<p class="empty">No route history is recorded for ${escapeHtml(routeName)}.</p>`;
   }
   const label = routeLabel(profile);
   const holders = routeAssignments(profile).map((assignment) => {
@@ -30467,8 +29617,8 @@ function routeHistoryHtml(profiles2, routeName, options = {}) {
   const asOf = getAsOfDate(profile);
   const snapshot = buildSnapshot(profile, asOf, driverSnapOptions(snap));
   const comparedTo = snap ? buildSnapshot(profile, asOf, driverSnapOptions(false)) : null;
-  return `<h2 class="person">${escapeHtml(translate("route.heading", { label }))}</h2>
-    <p class="lead">${holders ? escapeHtml(holders) : escapeHtml(translate("holders.none"))}</p>
+  return `<h2 class="person">Route ${escapeHtml(label)}</h2>
+    <p class="lead">${holders ? escapeHtml(holders) : "No driver is assigned."}</p>
     ${routeResultHtml(snapshot, { snap, comparedTo })}
     ${historyBlock(snapshot, driverSnapOptions(snap))}`;
 }
@@ -30521,11 +29671,9 @@ function postingDates(row, schoolDays) {
   return prettyDate2(on);
 }
 function monthLabel(period) {
-  return (/* @__PURE__ */ new Date(`${period.start}T12:00:00`)).toLocaleDateString(dateLocaleFor(), {
+  return (/* @__PURE__ */ new Date(`${period.start}T12:00:00`)).toLocaleDateString("en-US", {
     month: "long",
-    year: "numeric",
-    calendar: "gregory",
-    numberingSystem: "latn"
+    year: "numeric"
   });
 }
 function compareRouteNames(a, b) {
@@ -30621,48 +29769,39 @@ function comingSoonAnnouncements(profiles2, { asOf, calendar } = {}) {
   };
 }
 function statusLabel(item) {
-  if (item.status === "no_longer") return translate("coming.noLonger");
+  if (item.status === "no_longer") return "No longer likely";
   if (item.status === "eligible") {
-    return translate(item.kind === "bump" ? "coming.eligibleBump" : "coming.eligibleBid");
+    return item.kind === "bump" ? "Should be bump-eligible" : "Should be up for bid";
   }
-  return translate(item.kind === "bump" ? "coming.likelyBump" : "coming.likelyBid");
+  return item.kind === "bump" ? "Likely bump-eligible" : "Likely up for bid";
 }
 function detailText(item, month) {
   if (item.status === "no_longer") {
-    return translate("coming.dropped", {
-      kind: translate(item.kind === "bump" ? "coming.kindBump" : "coming.kindBid"),
-      month
-    });
+    const kind = item.kind === "bump" ? "a bump" : "a bid";
+    return `This route was headed for ${kind} at the end of ${month}. A later change took it off that list.`;
   }
   if (item.status === "eligible") {
-    return translate(item.kind === "bump" ? "coming.bumpNow" : "coming.bidNow", {
-      dates: item.dates,
-      date: item.dates
-    });
+    return item.kind === "bump" ? `The count has closed. This route should be bump-eligible as of ${item.dates}.` : `The count has closed. This route should be up for bid ${item.dates}.`;
   }
-  return translate(item.kind === "bump" ? "coming.bumpOpen" : "coming.bidOpen", {
-    drift: item.drift,
-    dates: item.dates,
-    date: item.dates
-  });
+  return item.kind === "bump" ? `This change is ${item.drift}. If nothing else is logged, this route should be bump-eligible on ${item.dates}.` : `This change is ${item.drift}. If nothing else is logged, this route should go up for bid ${item.dates}.`;
 }
 function comingSoonHtml(profiles2, options = {}) {
   const built = comingSoonAnnouncements(profiles2, options);
   if (!built.period) {
-    return `<p class="lead">${escapeHtml(translate("coming.noneSeason"))}</p>`;
+    return `<p class="lead">${escapeHtml("There is no end-of-month bid or bump list ahead in this school year. Those lists run October through April.")}</p>`;
   }
   const cards = built.items.length ? built.items.map((item) => {
     const driver = item.driverName ? `<p class="coming-driver">${escapeHtml(item.driverName)}</p>` : "";
     return `<article class="coming-card is-${escapeHtml(item.status)}">
             <p class="coming-kicker">${escapeHtml(statusLabel(item))}</p>
-            <h2>${escapeHtml(translate("coming.route", { label: item.routeName }))}</h2>
+            <h2>${escapeHtml(`Route ${item.routeName}`)}</h2>
             ${driver}
             <p>${escapeHtml(detailText(item, built.month))}</p>
           </article>`;
-  }).join("") : `<p class="empty">${escapeHtml(translate("coming.empty"))}</p>`;
-  return `<p class="lead">${escapeHtml(translate("coming.lead"))}</p>
-    <h2 class="coming-month">${escapeHtml(translate("coming.period", { month: built.month }))}</h2>
-    <p class="hint">${escapeHtml(translate("coming.window", { dates: built.window }))}</p>
+  }).join("") : `<p class="empty">${escapeHtml("No routes are likely for bid or bump at the end of this month.")}</p>`;
+  return `<p class="lead">${escapeHtml("Routes the contract rules say are likely to be up for bid or bump-eligible at the end of this month. A later time change can take a route off this list. These follow the written clock times, not an office posting.")}</p>
+    <h2 class="coming-month">${escapeHtml(`End of ${built.month}`)}</h2>
+    <p class="hint">${escapeHtml(`Bid posting days are the last five school days, ${built.window}.`)}</p>
     <div class="coming-list">${cards}</div>`;
 }
 
@@ -30693,7 +29832,6 @@ var guideFrame = document.querySelector("#guide-frame");
 var dayDialog = document.querySelector("#day-dialog");
 var dayTitle = document.querySelector("#day-dialog-title");
 var dayList = document.querySelector("#day-dialog-list");
-applyDom();
 var profiles = [];
 var historySnap = false;
 var historySnapGroup = document.querySelector("#history-snap");
@@ -30715,15 +29853,15 @@ async function loadConfig() {
 async function loadOffice(pass) {
   const config = await loadConfig();
   if (!config) {
-    throw new Error(translate("office.unreachable"));
+    throw new Error("This page cannot reach the office record yet.");
   }
   const client = createClient(config.url, config.anonKey, {
     auth: { persistSession: false, autoRefreshToken: false }
   });
   const { data, error } = await client.rpc("public_route_history", { pass });
-  if (error) throw new Error(translate("office.unavailable"));
+  if (error) throw new Error("The office record is not available from this page yet.");
   if (!data || typeof data !== "object") {
-    const rejected = new Error(translate("gate.wrong"));
+    const rejected = new Error("That password is not right.");
     rejected.rejected = true;
     throw rejected;
   }
@@ -30741,7 +29879,7 @@ function showHome() {
 function renderComing() {
   if (!coming) return;
   coming.innerHTML = comingSoonHtml(profiles);
-  document.title = `${translate("home.coming")} \xB7 ${PAGE_TITLE}`;
+  document.title = `Coming Soon \xB7 ${PAGE_TITLE}`;
 }
 function showTool(tool) {
   if (toolHome) toolHome.hidden = true;
@@ -30790,8 +29928,8 @@ function fillLookup() {
   if (!lookup) return;
   const by = mode();
   const options = historyOptions(profiles, { by });
-  const blankLabel = by === "route" ? translate("lookup.chooseRoute") : translate("lookup.chooseDriver");
-  if (lookupLabel) lookupLabel.textContent = by === "route" ? translate("lookup.route") : translate("lookup.driver");
+  const blankLabel = by === "route" ? "Choose a route" : "Choose a driver";
+  if (lookupLabel) lookupLabel.textContent = by === "route" ? "Route" : "Driver";
   lookup.replaceChildren();
   const blank = document.createElement("option");
   blank.value = "";
@@ -30805,7 +29943,7 @@ function fillLookup() {
   }
   lookup.disabled = options.length === 0;
   if (!options.length) {
-    setStatus(pageStatus, by === "route" ? translate("lookup.noRoutes") : translate("lookup.noDrivers"));
+    setStatus(pageStatus, by === "route" ? "No routes are recorded yet." : "No drivers are recorded yet.");
   } else {
     setStatus(pageStatus, "");
   }
@@ -30816,7 +29954,7 @@ function choose(match) {
   setStatus(pageStatus, "");
   const options = { snap: historySnap };
   history.innerHTML = match.kind === "route" ? routeHistoryHtml(profiles, match.key, options) : driverHistoryHtml(profiles, match.key, options);
-  document.title = match.kind === "route" ? translate("title.route", { label: match.label }) : translate("title.person", { label: match.label });
+  document.title = match.kind === "route" ? `Route ${match.label} \xB7 ${PAGE_TITLE}` : `${match.label} \xB7 ${PAGE_TITLE}`;
 }
 function chooseFromLookup() {
   const key = lookup?.value || "";
@@ -30829,7 +29967,7 @@ function chooseFromLookup() {
   choose(match);
 }
 async function unlock(pass) {
-  setStatus(gateStatus, translate("gate.opening"));
+  setStatus(gateStatus, "Opening the office record\u2026");
   try {
     await loadOffice(pass);
   } catch (error) {
@@ -30845,7 +29983,7 @@ gateForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   const pass = passwordInput.value.trim();
   if (pass !== PAGE_PASSWORD) {
-    setStatus(gateStatus, translate("gate.wrong"));
+    setStatus(gateStatus, "That password is not right.");
     passwordInput.focus();
     return;
   }
@@ -30859,7 +29997,7 @@ lookup?.addEventListener("change", () => {
   chooseFromLookup();
 });
 function historySnapHintText() {
-  return historySnap ? translate("snap.hintOn") : translate("snap.hintOff");
+  return historySnap ? "Snap is on. Each clock moves onto a quarter hour with the payroll bands, and the statement and the table are figured again from those clocks. Turn it off to go back to the written times. The office record stays as it is." : "Snap is off. Turn it on to move each clock onto a quarter hour with the payroll bands and see if the hours or the date change. The office record stays as it is.";
 }
 function syncHistorySnap() {
   for (const button of historySnapGroup?.querySelectorAll("[data-snap]") || []) {
@@ -30888,7 +30026,7 @@ history?.addEventListener("click", (event) => {
   if (!day || !dayDialog || !dayList || !dayTitle) return;
   const lines = [...day.querySelectorAll(".cal-hover li")].map((item) => item.textContent || "").filter(Boolean);
   if (!lines.length) return;
-  dayTitle.textContent = day.dataset.date || translate("day.fallback");
+  dayTitle.textContent = day.dataset.date || "Day";
   dayList.replaceChildren();
   for (const line of lines) {
     const item = document.createElement("li");
@@ -30925,13 +30063,13 @@ function showInstallSteps() {
   if (kind === "apple") {
     const note = help.querySelector('[data-install="apple"] .install-note');
     if (note && /CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua)) {
-      note.textContent = translate("install.safariOther");
+      note.textContent = "Open this page in Safari. Other iPhone browsers cannot add it to the home screen.";
     }
   }
   if (kind === "android") {
     const note = help.querySelector('[data-install="android"] .install-note');
     const chrome = /Chrome/i.test(ua) && !/EdgA|OPR|SamsungBrowser|Firefox/i.test(ua);
-    if (note && !chrome) note.textContent = translate("install.chromeOther");
+    if (note && !chrome) note.textContent = "Open this page in Chrome, then follow these steps.";
   }
 }
 var installDialog = document.querySelector("#install-dialog");
@@ -30965,11 +30103,9 @@ document.querySelector("#share-dialog-close")?.addEventListener("click", () => {
   shareDialog?.close();
 });
 function openGuide() {
-  const lang = pageLang();
-  const src = lang === "en" ? "./clock-hours-guide.html" : `./clock-hours-guide.html?lang=${lang}`;
-  if (guideFrame && guideFrame.dataset.loaded !== src) {
-    guideFrame.src = src;
-    guideFrame.dataset.loaded = src;
+  if (guideFrame && guideFrame.dataset.loaded !== "1") {
+    guideFrame.src = "./clock-hours-guide.html";
+    guideFrame.dataset.loaded = "1";
   }
   guideDialog?.showModal();
 }
